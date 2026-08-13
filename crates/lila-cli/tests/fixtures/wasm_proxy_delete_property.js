@@ -212,4 +212,179 @@ var absentProxy = new Proxy(absentTarget, {
 });
 if (Reflect.deleteProperty(absentProxy, "missing") !== true) failures |= 536870912;
 
-failures === 0;
+var handlerDispatchFailures = 0;
+var handlerDispatchCalls = 0;
+var dispatchTarget = {
+  fromFunction: 1,
+  fromArray: 2,
+  fromArguments: 3,
+  fromProxy: 4,
+};
+var dispatchSymbol = Symbol("delete handler dispatch");
+dispatchTarget[dispatchSymbol] = 5;
+
+function deleteTrap(expectedHandler, expectedKey) {
+  return function(t, key) {
+    handlerDispatchCalls++;
+    if (this !== expectedHandler) handlerDispatchFailures++;
+    if (t !== dispatchTarget) handlerDispatchFailures++;
+    if (key !== expectedKey) handlerDispatchFailures++;
+    return Reflect.deleteProperty(t, key);
+  };
+}
+
+function functionHandler() {}
+var functionHandlerPrototype = functionHandler.prototype;
+var functionHandlerLookups = 0;
+Object.defineProperty(functionHandler, "deleteProperty", {
+  configurable: true,
+  get: function() {
+    functionHandlerLookups++;
+    // Exact equality compares the tagged Function value. The prototype read is
+    // an additional receiver-identity check, not the tag-retention witness.
+    if (this !== functionHandler) handlerDispatchFailures++;
+    if (this.prototype !== functionHandlerPrototype) handlerDispatchFailures++;
+    return deleteTrap(functionHandler, "fromFunction");
+  },
+});
+var functionHandlerProxy = new Proxy(dispatchTarget, functionHandler);
+if (!delete functionHandlerProxy.fromFunction) handlerDispatchFailures++;
+if (functionHandlerLookups !== 1) handlerDispatchFailures++;
+
+var arrayHandler = [];
+arrayHandler.deleteProperty = deleteTrap(arrayHandler, "fromArray");
+if (!Reflect.deleteProperty(new Proxy(dispatchTarget, arrayHandler), "fromArray")) {
+  handlerDispatchFailures++;
+}
+
+var argumentsHandler = (function() { return arguments; })();
+argumentsHandler.deleteProperty = deleteTrap(argumentsHandler, "fromArguments");
+var argumentsHandlerProxy = new Proxy(dispatchTarget, argumentsHandler);
+if (!delete argumentsHandlerProxy.fromArguments) handlerDispatchFailures++;
+
+var proxyHandler;
+var proxyLookupHandler = Object.create({
+  get: function(_target, key, receiver) {
+    if (key !== "deleteProperty") handlerDispatchFailures++;
+    if (receiver !== proxyHandler) handlerDispatchFailures++;
+    return deleteTrap(proxyHandler, "fromProxy");
+  },
+});
+proxyHandler = new Proxy({}, proxyLookupHandler);
+if (!Reflect.deleteProperty(new Proxy(dispatchTarget, proxyHandler), "fromProxy")) {
+  handlerDispatchFailures++;
+}
+
+var callableHandler;
+var callableTrap = new Proxy(function() {}, {
+  apply: function(_target, thisArg, args) {
+    handlerDispatchCalls++;
+    if (thisArg !== callableHandler) handlerDispatchFailures++;
+    if (args[0] !== dispatchTarget) handlerDispatchFailures++;
+    if (args[1] !== dispatchSymbol) handlerDispatchFailures++;
+    return Reflect.deleteProperty(args[0], args[1]);
+  },
+});
+callableHandler = { deleteProperty: callableTrap };
+if (!Reflect.deleteProperty(new Proxy(dispatchTarget, callableHandler), dispatchSymbol)) {
+  handlerDispatchFailures++;
+}
+
+if (handlerDispatchCalls !== 5) handlerDispatchFailures++;
+if (Object.prototype.hasOwnProperty.call(dispatchTarget, "fromFunction")) {
+  handlerDispatchFailures++;
+}
+if (Object.prototype.hasOwnProperty.call(dispatchTarget, "fromArray")) {
+  handlerDispatchFailures++;
+}
+if (Object.prototype.hasOwnProperty.call(dispatchTarget, "fromArguments")) {
+  handlerDispatchFailures++;
+}
+if (Object.prototype.hasOwnProperty.call(dispatchTarget, "fromProxy")) {
+  handlerDispatchFailures++;
+}
+if (Object.prototype.hasOwnProperty.call(dispatchTarget, dispatchSymbol)) {
+  handlerDispatchFailures++;
+}
+
+var lookupMarker = {};
+var abruptLookupTarget = { keptAfterLookupThrow: 1 };
+var abruptLookupHandler = new Proxy({}, {
+  get: function(_target, key) {
+    if (key === "deleteProperty") throw lookupMarker;
+  },
+});
+var lookupThrowObserved = false;
+try {
+  Reflect.deleteProperty(
+    new Proxy(abruptLookupTarget, abruptLookupHandler),
+    "keptAfterLookupThrow"
+  );
+} catch (error) {
+  lookupThrowObserved = error === lookupMarker;
+}
+if (!lookupThrowObserved) handlerDispatchFailures++;
+if (!Object.prototype.hasOwnProperty.call(abruptLookupTarget, "keptAfterLookupThrow")) {
+  handlerDispatchFailures++;
+}
+
+var trapCallMarker = {};
+var trapCallCount = 0;
+var abruptTrapTarget = {};
+Object.defineProperty(abruptTrapTarget, "fixedAfterTrapThrow", {
+  value: 1,
+  configurable: false,
+});
+Object.preventExtensions(abruptTrapTarget);
+var abruptTrapHandler;
+var abruptCallableTrap = new Proxy(function() {}, {
+  apply: function(_target, thisArg, args) {
+    trapCallCount++;
+    if (thisArg !== abruptTrapHandler) handlerDispatchFailures++;
+    if (args[0] !== abruptTrapTarget) handlerDispatchFailures++;
+    if (args[1] !== "fixedAfterTrapThrow") handlerDispatchFailures++;
+    throw trapCallMarker;
+  },
+});
+abruptTrapHandler = { deleteProperty: abruptCallableTrap };
+var trapCallThrowObserved = false;
+try {
+  Reflect.deleteProperty(
+    new Proxy(abruptTrapTarget, abruptTrapHandler),
+    "fixedAfterTrapThrow"
+  );
+} catch (error) {
+  trapCallThrowObserved = error === trapCallMarker;
+}
+if (!trapCallThrowObserved) handlerDispatchFailures++;
+if (trapCallCount !== 1) handlerDispatchFailures++;
+if (!Object.prototype.hasOwnProperty.call(abruptTrapTarget, "fixedAfterTrapThrow")) {
+  handlerDispatchFailures++;
+}
+
+var absentLookupCalls = 0;
+var forwardedDeleteCalls = 0;
+var forwardedTarget = { forwarded: 1 };
+var nestedDeleteTarget = new Proxy(forwardedTarget, {
+  deleteProperty: function(t, key) {
+    forwardedDeleteCalls++;
+    return Reflect.deleteProperty(t, key);
+  },
+});
+var absentProxyHandler = new Proxy({}, {
+  get: function(_target, key) {
+    if (key !== "deleteProperty") handlerDispatchFailures++;
+    absentLookupCalls++;
+    return undefined;
+  },
+});
+if (!Reflect.deleteProperty(new Proxy(nestedDeleteTarget, absentProxyHandler), "forwarded")) {
+  handlerDispatchFailures++;
+}
+if (absentLookupCalls !== 1) handlerDispatchFailures++;
+if (forwardedDeleteCalls !== 1) handlerDispatchFailures++;
+if (Object.prototype.hasOwnProperty.call(forwardedTarget, "forwarded")) {
+  handlerDispatchFailures++;
+}
+
+failures === 0 && handlerDispatchFailures === 0;

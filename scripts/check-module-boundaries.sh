@@ -1049,16 +1049,16 @@ fi
 
 # T11's Proxy record has one typed writer and one typed live reader. Keep the
 # raw handler-tag offset private to objects.rs (apart from its heap declaration)
-# and keep the reviewed HasProperty, GetPrototypeOf, IsExtensible and public
-# descriptor consumers on the reader so no path can silently reconstruct an
-# Object tag.
+# and keep the reviewed HasProperty, Delete, GetPrototypeOf, IsExtensible and
+# public descriptor consumers on the reader so no path can silently reconstruct
+# an Object tag.
 proxy_slot_reader='emit_load_live_proxy_slots('
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
   'pub(crate) fn emit_load_live_proxy_slots(' \
   1 \
   'typed live-Proxy-slot reader authority'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 4 'live-Proxy-slot reader definition/internal call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 5 'live-Proxy-slot reader definition/internal call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/object.rs "$proxy_slot_reader" 1 'public descriptor live-Proxy-slot reader call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'HEAP_PROXY_HANDLER_TAG_OFFSET' 2 'Proxy handler-tag writer/reader authority'
 proxy_handler_tag_files="$(grep -RFl --include='*.rs' 'HEAP_PROXY_HANDLER_TAG_OFFSET' crates/lila-aot-wasm/src | sort || true)"
@@ -1067,6 +1067,25 @@ expected_proxy_handler_tag_files="$(printf '%s\n' \
   crates/lila-aot-wasm/src/objects.rs | sort)"
 if [ "$proxy_handler_tag_files" != "$expected_proxy_handler_tag_files" ]; then
   fail 'Proxy handler-tag heap access must stay inside the typed slot authority'
+fi
+
+proxy_delete_dispatch="$(sed -n \
+  '/pub(crate) fn emit_object_delete_with_depth(/,/pub(crate) fn emit_delete_ordinary_by_tag(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+for required_proxy_delete_seam in \
+  'ProxyRevocationRoute::CurrentCompletion' \
+  'self.emit_object_read_without_throw_propagation(' \
+  'self.emit_propagate_throw_from_locals_if_needed(' \
+  'self.emit_is_callable_i32(' \
+  'self.emit_function_or_proxy_call_with_throw_propagation(' \
+  'ProxyTargetLocals::new(' \
+  'PropertyKeyLocals::new('; do
+  if ! grep -Fq "$required_proxy_delete_seam" <<<"$proxy_delete_dispatch"; then
+    fail "Proxy Delete must retain its typed live-slot, full GetMethod and callable-call seam: $required_proxy_delete_seam"
+  fi
+done
+if grep -Fq 'Instruction::LocalSet(handler_tag_local)' <<<"$proxy_delete_dispatch"; then
+  fail 'Proxy Delete must not reconstruct its handler as Object'
 fi
 
 if [ "$failures" -ne 0 ]; then

@@ -7,8 +7,10 @@ does not claim that the complete `[[Get]]`, `[[Set]]`, `[[Delete]]` or
 `[[GetOwnProperty]]` fact and `[[IsExtensible]]` pieces described below are
 also consumed by bounded Proxy `[[Delete]]` post-trap validation. A richer
 projection of that same direct descriptor authority is consumed by bounded
-Proxy `[[Get]]` and `[[Set]]` post-trap validation. Neither migration changes
-trap lookup, fallback or the complete internal-method dispatch.
+Proxy `[[Get]]` and `[[Set]]` post-trap validation. Proxy `[[Delete]]` also
+consumes the typed live-slot reader and full handler `[[Get]]` seam described
+below. Its absent-trap target recursion remains bounded, so this is not a claim
+that the complete internal-method dispatch is closed.
 
 ## One product entry
 
@@ -82,16 +84,17 @@ live slot set without emitting that check first. Raw consumers may inspect the
 handler-payload marker only to decide whether an Object is a Proxy; they may not
 reconstruct the retained fields themselves.
 
-`[[HasProperty]]`, `[[IsExtensible]]`, `[[GetPrototypeOf]]` and the public
-`getOwnPropertyDescriptor` path consume the same loaded handler pair. Their trap
-lookups go through the existing full object-read seam with the handler itself as
-receiver, so Function, Array, arguments and nested-Proxy handlers receive their
-real storage and prototype behavior. A lookup getter's abrupt completion is
-routed before any absent/non-callable decision. A present trap is called with
-the same tagged handler as `this`. `[[GetPrototypeOf]]` keeps its existing
-object-or-null result check and exact-prototype check for non-extensible targets;
-this bounded migration changes only how its live slots and handler method are
-obtained.
+`[[HasProperty]]`, `[[Delete]]`, `[[IsExtensible]]`, `[[GetPrototypeOf]]` and
+the public `getOwnPropertyDescriptor` path consume the same loaded handler pair.
+Their trap lookups go through the existing full object-read seam with the
+handler itself as receiver, so Function, Array, arguments and nested-Proxy
+handlers receive their real storage and prototype behavior. A lookup getter's
+abrupt completion is routed before any absent/non-callable decision. A present
+trap is called with the same tagged handler as `this`, and callable Proxy traps
+are accepted by the shared call operation. `[[GetPrototypeOf]]` keeps its
+existing object-or-null result check and exact-prototype check for
+non-extensible targets; these bounded migrations change only how live slots and
+handler methods are obtained.
 
 The Proxy `has` false-result and `deleteProperty` true-result invariants use a
 separate value-free direct-own-descriptor fact over the same closed
@@ -157,12 +160,13 @@ This remains a bounded consumer migration. The direct fact is not the recursive
 Proxy descriptor-record protocol: when `[[ProxyTarget]]` is itself a Proxy, the
 eventual implementation must perform that target's `GetMethod`, call,
 descriptor conversion and complete compatibility validation without allocating
-through the public builtin. The `has`, `deleteProperty`, `get` and `set` invariant
-consumers therefore make no nested-Proxy-target closure claim. Proxy `[[Get]]`
-trap lookup, absent-trap fallback and broader nested handler dispatch remain
-their existing bounded paths; this migration changes only the direct-target
-post-trap invariant. Other Proxy internal methods, module-namespace descriptor
-behavior and broader `[[Get]]` closure remain T11 work.
+through the public builtin. The `has`, `deleteProperty`, `get` and `set`
+invariant consumers therefore make no nested-Proxy-target closure claim. Proxy
+`[[Delete]]` preserves the existing fixed-depth absent-trap target recursion,
+while Proxy `[[Get]]` trap lookup, absent-trap fallback and broader nested
+handler dispatch remain their existing bounded paths. Other Proxy internal
+methods, module-namespace descriptor behavior and broader `[[Get]]` closure
+remain T11 work.
 
 ## Verification boundary
 
@@ -174,7 +178,13 @@ Function, Array, arguments and nested-Proxy handlers, exact handler `this`,
 Object and Reflect entry points, and abrupt trap lookup. The `getPrototypeOf`
 fixture applies the same contract to Function, Array, arguments and nested-Proxy
 handlers, both public entry points, an inherited Proxy `get` trap and an abrupt
-Proxy-handler lookup. The focused compile-time and runtime checkpoint is:
+Proxy-handler lookup. The `deleteProperty` fixture applies it to the same
+handler representations, including a Function-handler accessor that observes
+exact tagged handler identity through `this`; its `prototype` read is an
+additional receiver/identity assertion, not the tag-retention witness. It also
+covers a callable Proxy trap, exact target/key/`this`, abrupt lookup and
+trap-call sentinels, and an absent lookup that forwards to a Proxy target. The
+focused compile-time and runtime checkpoint is:
 
 ```sh
 cargo test -p lila-aot-wasm tests::operations_emits_has_property_spec_operation -- --exact

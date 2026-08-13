@@ -84,17 +84,32 @@ arguments `length` (including delete-and-recreate), both public descriptor-trap
 result forms and the absent/non-extensible ordering case. It has not run while
 the release matrix owns runtime verification.
 
-The existing Proxy `deleteProperty` fixture now applies the same post-trap
-contract directly to Array named and symbol properties, a configurable property
-on a non-extensible Array, boxed-String virtual properties, Function
-`prototype`, arguments all-false and non-configurable descriptors, and an
-absent property on a non-extensible target. Trap-false and descriptor-absent
-paths remain early exits, while only a present configurable property consults
-the shared extensibility operation. This is a post-trap migration only: the
-delete trap lookup/fallback path still has its older bounded handler dispatch,
-and the direct descriptor fact does not recursively validate a nested Proxy
-target. The expanded fixture has not run while the release matrix owns runtime
-verification.
+Proxy `[[Delete]]` trap acquisition now consumes the typed live-slot reader and
+full handler `[[Get]]` seam. Function, Array and arguments handlers retain their
+representation tags, Proxy handlers observe their own `get` trap, and lookup
+abrupt completions leave the operation before absent/callable classification.
+The shared callable test and call operation accept a callable Proxy trap and
+invoke every trap with the exact tagged handler as `this` plus the target and
+property key. An absent trap preserves the existing recursive target fallback;
+a present result continues into the direct descriptor invariant below.
+
+The existing Proxy `deleteProperty` fixture applies that acquisition contract
+across Function, Array, arguments and Proxy handlers, a callable Proxy trap,
+exact target/key/`this`, abrupt lookup and trap-call sentinels, absent lookup
+forwarding to a Proxy target and both direct and Reflect entry points including
+a Symbol key. The Function-handler trap is obtained through an accessor whose
+exact tagged `this === functionHandler` comparison makes retention of the
+Function tag load-bearing; the adjacent `this.prototype` check reinforces
+receiver identity but is not itself tag-sensitive. The trap-call sentinel comes
+from a callable Proxy over a non-configurable property on a non-extensible
+target, proving the original throw wins before `ToBoolean` and invariant
+validation. The fixture also retains the post-trap cases for Array named and
+symbol properties, boxed-String virtual properties, Function `prototype`,
+arguments all-false and non-configurable descriptors, and an absent property on
+a non-extensible target. This remains a bounded migration: absent-trap target
+recursion retains its fixed depth and the direct descriptor fact does not
+recursively validate a nested Proxy target. The expanded fixture has not run
+while the release matrix owns runtime verification.
 
 Proxy `[[Set]]` truthy-result validation now joins those direct-target
 consumers through a richer projection of the same descriptor authority. One
@@ -153,11 +168,12 @@ accepts the same `ProxySlotLocals` record as the writer, maps each heap word int
 the distinct target/handler newtype, and emits the revoked-handler check before
 the loaded slots become usable. Its closed completion route keeps the existing
 builtin, internal-helper and HasProperty throw boundaries explicit. Both the
-public descriptor path and shared `[[IsExtensible]]` now join `has` in consuming
-the exact handler tag and the proxy-aware object-read seam for `GetMethod`.
-Function, Array, arguments and nested-Proxy handlers therefore retain their
-storage behavior and exact handler-as-`this` identity in these three methods;
-an abrupt trap lookup is routed before callable/absent classification.
+public descriptor path and shared `[[Delete]]` and `[[IsExtensible]]` operations
+now join `has` in consuming the exact handler tag and the proxy-aware object-read
+seam for `GetMethod`. Function, Array, arguments and nested-Proxy handlers
+therefore retain their storage behavior and exact handler-as-`this` identity in
+these four methods; an abrupt trap lookup is routed before callable/absent
+classification.
 
 The exact Wasm-AOT regression covering those four handler representations,
 Object and Reflect entry points, exact `this`, and abrupt lookup is written but

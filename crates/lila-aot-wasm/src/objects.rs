@@ -19727,38 +19727,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy handler is null",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_load_live_proxy_slots(
+            object_local,
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(target_payload_local, target_tag_local),
+                ProxyHandlerLocals::new(handler_payload_local, handler_tag_local),
+            ),
+            ProxyRevocationRoute::CurrentCompletion,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            object_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            target_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            object_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            target_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(handler_tag_local));
         function.instruction(&Instruction::I64Const(
             self.strings.payload("deleteProperty"),
         ));
         function.instruction(&Instruction::LocalSet(internal_key_local));
-        self.emit_object_read_ordinary(
+        self.emit_object_read_without_throw_propagation(
             handler_payload_local,
             handler_tag_local,
             handler_payload_local,
@@ -19768,14 +19750,18 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        self.emit_propagate_throw_from_locals_if_needed(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            function,
+        )?;
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_function_or_proxy_call_with_throw_propagation(
+            trap_payload_local,
+            trap_tag_local,
+            handler_payload_local,
+            handler_tag_local,
             &[
                 (target_payload_local, target_tag_local),
                 (trap_key_payload_local, key_tag_local),
@@ -19788,9 +19774,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(result_local));
         self.emit_proxy_delete_invariant_check(
-            target_payload_local,
-            target_tag_local,
-            key_local,
+            ProxyTargetLocals::new(target_payload_local, target_tag_local),
+            PropertyKeyLocals::new(key_local, key_tag_local),
             result_local,
             function,
         )?;
@@ -19917,29 +19902,25 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_proxy_delete_invariant_check(
+    fn emit_proxy_delete_invariant_check(
         &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        key_local: u32,
+        target: ProxyTargetLocals,
+        key: PropertyKeyLocals,
         result_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_tag_local = self.reserve_temp_local();
         let extensible_local = self.reserve_temp_local();
         let fact = self.reserve_own_descriptor_fact_locals();
-
-        self.emit_property_key_tag_from_payload(key_local, key_tag_local, function);
 
         function.instruction(&Instruction::LocalGet(result_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_direct_own_descriptor_fact(
-            target_payload_local,
-            target_tag_local,
-            key_local,
-            key_tag_local,
+            target.0.payload,
+            target.0.tag,
+            key.0.payload,
+            key.0.tag,
             fact,
             function,
         )?;
@@ -19959,8 +19940,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_object_is_extensible_i32(
-            target_payload_local,
-            target_tag_local,
+            target.0.payload,
+            target.0.tag,
             extensible_local,
             function,
         )?;
@@ -19981,7 +19962,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_own_descriptor_fact_locals(fact);
         self.release_temp_local(extensible_local);
-        self.release_temp_local(key_tag_local);
         Ok(())
     }
 
