@@ -760,7 +760,7 @@ why a type cannot carry the invariant.
 | **L3** | `ReferencePins::materialize` is spent on the write of *its own* Reference, not a sibling's. **Shrunk at DISCREPANCY-FIXER stage:** the *empty* chain is no longer constructible (no `Default`, no `none()`, sole producer `ReferenceRecord::pin_operands`), so what remains is only "two live records at once, chains crossed". | Distinguishing two live pairs needs a lifetime brand (`GhostToken`-style), which is more machinery than the one nesting case in the tree justifies. | `pin_operands` needs a record to be called on, and no lowering function holds two live `(record, pins)` pairs at once — checkable by reading the one call site (`lower_property_reference_update`). |
 | **L4** | The backend's emitted strict guard matches the `Strictness` on the node. | The IR/Wasm boundary is `i64` words; `helper_flag_word` is the last typed point. | The b361b4815 oracle pair (§6, corpus 4/5) is precisely this test, and it is a byte-identical source pair differing only in the directive prologue. |
 | **L5** | `ExprIr::PropertyWrite`'s new field is actually *read* by the backend rather than merely present. | Rust does not warn on an unread field of a public enum variant. | §4.3 stage 3 is not optional: the field and its consumer land together, and dry-run ADVERSARIAL-MC3 (§6) fails until they do. **The entry fired at ENCODER stage and is now closed for all nine variants** — see the note below this table. |
-| **L6** | `SuperPropertyWrite`'s Receiver is `[[ThisValue]]`, not the super base (MC4b, §5.3). | The IR node has no `this_value` field and the backend has no receiver parameter to thread it into; S5 was deferred. | Open. Named as a follow-up lane. `delete super.x` (13.5.1.2 step 5.b, corpus 7) is in the same lane: its ReferenceError is neither emitted nor representable, and `lower_delete`'s super arm is still `unsupported_expr`. |
+| **L6** | `SuperPropertyWrite`'s Receiver is `[[ThisValue]]`, not the super base (MC4b, §5.3). | The IR node has no `this_value` field and the backend has no receiver parameter to thread it into; S5 was deferred. | **Open for writes.** The related `delete super.x` refusal is closed independently by the fused delete-super plan below: deletion never consumes the base or receiver, so fixing it does not pretend to supply the missing write receiver. |
 | **L7** | `ToPropertyKey` on a computed key runs *after* the RHS on the plain-assignment path (C5, corrected). | `PropertyKeyIr::StringExpr` conflates the key operand with the property key, so the IR cannot record that the coercion is owed; the typed fix changes a shared enum matched across the whole backend. | Open, and **pre-existing** — not a regression of this landing. Corpus entry 6's second half is the oracle. Follow-up lane with build access; see C5. |
 | **L8** | The runtime strictness guard's block depth and the `Br` immediates emitted inside it. | Wasm label depths are `u32` immediates computed against a control stack the raw `If`/`Else` instructions in these guards are not on. No type distinguishes "depth relative to the guard" from "depth relative to the frame". | `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` and `NON_EXTENSIBLE_THROW_EXTRA_DEPTH` are named once in `objects.rs` and added at every branch inside the guard, so the two arms of one helper cannot disagree — which is how the defect arose. The behavioural oracle is the fixture pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`; a wrong depth is a wasm validation failure or a throw caught by the wrong handler. |
 
@@ -816,6 +816,81 @@ slots. Supporting it requires an async-generator ABI/layout change and changes
 to both plain-yield and delegation dispatch; it remains an explicit T08/T15
 gap. Private and super assignment targets at a yield remain explicit lowering
 gaps too.
+
+### T08 delete-super Reference amendment
+
+`delete super[key]` is a smaller lifecycle than a general Super Reference, but
+it is not a bare `RuntimeThrow`. SuperProperty evaluation first obtains
+`actualThis` through `GetThisBinding`; only after that succeeds does it evaluate
+the computed expression and apply `GetValue`. It deliberately retains that raw
+value rather than applying `ToPropertyKey`. Delete then recognizes a Super
+Reference and throws `ReferenceError` before `ToObject`, `ToPropertyKey`, or
+`[[Delete]]`.
+
+That order has three observable boundaries:
+
+1. an uninitialized derived-constructor `this` throws before the key expression;
+2. an abrupt computed expression wins over delete's `ReferenceError`;
+3. a normally produced object key is not coerced and no proxy delete trap runs.
+
+The lowering contract is one private, consuming plan:
+
+```rust
+pub(crate) struct DeleteSuperReferencePlan { /* private */ }
+
+enum DeleteSuperReferencedName {
+    Static,
+    Uncoerced(Box<TypedExpr>),
+}
+```
+
+Its sole constructor accepts the current-this `ValueInfo` and a
+`PropertyKeyIr`. It constructs `ExprIr::This` itself, so a caller cannot pass
+the super base in place of `actualThis`. The conversion is exhaustive:
+`StaticString`/`ArrayLength` become `Static`, while
+`StringExpr`/`ArrayIndex` surrender their raw operand to `Uncoerced`. A new key
+representation is therefore `E0004`, not an implicit coercion policy.
+
+`into_reference_error(self)` destructures every private field and exhaustively
+consumes the two referenced-name states into:
+
+```text
+MaterializeBinding(actualThis,
+  MaterializeBinding(raw computed value,  // absent for a static name
+    RuntimeThrow(ReferenceError)))
+```
+
+The sequence must not use `ExprIr::Comma`. The generic Wasm comma consumer
+compiles its left operand and then its right operand without the explicit
+abrupt-completion propagation performed by `MaterializeBinding`; a throwing key
+could otherwise be overwritten by the terminal ReferenceError. The two bound
+values are deliberately unread. Their private fixed names contain `.` and
+cannot collide with source bindings, while every materialization owns a lexical
+scope.
+
+The plan does not store `[[Base]]`: `GetSuperBase` asserts an ordinary home
+object and uses a non-abrupt `[[GetPrototypeOf]]`, and delete does not inspect
+the resulting object/null value before throwing. It does not store `[[Strict]]`
+because both strict and non-strict Super References take the same unconditional
+throw. This is the C1 fused-node choice applied before durable IR; it is not a
+general Super Reference and does not close L6's write receiver.
+
+Private fields plus the sole constructor make an omitted current-this/key
+argument `E0061`; the two exhaustive matches make a new key or lifecycle state
+`E0004`; destructuring `Self` without `..` makes an unconsumed added field
+`E0027`. Rust still permits a deliberate `let _ = plan`, so static review bans
+`_`/`..` in these matches and the durable lowering fixture proves the sole
+production call consumes the plan. The structural unit pins the exact
+actualThis → raw key → ReferenceError tree. The Wasm fixture additionally
+covers pre-`super()` ordering, a throwing key, absent key coercion, null base,
+and absence of a proxy `deleteProperty` trap.
+
+No claim is made for object-literal-method `super` deletion, whose home-object
+context is not yet represented by this class-context lowering path. The pinned
+`super-property-topropertykey.js` object-literal case therefore remains
+unsupported. Nor is a claim made for `SuperPropertyWrite`, super
+compound/update targets, suspended super assignment, the plain-assignment
+`ToPropertyKey` gap in L7, or the complete T08/Test262 matrix.
 
 **L5, closed.** At ENCODER stage the field was read for six of the nine variants:
 `GlobalPropertyUpdate` and `GlobalPropertyCompoundAssign` bound `strictness: _`
@@ -1133,7 +1208,7 @@ Every path below was confirmed to exist under
 | 4 | `expressions/assignment/8.14.4-8-b_1.js` | **MC2** sloppy half | `flags:[noStrict]`, non-writable inherited property; must silently no-op, `o.hasOwnProperty('bar') === false`. |
 | 5 | `expressions/assignment/8.14.4-8-b_2.js` | **MC2** strict half | Byte-identical body, `flags:[onlyStrict]`; must throw TypeError. **The b361b4815 oracle**: one emitted write helper, two callers, opposite required outcomes. The dry run must show the outcome is a function of a `Strictness` carried from the caller, not of a constant in the helper. Ledger L1/L4. |
 | 6 | `expressions/assignment/target-member-computed-reference.js` | **MC5 + O2** | Two halves: `base[prop()] = expr()` must throw `DummyError` from `prop()` (LHS before RHS); `base[objWithThrowingToString] = expr()` must throw `DummyError` from `expr()` (`ToPropertyKey` after both). Choice C5. Traces `lower_property_reference_update`'s `Get`/`GetV` arm (`32225`–`32240`) and the pins at `32251`–`32279`. |
-| 7 | `expressions/delete/super-property.js` | **MC4a + MC4b** | `delete super.x` must throw ReferenceError (13.5.1.2 step 5.b). **Today it does not**: `lower_delete`'s super arm (`lowering.rs:11456`) returns `unsupported_expr("unsupported unary operator")`. Under §2.5 this becomes `UnsupportedTarget::…` routed to a real ReferenceError. |
+| 7 | `expressions/delete/super-property.js` | **MC4a + MC4b boundary** | `delete super.x` must throw ReferenceError (13.5.1.2 step 5.b). The fused delete-super plan now evaluates `actualThis`, evaluates a raw computed key when present, and throws without coercion or deletion. This closes the former `lower_delete` refusal without claiming MC4b's still-open `SuperPropertyWrite` receiver. |
 | 8 | `expressions/assignment/non-simple-target.js` | **negative control, parser-level** | `1 = 1`, `negative: {phase: parse, type: SyntaxError}`. Boa's `AssignTarget::from_expression` (`boa_ast .../assign/mod.rs:141`) returns `None`, so this **never reaches `lower_reference`**. It controls that the *parser* still rejects, not that `lower_reference` does. State this, or the dry-runner will look for a lowering arm that cannot exist. |
 | 9 | `expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js` | **out of scope** (was labelled "the canonical single-record trace for I5") | **Relabelled at DISCREPANCY-FIXER stage.** The case's subject is a `with` scope: 9.1.1.2.5 `ObjectEnvironmentRecord.SetMutableBinding` re-checks `HasProperty` at *write* time, reached via PutValue 4.c, and the RHS deletes the binding in between. This compiler diverts `with`-scoped identifier writes at `lowering.rs:30439-30441` into `lower_with_scoped_identifier_write`, which emits `ExprIr::Conditional { condition: binding_visible, then: PropertyWrite{..}, else: fallback }` — and a `Conditional`'s condition is emitted *before* the RHS, whereas the spec re-runs `HasProperty` **inside** PutValue, after the RHS ran. So `count === 2` and `!('x' in scope)` both fail: control takes the `PropertyWrite` branch and re-creates `x`. **§4.4 deliberately excludes `with` and Object Environment Records from this lane**, so the fix is not owed here; the entry is relabelled so a failing I5 acceptance is not read as this lane's regression. Blocked on the 9.1.1.2 Environment Record lifecycle area. Corpus 14 is the canonical single-record trace for I5. |
 | 10 | `expressions/assignment/11.13.1-1-s.js` | **MC3** | `Object.defineProperty(obj,"prop",{writable:false})`, then `obj.prop = 20` → TypeError, `obj.prop === 10`. A **resolvable, non-global** property reference: the cleanest MC3 oracle, uncontaminated by §1.3's both-modes GetValue throw. |

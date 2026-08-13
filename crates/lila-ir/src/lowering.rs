@@ -16,8 +16,8 @@ use proxy_traps::{ProxyTrap, ProxyTrapSignature};
 /// file is traceable to one import. See
 /// `docs/rust-rewrite/contracts/reference-records.md`.
 use crate::ir::reference::{
-    reference_base_of_lowered_read, Composition, ReferenceBase, ReferenceOperand, ReferencePins,
-    ReferenceRecord,
+    reference_base_of_lowered_read, Composition, DeleteSuperReferencePlan, ReferenceBase,
+    ReferenceOperand, ReferencePins, ReferenceRecord,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4670,8 +4670,15 @@ impl<'a> ScriptLowerer<'a> {
             Expression::PropertyAccess(PropertyAccess::Private(_)) => {
                 self.unsupported_expr("unsupported unary operator")
             }
-            Expression::PropertyAccess(PropertyAccess::Super(_)) => {
-                self.unsupported_expr("unsupported unary operator")
+            Expression::PropertyAccess(PropertyAccess::Super(access)) => {
+                if self.class_context.is_none() {
+                    return self.unsupported_expr("object literal method");
+                }
+                let Some(key) = self.lower_super_property_key(access.field()) else {
+                    return TypedExpr::undefined();
+                };
+                DeleteSuperReferencePlan::new(self.current_this_info.clone(), key)
+                    .into_reference_error()
             }
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();

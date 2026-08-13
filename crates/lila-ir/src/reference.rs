@@ -22,6 +22,100 @@
 
 use super::*;
 
+const DELETE_SUPER_THIS_BINDING: &str = "$delete.super.this";
+const DELETE_SUPER_KEY_BINDING: &str = "$delete.super.key";
+const DELETE_SUPER_REFERENCE_ERROR: &str = "Cannot delete a super property";
+
+/// A Super Reference whose only consumer is the `delete` operator.
+///
+/// `delete super[key]` has a deliberately unusual lifecycle. SuperProperty
+/// evaluation obtains `actualThis`, then evaluates and gets the computed key's
+/// value without applying `ToPropertyKey`. Delete subsequently observes that
+/// the Reference is a Super Reference and throws before inspecting `[[Base]]`,
+/// coercing the key, or calling `[[Delete]]`.
+///
+/// This private plan fuses those operations without turning their ordering
+/// back into a lowering convention. Its constructor always creates the
+/// `actualThis` operand as [`ExprIr::This`]; callers cannot substitute the
+/// super base. Its key conversion and consuming match are both exhaustive, so
+/// a new [`PropertyKeyIr`] representation or a new lifecycle state is a compile
+/// error rather than a path which accidentally performs `ToPropertyKey`.
+///
+/// The plan lowers to nested [`ExprIr::MaterializeBinding`] nodes rather than a
+/// comma expression because MaterializeBinding propagates an abrupt completion
+/// from each evaluated operand before entering its body. The bound values are
+/// intentionally never read. Their fixed names cannot collide with source
+/// bindings (they contain `.`), and each materialization owns a lexical scope.
+#[derive(Debug)]
+#[must_use = "a delete-super Reference must be consumed into its ReferenceError"]
+pub(crate) struct DeleteSuperReferencePlan {
+    actual_this: Box<TypedExpr>,
+    referenced_name: DeleteSuperReferencedName,
+}
+
+#[derive(Debug)]
+enum DeleteSuperReferencedName {
+    Static,
+    Uncoerced(Box<TypedExpr>),
+}
+
+impl DeleteSuperReferencePlan {
+    pub(crate) fn new(actual_this: ValueInfo, referenced_name: PropertyKeyIr) -> Self {
+        let referenced_name = match referenced_name {
+            PropertyKeyIr::StaticString(name) => {
+                drop(name);
+                DeleteSuperReferencedName::Static
+            }
+            PropertyKeyIr::ArrayLength => DeleteSuperReferencedName::Static,
+            PropertyKeyIr::StringExpr(value) | PropertyKeyIr::ArrayIndex(value) => {
+                DeleteSuperReferencedName::Uncoerced(value)
+            }
+        };
+        Self {
+            actual_this: Box::new(TypedExpr::from_info(actual_this, ExprIr::This)),
+            referenced_name,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn into_reference_error(self) -> TypedExpr {
+        let Self {
+            actual_this,
+            referenced_name,
+        } = self;
+        let throw = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: DELETE_SUPER_REFERENCE_ERROR,
+            },
+        );
+        let body = match referenced_name {
+            DeleteSuperReferencedName::Static => throw,
+            DeleteSuperReferencedName::Uncoerced(value) => {
+                let info = throw.value_info();
+                TypedExpr::from_info(
+                    info,
+                    ExprIr::MaterializeBinding {
+                        name: DELETE_SUPER_KEY_BINDING.to_string(),
+                        value,
+                        body: Box::new(throw),
+                    },
+                )
+            }
+        };
+        let info = body.value_info();
+        TypedExpr::from_info(
+            info,
+            ExprIr::MaterializeBinding {
+                name: DELETE_SUPER_THIS_BINDING.to_string(),
+                value: actual_this,
+                body: Box::new(body),
+            },
+        )
+    }
+}
+
 /// `[[Strict]]` of a Reference Record (6.2.5).
 ///
 /// Deliberately not a `bool`. The consumers of this field — PutValue 2.a
@@ -894,6 +988,68 @@ impl ReferencePins {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delete_super_reference_plan_sequences_this_raw_key_then_reference_error() {
+        let raw_key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier("key".to_string()),
+        );
+        let lowered = DeleteSuperReferencePlan::new(
+            ValueInfo::new(ValueKind::Object),
+            PropertyKeyIr::StringExpr(Box::new(raw_key)),
+        )
+        .into_reference_error();
+
+        assert_eq!(lowered.kind, ValueKind::Boolean);
+        let ExprIr::MaterializeBinding {
+            name: this_name,
+            value: actual_this,
+            body: after_this,
+        } = lowered.expr
+        else {
+            panic!("actualThis must be materialized before the computed key");
+        };
+        assert_eq!(this_name, DELETE_SUPER_THIS_BINDING);
+        assert!(matches!(actual_this.expr, ExprIr::This));
+
+        let ExprIr::MaterializeBinding {
+            name: key_name,
+            value: key_value,
+            body: after_key,
+        } = after_this.expr
+        else {
+            panic!("the raw computed key must be materialized after actualThis");
+        };
+        assert_eq!(key_name, DELETE_SUPER_KEY_BINDING);
+        assert!(matches!(
+            &key_value.expr,
+            ExprIr::Identifier(name) if name == "key"
+        ));
+        assert!(matches!(
+            after_key.expr,
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: DELETE_SUPER_REFERENCE_ERROR,
+            }
+        ));
+
+        let static_lowered = DeleteSuperReferencePlan::new(
+            ValueInfo::new(ValueKind::Object),
+            PropertyKeyIr::StaticString("field".to_string()),
+        )
+        .into_reference_error();
+        let ExprIr::MaterializeBinding { body, .. } = static_lowered.expr else {
+            panic!("actualThis must be materialized for a static super property");
+        };
+        assert!(matches!(
+            body.expr,
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: DELETE_SUPER_REFERENCE_ERROR,
+            }
+        ));
+    }
 
     #[test]
     fn recovered_reference_preserves_symbol_tag_on_string_shaped_key() {

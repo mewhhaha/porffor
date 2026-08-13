@@ -1051,8 +1051,13 @@ Recent focused progress through `2026-07-27`:
   `[[HomeObject]]` in the Wasm function context. Super-property lookup
   recomputes the base on every access while keeping the invocation or lexical
   `this` as receiver, covering detached/alien receivers, static members,
-  nested arrows, computed calls, getters, and later prototype mutation. The
-  four focused real Test262 arrow files
+  nested arrows, computed calls, getters, and later prototype mutation.
+  In supported class and lexical-class contexts, `delete super.x` and
+  `delete super[key]` use a fused Reference plan which checks current `this`,
+  evaluates the raw computed value without
+  `ToPropertyKey`, and then throws `ReferenceError` without invoking property
+  deletion; object-literal-method home-object lowering remains explicit debt.
+  The four focused real Test262 arrow files
   `lexical-supercall-from-immediately-invoked-arrow.js`,
   `lexical-super-call-from-within-constructor.js`,
   `lexical-super-property-from-within-constructor.js`, and

@@ -17,17 +17,25 @@ failures until PutValue. Synchronous plain-generator and `yield*` property
 assignments now carry one private `SuspendedPropertyReferenceIr` containing the
 evaluated ordinary base/receiver, normalized key and `[[Strict]]`; one
 exhaustive AOT consumer persists its operands before suspension and spends its
-strictness only on normal resume. Async-generator property assignment remains
-an explicit activation-ABI gap, as do private and `super` yield-assignment
-targets. The parse-once boundary is landed, several environment/control-flow
-files remain large shared hotspots, and the language subtrees assigned to this
-task have not been proven zero-failure on a current complete Wasm-AOT matrix.
+strictness only on normal resume. In supported class and lexical-class
+home-object contexts, `delete super.x` and `delete super[key]` now use a
+private, consuming `DeleteSuperReferencePlan`: it sequences current
+`this`, the raw computed-key value, and the unconditional ReferenceError through
+nested abrupt-propagating materializations, with no key coercion or property
+deletion. Object-literal methods still lack the required home-object context
+and remain explicit unsupported debt. Async-generator property assignment remains an explicit
+activation-ABI gap, as do private and `super` yield-assignment targets. The
+parse-once boundary is landed, several environment/control-flow files remain
+large shared hotspots, and the language subtrees assigned to this task have not
+been proven zero-failure on a current complete Wasm-AOT matrix.
 
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central
 feature-enabled CLI compile, and its exact generator-suspension Wasm fixture is
-green.
+green. The delete-super structural unit and Wasm fixture are present, while
+their Cargo and pinned Test262 execution gates remain deferred to the current
+integration checkpoint.
 
 ## Objective
 

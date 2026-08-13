@@ -222,3 +222,33 @@ unsupported path and its activation has no assignment-reference slots; adding
 those slots and threading them through async delegation is a separate ABI
 feature, not something this type pretends to implement. Private and super yield
 assignment targets remain explicit lowering gaps as before.
+
+## T08 delete-super-reference follow-up
+
+Within the currently supported class and lexical-class home-object contexts,
+`delete super.x` and `delete super[key]` no longer use the former
+`unsupported_expr` arm. Lowering constructs a private
+`DeleteSuperReferencePlan` from current-this metadata and the lowered key, then
+must consume that plan into nested `MaterializeBinding` nodes. The first node
+performs `GetThisBinding` through `ExprIr::This`; the optional second evaluates
+the computed key's raw value; the body throws `ReferenceError` without applying
+`ToPropertyKey` or invoking `[[Delete]]`.
+
+The type is deliberately consumed before durable `ExprIr`, because delete
+never reads the Super Reference's base, receiver, or strictness. Its private
+representation and exhaustive `PropertyKeyIr`/lifecycle matches make an omitted
+operand or new state compile-visible while reusing the existing exhaustive
+`MaterializeBinding`, `This`, and `RuntimeThrow` consumers. A new `ExprIr`
+variant and a second AOT implementation would add surface without carrying
+another invariant.
+
+Object-literal methods still lack the home-object/class-context lowering needed
+to construct this plan and remain explicit unsupported debt. In particular,
+the pinned `super-property-topropertykey.js` object-literal case is not claimed
+by this class-context seam. This closes only the supported delete half of the
+old L6 note. `SuperPropertyWrite` still
+lacks its distinct `[[ThisValue]]` receiver, and super compound/update and
+suspended assignment remain gaps. A structural unit and a Wasm fixture cover
+the fused tree, uninitialized-this/key order, raw-key abrupt completion, absent
+key coercion, null base, and absence of a proxy delete trap. Their Cargo and
+Test262 execution gates remain deferred to the integration checkpoint.
