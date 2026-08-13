@@ -49,7 +49,7 @@ function fallbackUsesNewTargetRealm(C, otherC, newTarget) {
   return Object.getPrototypeOf(result) === otherC.prototype;
 }
 
-let fallbacks = [null, 1];
+let fallbacks = [undefined, null, true, "prototype", Symbol("prototype"), 1];
 for (let value of fallbacks) {
   // Proxy is a constructable function from the other realm with no own
   // `prototype` initially, so these primitive assignments are ordinary data

@@ -139,6 +139,129 @@ mod tests {
     }
 
     #[test]
+    fn construct_fallback_requires_resolved_realm_intrinsics() {
+        let source = include_str!("functions.rs");
+        let domain = source
+            .split_once("enum OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype domain should exist")
+            .1
+            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
+            .expect("ordinary default-prototype domain should be bounded")
+            .0;
+        let offsets = source
+            .split_once("impl OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype offset map should exist")
+            .1
+            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
+            .expect("ordinary default-prototype offset map should be bounded")
+            .0;
+        let construct = source
+            .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
+            .expect("shared construct path should exist")
+            .1
+            .split_once("pub(crate) fn copy_function_realm_typed_array_prototypes(")
+            .expect("shared construct path should be bounded")
+            .0;
+        let required_load = source
+            .split_once("fn emit_load_required_resolved_realm_ordinary_prototype(")
+            .expect("required resolved-realm ordinary-prototype loader should exist")
+            .1
+            .split_once("fn emit_install_resolved_realm_ordinary_prototype(")
+            .expect("required resolved-realm ordinary-prototype loader should be bounded")
+            .0;
+        let install = source
+            .split_once("fn emit_install_resolved_realm_ordinary_prototype(")
+            .expect("resolved-realm ordinary-prototype consumer should exist")
+            .1
+            .split_once("pub(crate) fn emit_load_required_resolved_realm_array_prototype(")
+            .expect("resolved-realm ordinary-prototype consumer should be bounded")
+            .0;
+
+        for (variant, offset) in [
+            ("Object", "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET"),
+            ("String", "HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET"),
+            ("Number", "HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET"),
+            ("Boolean", "HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET"),
+        ] {
+            assert_eq!(
+                domain.matches(&format!("    {variant},")).count(),
+                1,
+                "the closed ordinary default-prototype domain must contain {variant} exactly once"
+            );
+            assert_eq!(
+                offsets
+                    .matches(&format!("Self::{variant} => {offset}"))
+                    .count(),
+                1,
+                "{variant} must map exhaustively to its realm-intrinsic slot"
+            );
+            assert_eq!(
+                construct
+                    .matches(&format!("OrdinaryDefaultPrototype::{variant}"))
+                    .count(),
+                1,
+                "the construct path must select {variant} through the closed domain once"
+            );
+        }
+        assert_eq!(
+            domain
+                .lines()
+                .filter(|line| line.trim_end().ends_with(','))
+                .count(),
+            4
+        );
+        assert!(
+            !domain.contains("Array"),
+            "Array must retain its separate exotic-prototype typestate"
+        );
+        assert!(source.contains(
+            "#[must_use = \"the resolved-realm prototype must be installed with its representation tag\"]\nstruct ResolvedRealmOrdinaryPrototypeLocal"
+        ));
+        assert_eq!(
+            construct
+                .matches("emit_load_required_resolved_realm_ordinary_prototype(")
+                .count(),
+            4
+        );
+        assert_eq!(
+            construct
+                .matches("emit_install_resolved_realm_ordinary_prototype(")
+                .count(),
+            4
+        );
+        assert_eq!(
+            construct
+                .matches("emit_load_required_resolved_realm_array_prototype(")
+                .count(),
+            1,
+            "Array must keep its existing required realm slot and Array tag path"
+        );
+        assert!(
+            !construct.contains("emit_load_realm_intrinsic_prototype_or_global("),
+            "resolved GetPrototypeFromConstructor results must not select entry globals"
+        );
+        for global in [
+            "OBJECT_PROTOTYPE_GLOBAL_INDEX",
+            "STRING_PROTOTYPE_GLOBAL_INDEX",
+            "NUMBER_PROTOTYPE_GLOBAL_INDEX",
+            "BOOLEAN_PROTOTYPE_GLOBAL_INDEX",
+        ] {
+            assert!(
+                !construct.contains(global),
+                "the construct fallback must not retain entry-global prototype {global}"
+            );
+        }
+
+        assert!(!required_load.contains("GlobalGet"));
+        assert!(!required_load.contains("GLOBAL_INDEX"));
+        assert_eq!(required_load.matches("Instruction::Unreachable").count(), 3);
+        assert!(required_load.contains("intrinsic.offset()"));
+        assert!(install.contains("prototype: ResolvedRealmOrdinaryPrototypeLocal"));
+        assert_eq!(install.matches("prototype.0").count(), 2);
+        assert_eq!(install.matches("ValueKind::Object.tag() as i64").count(), 1);
+    }
+
+    #[test]
     fn string_empty_split_structurally_walks_utf16_code_units() {
         let source = include_str!("builtins/string.rs");
         let helper = source

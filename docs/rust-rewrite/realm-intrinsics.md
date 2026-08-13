@@ -119,6 +119,17 @@ internal invariant failure. The fallback never substitutes the entry realm's
 global Array prototype and never infers the Array tag by comparing payload
 identity with that global.
 
+The same required-slot rule now covers the ordinary-object defaults selected
+by the shared construct path: `%Object.prototype%`, `%String.prototype%`,
+`%Number.prototype%` and `%Boolean.prototype%`. A closed slot enum contains
+exactly those four ordinary representations; `%Array.prototype%` remains in
+its separate typed path. Loading a populated ordinary slot produces a
+non-copyable witness that construction must consume to install both the
+prototype payload and its Object tag. A null realm record, intrinsic table or
+slot traps as an internal invariant failure. There is no entry-global input to
+this operation, so incomplete realm bootstrap cannot silently manufacture
+cross-realm prototype identity.
+
 ## Remaining work
 
 The registry currently covers the checked-in 23-intrinsic foundation, not the
@@ -127,6 +138,6 @@ intrinsic objects, full global/environment bootstrap, complete defining-realm
 coverage, realm-correct error creation, teardown, host hooks, and the
 cross-realm acceptance matrix. The Array-prototype seam does not make the
 registry the bootstrap source, make `%Function.prototype%` callable, repair
-other intrinsic families or the four remaining prototype fallback loaders, or
-complete error, hook and teardown semantics. T03 shortcut materializations
-must be removed as those general semantics land.
+other intrinsic families or unrelated partial-bootstrap prototype loaders, or
+complete error, hook and teardown semantics. T03 shortcut materializations must
+be removed as those general semantics land.

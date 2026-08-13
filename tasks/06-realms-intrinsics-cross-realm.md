@@ -45,6 +45,11 @@ automatic plain prototype, and its links use the Array-aware descriptor path
 and the exact ECMAScript attributes. Resolved-realm Array default-prototype
 fallback requires the resolved realm's populated Array slot and preserves the
 Array tag, with no entry-global substitution or payload identity heuristic.
+The four ordinary-object defaults selected by the same construct path now use
+a separate closed slot domain and a non-copyable loaded-prototype witness.
+Object, String, Number and Boolean construction require their resolved realm's
+populated intrinsic slot and consume the witness together with its Object tag;
+missing realm bootstrap state traps instead of selecting an entry-realm global.
 
 This remains metadata foundation rather than full realm bootstrap. Intrinsic
 objects are not yet independently allocated from these templates across the
@@ -56,7 +61,7 @@ unsupported cases, and no current complete Wasm-AOT aggregate proves the full
 realm acceptance matrix. Complete intrinsic allocation, host-capability
 scoping, teardown, borrowed builtins and realm-correct errors therefore remain
 active work. The Array seam does not make `%Function.prototype%` callable or
-repair the other intrinsic families and four remaining prototype fallback
+repair the other intrinsic families or unrelated partial-bootstrap prototype
 loaders.
 
 ## Objective

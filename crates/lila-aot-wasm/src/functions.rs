@@ -207,6 +207,40 @@ impl ResolvedFunctionRealmLocal {
     }
 }
 
+/// The ordinary-object intrinsic prototypes selected by
+/// `GetPrototypeFromConstructor` in the shared construct path.
+///
+/// `%Array.prototype%` is deliberately absent because it has an Array layout
+/// and a distinct representation tag. Keeping this domain closed prevents a
+/// caller from pairing an arbitrary realm-intrinsic offset with an entry-realm
+/// fallback.
+#[derive(Clone, Copy)]
+enum OrdinaryDefaultPrototype {
+    Object,
+    String,
+    Number,
+    Boolean,
+}
+
+impl OrdinaryDefaultPrototype {
+    const fn offset(self) -> u64 {
+        match self {
+            Self::Object => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+            Self::String => HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
+            Self::Number => HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
+            Self::Boolean => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+        }
+    }
+}
+
+/// A populated ordinary-object prototype loaded from a realm already proven
+/// by `GetFunctionRealm`.
+///
+/// The local is non-`Copy` and private so construction must consume it through
+/// the operation that installs both its payload and Object representation tag.
+#[must_use = "the resolved-realm prototype must be installed with its representation tag"]
+struct ResolvedRealmOrdinaryPrototypeLocal(u32);
+
 /// What a consumer does when `GetFunctionRealm` encounters a revoked Proxy.
 ///
 /// `Invalid` is deliberately absent: every route traps for that internal
@@ -3147,25 +3181,31 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.emit_load_realm_intrinsic_prototype_or_global(
-            prototype_realm.index(),
-            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-            OBJECT_PROTOTYPE_GLOBAL_INDEX,
-            proto_payload_local,
+        let ordinary_prototype = self.emit_load_required_resolved_realm_ordinary_prototype(
+            prototype_realm,
+            OrdinaryDefaultPrototype::Object,
             function,
         );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(proto_tag_local));
+        self.emit_install_resolved_realm_ordinary_prototype(
+            ordinary_prototype,
+            proto_payload_local,
+            proto_tag_local,
+            function,
+        );
         if let Some(string_constructor_table_index) = string_constructor_table_index {
             function.instruction(&Instruction::LocalGet(table_index_local));
             function.instruction(&Instruction::I64Const(string_constructor_table_index));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_load_realm_intrinsic_prototype_or_global(
-                prototype_realm.index(),
-                HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
-                STRING_PROTOTYPE_GLOBAL_INDEX,
+            let ordinary_prototype = self.emit_load_required_resolved_realm_ordinary_prototype(
+                prototype_realm,
+                OrdinaryDefaultPrototype::String,
+                function,
+            );
+            self.emit_install_resolved_realm_ordinary_prototype(
+                ordinary_prototype,
                 proto_payload_local,
+                proto_tag_local,
                 function,
             );
             function.instruction(&Instruction::End);
@@ -3188,11 +3228,15 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(number_constructor_table_index));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_load_realm_intrinsic_prototype_or_global(
-                prototype_realm.index(),
-                HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
-                NUMBER_PROTOTYPE_GLOBAL_INDEX,
+            let ordinary_prototype = self.emit_load_required_resolved_realm_ordinary_prototype(
+                prototype_realm,
+                OrdinaryDefaultPrototype::Number,
+                function,
+            );
+            self.emit_install_resolved_realm_ordinary_prototype(
+                ordinary_prototype,
                 proto_payload_local,
+                proto_tag_local,
                 function,
             );
             function.instruction(&Instruction::End);
@@ -3202,11 +3246,15 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(boolean_constructor_table_index));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_load_realm_intrinsic_prototype_or_global(
-                prototype_realm.index(),
-                HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
-                BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
+            let ordinary_prototype = self.emit_load_required_resolved_realm_ordinary_prototype(
+                prototype_realm,
+                OrdinaryDefaultPrototype::Boolean,
+                function,
+            );
+            self.emit_install_resolved_realm_ordinary_prototype(
+                ordinary_prototype,
                 proto_payload_local,
+                proto_tag_local,
                 function,
             );
             function.instruction(&Instruction::End);
@@ -4420,6 +4468,70 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(candidate_local);
         self.release_temp_local(intrinsics_local);
+    }
+
+    /// Load a required ordinary-object intrinsic from a realm proven by
+    /// `GetFunctionRealm`.
+    ///
+    /// A resolved ECMAScript realm always has an intrinsic record and every
+    /// intrinsic in [`OrdinaryDefaultPrototype`]. Missing backend bootstrap
+    /// state is therefore an internal invariant failure, never permission to
+    /// substitute an entry-realm global.
+    fn emit_load_required_resolved_realm_ordinary_prototype(
+        &mut self,
+        realm: ResolvedFunctionRealmLocal,
+        intrinsic: OrdinaryDefaultPrototype,
+        function: &mut Function,
+    ) -> ResolvedRealmOrdinaryPrototypeLocal {
+        let prototype_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(realm.index()));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            realm.index(),
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            intrinsic.offset(),
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(prototype_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(intrinsics_local);
+        ResolvedRealmOrdinaryPrototypeLocal(prototype_local)
+    }
+
+    /// Consume a required ordinary-object prototype and install its payload
+    /// and representation tag as one transition.
+    fn emit_install_resolved_realm_ordinary_prototype(
+        &mut self,
+        prototype: ResolvedRealmOrdinaryPrototypeLocal,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(prototype.0));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.release_temp_local(prototype.0);
     }
 
     /// Load the populated `%Array.prototype%` slot from a realm already
