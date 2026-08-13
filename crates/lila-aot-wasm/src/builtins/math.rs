@@ -47,6 +47,28 @@ enum MathExtremum {
     Maximum,
 }
 
+impl MathExtremum {
+    const fn identity(self) -> f64 {
+        match self {
+            Self::Minimum => f64::INFINITY,
+            Self::Maximum => f64::NEG_INFINITY,
+        }
+    }
+
+    fn emit_combine(self, accumulator_local: u32, argument_local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(accumulator_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(argument_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        match self {
+            Self::Minimum => function.instruction(&Instruction::F64Min),
+            Self::Maximum => function.instruction(&Instruction::F64Max),
+        };
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(accumulator_local));
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
     fn emit_math_extremum_builtin(
         &mut self,
@@ -55,75 +77,43 @@ impl<'a> FunctionBuilder<'a> {
         arg_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let identity = match extremum {
-            MathExtremum::Minimum => f64::INFINITY,
-            MathExtremum::Maximum => f64::NEG_INFINITY,
-        };
-        function.instruction(&Instruction::F64Const(Ieee64::from(identity)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::Else);
-        self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-        self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_builtin_arg_to_locals(1, arg_payload_local, arg_tag_local, function);
-        self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(arg_payload_local));
-        self.emit_math_extremum_combine_result(extremum, arg_payload_local, function);
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_builtin_arg_to_locals(2, arg_payload_local, arg_tag_local, function);
-        self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(arg_payload_local));
-        self.emit_math_extremum_combine_result(extremum, arg_payload_local, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
+        let argument_index_local = self.reserve_temp_local();
 
-    fn emit_math_extremum_combine_result(
-        &mut self,
-        extremum: MathExtremum,
-        arg_payload_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
+        function.instruction(&Instruction::F64Const(Ieee64::from(extremum.identity())));
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(arg_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        match extremum {
-            MathExtremum::Minimum => function.instruction(&Instruction::F64Min),
-            MathExtremum::Maximum => function.instruction(&Instruction::F64Max),
-        };
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(argument_index_local));
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(argument_index_local));
+        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+
+        self.emit_array_read(
+            self.argv_param_local(),
+            argument_index_local,
+            arg_payload_local,
+            arg_tag_local,
+            function,
+        );
+        self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(arg_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        extremum.emit_combine(self.result_local, arg_payload_local, function);
+
+        function.instruction(&Instruction::LocalGet(argument_index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(argument_index_local));
+        function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(argument_index_local);
+        Ok(())
     }
 
     pub(super) fn emit_math(

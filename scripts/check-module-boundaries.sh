@@ -518,6 +518,88 @@ require_fixed_string_count crates/lila-aot-wasm/src/expressions.rs "$uint32_call
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$uint32_call" 1 'ToUint32 authority call'
 require_fixed_string_count crates/lila-aot-wasm/src/operations.rs "$uint32_call" 4 'ToUint32 authority call'
 
+# T20's variadic Math extremum walk. The call ABI already owns an arbitrary
+# argc/argv domain, so min/max must consume the runtime vector rather than grow
+# another reviewed-looking finite prefix. The private enum owns the paired
+# identity/reduction decisions; the loop owns every argument conversion.
+math_extremum_file="crates/lila-aot-wasm/src/builtins/math.rs"
+require_fixed_string_count "$math_extremum_file" 'enum MathExtremum {' 1 'closed Math extremum domain'
+require_fixed_string_count "$math_extremum_file" 'fn identity(self) -> f64 {' 1 'Math extremum identity projection'
+require_fixed_string_count "$math_extremum_file" 'fn emit_combine(' 1 'Math extremum reduction projection'
+require_fixed_string_count "$math_extremum_file" 'emit_math_extremum_builtin(' 3 'Math extremum definition/min/max consumers'
+
+math_extremum_body="$(sed -n \
+  '/^    fn emit_math_extremum_builtin(/,/^    pub(super) fn emit_math(/p' \
+  "$math_extremum_file")"
+for variadic_extremum_step in \
+  'extremum.identity()' \
+  'Instruction::Loop(BlockType::Empty)' \
+  'self.argv_param_local()' \
+  'self.argc_param_local()' \
+  'Instruction::I64GeU' \
+  'Instruction::BrIf(1)' \
+  'self.emit_value_to_number_payload(' \
+  'self.emit_return_current_completion_if_throw(function)' \
+  'extremum.emit_combine('
+do
+  if ! grep -Fq "$variadic_extremum_step" <<<"$math_extremum_body"; then
+    fail "Math min/max variadic walk lost $variadic_extremum_step"
+  fi
+done
+if grep -Fq 'emit_builtin_arg_to_locals(' <<<"$math_extremum_body"; then
+  fail 'Math min/max must not reconstruct a fixed argument-index prefix'
+fi
+for extremum_instruction_count in \
+  'Instruction::LocalGet(argument_index_local)|2' \
+  'Instruction::I64Const(1)|1' \
+  'Instruction::I64Add|1' \
+  'Instruction::LocalSet(argument_index_local)|2' \
+  'Instruction::Br(0)|1'
+do
+  extremum_instruction="${extremum_instruction_count%|*}"
+  expected_extremum_count="${extremum_instruction_count##*|}"
+  actual_extremum_count="$(grep -Fc "$extremum_instruction" <<<"$math_extremum_body" || true)"
+  if [ "$actual_extremum_count" -ne "$expected_extremum_count" ]; then
+    fail "Math min/max variadic walk must contain exactly $expected_extremum_count $extremum_instruction instruction(s)"
+  fi
+done
+math_extremum_increment_sequence='        function.instruction(&Instruction::LocalGet(argument_index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(argument_index_local));
+        function.instruction(&Instruction::Br(0));'
+if ! grep -Fq "$math_extremum_increment_sequence" <<<"$math_extremum_body"; then
+  fail 'Math min/max reduction must advance the argument index and take the loop backedge as one exact sequence'
+fi
+if ! awk '
+  /self\.emit_value_to_number_payload\(/ && !convert { convert = NR }
+  /Instruction::LocalSet\(arg_payload_local\)/ && convert && !store { store = NR }
+  /self\.emit_return_current_completion_if_throw\(function\)/ && !route { route = NR }
+  /extremum\.emit_combine\(/ && !combine { combine = NR }
+  /Instruction::LocalGet\(argument_index_local\)/ && combine && !increment_get { increment_get = NR }
+  /Instruction::I64Const\(1\)/ && increment_get && !increment_one { increment_one = NR }
+  /Instruction::I64Add/ && increment_one && !increment_add { increment_add = NR }
+  /Instruction::LocalSet\(argument_index_local\)/ && increment_add && !increment_store { increment_store = NR }
+  /Instruction::Br\(0\)/ && increment_store && !backedge { backedge = NR }
+  END {
+    exit !(convert && store && route && combine && increment_get && increment_one &&
+      increment_add && increment_store && backedge && convert < store &&
+      store < route && route < combine && combine < increment_get &&
+      increment_get < increment_one && increment_one < increment_add &&
+      increment_add < increment_store && increment_store < backedge)
+  }
+' <<<"$math_extremum_body"; then
+  fail 'Math min/max must route abrupt ToNumber completion, reduce, advance and branch in exact order'
+fi
+require_fixed_string_count \
+  crates/lila-cli/tests/cli/language_numerics.rs \
+  'fn run_wasm_backend_succeeds_for_math_extremum_argument_reduction()' \
+  1 \
+  'Math extremum variadic CLI regression'
+if [ ! -f crates/lila-cli/tests/fixtures/wasm_math_min_max_arity.js ]; then
+  fail 'Math extremum variadic fixture must remain present'
+fi
+
 # T11's direct [[GetOwnProperty]] observations. One typed authority owns the
 # representation split used by the value-free public descriptor/Has/Delete
 # fact and the richer Proxy-Get/Proxy-Set projections. Array-only or

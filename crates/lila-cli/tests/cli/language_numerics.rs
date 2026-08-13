@@ -583,7 +583,7 @@ fn run_wasm_backend_preserves_exact_number_int32_conversions() {
 }
 
 #[test]
-fn run_wasm_backend_succeeds_for_math_min_max_arity_fixture() {
+fn run_wasm_backend_succeeds_for_math_extremum_argument_reduction() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")
@@ -592,7 +592,11 @@ fn run_wasm_backend_succeeds_for_math_min_max_arity_fixture() {
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));

@@ -60,7 +60,16 @@ engine path without making production output constant. The central
 feature-enabled CLI compile is green, as are focused checks for the typed host
 import, injected provider, and BigInt bitwise CLI fixture. The full Number,
 BigInt, Math and JSON current-pin trees have not met this task's shortcut-free
-acceptance gate. The JSON reviver frame protocol now has a theory source of
+acceptance gate. The Math extremum backend now consumes the complete runtime
+argument vector for `Math.min` and `Math.max` instead of a three-argument
+prefix. One closed operation domain owns each identity and Wasm reduction,
+while the loop applies `ToNumber` left-to-right to every argument even after
+`NaN`; abrupt conversion stops the walk unchanged. The focused
+[extremum-reduction contract](../docs/rust-rewrite/contracts/math-extremum-argument-reduction.md)
+and CLI fixture cover arguments beyond the old cap, signed zero, later
+coercion and later abrupt completion. This batch has run only static gates for
+that seam while the repository-wide conformance matrix owns the verifier. The
+JSON reviver frame protocol now has a theory source of
 truth at `docs/rust-rewrite/contracts/json-reviver-frame.md`. Its dynamic frame
 stores closed typed states and an explicit nested-versus-root property role;
 exhaustive emission gives every valid wire word a semantic arm and traps an
