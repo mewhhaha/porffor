@@ -5418,7 +5418,22 @@ report;
         let outcome = engine
             .run_script(
                 r#"
+let dateArgumentConversions = 0;
+const ignoredDateArgument = {
+  valueOf() {
+    dateArgumentConversions += 1;
+    throw new Error("Date function arguments must not be converted");
+  }
+};
+class ClockDate extends Date {}
+const currentDateString = "Sat Jan 01 2022 00:00:00 GMT+0000 (Coordinated Universal Time)";
+
 Date.now() === 1640995200123
+  && new Date().getTime() === 1640995200123
+  && new ClockDate().getTime() === 1640995200123
+  && Date() === currentDateString
+  && Date(ignoredDateArgument) === currentDateString
+  && dateArgumentConversions === 0
   && Temporal.Now.instant().epochMilliseconds === 1640995200123
   && __lilaAgentMonotonicNow() === 5
   && __lilaAgentMonotonicNow() === 10;

@@ -1446,10 +1446,11 @@ mod tests {
     }
 
     #[test]
-    fn temporal_now_clock_readers_declare_the_wall_clock_import() {
+    fn date_and_temporal_clock_readers_declare_the_wall_clock_import() {
+        assert!(StandardBuiltinId::DateConstructor.requires_wall_clock());
+        assert!(StandardBuiltinId::DateNow.requires_wall_clock());
         assert!(StandardBuiltinId::TemporalNowInstant.requires_wall_clock());
         assert!(StandardBuiltinId::TemporalNowZonedDateTimeIso.requires_wall_clock());
-        assert!(StandardBuiltinId::DateNow.requires_wall_clock());
         // `timeZoneId` answers from a constant string, so it must not drag the
         // host import in.
         assert!(!StandardBuiltinId::TemporalNowTimeZoneId.requires_wall_clock());

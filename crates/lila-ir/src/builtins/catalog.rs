@@ -1718,7 +1718,7 @@ standard_builtin_catalog! {
         global: GlobalOrdinal(9),
         global_name: DATE_NAME,
         debug: DATE_NAME,
-        flags: [CONSTRUCTABLE],
+        flags: [WALL_CLOCK, CONSTRUCTABLE],
         installer: Date,
         native: DATE_NAME,
     }

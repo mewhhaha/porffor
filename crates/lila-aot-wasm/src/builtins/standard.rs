@@ -24852,19 +24852,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(typed_array_brand_local);
             }
             StandardBuiltinId::DateNow => {
-                let wall_clock_millis_import_function_index = self
-                    .functions
-                    .wall_clock_millis_import_function_index()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "Date.now requires the lila_host.wall_clock_millis import",
-                        )
-                    })?;
-                function.instruction(&Instruction::Call(wall_clock_millis_import_function_index));
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_date_now(function)?;
             }
             StandardBuiltinId::DateParse => {
                 let value_payload_local = self.reserve_temp_local();
@@ -25553,13 +25541,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function
-                    .instruction(&Instruction::I64Const(self.strings.payload(
-                        "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)",
-                    )));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_date_function_call(function)?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
 
@@ -25567,9 +25549,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(value_payload_local));
+                self.emit_date_current_time_payload(value_payload_local, function)?;
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::LocalGet(self.argc_param_local()));
                 function.instruction(&Instruction::I64Const(1));

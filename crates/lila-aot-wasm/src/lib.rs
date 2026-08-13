@@ -2483,17 +2483,24 @@ pick(true);"#,
     }
 
     #[test]
-    fn date_now_module_imports_wall_clock_milliseconds() {
-        let artifact = emit_script("Date.now();").expect("Date.now script should emit");
+    fn date_current_time_consumers_import_wall_clock_milliseconds() {
+        for (source, consumer) in [
+            ("Date.now();", "Date.now"),
+            ("Date();", "Date function call"),
+            ("new Date();", "zero-argument Date construction"),
+        ] {
+            let artifact = emit_script(source)
+                .unwrap_or_else(|error| panic!("{consumer} script should emit: {error}"));
 
-        expect_valid_module(&artifact, 0);
-        assert!(
-            artifact
-                .debug_dump
-                .contains("import func: lila_host.wall_clock_millis"),
-            "{}",
-            artifact.debug_dump
-        );
+            expect_valid_module(&artifact, 0);
+            assert!(
+                artifact
+                    .debug_dump
+                    .contains("import func: lila_host.wall_clock_millis"),
+                "{consumer} omitted its clock import:\n{}",
+                artifact.debug_dump
+            );
+        }
 
         let artifact = emit_script("262;").expect("constant script should emit");
         assert!(
@@ -2503,6 +2510,40 @@ pick(true);"#,
             "{}",
             artifact.debug_dump
         );
+    }
+
+    #[test]
+    fn date_clock_import_access_is_centralized_in_date_builtins() {
+        let date_source = include_str!("builtins/date.rs");
+        let standard_source = include_str!("builtins/standard.rs");
+        let date_now_dispatch = standard_source
+            .split_once("StandardBuiltinId::DateNow => {")
+            .expect("Date.now dispatch arm should exist")
+            .1
+            .split_once("StandardBuiltinId::DateParse => {")
+            .expect("Date.now dispatch arm should be bounded")
+            .0;
+        let date_constructor_dispatch = standard_source
+            .split_once("StandardBuiltinId::DateConstructor => {")
+            .expect("Date constructor dispatch arm should exist")
+            .1
+            .split_once("StandardBuiltinId::DatePrototypeGetTime")
+            .expect("Date constructor dispatch arm should be bounded")
+            .0;
+
+        assert_eq!(
+            date_source
+                .matches(".wall_clock_millis_import_function_index()")
+                .count(),
+            1,
+            "Date must have one clock-import access point"
+        );
+        for dispatch in [date_now_dispatch, date_constructor_dispatch] {
+            assert!(
+                !dispatch.contains(".wall_clock_millis_import_function_index()"),
+                "Date dispatch must route clock reads through the closed source in date.rs"
+            );
+        }
     }
 
     #[test]

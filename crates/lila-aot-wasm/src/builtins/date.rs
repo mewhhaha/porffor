@@ -7,7 +7,89 @@ enum DateLocalStringFormat {
     DateAndTime,
 }
 
+impl DateLocalStringFormat {
+    const fn includes_date(self) -> bool {
+        match self {
+            Self::Date | Self::DateAndTime => true,
+            Self::Time => false,
+        }
+    }
+
+    const fn includes_time(self) -> bool {
+        match self {
+            Self::Time | Self::DateAndTime => true,
+            Self::Date => false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DateTimeValueSource {
+    ReceiverSlot { payload_local: u32, tag_local: u32 },
+    RealmHostClock,
+}
+
 impl<'a> FunctionBuilder<'a> {
+    fn emit_date_time_value_from_source(
+        &mut self,
+        source: DateTimeValueSource,
+        dest_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match source {
+            DateTimeValueSource::ReceiverSlot {
+                payload_local,
+                tag_local,
+            } => {
+                self.emit_date_value_payload(payload_local, tag_local, dest_payload_local, function)
+            }
+            DateTimeValueSource::RealmHostClock => {
+                let wall_clock_millis_import_function_index = self
+                    .functions
+                    .wall_clock_millis_import_function_index()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "Date current time requires the lila_host.wall_clock_millis import",
+                        )
+                    })?;
+                function.instruction(&Instruction::Call(wall_clock_millis_import_function_index));
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(dest_payload_local));
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn emit_date_current_time_payload(
+        &mut self,
+        dest_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_date_time_value_from_source(
+            DateTimeValueSource::RealmHostClock,
+            dest_payload_local,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_date_now(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_date_current_time_payload(self.result_local, function)?;
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        Ok(())
+    }
+
+    pub(crate) fn emit_date_function_call(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_date_local_string(
+            DateTimeValueSource::RealmHostClock,
+            DateLocalStringFormat::DateAndTime,
+            function,
+        )
+    }
+
     pub(crate) fn emit_date_value_payload(
         &mut self,
         object_payload_local: u32,
@@ -1518,6 +1600,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_date_local_string(
         &mut self,
+        source: DateTimeValueSource,
         format: DateLocalStringFormat,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1534,12 +1617,7 @@ impl<'a> FunctionBuilder<'a> {
         let piece_payload_local = self.reserve_temp_local();
         let absolute_year_payload_local = self.reserve_temp_local();
 
-        self.emit_date_value_payload(
-            self.this_payload_local.unwrap(),
-            self.this_tag_local.unwrap(),
-            time_payload_local,
-            function,
-        )?;
+        self.emit_date_time_value_from_source(source, time_payload_local, function)?;
         function.instruction(&Instruction::LocalGet(time_payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::LocalGet(time_payload_local));
@@ -1564,10 +1642,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("")));
         function.instruction(&Instruction::LocalSet(output_payload_local));
 
-        if matches!(
-            format,
-            DateLocalStringFormat::Date | DateLocalStringFormat::DateAndTime
-        ) {
+        if format.includes_date() {
             self.emit_date_day_from_time(time_payload_local, weekday_payload_local, function);
             function.instruction(&Instruction::LocalGet(weekday_payload_local));
             function.instruction(&Instruction::F64ReinterpretI64);
@@ -1689,7 +1764,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
 
-        if matches!(format, DateLocalStringFormat::DateAndTime) {
+        if format.includes_date() && format.includes_time() {
             function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
             function.instruction(&Instruction::LocalSet(piece_payload_local));
             self.emit_concat_string_payloads_local(
@@ -1700,10 +1775,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(output_payload_local));
         }
 
-        if matches!(
-            format,
-            DateLocalStringFormat::Time | DateLocalStringFormat::DateAndTime
-        ) {
+        if format.includes_time() {
             for (component_payload_local, separator) in [
                 (hour_payload_local, ":"),
                 (minute_payload_local, ":"),
@@ -1758,18 +1830,39 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_date_local_string(DateLocalStringFormat::Date, function)
+        self.emit_date_local_string(
+            DateTimeValueSource::ReceiverSlot {
+                payload_local: self.this_payload_local.unwrap(),
+                tag_local: self.this_tag_local.unwrap(),
+            },
+            DateLocalStringFormat::Date,
+            function,
+        )
     }
 
     pub(crate) fn emit_date_to_time_string(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_date_local_string(DateLocalStringFormat::Time, function)
+        self.emit_date_local_string(
+            DateTimeValueSource::ReceiverSlot {
+                payload_local: self.this_payload_local.unwrap(),
+                tag_local: self.this_tag_local.unwrap(),
+            },
+            DateLocalStringFormat::Time,
+            function,
+        )
     }
 
     pub(crate) fn emit_date_to_string(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        self.emit_date_local_string(DateLocalStringFormat::DateAndTime, function)
+        self.emit_date_local_string(
+            DateTimeValueSource::ReceiverSlot {
+                payload_local: self.this_payload_local.unwrap(),
+                tag_local: self.this_tag_local.unwrap(),
+            },
+            DateLocalStringFormat::DateAndTime,
+            function,
+        )
     }
 
     pub(crate) fn emit_date_to_utc_string(

@@ -20,6 +20,15 @@ and the Test262 agent monotonic operation all consume that boundary without
 changing their Wasm ABI. Engine compilation, timeout and sleep machinery still
 uses real execution-control timers and is deliberately not virtualized.
 
+Date's remaining current-time consumers now share that boundary too. A private,
+exhaustive `DateTimeValueSource` distinguishes a branded receiver slot from the
+realm host clock; `Date()`, zero-argument `new Date()` and `Date.now()` all take
+the clock arm, while prototype string methods take the receiver arm. The Date
+constructor's catalog entry carries the load-bearing wall-clock capability, and
+an injected nonzero clock regression prevents the function and constructor from
+agreeing only because both substituted the Unix epoch. This does not change the
+UTC/fixed-offset limitation of local Date formatting.
+
 The default time-zone boundary is not implemented yet. Current AOT Date local
 operations and `Temporal.Now` defaults remain UTC/fixed-offset behavior.
 `lila-intl` owns the closed `CanonicalTimeZoneId` domain, but no canonical zone
