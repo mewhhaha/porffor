@@ -228,22 +228,22 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric, URI and
-# Error
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric, URI,
+# Error and JSON
 # builtin body boundaries. The exhaustive StandardBuiltinId dispatch remains in
 # standard.rs, but family bodies are one-line delegates so unrelated builtin
 # work no longer collides with ~11k lines of Object descriptor/prototype
 # implementation, the Proxy lifecycle, the Math emitter family, Symbol's
 # registry/prototype implementation or BigInt's constructor, fixed-width and
 # prototype implementation, Boolean's constructor and prototype receiver
-# logic, or the Error intrinsic family. The two coercing global numeric
-# predicates and the six global URI and Annex-B codec wrappers likewise stay
-# out of the shared dispatcher.
+# logic, the Error intrinsic family, or JSON's parse/stringify/raw-JSON
+# wrappers. The two coercing global numeric predicates and the six global URI
+# and Annex-B codec wrappers likewise stay out of the shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after Error extraction: 34,948 raw lines. This keeps
-# roughly the same small dispatch-only margin as the prior 35,575-line cap;
+# Measured immediately after JSON extraction: 34,461 raw lines. This keeps
+# roughly the same small dispatch-only margin as the prior 35,150-line cap;
 # substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 35150
+check_raw_line_budget "$wasm_standard_builtins" 34675
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
@@ -318,6 +318,21 @@ require_fixed_string_count \
 # lines. The narrow margin is
 # for maintenance of this family, not adjacent builtin implementations.
 check_raw_line_budget "$wasm_error_builtins" 1700
+
+wasm_json_builtins="crates/lila-aot-wasm/src/builtins/json.rs"
+check_no_inline_legacy_includes "$wasm_json_builtins"
+if ! grep -q '^pub(super) enum JsonBuiltin' "$wasm_json_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_json_builtins"; then
+  fail "$wasm_json_builtins must dispatch through the closed JsonBuiltin domain"
+fi
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  'self.emit_json_builtin(' \
+  4 \
+  'JSON builtin delegate'
+# Measured immediately after extraction: 9,274 raw lines. The narrow margin is
+# for maintenance of JSON machinery, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_json_builtins" 9400
 
 # The Temporal record/constructor/accessor vs prototype-method-body boundary.
 # `temporal.rs` and `temporal_plain_date_time.rs` hold the heap record, the

@@ -19,7 +19,7 @@ hotspots.
 
 ### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Eleven previously coupled builtin stores now have separate owners:
+Twelve previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -81,6 +81,13 @@ Eleven previously coupled builtin stores now have separate owners:
   `StandardBuiltinId` values cannot reach this family emitter. Eleven typed
   delegates preserve the catalog dispatch without duplicating the error-kind
   registry, and `standard.rs` fell from 35,372 to 34,948 lines.
+- `lila-aot-wasm/src/builtins/json.rs` owns all four JSON namespace bodies
+  alongside the parse, reviver, stringify and raw-JSON machinery they already
+  consume. A private closed `JsonBuiltin` domain covers `parse`, `stringify`,
+  `rawJSON` and `isRawJSON`; hidden static-JSON lowering and runtime helpers
+  remain implementation details rather than pretend namespace members. Four
+  typed delegates preserve the flat catalog dispatch, and `standard.rs` fell
+  from 34,948 to 34,461 lines.
 
 The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
 and `lila-intl`, and the focused builtin catalog tests pass for the moves that
@@ -113,6 +120,10 @@ its only semantic-free rewrites replace raw builtin-ID tests with the closed
 cross-realm, static predicate and prototype-method fixtures, and real Error,
 NativeErrors, AggregateError and SuppressedError shards remain queued behind
 the same matrix run.
+The JSON move is a verbatim body extraction after normalizing only the closed
+enum path and rustfmt layout. Its compile, focused parse/reviver, stringify,
+raw-JSON and cross-realm gates, and real `built-ins/JSON` shard remain queued
+behind the same matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
@@ -143,9 +154,9 @@ bounded owners:
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
 - **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric,
-  URI and Error 2026-08-13:** their bodies are family modules; Reflect already has
-  the same boundary. Other large inline families should follow the same
-  exhaustive-delegate shape.
+  URI, Error and JSON 2026-08-13:** their bodies are family modules; Reflect
+  already has the same boundary. Other large inline families should follow the
+  same exhaustive-delegate shape.
 
 ### Landed 2026-08-12: catalog-owned bootstrap routing
 

@@ -1,5 +1,13 @@
 use super::super::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum JsonBuiltin {
+    Parse,
+    Stringify,
+    RawJson,
+    IsRawJson,
+}
+
 const JSON_PARSE_FRAME_SIZE: u64 = 48;
 const JSON_PARSE_FRAME_PAYLOAD_OFFSET: u64 = 0;
 const JSON_PARSE_FRAME_TAG_OFFSET: u64 = 8;
@@ -67,6 +75,514 @@ fn json_static_primitive_source(value: &JsonStaticValueIr) -> Option<&str> {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    pub(super) fn emit_json_builtin(
+        &mut self,
+        builtin: JsonBuiltin,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match builtin {
+            JsonBuiltin::Parse => {
+                let text_payload_local = self.reserve_temp_local();
+                let text_tag_local = self.reserve_temp_local();
+                let reviver_payload_local = self.reserve_temp_local();
+                let reviver_tag_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let key_payload_local = self.reserve_temp_local();
+                let root_payload_local = self.reserve_temp_local();
+                let root_tag_local = self.reserve_temp_local();
+                let parsed_string_flag_local = self.reserve_temp_local();
+                let reviver_callable_local = self.reserve_temp_local();
+                let root_metadata_local = self.reserve_temp_local();
+                let parse_float_meta = self
+                    .functions
+                    .get(HOST_PARSE_FLOAT_FUNCTION_ID)
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `parseFloat`",
+                        )
+                    })?;
+
+                self.emit_builtin_arg_to_locals(0, text_payload_local, text_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    1,
+                    reviver_payload_local,
+                    reviver_tag_local,
+                    function,
+                );
+                self.emit_value_to_string_payload(text_payload_local, text_tag_local, function)?;
+                function.instruction(&Instruction::LocalSet(text_payload_local));
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_is_callable_i32(reviver_tag_local, reviver_payload_local, function)?;
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(reviver_callable_local));
+
+                self.emit_try_parse_json_text(
+                    text_payload_local,
+                    value_payload_local,
+                    value_tag_local,
+                    parsed_string_flag_local,
+                    reviver_callable_local,
+                    root_metadata_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(parsed_string_flag_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_validate_json_parse_no_raw_string_controls(text_payload_local, function)?;
+                self.emit_validate_json_parse_no_structural_trailing_commas(
+                    text_payload_local,
+                    function,
+                )?;
+                self.emit_try_parse_json_string_text(
+                    text_payload_local,
+                    value_payload_local,
+                    value_tag_local,
+                    parsed_string_flag_local,
+                    function,
+                )?;
+                self.emit_try_parse_json_keyword_text(
+                    text_payload_local,
+                    value_payload_local,
+                    value_tag_local,
+                    parsed_string_flag_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(parsed_string_flag_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_validate_json_parse_number_text(text_payload_local, function)?;
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(text_tag_local));
+
+                self.emit_direct_js_call(
+                    &parse_float_meta,
+                    None,
+                    &[(text_payload_local, text_tag_local)],
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(reviver_callable_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(self.strings.payload("")));
+                function.instruction(&Instruction::LocalSet(key_payload_local));
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(root_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(root_tag_local));
+                self.emit_object_define_enumerable_data(
+                    root_payload_local,
+                    key_payload_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_json_internalize_dynamic(
+                    root_payload_local,
+                    root_tag_local,
+                    root_metadata_local,
+                    reviver_payload_local,
+                    reviver_tag_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(root_metadata_local);
+                self.release_temp_local(reviver_callable_local);
+                self.release_temp_local(parsed_string_flag_local);
+                self.release_temp_local(root_tag_local);
+                self.release_temp_local(root_payload_local);
+                self.release_temp_local(key_payload_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(reviver_tag_local);
+                self.release_temp_local(reviver_payload_local);
+                self.release_temp_local(text_tag_local);
+                self.release_temp_local(text_payload_local);
+            }
+            JsonBuiltin::Stringify => {
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+                let replacer_payload_local = self.reserve_temp_local();
+                let replacer_tag_local = self.reserve_temp_local();
+                let key_payload_local = self.reserve_temp_local();
+                let key_tag_local = self.reserve_temp_local();
+                let wrapper_payload_local = self.reserve_temp_local();
+                let wrapper_tag_local = self.reserve_temp_local();
+                let space_payload_local = self.reserve_temp_local();
+                let space_tag_local = self.reserve_temp_local();
+                let gap_payload_local = self.reserve_temp_local();
+                let gap_start_local = self.reserve_temp_local();
+                let gap_len_local = self.reserve_temp_local();
+                let space_boxed_kind_local = self.reserve_temp_local();
+                let stringify_realm_local = self.reserve_temp_local();
+                let root_seen_local = self.reserve_temp_local();
+                self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
+                self.emit_builtin_arg_to_locals(
+                    1,
+                    replacer_payload_local,
+                    replacer_tag_local,
+                    function,
+                );
+                self.emit_builtin_arg_to_locals(2, space_payload_local, space_tag_local, function);
+                function.instruction(&Instruction::I64Const(self.strings.payload("")));
+                function.instruction(&Instruction::LocalSet(gap_payload_local));
+                self.emit_json_normalize_replacer_array(
+                    replacer_payload_local,
+                    replacer_tag_local,
+                    function,
+                )?;
+
+                function.instruction(&Instruction::LocalGet(space_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    space_payload_local,
+                    HEAP_OBJECT_BOXED_KIND_OFFSET,
+                    space_boxed_kind_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(space_boxed_kind_local));
+                function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_STRING as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_json_boxed_object_to_primitive_payload(
+                    space_payload_local,
+                    ToPrimitiveHint::String,
+                    space_payload_local,
+                    space_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(space_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Cannot convert a Symbol value to a string",
+                    space_payload_local,
+                    space_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_primitive_to_string_payload(
+                    space_payload_local,
+                    space_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(space_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(space_tag_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(space_boxed_kind_local));
+                function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_NUMBER as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_json_boxed_object_to_primitive_payload(
+                    space_payload_local,
+                    ToPrimitiveHint::Number,
+                    space_payload_local,
+                    space_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(space_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Cannot convert BigInt to number",
+                    space_payload_local,
+                    space_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(space_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Cannot convert Symbol to number",
+                    space_payload_local,
+                    space_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_primitive_to_number_payload(
+                    space_tag_local,
+                    space_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(space_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(space_tag_local));
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(space_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(10));
+                function.instruction(&Instruction::LocalSet(gap_len_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(gap_start_local));
+                self.emit_utf16_code_unit_range_payload_from_locals(
+                    space_payload_local,
+                    gap_start_local,
+                    gap_len_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(gap_payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(space_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(gap_start_local));
+                function.instruction(&Instruction::LocalGet(space_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                function.instruction(&Instruction::F64Gt);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(space_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(10.0)));
+                function.instruction(&Instruction::F64Gt);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(10));
+                function.instruction(&Instruction::LocalSet(gap_len_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(space_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncSatF64U);
+                function.instruction(&Instruction::LocalSet(gap_len_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(gap_len_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("          ")));
+                function.instruction(&Instruction::LocalSet(gap_payload_local));
+                self.emit_string_slice_payload_from_locals(
+                    gap_payload_local,
+                    gap_start_local,
+                    gap_len_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(gap_payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(self.strings.payload("")));
+                function.instruction(&Instruction::LocalSet(key_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(key_tag_local));
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(wrapper_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(wrapper_tag_local));
+                self.emit_object_define_enumerable_data(
+                    wrapper_payload_local,
+                    key_payload_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(stringify_realm_local));
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.load_i64_to_local_from_offset(
+                    self.current_env_local,
+                    HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+                    stringify_realm_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+                self.emit_json_create_seen_root(stringify_realm_local, root_seen_local, function)?;
+                self.emit_json_apply_to_json(
+                    value_payload_local,
+                    value_tag_local,
+                    key_payload_local,
+                    key_tag_local,
+                    root_seen_local,
+                    function,
+                )?;
+                self.emit_json_apply_replacer_with_this(
+                    replacer_payload_local,
+                    replacer_tag_local,
+                    wrapper_payload_local,
+                    wrapper_tag_local,
+                    key_payload_local,
+                    key_tag_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                self.emit_json_omits_value_i32(value_payload_local, value_tag_local, function)?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Br(1));
+                function.instruction(&Instruction::End);
+                let root_indent_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(root_indent_local));
+                self.emit_json_stringify_value_call(
+                    value_payload_local,
+                    value_tag_local,
+                    replacer_payload_local,
+                    replacer_tag_local,
+                    gap_payload_local,
+                    self.result_local,
+                    root_indent_local,
+                    root_seen_local,
+                    function,
+                )?;
+                self.release_temp_local(root_indent_local);
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+                self.release_temp_local(root_seen_local);
+                self.release_temp_local(stringify_realm_local);
+                self.release_temp_local(space_boxed_kind_local);
+                self.release_temp_local(gap_len_local);
+                self.release_temp_local(gap_start_local);
+                self.release_temp_local(gap_payload_local);
+                self.release_temp_local(space_tag_local);
+                self.release_temp_local(space_payload_local);
+                self.release_temp_local(wrapper_tag_local);
+                self.release_temp_local(wrapper_payload_local);
+                self.release_temp_local(key_tag_local);
+                self.release_temp_local(key_payload_local);
+                self.release_temp_local(replacer_tag_local);
+                self.release_temp_local(replacer_payload_local);
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+            }
+            JsonBuiltin::RawJson => {
+                let object_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let value_payload_local = self.reserve_temp_local();
+                let value_tag_local = self.reserve_temp_local();
+
+                self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Cannot convert a Symbol value to a string",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.emit_value_to_string_payload(value_payload_local, value_tag_local, function)?;
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_validate_json_raw_json_text(value_payload_local, function)?;
+
+                self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+                function.instruction(&Instruction::LocalSet(object_local));
+                self.store_i64_const_at_offset(
+                    object_local,
+                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                    OBJECT_INTERNAL_BRAND_RAW_JSON,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(self.strings.payload("rawJSON")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                self.emit_object_define_data_with_configurable(
+                    object_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    false,
+                    true,
+                    false,
+                    function,
+                )?;
+                self.store_i64_const_at_offset(object_local, HEAP_CAP_OFFSET, 0, function);
+                function.instruction(&Instruction::LocalGet(object_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+                self.release_temp_local(value_tag_local);
+                self.release_temp_local(value_payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(object_local);
+            }
+            JsonBuiltin::IsRawJson => {
+                let arg_payload_local = self.reserve_temp_local();
+                let arg_tag_local = self.reserve_temp_local();
+                let brand_local = self.reserve_temp_local();
+                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(arg_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    arg_payload_local,
+                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                    brand_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(brand_local));
+                function.instruction(&Instruction::I64Const(
+                    OBJECT_INTERNAL_BRAND_RAW_JSON as i64,
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.release_temp_local(brand_local);
+                self.release_temp_local(arg_tag_local);
+                self.release_temp_local(arg_payload_local);
+            }
+        }
+        Ok(())
+    }
+
     fn json_static_value_to_expr(value: &JsonStaticValueIr) -> TypedExpr {
         match value {
             JsonStaticValueIr::Null { .. } => {
