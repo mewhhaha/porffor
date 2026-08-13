@@ -10986,8 +10986,36 @@ target[Symbol.iterator];"#,
                 DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
             ),
             (
+                "eval(`source`);",
+                DynamicSourceGap::aot_known_source(DynamicSourceKind::DirectEval),
+            ),
+            (
+                "eval('sou' + ('rce'));",
+                DynamicSourceGap::aot_known_source(DynamicSourceKind::DirectEval),
+            ),
+            (
+                "eval(String('source'));",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
+            ),
+            (
+                "eval(true ? 'source' : 'other');",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
+            ),
+            (
                 "Function('return 1');",
                 DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Ordinary,
+                )),
+            ),
+            (
+                "Function('value', `return value`);",
+                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Ordinary,
+                )),
+            ),
+            (
+                "Function('value', String('return value'));",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
                     DynamicFunctionKind::Ordinary,
                 )),
             ),
@@ -11015,6 +11043,42 @@ target[Symbol.iterator];"#,
                     DynamicFunctionKind::AsyncGenerator,
                 )),
             ),
+            (
+                "Function?.('return 1');",
+                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Ordinary,
+                )),
+            ),
+            (
+                "Function?.(String('return 1'));",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Ordinary,
+                )),
+            ),
+            (
+                "Function(...['return 1']);",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Ordinary,
+                )),
+            ),
+            (
+                "new Function(...['return 1']);",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Ordinary,
+                )),
+            ),
+            (
+                "let C = Object.getPrototypeOf(function*() {}).constructor; C?.('yield 1');",
+                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Generator,
+                )),
+            ),
+            (
+                "let C = Object.getPrototypeOf(function*() {}).constructor; C?.(String('yield 1'));",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Generator,
+                )),
+            ),
         ] {
             let program = lower_script(source);
             assert!(
@@ -11026,6 +11090,22 @@ target[Symbol.iterator];"#,
                 program.diagnostics
             );
         }
+    }
+
+    #[test]
+    fn grouped_optional_dynamic_source_prefix_is_accounted_once() {
+        let program = lower_script("(Function?.('return 1'))();");
+        let gaps = program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                matches!(
+                    diagnostic.unsupported_feature(),
+                    Some(UnsupportedFeature::DynamicSource(_))
+                )
+            })
+            .count();
+        assert_eq!(gaps, 1, "{:?}", program.diagnostics);
     }
 
     #[test]
@@ -11048,6 +11128,25 @@ target[Symbol.iterator];"#,
             .expect("script ir should exist")
             .host_builtins
             .contains(&HostBuiltinId::RealmEvalScript));
+
+        let optional_test262 = lower_test262_script(&format!("{name}?.('source');"));
+        assert!(optional_test262.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        let optional_runtime_test262 =
+            lower_test262_script(&format!("{name}?.(String('source'));"));
+        assert!(optional_runtime_test262
+            .diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.unsupported_feature()
+                    == Some(UnsupportedFeature::DynamicSource(
+                        DynamicSourceGap::runtime_source(DynamicSourceKind::RealmEvalScript),
+                    ))
+            }));
 
         let product = lower_script(&source);
         assert!(!product.diagnostics.iter().any(|diagnostic| {

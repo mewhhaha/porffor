@@ -3,7 +3,10 @@ mod dynamic_source;
 mod proxy_traps;
 
 use super::*;
-use dynamic_source::{gap_for_optional_eval, resolved_builtin_call_context, BuiltinCallContext};
+use dynamic_source::{
+    already_accounted_optional_calls, resolved_builtin_call_context, BuiltinCallContext,
+    OptionalCallSource,
+};
 use proxy_traps::{ProxyTrap, ProxyTrapSignature};
 
 /// Reference Records (6.2.5). `Strictness` and `carried_strictness` arrive
@@ -16613,16 +16616,20 @@ impl<'a> ScriptLowerer<'a> {
                 expr: ExprIr::OptionalPropertyChain { target, mut chain },
                 ..
             } => {
+                let source_args = args;
                 let Some(args) = self.lower_call_args_expanding_spread(args) else {
                     return TypedExpr::undefined();
                 };
+                let mut call_sources = already_accounted_optional_calls(&chain);
                 chain.push(OptionalChainOperationIr::Call {
                     args,
                     receiver: OptionalChainCallReceiverIr::ReferenceOrUndefined,
                     shorted: false,
                     boundary_before: true,
                 });
-                let info = self.analyze_optional_property_chain(target.as_ref(), &chain);
+                call_sources.push(OptionalCallSource::Syntax(source_args));
+                let info =
+                    self.analyze_optional_property_chain(target.as_ref(), &chain, &call_sources);
                 return TypedExpr::from_info(info, ExprIr::OptionalPropertyChain { target, chain });
             }
             callee => callee,
@@ -16682,16 +16689,17 @@ impl<'a> ScriptLowerer<'a> {
         }
         let Some(mut function_id) = self.resolve_single_function_target(&callee) else {
             if !callee.function_targets.is_empty() {
+                let source_args = args;
                 let Some(args) = self.lower_call_args_expanding_spread(args) else {
                     return TypedExpr::undefined();
                 };
                 let args_have_spread = Self::call_args_have_spread(&args);
                 let mut result_info: Option<ValueInfo> = None;
                 let function_targets = callee.function_targets.iter().cloned().collect::<Vec<_>>();
-                let rejected_dynamic_source = self.record_dynamic_source_targets(
+                let rejected_dynamic_source = self.record_dynamic_source_call_targets(
+                    &callee,
                     &function_targets,
-                    BuiltinCallContext::Call,
-                    &args,
+                    source_args,
                 );
                 for function_id in &function_targets {
                     let Some(signature) = self.function_signatures.get(function_id).cloned() else {
@@ -18072,7 +18080,7 @@ impl<'a> ScriptLowerer<'a> {
             if self.record_dynamic_source_targets(
                 &callee.function_targets,
                 BuiltinCallContext::Construct,
-                &args,
+                new_expr.arguments(),
             ) {
                 return TypedExpr::undefined();
             }
@@ -18118,23 +18126,16 @@ impl<'a> ScriptLowerer<'a> {
         if StandardBuiltinId::from_function_id(&function_id).is_none()
             && DynamicSourceIntrinsic::from_function_id(&function_id).is_some()
         {
-            let Some(args) = self.lower_call_args_expanding_spread(new_expr.arguments()) else {
-                return TypedExpr::undefined();
-            };
-            self.record_dynamic_source_for_function_id(
-                &function_id,
-                BuiltinCallContext::Construct,
-                &args,
-            );
-            return TypedExpr::undefined();
+            return self.lower_dynamic_source_construct(&function_id, new_expr.arguments());
         }
         if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id) {
             if builtin == StandardBuiltinId::ProxyConstructor {
                 self.observe_proxy_handler_trap_expression_hints(new_expr.arguments());
             }
-            let args = if builtin == StandardBuiltinId::FunctionConstructor
-                || Self::is_typed_array_constructor(builtin)
-            {
+            if builtin == StandardBuiltinId::FunctionConstructor {
+                return self.lower_dynamic_source_construct(&function_id, new_expr.arguments());
+            }
+            let args = if Self::is_typed_array_constructor(builtin) {
                 let Some(args) = self.lower_call_args_expanding_spread(new_expr.arguments()) else {
                     return TypedExpr::undefined();
                 };
@@ -18337,7 +18338,7 @@ impl<'a> ScriptLowerer<'a> {
                 .get(function_id)
                 .cloned()
                 .expect("function signature must exist");
-            if self.record_dynamic_source_for_function_id(function_id, context, &lowered_args) {
+            if self.record_dynamic_source_syntax_args(function_id, context, args) {
                 return (function_id.clone(), Vec::new(), ValueInfo::undefined());
             }
             return (
@@ -18355,7 +18356,7 @@ impl<'a> ScriptLowerer<'a> {
         for arg in args {
             lowered_args.push(self.lower_expression(arg));
         }
-        if self.record_dynamic_source_for_function_id(function_id, context, &lowered_args) {
+        if self.record_dynamic_source_syntax_args(function_id, context, args) {
             return (function_id.clone(), Vec::new(), ValueInfo::undefined());
         }
         if StandardBuiltinId::from_function_id(function_id) == Some(StandardBuiltinId::JsonParse) {
@@ -18727,7 +18728,7 @@ impl<'a> ScriptLowerer<'a> {
         self.record_boxed_builtin_invocation(builtin, context);
         match builtin {
             StandardBuiltinId::EvalFunction | StandardBuiltinId::FunctionConstructor => {
-                self.record_dynamic_source(builtin, context, args);
+                let _ = self.record_runtime_dynamic_source(&builtin.function_id(), context);
                 None
             }
             StandardBuiltinId::PromiseConstructor => {
@@ -22162,34 +22163,24 @@ impl<'a> ScriptLowerer<'a> {
             matches!(operation.kind(), OptionalOperationKind::Call { .. })
         });
         let mut first_call_receiver = OptionalChainCallReceiverIr::ReferenceOrUndefined;
-        let (target, initial_property, is_direct_optional_call) = if starts_with_call {
+        let (target, initial_property) = if starts_with_call {
             match Self::unwrap_parenthesized_expr(optional.target()) {
                 Expression::PropertyAccess(PropertyAccess::Simple(access)) => (
                     self.lower_property_target(access.target()),
                     Some(access.field()),
-                    false,
                 ),
                 Expression::PropertyAccess(PropertyAccess::Private(_)) => {
                     return self.unsupported_expr("optional private call");
                 }
                 Expression::PropertyAccess(PropertyAccess::Super(access)) => {
                     first_call_receiver = OptionalChainCallReceiverIr::CurrentThis;
-                    (self.lower_super_property_access(access), None, false)
+                    (self.lower_super_property_access(access), None)
                 }
-                target => (self.lower_property_target(target), None, true),
+                target => (self.lower_property_target(target), None),
             }
         } else {
-            (self.lower_property_target(optional.target()), None, false)
+            (self.lower_property_target(optional.target()), None)
         };
-
-        if is_direct_optional_call
-            && target
-                .function_targets
-                .contains(&StandardBuiltinId::EvalFunction.function_id())
-        {
-            self.record_dynamic_source_gap(gap_for_optional_eval(optional));
-            return TypedExpr::undefined();
-        }
 
         let nullish_kinds =
             KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null));
@@ -22213,30 +22204,34 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         let mut boundary_before_first_call = false;
-        let (target, mut chain) = if starts_with_call && initial_property.is_none() {
-            match target {
-                TypedExpr {
-                    expr: ExprIr::OptionalPropertyChain { target, chain },
-                    ..
-                } => {
-                    boundary_before_first_call = true;
-                    (*target, chain)
+        let (target, mut chain, mut call_sources) =
+            if starts_with_call && initial_property.is_none() {
+                match target {
+                    TypedExpr {
+                        expr: ExprIr::OptionalPropertyChain { target, chain },
+                        ..
+                    } => {
+                        boundary_before_first_call = true;
+                        let call_sources = already_accounted_optional_calls(&chain);
+                        (*target, chain, call_sources)
+                    }
+                    target => (
+                        target,
+                        Vec::with_capacity(
+                            optional.chain().len() + usize::from(initial_property.is_some()),
+                        ),
+                        Vec::new(),
+                    ),
                 }
-                target => (
+            } else {
+                (
                     target,
                     Vec::with_capacity(
                         optional.chain().len() + usize::from(initial_property.is_some()),
                     ),
-                ),
-            }
-        } else {
-            (
-                target,
-                Vec::with_capacity(
-                    optional.chain().len() + usize::from(initial_property.is_some()),
-                ),
-            )
-        };
+                    Vec::new(),
+                )
+            };
         if let Some(field) = initial_property {
             let Some(key) = self.lower_optional_chain_property_key(field) else {
                 return self.unsupported_expr("unsupported optional computed property key");
@@ -22259,7 +22254,8 @@ impl<'a> ScriptLowerer<'a> {
                     });
                 }
                 OptionalOperationKind::Call { args } => {
-                    let Some(args) = self.lower_call_args_expanding_spread(args) else {
+                    let source_args = args;
+                    let Some(args) = self.lower_call_args_expanding_spread(source_args) else {
                         return TypedExpr::undefined();
                     };
                     chain.push(OptionalChainOperationIr::Call {
@@ -22271,6 +22267,7 @@ impl<'a> ScriptLowerer<'a> {
                         shorted: operation.shorted(),
                         boundary_before: std::mem::take(&mut boundary_before_first_call),
                     });
+                    call_sources.push(OptionalCallSource::Syntax(source_args));
                 }
                 OptionalOperationKind::PrivatePropertyAccess { field } => {
                     let Some(private_name_id) = self.current_private_name_id(*field) else {
@@ -22284,7 +22281,7 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        let info = self.analyze_optional_property_chain(&target, &chain);
+        let info = self.analyze_optional_property_chain(&target, &chain, &call_sources);
         TypedExpr::from_info(
             info,
             ExprIr::OptionalPropertyChain {
@@ -22298,10 +22295,12 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         target: &TypedExpr,
         chain: &[OptionalChainOperationIr],
+        call_sources: &[OptionalCallSource<'_>],
     ) -> ValueInfo {
         let mut current = target.value_info();
         let mut property_receiver = None;
         let mut short_circuit_reaches_result = false;
+        let mut call_sources = call_sources.iter().copied();
 
         for operation in chain {
             match operation {
@@ -22334,6 +22333,7 @@ impl<'a> ScriptLowerer<'a> {
                     shorted,
                     boundary_before,
                 } => {
+                    let source = call_sources.next().expect("missing optional call source");
                     if *boundary_before {
                         // A grouped chain has already produced its value. A nullish path
                         // reaching an ordinary call now throws instead of flowing through
@@ -22350,10 +22350,13 @@ impl<'a> ScriptLowerer<'a> {
                             Some(self.current_this_info.clone())
                         }
                     };
-                    current = self.optional_chain_call_info(&current, call_receiver.as_ref(), args);
+                    current =
+                        self.optional_call_info(&current, call_receiver.as_ref(), args, source);
                 }
             }
         }
+
+        assert!(call_sources.next().is_none(), "extra optional call source");
 
         if short_circuit_reaches_result {
             self.merge_value_infos(current, ValueInfo::undefined())
@@ -22485,11 +22488,12 @@ impl<'a> ScriptLowerer<'a> {
         self.optional_chain_static_property_info(receiver, key.description())
     }
 
-    fn optional_chain_call_info(
+    fn optional_call_info(
         &mut self,
         callee: &ValueInfo,
         receiver: Option<&ValueInfo>,
         args: &[TypedExpr],
+        source: OptionalCallSource<'_>,
     ) -> ValueInfo {
         let function_targets = callee.function_targets.iter().cloned().collect::<Vec<_>>();
         if function_targets.is_empty() {
@@ -22510,11 +22514,7 @@ impl<'a> ScriptLowerer<'a> {
             {
                 continue;
             }
-            if self.record_dynamic_source_for_function_id(
-                &function_id,
-                BuiltinCallContext::Call,
-                args,
-            ) {
+            if self.record_optional_dynamic_source(&function_id, source) {
                 result = Some(match result {
                     Some(existing) => self.merge_value_infos(existing, ValueInfo::undefined()),
                     None => ValueInfo::undefined(),

@@ -89,12 +89,19 @@ or target-realm-environment debt from `DynamicSourceKind`. An unsupported
 diagnostic carries `UnsupportedFeature::DynamicSource`; consumers match that
 enum rather than its display string.
 
-Current compiler producers cover the resolved direct call/construct paths for
+Current compiler producers cover the directly resolved call/construct paths for
 direct/indirect `%eval%`, all four Function-family constructors and realm
-`evalScript`, including spread calls, optional eval and zero-argument Function
-construction. The old zero-argument shortcut did not compile an empty
-function; it manufactured a value with Function-constructor metadata, so it is
-now typed unsupported with every other Function-constructor call.
+`evalScript`, including spread calls, optional calls across those identities and
+zero-argument Function construction. The old zero-argument shortcut did not
+compile an empty function; it manufactured a value with Function-constructor
+metadata, so it is now typed unsupported with every other Function-constructor
+call.
+
+Forwarding through `Function.prototype.call`/`apply`, `Reflect.apply` or
+`Reflect.construct`, bound functions and proxies does not yet preserve the
+underlying dynamic-source identity into this accounting boundary. Those paths
+remain explicit typed-forwarding debt; identifier spelling must not be used to
+paper over them.
 
 This boundary deliberately does not claim the static subset. A literal eval
 string is recorded as blocked on the caller/realm environment seam rather than
@@ -110,8 +117,16 @@ harness stores the Test262-only realm-eval host builtin directly on
 `$262.evalScript`, so lowering sees the caller's actual argument expressions.
 The compiler-only Function identities have no backend emitter. Realm eval has a
 defensive host body so the always-loaded harness can carry a valid function
-object, but every resolved invocation produces the typed diagnostic and is
-rejected before backend planning.
+object, but every directly resolved invocation produces the typed diagnostic
+and is rejected before backend planning.
+
+The diagnostic's AOT-known/runtime split is now derived before lowering from a
+private closed source-proof boundary. String literals, no-substitution
+templates, parentheses and recursively pure literal concatenations are the
+only admitted forms. A folded `ExprIr::String` can no longer manufacture the
+proof, so observable calls or conditionals that happen to fold to a string
+remain `RuntimeCompilation` gaps. This is source ownership for the future
+precompiled registry, not execution of the static subset.
 
 ## Semantic scope
 

@@ -39,8 +39,12 @@ builtins. It maps the four Function-family constructors and realm
 `evalScript` to stable function IDs. The ordinary Function row reuses
 `StandardBuiltinId::FunctionConstructor`; the three derived rows and realm
 evaluation are compiler-only identities. They acquire no Wasm emitter: every
-resolved invocation first produces `UnsupportedFeature::DynamicSource`, and a
-program with that diagnostic is rejected before backend planning.
+directly resolved call or construction first produces
+`UnsupportedFeature::DynamicSource`, and a program with that diagnostic is
+rejected before backend planning. Forwarding through `call`, `apply`,
+`Reflect.apply`, `Reflect.construct`, bound functions or proxies does not yet
+carry the underlying dynamic-source identity and remains explicit accounting
+debt.
 
 ## Product-path invariants
 
@@ -49,12 +53,14 @@ program with that diagnostic is rejected before backend planning.
 2. Direct eval is distinguished from indirect eval only when the resolved
    `%eval%` target remains the direct global-reference call form. Aliases,
    property calls, comma calls, and optional calls are indirect.
-3. A source proof accepts only lowered primitive string literals. Static string
-   facts obtained by folding arbitrary expressions are not proofs because the
-   expression and its coercions remain observable.
-4. Function-family arguments are AOT-known only when every argument is a
-   primitive string literal and there is no spread. Parameter and body strings
-   will still require separate parser goals before any subset can be enabled.
+3. A source proof is constructed from syntax before lowering. It accepts
+   primitive string literals, no-substitution templates, parentheses and pure
+   concatenations of those forms. Static string facts obtained by folding any
+   other expression are not proofs because its evaluation or coercions may be
+   observable.
+4. Function-family arguments are AOT-known only when every argument has that
+   syntax proof and there is no spread. Parameter and body strings will still
+   require separate parser goals before any subset can be enabled.
 5. The typed diagnostic is a compiler gap. It has no early-error code or native
    error type and cannot satisfy a negative Test262 expectation.
 6. The existing zero-argument Function-constructor shortcut is not static
@@ -64,7 +70,10 @@ program with that diagnostic is rejected before backend planning.
    respective constructor identity through the intrinsic prototype's
    `constructor` property. The identity follows aliases and property reads; a
    source identifier named `GeneratorFunction` is not evidence by itself.
-8. The Test262 harness obtains realm `evalScript` from one typed host builtin
+8. Optional calls retain the same pre-lowering source proof as ordinary calls.
+   Reanalysis of an already-lowered optional-chain prefix is marked as already
+   accounted, so it cannot silently downgrade or duplicate the diagnostic.
+9. The Test262 harness obtains realm `evalScript` from one typed host builtin
    admitted by `HostSurfacePolicy::Test262`. Product lowering cannot resolve
    that global, and the harness stores the resolved function value directly on
    `$262`, preserving literal-source proof at its eventual call site. The host
@@ -75,16 +84,22 @@ program with that diagnostic is rejected before backend planning.
 
 | Operation | Compiler-owned identity today | Accounting |
 | --- | --- | --- |
-| direct/indirect `%eval%` on resolved call paths | `StandardBuiltinId::EvalFunction` | typed diagnostic |
-| ordinary `%Function%` on resolved call/construct paths | `StandardBuiltinId::FunctionConstructor` | typed diagnostic |
-| Generator/Async/AsyncGenerator Function constructors | `DynamicSourceIntrinsic::Function(..)` carried by the function prototype shape | typed diagnostic |
-| `$262.evalScript` | `HostBuiltinId::RealmEvalScript`, mapped to `DynamicSourceIntrinsic::RealmEvalScript` and exposed only by `HostSurfacePolicy::Test262` | typed diagnostic |
+| direct/indirect `%eval%` on directly resolved call paths | `StandardBuiltinId::EvalFunction` | typed diagnostic |
+| ordinary `%Function%` on directly resolved call/construct paths | `StandardBuiltinId::FunctionConstructor` | typed diagnostic |
+| Generator/Async/AsyncGenerator Function constructors on directly resolved call/construct paths | `DynamicSourceIntrinsic::Function(..)` carried by the function prototype shape | typed diagnostic |
+| directly resolved `$262.evalScript` calls | `HostBuiltinId::RealmEvalScript`, mapped to `DynamicSourceIntrinsic::RealmEvalScript` and exposed only by `HostSurfacePolicy::Test262` | typed diagnostic |
 
 There is no lexical Test262 pre-gate for these operations. Unsupported
 accounting begins only after lowering resolves one of the identities above.
 This does not claim static-source support: literal strings still produce
 target-realm-environment debt, while non-literals produce runtime-compilation
 debt.
+
+Forwarding builtins and wrapper callables are not yet identity-transparent for
+this accounting boundary. Calls that reach these operations through
+`Function.prototype.call`/`apply`, `Reflect.apply`/`construct`, a bound function
+or a Proxy can still fall through to a generic backend diagnostic; closing that
+gap requires a typed forwarding target, not source-spelling recognition.
 
 ## Static-subset prerequisites
 
