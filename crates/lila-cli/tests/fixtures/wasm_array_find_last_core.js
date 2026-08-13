@@ -82,6 +82,34 @@ let fixedShrinkResult = Array.prototype.findLast.call(fixedBytes, function (valu
   return false;
 });
 
+let proxySource = [4, 5, 6];
+let proxyThis = { marker: "reverse find this" };
+let proxyTarget = function () {};
+let proxyCalls = 0;
+let proxyArgsOk = true;
+let proxyOrder = [];
+let callableProxy = new Proxy(proxyTarget, {
+  apply: function (target, thisArg, argumentsList) {
+    let value = argumentsList[0];
+    let index = argumentsList[1];
+    proxyCalls = proxyCalls + 1;
+    proxyOrder[proxyOrder.length] = index;
+    proxyArgsOk = proxyArgsOk
+      && target === proxyTarget
+      && thisArg === proxyThis
+      && argumentsList.length === 3
+      && argumentsList[2] === proxySource
+      && value === proxySource[index];
+    return value === 5;
+  }
+});
+let proxyFindLastResult = proxySource.findLast(callableProxy, proxyThis);
+let proxyFindLastIndexResult = proxySource.findLastIndex(callableProxy, proxyThis);
+
+let nonCallableProxy = new Proxy({}, {});
+let revokedCallableProxy = Proxy.revocable(function () {}, {});
+revokedCallableProxy.revoke();
+
 typeof findLast === "function"
   && typeof findLastIndex === "function"
   && findLast.name === "findLast"
@@ -120,6 +148,19 @@ typeof findLast === "function"
   && fixedShrinkCount === 4
   && fixedShrinkUndefinedCount === 2
   && fixedShrinkZeroAfterShrink === false
+  && proxyFindLastResult === 5
+  && proxyFindLastIndexResult === 1
+  && proxyCalls === 4
+  && proxyArgsOk === true
+  && proxyOrder.length === 4
+  && proxyOrder[0] === 2
+  && proxyOrder[1] === 1
+  && proxyOrder[2] === 2
+  && proxyOrder[3] === 1
+  && throwsTypeError(function () { proxySource.findLast(nonCallableProxy); })
+  && throwsTypeError(function () { proxySource.findLastIndex(nonCallableProxy); })
+  && throwsTypeError(function () { proxySource.findLast(revokedCallableProxy.proxy); })
+  && throwsTypeError(function () { proxySource.findLastIndex(revokedCallableProxy.proxy); })
   && throwsTypeError(function () { [1].findLast(); })
   && throwsTypeError(function () { [1].findLast(null); })
   && throwsTypeError(function () { [1].findLastIndex(); })

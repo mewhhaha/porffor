@@ -39,12 +39,169 @@ pub(crate) enum TypedArrayQuantifierKind {
     Some,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TypedArrayFindKind {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FindViaPredicateKind {
     Find,
     FindIndex,
     FindLast,
     FindLastIndex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FindDirection {
+    Ascending,
+    Descending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FindProjection {
+    Value,
+    Index,
+}
+
+impl FindViaPredicateKind {
+    const fn direction(self) -> FindDirection {
+        match self {
+            Self::Find | Self::FindIndex => FindDirection::Ascending,
+            Self::FindLast | Self::FindLastIndex => FindDirection::Descending,
+        }
+    }
+
+    const fn projection(self) -> FindProjection {
+        match self {
+            Self::Find | Self::FindLast => FindProjection::Value,
+            Self::FindIndex | Self::FindLastIndex => FindProjection::Index,
+        }
+    }
+
+    const fn array_method_name(self) -> &'static str {
+        match self {
+            Self::Find => "Array.prototype.find",
+            Self::FindIndex => "Array.prototype.findIndex",
+            Self::FindLast => "Array.prototype.findLast",
+            Self::FindLastIndex => "Array.prototype.findLastIndex",
+        }
+    }
+
+    const fn typed_array_method_name(self) -> &'static str {
+        match self {
+            Self::Find => "TypedArray.prototype.find",
+            Self::FindIndex => "TypedArray.prototype.findIndex",
+            Self::FindLast => "TypedArray.prototype.findLast",
+            Self::FindLastIndex => "TypedArray.prototype.findLastIndex",
+        }
+    }
+
+    const fn array_nullish_message(self) -> &'static str {
+        match self {
+            Self::Find => "Array.prototype.find called on null or undefined",
+            Self::FindIndex => "Array.prototype.findIndex called on null or undefined",
+            Self::FindLast => "Array.prototype.findLast called on null or undefined",
+            Self::FindLastIndex => "Array.prototype.findLastIndex called on null or undefined",
+        }
+    }
+
+    const fn array_predicate_not_callable_message(self) -> &'static str {
+        match self {
+            Self::Find => "Array.prototype.find predicate is not callable",
+            Self::FindIndex => "Array.prototype.findIndex predicate is not callable",
+            Self::FindLast => "Array.prototype.findLast predicate is not callable",
+            Self::FindLastIndex => "Array.prototype.findLastIndex predicate is not callable",
+        }
+    }
+
+    const fn typed_array_predicate_not_callable_message(self) -> &'static str {
+        match self {
+            Self::Find => "TypedArray.prototype.find predicate is not callable",
+            Self::FindIndex => "TypedArray.prototype.findIndex predicate is not callable",
+            Self::FindLast => "TypedArray.prototype.findLast predicate is not callable",
+            Self::FindLastIndex => "TypedArray.prototype.findLastIndex predicate is not callable",
+        }
+    }
+}
+
+/// Predicate locals that have passed ECMAScript `IsCallable`.
+///
+/// This witness is deliberately private and non-`Copy`. Its sole consumer
+/// takes ownership before emitting Proxy-aware `Call`.
+#[must_use = "a validated find predicate must be consumed by Call"]
+struct ValidatedFindPredicateLocals(TaggedLocals);
+
+#[cfg(test)]
+mod find_via_predicate_tests {
+    use super::*;
+
+    #[test]
+    fn four_kinds_fix_direction_projection_and_surface_text() {
+        let rows = [
+            (
+                FindViaPredicateKind::Find,
+                FindDirection::Ascending,
+                FindProjection::Value,
+                "Array.prototype.find",
+                "TypedArray.prototype.find",
+                "Array.prototype.find called on null or undefined",
+                "Array.prototype.find predicate is not callable",
+                "TypedArray.prototype.find predicate is not callable",
+            ),
+            (
+                FindViaPredicateKind::FindIndex,
+                FindDirection::Ascending,
+                FindProjection::Index,
+                "Array.prototype.findIndex",
+                "TypedArray.prototype.findIndex",
+                "Array.prototype.findIndex called on null or undefined",
+                "Array.prototype.findIndex predicate is not callable",
+                "TypedArray.prototype.findIndex predicate is not callable",
+            ),
+            (
+                FindViaPredicateKind::FindLast,
+                FindDirection::Descending,
+                FindProjection::Value,
+                "Array.prototype.findLast",
+                "TypedArray.prototype.findLast",
+                "Array.prototype.findLast called on null or undefined",
+                "Array.prototype.findLast predicate is not callable",
+                "TypedArray.prototype.findLast predicate is not callable",
+            ),
+            (
+                FindViaPredicateKind::FindLastIndex,
+                FindDirection::Descending,
+                FindProjection::Index,
+                "Array.prototype.findLastIndex",
+                "TypedArray.prototype.findLastIndex",
+                "Array.prototype.findLastIndex called on null or undefined",
+                "Array.prototype.findLastIndex predicate is not callable",
+                "TypedArray.prototype.findLastIndex predicate is not callable",
+            ),
+        ];
+
+        for (
+            kind,
+            direction,
+            projection,
+            array_name,
+            typed_array_name,
+            nullish_message,
+            array_predicate_message,
+            typed_array_predicate_message,
+        ) in rows
+        {
+            assert_eq!(kind.direction(), direction);
+            assert_eq!(kind.projection(), projection);
+            assert_eq!(kind.array_method_name(), array_name);
+            assert_eq!(kind.typed_array_method_name(), typed_array_name);
+            assert_eq!(kind.array_nullish_message(), nullish_message);
+            assert_eq!(
+                kind.array_predicate_not_callable_message(),
+                array_predicate_message
+            );
+            assert_eq!(
+                kind.typed_array_predicate_not_callable_message(),
+                typed_array_predicate_message
+            );
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -23475,37 +23632,171 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_validate_find_predicate(
+        &mut self,
+        predicate_not_callable_message: &'static str,
+        function: &mut Function,
+    ) -> Result<ValidatedFindPredicateLocals, EmitError> {
+        let predicate_payload_local = self.reserve_temp_local();
+        let predicate_tag_local = self.reserve_temp_local();
+        let predicate = TaggedLocals::new(predicate_payload_local, predicate_tag_local);
+
+        self.emit_builtin_arg_to_locals(0, predicate.payload, predicate.tag, function);
+        self.emit_is_callable_i32(predicate.tag, predicate.payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            predicate_not_callable_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        Ok(ValidatedFindPredicateLocals(predicate))
+    }
+
+    fn emit_call_validated_find_predicate(
+        &mut self,
+        predicate: ValidatedFindPredicateLocals,
+        this_argument: TaggedLocals,
+        element: TaggedLocals,
+        index: TaggedLocals,
+        receiver: TaggedLocals,
+        argc_local: u32,
+        argv_local: u32,
+        result: TaggedLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ValidatedFindPredicateLocals(predicate) = predicate;
+
+        self.emit_pre_evaluated_arg_vector(
+            &[
+                (element.payload, element.tag),
+                (index.payload, index.tag),
+                (receiver.payload, receiver.tag),
+            ],
+            argc_local,
+            argv_local,
+            function,
+        )?;
+        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
+            predicate.payload,
+            predicate.tag,
+            this_argument.payload,
+            this_argument.tag,
+            argc_local,
+            argv_local,
+            result.payload,
+            result.tag,
+            function,
+        )?;
+
+        self.release_temp_local(predicate.tag);
+        self.release_temp_local(predicate.payload);
+        Ok(())
+    }
+
+    fn emit_initialize_find_result(&self, projection: FindProjection, function: &mut Function) {
+        match projection {
+            FindProjection::Value => {
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+            FindProjection::Index => {
+                function.instruction(&Instruction::I64Const((-1.0f64).to_bits() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+        }
+    }
+
+    fn emit_initialize_find_index(
+        &self,
+        direction: FindDirection,
+        len_local: u32,
+        index_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+        match direction {
+            FindDirection::Ascending => {}
+            FindDirection::Descending => {
+                function.instruction(&Instruction::LocalGet(len_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(len_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::End);
+            }
+        }
+    }
+
+    fn emit_project_find_match(
+        &self,
+        projection: FindProjection,
+        element: TaggedLocals,
+        index: TaggedLocals,
+        function: &mut Function,
+    ) {
+        match projection {
+            FindProjection::Value => {
+                function.instruction(&Instruction::LocalGet(element.payload));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(element.tag));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+            FindProjection::Index => {
+                function.instruction(&Instruction::LocalGet(index.payload));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(index.tag));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+        }
+    }
+
+    fn emit_advance_find_index(
+        &self,
+        direction: FindDirection,
+        index_local: u32,
+        function: &mut Function,
+    ) {
+        match direction {
+            FindDirection::Ascending => {
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index_local));
+            }
+            FindDirection::Descending => {
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(index_local));
+            }
+        }
+    }
+
     pub(crate) fn compile_typed_array_prototype_find_builtin(
         &mut self,
         function: &mut Function,
-        find_kind: TypedArrayFindKind,
+        find_kind: FindViaPredicateKind,
     ) -> Result<(), EmitError> {
-        let (method_name, predicate_not_callable_message, return_index, reverse) = match find_kind {
-            TypedArrayFindKind::Find => (
-                "TypedArray.prototype.find",
-                "TypedArray.prototype.find predicate is not callable",
-                false,
-                false,
-            ),
-            TypedArrayFindKind::FindIndex => (
-                "TypedArray.prototype.findIndex",
-                "TypedArray.prototype.findIndex predicate is not callable",
-                true,
-                false,
-            ),
-            TypedArrayFindKind::FindLast => (
-                "TypedArray.prototype.findLast",
-                "TypedArray.prototype.findLast predicate is not callable",
-                false,
-                true,
-            ),
-            TypedArrayFindKind::FindLastIndex => (
-                "TypedArray.prototype.findLastIndex",
-                "TypedArray.prototype.findLastIndex predicate is not callable",
-                true,
-                true,
-            ),
-        };
+        let method_name = find_kind.typed_array_method_name();
+        let predicate_not_callable_message = find_kind.typed_array_predicate_not_callable_message();
+        let direction = find_kind.direction();
+        let projection = find_kind.projection();
         let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
             EmitError::unsupported(format!(
                 "unsupported in lila wasm-aot first slice: missing {method_name} receiver"
@@ -23527,8 +23818,6 @@ impl<'a> FunctionBuilder<'a> {
         let element_tag_local = self.reserve_temp_local();
         let index_payload_local = self.reserve_temp_local();
         let index_tag_local = self.reserve_temp_local();
-        let callback_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
         let this_arg_payload_local = self.reserve_temp_local();
         let this_arg_tag_local = self.reserve_temp_local();
         let callback_result_payload_local = self.reserve_temp_local();
@@ -23536,17 +23825,7 @@ impl<'a> FunctionBuilder<'a> {
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
 
-        if return_index {
-            function.instruction(&Instruction::I64Const((-1.0f64).to_bits() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        }
+        self.emit_initialize_find_result(projection, function);
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(receiver_brand_local));
@@ -23613,18 +23892,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::LocalSet(len_local));
 
-        self.emit_builtin_arg_to_locals(0, callback_payload_local, callback_tag_local, function);
-        self.emit_is_callable_i32(callback_tag_local, callback_payload_local, function)?;
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            predicate_not_callable_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        let predicate =
+            self.emit_validate_find_predicate(predicate_not_callable_message, function)?;
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(this_arg_payload_local));
@@ -23637,22 +23906,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_builtin_arg_to_locals(1, this_arg_payload_local, this_arg_tag_local, function);
         function.instruction(&Instruction::End);
 
-        if reverse {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::LocalGet(len_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(len_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::End);
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(index_local));
-        }
+        self.emit_initialize_find_index(direction, len_local, index_local, function);
 
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
@@ -23680,25 +23934,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(index_tag_local));
-        self.emit_pre_evaluated_arg_vector(
-            &[
-                (element_payload_local, element_tag_local),
-                (index_payload_local, index_tag_local),
-                (receiver_payload_local, receiver_tag_local),
-            ],
+        self.emit_call_validated_find_predicate(
+            predicate,
+            TaggedLocals::new(this_arg_payload_local, this_arg_tag_local),
+            TaggedLocals::new(element_payload_local, element_tag_local),
+            TaggedLocals::new(index_payload_local, index_tag_local),
+            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
             argc_local,
             argv_local,
-            function,
-        )?;
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            callback_payload_local,
-            callback_tag_local,
-            this_arg_payload_local,
-            this_arg_tag_local,
-            argc_local,
-            argv_local,
-            callback_result_payload_local,
-            callback_result_tag_local,
+            TaggedLocals::new(callback_result_payload_local, callback_result_tag_local),
             function,
         )?;
         self.emit_propagate_throw_from_locals_if_needed(
@@ -23712,34 +23956,16 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        if return_index {
-            function.instruction(&Instruction::LocalGet(index_payload_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        } else {
-            function.instruction(&Instruction::LocalGet(element_payload_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::LocalGet(element_tag_local));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        }
+        self.emit_project_find_match(
+            projection,
+            TaggedLocals::new(element_payload_local, element_tag_local),
+            TaggedLocals::new(index_payload_local, index_tag_local),
+            function,
+        );
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        if reverse {
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(index_local));
-        } else {
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(index_local));
-        }
+        self.emit_advance_find_index(direction, index_local, function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -23750,8 +23976,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(callback_result_payload_local);
         self.release_temp_local(this_arg_tag_local);
         self.release_temp_local(this_arg_payload_local);
-        self.release_temp_local(callback_tag_local);
-        self.release_temp_local(callback_payload_local);
         self.release_temp_local(index_tag_local);
         self.release_temp_local(index_payload_local);
         self.release_temp_local(element_tag_local);
@@ -23766,39 +23990,16 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn compile_array_prototype_find_like_builtin(
+    pub(crate) fn compile_array_prototype_find_builtin(
         &mut self,
         function: &mut Function,
-        return_index: bool,
-        reverse: bool,
-        typed_array_only: bool,
+        find_kind: FindViaPredicateKind,
     ) -> Result<(), EmitError> {
-        let method_name = match (typed_array_only, return_index, reverse) {
-            (true, false, false) => "TypedArray.prototype.find",
-            (true, true, false) => "TypedArray.prototype.findIndex",
-            (true, false, true) => "TypedArray.prototype.findLast",
-            (true, true, true) => "TypedArray.prototype.findLastIndex",
-            (false, false, false) => "Array.prototype.find",
-            (false, true, false) => "Array.prototype.findIndex",
-            (false, false, true) => "Array.prototype.findLast",
-            (false, true, true) => "Array.prototype.findLastIndex",
-        };
-        let nullish_message = match (return_index, reverse) {
-            (false, false) => "Array.prototype.find called on null or undefined",
-            (true, false) => "Array.prototype.findIndex called on null or undefined",
-            (false, true) => "Array.prototype.findLast called on null or undefined",
-            (true, true) => "Array.prototype.findLastIndex called on null or undefined",
-        };
-        let predicate_not_callable_message = match (typed_array_only, return_index, reverse) {
-            (true, false, false) => "TypedArray.prototype.find predicate is not callable",
-            (true, true, false) => "TypedArray.prototype.findIndex predicate is not callable",
-            (true, false, true) => "TypedArray.prototype.findLast predicate is not callable",
-            (true, true, true) => "TypedArray.prototype.findLastIndex predicate is not callable",
-            (false, false, false) => "Array.prototype.find predicate is not callable",
-            (false, true, false) => "Array.prototype.findIndex predicate is not callable",
-            (false, false, true) => "Array.prototype.findLast predicate is not callable",
-            (false, true, true) => "Array.prototype.findLastIndex predicate is not callable",
-        };
+        let method_name = find_kind.array_method_name();
+        let nullish_message = find_kind.array_nullish_message();
+        let predicate_not_callable_message = find_kind.array_predicate_not_callable_message();
+        let direction = find_kind.direction();
+        let projection = find_kind.projection();
         let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
             EmitError::unsupported(format!(
                 "unsupported in lila wasm-aot first slice: missing {method_name} receiver"
@@ -23809,8 +24010,6 @@ impl<'a> FunctionBuilder<'a> {
                 "unsupported in lila wasm-aot first slice: missing {method_name} receiver tag"
             ))
         })?;
-        let callback_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
         let this_arg_payload_local = self.reserve_temp_local();
         let this_arg_tag_local = self.reserve_temp_local();
         let len_local = self.reserve_temp_local();
@@ -23822,10 +24021,8 @@ impl<'a> FunctionBuilder<'a> {
         let callback_result_tag_local = self.reserve_temp_local();
         let index_number_payload_local = self.reserve_temp_local();
         let number_tag_local = self.reserve_temp_local();
-        let typed_brand_local = self.reserve_temp_local();
         let typed_receiver_local = self.reserve_temp_local();
         let typed_buffer_payload_local = self.reserve_temp_local();
-        let typed_buffer_tag_local = self.reserve_temp_local();
         let typed_byte_offset_local = self.reserve_temp_local();
         let typed_stored_byte_length_local = self.reserve_temp_local();
         let typed_bytes_per_element_local = self.reserve_temp_local();
@@ -23839,17 +24036,7 @@ impl<'a> FunctionBuilder<'a> {
             typed_bytes_per_element_local,
         );
 
-        if return_index {
-            function.instruction(&Instruction::I64Const((-1.0f64).to_bits() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        }
+        self.emit_initialize_find_result(projection, function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(len_local));
         function.instruction(&Instruction::I64Const(0));
@@ -23858,52 +24045,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(typed_receiver_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(number_tag_local));
-
-        if typed_array_only {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(typed_brand_local));
-            function.instruction(&Instruction::LocalGet(receiver_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                receiver_payload_local,
-                HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                typed_brand_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(typed_brand_local));
-            function.instruction(&Instruction::I64Const(
-                OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
-            ));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_type_error(
-                "TypedArray find method requires a TypedArray",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-
-            self.emit_load_typed_array_private_state(
-                receiver_payload_local,
-                typed_buffer_payload_local,
-                typed_byte_offset_local,
-                typed_stored_byte_length_local,
-                typed_bytes_per_element_local,
-                function,
-            );
-            self.emit_typed_array_witness(
-                &typed_view,
-                TypedArrayWitnessUse::ValidatedMethodEntry {
-                    length_local: len_local,
-                },
-                function,
-            )?;
-        }
 
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -24009,32 +24150,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            predicate_not_callable_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_builtin_arg_to_locals(0, callback_payload_local, callback_tag_local, function);
-        function.instruction(&Instruction::LocalGet(callback_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            predicate_not_callable_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        let predicate =
+            self.emit_validate_find_predicate(predicate_not_callable_message, function)?;
 
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
         function.instruction(&Instruction::I64Const(1));
@@ -24048,17 +24165,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(this_arg_tag_local));
         function.instruction(&Instruction::End);
 
-        if reverse {
-            function.instruction(&Instruction::LocalGet(len_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(len_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::End);
-        }
+        self.emit_initialize_find_index(direction, len_local, index_local, function);
 
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
@@ -24135,24 +24242,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(index_number_payload_local));
-        self.emit_pre_evaluated_arg_vector(
-            &[
-                (element_payload_local, element_tag_local),
-                (index_number_payload_local, number_tag_local),
-                (receiver_payload_local, receiver_tag_local),
-            ],
+        self.emit_call_validated_find_predicate(
+            predicate,
+            TaggedLocals::new(this_arg_payload_local, this_arg_tag_local),
+            TaggedLocals::new(element_payload_local, element_tag_local),
+            TaggedLocals::new(index_number_payload_local, number_tag_local),
+            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
             argc_local,
             argv_local,
-            function,
-        )?;
-        self.emit_function_handle_call_with_argv(
-            callback_payload_local,
-            callback_tag_local,
-            Some((this_arg_payload_local, Some(this_arg_tag_local))),
-            argc_local,
-            argv_local,
-            callback_result_payload_local,
-            callback_result_tag_local,
+            TaggedLocals::new(callback_result_payload_local, callback_result_tag_local),
             function,
         )?;
         self.emit_propagate_throw_from_locals_if_needed(
@@ -24167,34 +24265,16 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        if return_index {
-            function.instruction(&Instruction::LocalGet(index_number_payload_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        } else {
-            function.instruction(&Instruction::LocalGet(element_payload_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::LocalGet(element_tag_local));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        }
+        self.emit_project_find_match(
+            projection,
+            TaggedLocals::new(element_payload_local, element_tag_local),
+            TaggedLocals::new(index_number_payload_local, number_tag_local),
+            function,
+        );
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        if reverse {
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(index_local));
-        } else {
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(index_local));
-        }
+        self.emit_advance_find_index(direction, index_local, function);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -24204,10 +24284,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(typed_bytes_per_element_local);
         self.release_temp_local(typed_stored_byte_length_local);
         self.release_temp_local(typed_byte_offset_local);
-        self.release_temp_local(typed_buffer_tag_local);
         self.release_temp_local(typed_buffer_payload_local);
         self.release_temp_local(typed_receiver_local);
-        self.release_temp_local(typed_brand_local);
         self.release_temp_local(number_tag_local);
         self.release_temp_local(index_number_payload_local);
         self.release_temp_local(callback_result_tag_local);
@@ -24219,8 +24297,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(len_local);
         self.release_temp_local(this_arg_tag_local);
         self.release_temp_local(this_arg_payload_local);
-        self.release_temp_local(callback_tag_local);
-        self.release_temp_local(callback_payload_local);
         Ok(())
     }
 

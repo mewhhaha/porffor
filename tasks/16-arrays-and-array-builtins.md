@@ -28,6 +28,17 @@ prevents an out-of-bounds observation from erasing the extent needed after a
 later regrow, and length-tracking views floor odd backing-byte lengths to whole
 elements.
 
+The Array and TypedArray `find`, `findIndex`, `findLast` and `findLastIndex`
+emitters now share one closed `FindViaPredicateKind`. Exhaustive projections
+select the forward/reverse walk and value/index result; the old generic
+booleans and unreachable TypedArray-only branch are gone. A private, non-Copy
+predicate witness is constructible only through the general `IsCallable`
+operation and has one ownership-consuming, Proxy-aware `Call` boundary. This
+admits callable Proxy predicates while retaining receiver/length observation
+before callability validation for both entry families. The exact boundary and
+its nonclaims are recorded in
+`docs/rust-rewrite/contracts/array-find-via-predicate.md`.
+
 The shared `at` emitter also receives a closed receiver policy rather than a
 raw validation boolean. Generic `Array.prototype.at` and the validated
 `%TypedArray%.prototype.at` path are the only inhabitants, so adding another

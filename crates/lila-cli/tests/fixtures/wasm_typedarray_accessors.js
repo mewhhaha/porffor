@@ -196,6 +196,25 @@ if (trackingView.byteOffset !== 0) throw "tracking beyond byteOffset";
 if (trackingView.byteLength !== 0) throw "tracking beyond byteLength";
 if (trackingView.length !== 0) throw "tracking beyond length";
 
+let partialBuffer = new ArrayBuffer(12, { maxByteLength: 16 });
+let partialView = new Uint16Array(partialBuffer, 2);
+partialBuffer.resize(7);
+if (partialView.byteOffset !== 2) throw "partial element byteOffset";
+if (partialView.byteLength !== 4) throw "partial element byteLength";
+if (partialView.length !== 2) throw "partial element length";
+partialBuffer.resize(2);
+if (partialView.byteOffset !== 2) throw "zero element boundary byteOffset";
+if (partialView.byteLength !== 0) throw "zero element boundary byteLength";
+if (partialView.length !== 0) throw "zero element boundary length";
+partialBuffer.resize(1);
+if (partialView.byteOffset !== 0) throw "partial view out byteOffset";
+if (partialView.byteLength !== 0) throw "partial view out byteLength";
+if (partialView.length !== 0) throw "partial view out length";
+partialBuffer.resize(7);
+if (partialView.byteOffset !== 2) throw "partial view regrow byteOffset";
+if (partialView.byteLength !== 4) throw "partial view regrow byteLength";
+if (partialView.length !== 2) throw "partial view regrow length";
+
 let spoofedTypedArray = {
   0: "ordinary value",
   subarray: Uint8Array.prototype.subarray

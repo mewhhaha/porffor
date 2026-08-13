@@ -88,6 +88,34 @@ let fixedShrinkResult = Array.prototype.find.call(fixedBytes, function (value) {
   return false;
 });
 
+let proxySource = [4, 5, 6];
+let proxyThis = { marker: "forward find this" };
+let proxyTarget = function () {};
+let proxyCalls = 0;
+let proxyArgsOk = true;
+let proxyOrder = [];
+let callableProxy = new Proxy(proxyTarget, {
+  apply: function (target, thisArg, argumentsList) {
+    let value = argumentsList[0];
+    let index = argumentsList[1];
+    proxyCalls = proxyCalls + 1;
+    proxyOrder[proxyOrder.length] = index;
+    proxyArgsOk = proxyArgsOk
+      && target === proxyTarget
+      && thisArg === proxyThis
+      && argumentsList.length === 3
+      && argumentsList[2] === proxySource
+      && value === proxySource[index];
+    return value === 5;
+  }
+});
+let proxyFindResult = proxySource.find(callableProxy, proxyThis);
+let proxyFindIndexResult = proxySource.findIndex(callableProxy, proxyThis);
+
+let nonCallableProxy = new Proxy({}, {});
+let revokedCallableProxy = Proxy.revocable(function () {}, {});
+revokedCallableProxy.revoke();
+
 typeof find === "function"
   && typeof findIndex === "function"
   && find.name === "find"
@@ -126,6 +154,19 @@ typeof find === "function"
   && fixedShrinkValues[1] === 2
   && fixedShrinkUndefinedCount === 2
   && fixedShrinkZeroAfterShrink === false
+  && proxyFindResult === 5
+  && proxyFindIndexResult === 1
+  && proxyCalls === 4
+  && proxyArgsOk === true
+  && proxyOrder.length === 4
+  && proxyOrder[0] === 0
+  && proxyOrder[1] === 1
+  && proxyOrder[2] === 0
+  && proxyOrder[3] === 1
+  && throwsTypeError(function () { proxySource.find(nonCallableProxy); })
+  && throwsTypeError(function () { proxySource.findIndex(nonCallableProxy); })
+  && throwsTypeError(function () { proxySource.find(revokedCallableProxy.proxy); })
+  && throwsTypeError(function () { proxySource.findIndex(revokedCallableProxy.proxy); })
   && throwsTypeError(function () { [1].find(); })
   && throwsTypeError(function () { [1].find(null); })
   && throwsTypeError(function () { [1].findIndex(); })

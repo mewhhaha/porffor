@@ -141,6 +141,103 @@ mod tests {
     }
 
     #[test]
+    fn typed_array_accessors_use_the_closed_buffer_witness() {
+        let binary_data = include_str!("builtins/binary_data.rs");
+        let standard = include_str!("builtins/standard.rs");
+        let accessor_domain = binary_data
+            .split_once("pub(super) enum TypedArrayAccessorKind {")
+            .expect("typed-array accessor domain should exist")
+            .1
+            .split_once("}\n\n/// The closed set of observation points")
+            .expect("typed-array accessor domain should be bounded")
+            .0;
+        let accessor_projection = binary_data
+            .split_once("TypedArrayWitnessUse::Accessor { kind, result_local } => match kind {")
+            .expect("typed-array accessor witness projection should exist")
+            .1
+            .split_once("        }\n\n        self.release_temp_local(data_ptr_local);")
+            .expect("typed-array accessor witness projection should be bounded")
+            .0;
+        let accessor_compiler = binary_data
+            .split_once("pub(super) fn compile_typed_array_accessor_builtin(")
+            .expect("typed-array accessor compiler should exist")
+            .1
+            .split_once("pub(crate) fn emit_initialize_array_buffer_private_state(")
+            .expect("typed-array accessor compiler should be bounded")
+            .0;
+        let delegates = standard
+            .split_once("StandardBuiltinId::TypedArrayPrototypeByteLengthGetter => {")
+            .expect("typed-array accessor delegates should exist")
+            .1
+            .split_once("StandardBuiltinId::TypedArrayPrototypeSubarray => {")
+            .expect("typed-array accessor delegates should be bounded")
+            .0;
+
+        for variant in ["ByteLength", "ByteOffset", "Length"] {
+            assert_eq!(
+                accessor_domain.matches(&format!("    {variant},")).count(),
+                1,
+                "the accessor domain must contain {variant} exactly once"
+            );
+            assert_eq!(
+                accessor_projection
+                    .matches(&format!("TypedArrayAccessorKind::{variant} =>"))
+                    .count(),
+                1,
+                "the witness must project {variant} exactly once"
+            );
+            assert_eq!(
+                delegates
+                    .matches(&format!("TypedArrayAccessorKind::{variant}"))
+                    .count(),
+                1,
+                "the builtin dispatch must select {variant} explicitly"
+            );
+        }
+        assert_eq!(
+            accessor_domain
+                .lines()
+                .filter(|line| line.trim_end().ends_with(','))
+                .count(),
+            3,
+            "the accessor result domain must stay closed"
+        );
+        assert_eq!(
+            delegates
+                .matches("compile_typed_array_accessor_builtin(")
+                .count(),
+            3,
+            "all three accessors must delegate through the typed compiler"
+        );
+        assert_eq!(
+            accessor_compiler
+                .matches("emit_typed_array_witness(")
+                .count(),
+            1,
+            "the accessor compiler must make exactly one live buffer witness"
+        );
+        for forbidden in [
+            "emit_load_array_buffer_data(",
+            "emit_load_array_buffer_byte_length(",
+            "HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET",
+            "emit_typed_array_current_byte_length(",
+        ] {
+            assert!(
+                !accessor_compiler.contains(forbidden),
+                "the accessor compiler must not bypass its witness with {forbidden}"
+            );
+            assert!(
+                !delegates.contains(forbidden),
+                "the accessor delegates must not bypass their compiler with {forbidden}"
+            );
+        }
+        assert!(accessor_projection.contains("witness.out_of_bounds_local"));
+        assert!(accessor_projection.contains("view.byte_offset_local"));
+        assert!(accessor_projection.contains("witness.element_length_local"));
+        assert!(accessor_projection.contains("view.bytes_per_element_local"));
+    }
+
+    #[test]
     fn construct_fallback_requires_resolved_realm_intrinsics() {
         let source = include_str!("functions.rs");
         let domain = source

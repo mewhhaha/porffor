@@ -26,8 +26,9 @@ search/access consumers. A private TypedArray view record keeps the stored fixed
 byte extent immutable, while a fresh buffer witness derives out-of-bounds
 state, element length and an element-aligned index bound from one cached
 backing-store length. Its closed use domain distinguishes validated TypedArray
-method entry, generic Array length snapshots and live integer-indexed
-property observations. The callback families shared with T16 use that seam,
+method entry, generic Array length snapshots, live integer-indexed property
+observations and the three-kind view-accessor projection. The callback families
+shared with T16 use that seam,
 including both `reduce` property checks; so do `at`, the generic Array index
 searches and the non-generic TypedArray search methods. TypedArray search length
 is validated and snapshotted once at method entry, while generic Array search
@@ -36,9 +37,9 @@ contracts cover fixed-view out-of-bounds/regrow behavior and the Uint16
 odd-byte floor.
 
 The witness is not yet the universal integer-indexed exotic protocol. The
-shared indexed `Get` implementation, array/typed-array iterators,
-byteLength/length getters and other binary-data consumers still use older
-emitters, and no Test262 resizable-buffer rewrite has been retired.
+shared indexed `Get` implementation, array/typed-array iterators and other
+binary-data consumers still use older emitters, and no Test262 resizable-buffer
+rewrite has been retired.
 Constructor/subclass and BigInt variants represented by those rewrites remain
 separate closure work. The shared `at` emitter encodes its generic-array-like
 versus validated-TypedArray receiver policy as a closed enum; the old raw
@@ -59,6 +60,19 @@ and CLI fixture cover detachment during coercion/species, ordinary bounded
 resizable shrinkage, and `sliceToImmutable` detach-versus-short-source error
 precedence; this is not yet a claim of complete ArrayBuffer or shared memory
 correctness.
+
+The three `%TypedArray%.prototype` view accessors now share the same live
+buffer-witness seam as the migrated Array/TypedArray consumers. A closed
+`TypedArrayAccessorKind` makes `byteLength`, `byteOffset`, and `length` explicit
+projections; each builtin delegates with one variant, and the accessor compiler
+cannot directly read backing length, data, or the length-tracking slot. The
+single witness therefore owns detached/out-of-bounds zeroing, fixed-view
+regrowth, and whole-element flooring for odd-byte length-tracking buffers.
+The focused
+[accessor buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-accessor-buffer-witness.md)
+and existing accessor fixture pin those rules. This closes the accessor
+duplication, not the older shared indexed `Get`, iterator, constructor, or
+remaining binary-data consumers, and it does not retire a Test262 rewrite.
 
 ## Objective
 

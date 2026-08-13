@@ -1,10 +1,12 @@
 use super::super::*;
 use super::array::{
-    ArrayAtReceiverPolicy, ArrayCallbackReceiverKind, ArraySortOutput, TypedArrayFindKind,
+    ArrayAtReceiverPolicy, ArrayCallbackReceiverKind, ArraySortOutput, FindViaPredicateKind,
     TypedArrayQuantifierKind,
 };
 use super::bigint::BigIntBuiltin;
-use super::binary_data::{ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy};
+use super::binary_data::{
+    ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy, TypedArrayAccessorKind,
+};
 use super::boolean::BooleanBuiltin;
 use super::errors::ErrorBuiltin;
 use super::function::FunctionBuiltin;
@@ -9688,40 +9690,49 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_typed_array_prototype_last_index_of_builtin(function)?;
             }
             StandardBuiltinId::ArrayPrototypeFind => {
-                self.compile_array_prototype_find_like_builtin(function, false, false, false)?;
+                self.compile_array_prototype_find_builtin(function, FindViaPredicateKind::Find)?;
             }
             StandardBuiltinId::ArrayPrototypeFindIndex => {
-                self.compile_array_prototype_find_like_builtin(function, true, false, false)?;
+                self.compile_array_prototype_find_builtin(
+                    function,
+                    FindViaPredicateKind::FindIndex,
+                )?;
             }
             StandardBuiltinId::TypedArrayPrototypeFind => {
                 self.compile_typed_array_prototype_find_builtin(
                     function,
-                    TypedArrayFindKind::Find,
+                    FindViaPredicateKind::Find,
                 )?;
             }
             StandardBuiltinId::TypedArrayPrototypeFindIndex => {
                 self.compile_typed_array_prototype_find_builtin(
                     function,
-                    TypedArrayFindKind::FindIndex,
+                    FindViaPredicateKind::FindIndex,
                 )?;
             }
             StandardBuiltinId::TypedArrayPrototypeFindLast => {
                 self.compile_typed_array_prototype_find_builtin(
                     function,
-                    TypedArrayFindKind::FindLast,
+                    FindViaPredicateKind::FindLast,
                 )?;
             }
             StandardBuiltinId::TypedArrayPrototypeFindLastIndex => {
                 self.compile_typed_array_prototype_find_builtin(
                     function,
-                    TypedArrayFindKind::FindLastIndex,
+                    FindViaPredicateKind::FindLastIndex,
                 )?;
             }
             StandardBuiltinId::ArrayPrototypeFindLast => {
-                self.compile_array_prototype_find_like_builtin(function, false, true, false)?;
+                self.compile_array_prototype_find_builtin(
+                    function,
+                    FindViaPredicateKind::FindLast,
+                )?;
             }
             StandardBuiltinId::ArrayPrototypeFindLastIndex => {
-                self.compile_array_prototype_find_like_builtin(function, true, true, false)?;
+                self.compile_array_prototype_find_builtin(
+                    function,
+                    FindViaPredicateKind::FindLastIndex,
+                )?;
             }
             StandardBuiltinId::ArrayPrototypeMap => {
                 self.compile_array_prototype_map_builtin(function)?;
@@ -24272,184 +24283,23 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.release_temp_local(typed_brand_local);
             }
-            StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
-            | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
-            | StandardBuiltinId::TypedArrayPrototypeLengthGetter => {
-                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing TypedArray accessor receiver",
-                    )
-                })?;
-                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing TypedArray accessor receiver",
-                    )
-                })?;
-                let typed_brand_local = self.reserve_temp_local();
-                let buffer_payload_local = self.reserve_temp_local();
-                let data_ptr_local = self.reserve_temp_local();
-                let value_local = self.reserve_temp_local();
-                let byte_offset_local = self.reserve_temp_local();
-                let stored_byte_length_local = self.reserve_temp_local();
-                let buffer_byte_length_local = self.reserve_temp_local();
-                let bytes_per_element_local = self.reserve_temp_local();
-                let length_tracking_local = self.reserve_temp_local();
-
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(typed_brand_local));
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                    typed_brand_local,
-                    function,
-                );
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(typed_brand_local));
-                function.instruction(&Instruction::I64Const(
-                    OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::Else);
-                self.emit_throw_current_function_realm_type_error(
-                    "TypedArray accessor requires TypedArray",
-                    self.result_local,
-                    self.result_tag_local,
+            StandardBuiltinId::TypedArrayPrototypeByteLengthGetter => {
+                self.compile_typed_array_accessor_builtin(
+                    TypedArrayAccessorKind::ByteLength,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
-                    buffer_payload_local,
+            }
+            StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter => {
+                self.compile_typed_array_accessor_builtin(
+                    TypedArrayAccessorKind::ByteOffset,
                     function,
-                );
-                self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
-                function.instruction(&Instruction::LocalGet(data_ptr_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(value_local));
-                function.instruction(&Instruction::Else);
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_BYTE_OFFSET,
-                    byte_offset_local,
+                )?;
+            }
+            StandardBuiltinId::TypedArrayPrototypeLengthGetter => {
+                self.compile_typed_array_accessor_builtin(
+                    TypedArrayAccessorKind::Length,
                     function,
-                );
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
-                    stored_byte_length_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
-                    bytes_per_element_local,
-                    function,
-                );
-                self.emit_load_array_buffer_byte_length(
-                    buffer_payload_local,
-                    buffer_byte_length_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
-                    length_tracking_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(length_tracking_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(byte_offset_local));
-                function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-                function.instruction(&Instruction::I64GtU);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(value_local));
-                function.instruction(&Instruction::Else);
-                match builtin {
-                    StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter => {
-                        function.instruction(&Instruction::LocalGet(byte_offset_local));
-                        function.instruction(&Instruction::LocalSet(value_local));
-                    }
-                    StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
-                    | StandardBuiltinId::TypedArrayPrototypeLengthGetter => {
-                        function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-                        function.instruction(&Instruction::LocalGet(byte_offset_local));
-                        function.instruction(&Instruction::I64Sub);
-                        function.instruction(&Instruction::LocalSet(value_local));
-                        function.instruction(&Instruction::LocalGet(value_local));
-                        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-                        function.instruction(&Instruction::I64DivU);
-                        if matches!(
-                            builtin,
-                            StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
-                        ) {
-                            function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-                            function.instruction(&Instruction::I64Mul);
-                        }
-                        function.instruction(&Instruction::LocalSet(value_local));
-                    }
-                    _ => unreachable!(),
-                }
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(byte_offset_local));
-                function.instruction(&Instruction::LocalGet(stored_byte_length_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-                function.instruction(&Instruction::I64GtU);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(value_local));
-                function.instruction(&Instruction::Else);
-                match builtin {
-                    StandardBuiltinId::TypedArrayPrototypeByteLengthGetter => {
-                        function.instruction(&Instruction::LocalGet(stored_byte_length_local));
-                        function.instruction(&Instruction::LocalSet(value_local));
-                    }
-                    StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter => {
-                        function.instruction(&Instruction::LocalGet(byte_offset_local));
-                        function.instruction(&Instruction::LocalSet(value_local));
-                    }
-                    StandardBuiltinId::TypedArrayPrototypeLengthGetter => {
-                        function.instruction(&Instruction::LocalGet(stored_byte_length_local));
-                        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-                        function.instruction(&Instruction::I64DivU);
-                        function.instruction(&Instruction::LocalSet(value_local));
-                    }
-                    _ => unreachable!(),
-                }
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(value_local));
-                function.instruction(&Instruction::F64ConvertI64U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-                self.release_temp_local(length_tracking_local);
-                self.release_temp_local(bytes_per_element_local);
-                self.release_temp_local(buffer_byte_length_local);
-                self.release_temp_local(stored_byte_length_local);
-                self.release_temp_local(byte_offset_local);
-                self.release_temp_local(value_local);
-                self.release_temp_local(data_ptr_local);
-                self.release_temp_local(buffer_payload_local);
-                self.release_temp_local(typed_brand_local);
+                )?;
             }
             StandardBuiltinId::TypedArrayPrototypeSubarray => {
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {

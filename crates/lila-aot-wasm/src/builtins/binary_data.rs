@@ -78,20 +78,42 @@ impl TypedArrayViewLocals {
     }
 }
 
-/// The closed set of observation points used by Array/TypedArray builtins.
+/// The complete result domain of the `%TypedArray%.prototype` view accessors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TypedArrayAccessorKind {
+    ByteLength,
+    ByteOffset,
+    Length,
+}
+
+/// The closed set of observation points used by Array/TypedArray builtins and
+/// the TypedArray view accessors.
 ///
 /// A method-entry witness rejects an invalid receiver. Generic Array methods
 /// instead snapshot an out-of-bounds view as length zero, while their later
 /// integer-indexed observations treat the same state as an absent property.
+/// Accessors project their result from the same out-of-bounds and element
+/// length observation instead of reimplementing the resize law.
 /// Each variant carries exactly the input/output locals its operation needs,
 /// so a length witness cannot accidentally be consumed as an index check.
 /// Keeping those cases closed makes a newly introduced policy an exhaustive
 /// Rust edit instead of another raw boolean at a call site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TypedArrayWitnessUse {
-    ValidatedMethodEntry { length_local: u32 },
-    ArrayLikeLengthSnapshot { length_local: u32 },
-    IntegerIndexedProperty { index_local: u32, result_local: u32 },
+    ValidatedMethodEntry {
+        length_local: u32,
+    },
+    ArrayLikeLengthSnapshot {
+        length_local: u32,
+    },
+    IntegerIndexedProperty {
+        index_local: u32,
+        result_local: u32,
+    },
+    Accessor {
+        kind: TypedArrayAccessorKind,
+        result_local: u32,
+    },
 }
 
 /// One live observation of a TypedArray and its backing buffer.
@@ -271,7 +293,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
             TypedArrayWitnessUse::ArrayLikeLengthSnapshot { .. }
-            | TypedArrayWitnessUse::IntegerIndexedProperty { .. } => {}
+            | TypedArrayWitnessUse::IntegerIndexedProperty { .. }
+            | TypedArrayWitnessUse::Accessor { .. } => {}
         }
 
         function.instruction(&Instruction::LocalGet(out_of_bounds_local));
@@ -311,6 +334,28 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64ExtendI32U);
                 function.instruction(&Instruction::LocalSet(result_local));
             }
+            TypedArrayWitnessUse::Accessor { kind, result_local } => match kind {
+                TypedArrayAccessorKind::ByteLength => {
+                    function.instruction(&Instruction::LocalGet(witness.element_length_local));
+                    function.instruction(&Instruction::LocalGet(view.bytes_per_element_local));
+                    function.instruction(&Instruction::I64Mul);
+                    function.instruction(&Instruction::LocalSet(result_local));
+                }
+                TypedArrayAccessorKind::ByteOffset => {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(result_local));
+                    function.instruction(&Instruction::LocalGet(witness.out_of_bounds_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::LocalGet(view.byte_offset_local));
+                    function.instruction(&Instruction::LocalSet(result_local));
+                    function.instruction(&Instruction::End);
+                }
+                TypedArrayAccessorKind::Length => {
+                    function.instruction(&Instruction::LocalGet(witness.element_length_local));
+                    function.instruction(&Instruction::LocalSet(result_local));
+                }
+            },
         }
 
         self.release_temp_local(data_ptr_local);
@@ -318,6 +363,80 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(witness.element_length_local);
         self.release_temp_local(witness.out_of_bounds_local);
         self.release_temp_local(witness.cached_buffer_byte_length_local);
+        Ok(())
+    }
+
+    /// Compiles one of the three TypedArray view accessors through the sole
+    /// live buffer witness.
+    pub(super) fn compile_typed_array_accessor_builtin(
+        &mut self,
+        kind: TypedArrayAccessorKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
+            EmitError::unsupported(
+                "unsupported in lila wasm-aot first slice: missing TypedArray accessor receiver",
+            )
+        })?;
+        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
+            EmitError::unsupported(
+                "unsupported in lila wasm-aot first slice: missing TypedArray accessor receiver",
+            )
+        })?;
+        let buffer_payload_local = self.reserve_temp_local();
+        let byte_offset_local = self.reserve_temp_local();
+        let stored_byte_length_local = self.reserve_temp_local();
+        let bytes_per_element_local = self.reserve_temp_local();
+        let value_local = self.reserve_temp_local();
+
+        self.emit_is_typed_array_i32(receiver_payload_local, receiver_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "TypedArray accessor requires TypedArray",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_load_typed_array_private_state(
+            receiver_payload_local,
+            buffer_payload_local,
+            byte_offset_local,
+            stored_byte_length_local,
+            bytes_per_element_local,
+            function,
+        );
+        let view = TypedArrayViewLocals::new(
+            receiver_payload_local,
+            buffer_payload_local,
+            byte_offset_local,
+            stored_byte_length_local,
+            bytes_per_element_local,
+        );
+        self.emit_typed_array_witness(
+            &view,
+            TypedArrayWitnessUse::Accessor {
+                kind,
+                result_local: value_local,
+            },
+            function,
+        )?;
+
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(value_local);
+        self.release_temp_local(bytes_per_element_local);
+        self.release_temp_local(stored_byte_length_local);
+        self.release_temp_local(byte_offset_local);
+        self.release_temp_local(buffer_payload_local);
         Ok(())
     }
 
