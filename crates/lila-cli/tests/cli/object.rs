@@ -101,6 +101,28 @@ fn run_wasm_backend_preserves_outlined_ordinary_set_receiver_semantics() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_proxy_set_direct_descriptor_invariants() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_proxy_set_direct_descriptor_invariants.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_object_freeze_array_prototype_function_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

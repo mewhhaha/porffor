@@ -215,6 +215,34 @@ impl TaggedLocals {
     }
 }
 
+/// A canonical property-key payload and its retained ECMAScript tag.
+///
+/// The payload alone is not enough at an internal-method boundary: String and
+/// Symbol keys share the same Wasm carrier. Proxy invariant consumers require
+/// this complete value so dropping the tag is a type error at the call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PropertyKeyLocals(TaggedLocals);
+
+impl PropertyKeyLocals {
+    pub(crate) const fn new(payload: u32, tag: u32) -> Self {
+        Self(TaggedLocals::new(payload, tag))
+    }
+}
+
+/// The incoming value whose compatibility Proxy `[[Set]]` must validate.
+///
+/// This is deliberately distinct from both descriptor data and accessor
+/// setter locals: substituting any of those roles is `E0308`, not a silently
+/// reversed `SameValue` comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProxySetValueLocals(TaggedLocals);
+
+impl ProxySetValueLocals {
+    pub(crate) const fn new(payload: u32, tag: u32) -> Self {
+        Self(TaggedLocals::new(payload, tag))
+    }
+}
+
 /// The two complete tagged values retained by a Proxy record.
 ///
 /// Proxy construction accepts this record rather than four positional locals,
@@ -335,6 +363,90 @@ impl OwnDescriptorFactLocals {
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
+    }
+
+    fn emit_accessor_i32(self, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(self.descriptor));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+    }
+}
+
+/// The stored `[[Value]]` needed by Proxy `[[Set]]`'s frozen-data invariant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DescriptorDataValueLocals(TaggedLocals);
+
+/// The stored `[[Set]]` needed by Proxy `[[Set]]`'s accessor invariant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DescriptorSetterLocals(TaggedLocals);
+
+impl DescriptorSetterLocals {
+    fn emit_undefined_i32(self, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(self.0.tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+}
+
+/// The exact direct-own-descriptor projection consumed by Proxy `[[Set]]`.
+///
+/// The descriptor fact, data value and accessor setter are distinct typed
+/// roles. The observation is storage-only: no branch may call a getter while
+/// constructing it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProxySetDescriptorLocals {
+    fact: OwnDescriptorFactLocals,
+    data_value: DescriptorDataValueLocals,
+    setter: DescriptorSetterLocals,
+}
+
+impl ProxySetDescriptorLocals {
+    fn new(
+        fact: OwnDescriptorFactLocals,
+        data_value: DescriptorDataValueLocals,
+        setter: DescriptorSetterLocals,
+    ) -> Self {
+        Self {
+            fact,
+            data_value,
+            setter,
+        }
+    }
+}
+
+/// The two allocation-free views emitted by the one direct
+/// `[[GetOwnProperty]]` representation loop.
+///
+/// Adding a third view requires updating every exhaustive match below. A
+/// consumer cannot request only part of the richer Proxy-Set observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectOwnDescriptorProjectionLocals {
+    Fact(OwnDescriptorFactLocals),
+    ProxySet(ProxySetDescriptorLocals),
+}
+
+impl DirectOwnDescriptorProjectionLocals {
+    fn fact(self) -> OwnDescriptorFactLocals {
+        match self {
+            Self::Fact(fact) => fact,
+            Self::ProxySet(descriptor) => descriptor.fact,
+        }
+    }
+
+    fn data_value(self) -> Option<DescriptorDataValueLocals> {
+        match self {
+            Self::Fact(_) => None,
+            Self::ProxySet(descriptor) => Some(descriptor.data_value),
+        }
+    }
+
+    fn setter(self) -> Option<DescriptorSetterLocals> {
+        match self {
+            Self::Fact(_) => None,
+            Self::ProxySet(descriptor) => Some(descriptor.setter),
+        }
     }
 }
 
@@ -10901,15 +11013,37 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(fact.present);
     }
 
-    fn emit_own_descriptor_fact_from_entries(
+    fn reserve_proxy_set_descriptor_locals(&mut self) -> ProxySetDescriptorLocals {
+        let fact = self.reserve_own_descriptor_fact_locals();
+        let data_value = DescriptorDataValueLocals(TaggedLocals::new(
+            self.reserve_temp_local(),
+            self.reserve_temp_local(),
+        ));
+        let setter = DescriptorSetterLocals(TaggedLocals::new(
+            self.reserve_temp_local(),
+            self.reserve_temp_local(),
+        ));
+        ProxySetDescriptorLocals::new(fact, data_value, setter)
+    }
+
+    fn release_proxy_set_descriptor_locals(&mut self, descriptor: ProxySetDescriptorLocals) {
+        self.release_temp_local(descriptor.setter.0.tag);
+        self.release_temp_local(descriptor.setter.0.payload);
+        self.release_temp_local(descriptor.data_value.0.tag);
+        self.release_temp_local(descriptor.data_value.0.payload);
+        self.release_own_descriptor_fact_locals(descriptor.fact);
+    }
+
+    fn emit_own_descriptor_from_entries(
         &mut self,
         object_local: u32,
         pointer_offset: u64,
         length_offset: u64,
         key_local: u32,
-        fact: OwnDescriptorFactLocals,
+        projection: DirectOwnDescriptorProjectionLocals,
         function: &mut Function,
     ) {
+        let fact = projection.fact();
         let buffer_local = self.reserve_temp_local();
         let len_local = self.reserve_temp_local();
         let index_local = self.reserve_temp_local();
@@ -10948,6 +11082,34 @@ impl<'a> FunctionBuilder<'a> {
             fact.descriptor,
             function,
         );
+        if let Some(data_value) = projection.data_value() {
+            self.load_i64_to_local_from_offset(
+                entry_local,
+                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
+                data_value.0.payload,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                entry_local,
+                HEAP_OBJECT_DATA_TAG_OFFSET,
+                data_value.0.tag,
+                function,
+            );
+        }
+        if let Some(setter) = projection.setter() {
+            self.load_i64_to_local_from_offset(
+                entry_local,
+                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                setter.0.payload,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                entry_local,
+                HEAP_OBJECT_SETTER_TAG_OFFSET,
+                setter.0.tag,
+                function,
+            );
+        }
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(index_local));
@@ -10980,6 +11142,43 @@ impl<'a> FunctionBuilder<'a> {
         fact: OwnDescriptorFactLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_direct_own_descriptor(
+            target_payload_local,
+            target_tag_local,
+            key_payload_local,
+            key_tag_local,
+            DirectOwnDescriptorProjectionLocals::Fact(fact),
+            function,
+        )
+    }
+
+    fn emit_direct_own_descriptor_for_proxy_set(
+        &mut self,
+        target: ProxyTargetLocals,
+        key: PropertyKeyLocals,
+        descriptor: ProxySetDescriptorLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_direct_own_descriptor(
+            target.0.payload,
+            target.0.tag,
+            key.0.payload,
+            key.0.tag,
+            DirectOwnDescriptorProjectionLocals::ProxySet(descriptor),
+            function,
+        )
+    }
+
+    fn emit_direct_own_descriptor(
+        &mut self,
+        target_payload_local: u32,
+        target_tag_local: u32,
+        key_payload_local: u32,
+        key_tag_local: u32,
+        projection: DirectOwnDescriptorProjectionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let fact = projection.fact();
         let handled_local = self.reserve_temp_local();
         let branch_handled_local = self.reserve_temp_local();
         let boxed_kind_local = self.reserve_temp_local();
@@ -10997,6 +11196,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(fact.present));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(fact.descriptor));
+        if let Some(data_value) = projection.data_value() {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(data_value.0.payload));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(data_value.0.tag));
+        }
+        if let Some(setter) = projection.setter() {
+            // Heap descriptor slots use zero for an omitted accessor. Normalize
+            // that state once to the tagged ECMAScript `undefined` value that
+            // Proxy [[Set]] step 10.b tests.
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(setter.0.payload));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(setter.0.tag));
+        }
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
         self.emit_object_boxed_kind_for_tag(
@@ -11083,6 +11297,33 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Ne);
                     function.instruction(&Instruction::I64ExtendI32U);
                     function.instruction(&Instruction::LocalSet(fact.present));
+                    if let (Some(data_value), Some(setter)) =
+                        (projection.data_value(), projection.setter())
+                    {
+                        function.instruction(&Instruction::LocalGet(fact.present));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        fact.emit_accessor_i32(function);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.emit_array_accessor_setter_for_index(
+                            target_payload_local,
+                            index_local,
+                            setter.0.payload,
+                            setter.0.tag,
+                            function,
+                        );
+                        function.instruction(&Instruction::Else);
+                        self.emit_array_read(
+                            target_payload_local,
+                            index_local,
+                            data_value.0.payload,
+                            data_value.0.tag,
+                            function,
+                        );
+                        function.instruction(&Instruction::End);
+                        function.instruction(&Instruction::End);
+                    }
                     function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::I64Const(self.strings.payload("length")));
                     function.instruction(&Instruction::LocalSet(key_constant_local));
@@ -11110,13 +11351,21 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
                     function.instruction(&Instruction::LocalSet(fact.descriptor));
                     function.instruction(&Instruction::End);
+                    if let Some(data_value) = projection.data_value() {
+                        self.emit_array_length(
+                            target_payload_local,
+                            data_value.0.payload,
+                            data_value.0.tag,
+                            function,
+                        );
+                    }
                     function.instruction(&Instruction::Else);
-                    self.emit_own_descriptor_fact_from_entries(
+                    self.emit_own_descriptor_from_entries(
                         target_payload_local,
                         HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET,
                         HEAP_ARRAY_NAMED_PROPS_LEN_OFFSET,
                         key_payload_local,
-                        fact,
+                        projection,
                         function,
                     );
                     function.instruction(&Instruction::End);
@@ -11154,10 +11403,61 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Ne);
                     function.instruction(&Instruction::I64ExtendI32U);
                     function.instruction(&Instruction::LocalSet(fact.present));
+                    if let (Some(data_value), Some(setter)) =
+                        (projection.data_value(), projection.setter())
+                    {
+                        function.instruction(&Instruction::LocalGet(fact.present));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        fact.emit_accessor_i32(function);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.emit_array_accessor_setter_for_index(
+                            target_payload_local,
+                            index_local,
+                            setter.0.payload,
+                            setter.0.tag,
+                            function,
+                        );
+                        function.instruction(&Instruction::Else);
+                        // `emit_arguments_read` observes the current mapped
+                        // parameter value. It reaches only the data branch, so
+                        // descriptor observation cannot invoke an accessor.
+                        self.emit_arguments_read(
+                            target_payload_local,
+                            index_local,
+                            data_value.0.payload,
+                            data_value.0.tag,
+                            function,
+                        )?;
+                        function.instruction(&Instruction::End);
+                        function.instruction(&Instruction::End);
+                    }
                     function.instruction(&Instruction::Else);
-                    for (name, offset) in [
-                        ("length", HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET),
-                        ("callee", HEAP_ARGUMENTS_CALLEE_DESCRIPTOR_KIND_OFFSET),
+                    for (
+                        name,
+                        descriptor_offset,
+                        data_payload_offset,
+                        data_tag_offset,
+                        setter_payload_offset,
+                        setter_tag_offset,
+                    ) in [
+                        (
+                            "length",
+                            HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET,
+                            HEAP_ARGUMENTS_LENGTH_VALUE_OFFSET,
+                            HEAP_ARGUMENTS_LENGTH_VALUE_TAG_OFFSET,
+                            HEAP_ARGUMENTS_LENGTH_SETTER_PAYLOAD_OFFSET,
+                            HEAP_ARGUMENTS_LENGTH_SETTER_TAG_OFFSET,
+                        ),
+                        (
+                            "callee",
+                            HEAP_ARGUMENTS_CALLEE_DESCRIPTOR_KIND_OFFSET,
+                            HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET,
+                            HEAP_ARGUMENTS_CALLEE_VALUE_TAG_OFFSET,
+                            HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET,
+                            HEAP_ARGUMENTS_CALLEE_SETTER_TAG_OFFSET,
+                        ),
                     ] {
                         function.instruction(&Instruction::LocalGet(fact.present));
                         function.instruction(&Instruction::I64Eqz);
@@ -11177,7 +11477,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::If(BlockType::Empty));
                         self.load_i64_to_local_from_offset(
                             target_payload_local,
-                            offset,
+                            descriptor_offset,
                             fact.descriptor,
                             function,
                         );
@@ -11190,6 +11490,43 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::I64Ne);
                         function.instruction(&Instruction::I64ExtendI32U);
                         function.instruction(&Instruction::LocalSet(fact.present));
+                        if let (Some(data_value), Some(setter)) =
+                            (projection.data_value(), projection.setter())
+                        {
+                            function.instruction(&Instruction::LocalGet(fact.present));
+                            function.instruction(&Instruction::I64Const(0));
+                            function.instruction(&Instruction::I64Ne);
+                            function.instruction(&Instruction::If(BlockType::Empty));
+                            fact.emit_accessor_i32(function);
+                            function.instruction(&Instruction::If(BlockType::Empty));
+                            self.load_i64_to_local_from_offset(
+                                target_payload_local,
+                                setter_payload_offset,
+                                setter.0.payload,
+                                function,
+                            );
+                            self.load_i64_to_local_from_offset(
+                                target_payload_local,
+                                setter_tag_offset,
+                                setter.0.tag,
+                                function,
+                            );
+                            function.instruction(&Instruction::Else);
+                            self.load_i64_to_local_from_offset(
+                                target_payload_local,
+                                data_payload_offset,
+                                data_value.0.payload,
+                                function,
+                            );
+                            self.load_i64_to_local_from_offset(
+                                target_payload_local,
+                                data_tag_offset,
+                                data_value.0.tag,
+                                function,
+                            );
+                            function.instruction(&Instruction::End);
+                            function.instruction(&Instruction::End);
+                        }
                         function.instruction(&Instruction::End);
                         function.instruction(&Instruction::End);
                     }
@@ -11221,12 +11558,12 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalGet(fact.present));
                     function.instruction(&Instruction::I64Eqz);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_own_descriptor_fact_from_entries(
+                    self.emit_own_descriptor_from_entries(
                         target_payload_local,
                         HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET,
                         HEAP_ARRAY_NAMED_PROPS_LEN_OFFSET,
                         key_payload_local,
-                        fact,
+                        projection,
                         function,
                     );
                     function.instruction(&Instruction::End);
@@ -11268,6 +11605,16 @@ impl<'a> FunctionBuilder<'a> {
                         DescriptorWord::of_data(false, false, false).as_i64(),
                     ));
                     function.instruction(&Instruction::LocalSet(fact.descriptor));
+                    if let Some(data_value) = projection.data_value() {
+                        self.emit_boxed_string_length_number_payload(
+                            value_payload_local,
+                            data_value.0.payload,
+                            function,
+                        );
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(data_value.0.tag));
+                    }
                     function.instruction(&Instruction::Else);
                     self.emit_known_array_index_from_property_key(
                         key_payload_local,
@@ -11301,18 +11648,27 @@ impl<'a> FunctionBuilder<'a> {
                         DescriptorWord::of_data(false, true, false).as_i64(),
                     ));
                     function.instruction(&Instruction::LocalSet(fact.descriptor));
+                    if let Some(data_value) = projection.data_value() {
+                        self.emit_string_index_read(
+                            value_payload_local,
+                            index_local,
+                            data_value.0.payload,
+                            data_value.0.tag,
+                            function,
+                        )?;
+                    }
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::LocalGet(fact.present));
                     function.instruction(&Instruction::I64Eqz);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_own_descriptor_fact_from_entries(
+                    self.emit_own_descriptor_from_entries(
                         target_payload_local,
                         HEAP_PTR_OFFSET,
                         HEAP_LEN_OFFSET,
                         key_payload_local,
-                        fact,
+                        projection,
                         function,
                     );
                     function.instruction(&Instruction::End);
@@ -11324,6 +11680,23 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     function.instruction(&Instruction::I64Const(1));
                     function.instruction(&Instruction::LocalSet(handled_local));
+
+                    // Ordinary entry storage is the descriptor authority. A
+                    // Function's internal `prototype` slot is only a virtual
+                    // fallback: the entry retains replacement values and later
+                    // attribute transitions such as `writable: false`.
+                    self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_own_descriptor_from_entries(
+                        target_payload_local,
+                        HEAP_PTR_OFFSET,
+                        HEAP_LEN_OFFSET,
+                        key_payload_local,
+                        projection,
+                        function,
+                    );
+                    function.instruction(&Instruction::End);
+
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::LocalSet(function_like_local));
                     function.instruction(&Instruction::LocalGet(target_tag_local));
@@ -11356,40 +11729,10 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-                    function.instruction(&Instruction::LocalSet(key_constant_local));
-                    function.instruction(&Instruction::LocalGet(function_like_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    self.emit_property_key_payload_equality_i32(
-                        key_constant_local,
-                        key_payload_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::I32And);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.load_i64_to_local_from_offset(
-                        target_payload_local,
-                        HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-                        value_tag_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(value_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(fact.present));
-                    function.instruction(&Instruction::I64Const(
-                        DescriptorWord::of_data(true, false, false).as_i64(),
-                    ));
-                    function.instruction(&Instruction::LocalSet(fact.descriptor));
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::End);
-
                     // The remaining virtual intrinsic slots mirror the public
-                    // descriptor builtin's direct-target cases. Their values are
-                    // irrelevant here; only the descriptor attributes survive.
+                    // descriptor builtin's direct-target cases. The richer
+                    // Proxy-Set projection also retains their stored value,
+                    // without routing through observable `[[Get]]`.
                     for (target_tag, target_global, key, descriptor) in [
                         (
                             ValueKind::Function,
@@ -11445,23 +11788,85 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(fact.present));
                         function.instruction(&Instruction::I64Const(descriptor.as_i64()));
                         function.instruction(&Instruction::LocalSet(fact.descriptor));
+                        if let Some(data_value) = projection.data_value() {
+                            if key == "prototype" {
+                                self.load_i64_to_local_from_offset(
+                                    target_payload_local,
+                                    HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                                    data_value.0.payload,
+                                    function,
+                                );
+                                self.load_i64_to_local_from_offset(
+                                    target_payload_local,
+                                    HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+                                    data_value.0.tag,
+                                    function,
+                                );
+                            } else {
+                                let value = if target_global == ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX
+                                {
+                                    "ArrayBuffer"
+                                } else {
+                                    "DataView"
+                                };
+                                function.instruction(&Instruction::I64Const(
+                                    self.strings.payload(value),
+                                ));
+                                function.instruction(&Instruction::LocalSet(data_value.0.payload));
+                                function.instruction(&Instruction::I64Const(
+                                    ValueKind::String.tag() as i64,
+                                ));
+                                function.instruction(&Instruction::LocalSet(data_value.0.tag));
+                            }
+                        }
                         function.instruction(&Instruction::End);
                         function.instruction(&Instruction::End);
                     }
 
+                    // A function-like value with no materialized entry still
+                    // exposes its internal `prototype` slot. This fallback is
+                    // deliberately after the exact DataView/intrinsic cases.
                     function.instruction(&Instruction::LocalGet(fact.present));
                     function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_own_descriptor_fact_from_entries(
-                        target_payload_local,
-                        HEAP_PTR_OFFSET,
-                        HEAP_LEN_OFFSET,
+                    function.instruction(&Instruction::LocalGet(function_like_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
+                    function.instruction(&Instruction::LocalSet(key_constant_local));
+                    self.emit_property_key_payload_equality_i32(
+                        key_constant_local,
                         key_payload_local,
-                        fact,
                         function,
                     );
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.load_i64_to_local_from_offset(
+                        target_payload_local,
+                        HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+                        value_tag_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(value_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(fact.present));
+                    function.instruction(&Instruction::I64Const(
+                        DescriptorWord::of_data(true, false, false).as_i64(),
+                    ));
+                    function.instruction(&Instruction::LocalSet(fact.descriptor));
+                    if let Some(data_value) = projection.data_value() {
+                        self.load_i64_to_local_from_offset(
+                            target_payload_local,
+                            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+                            data_value.0.payload,
+                            function,
+                        );
+                        function.instruction(&Instruction::LocalGet(value_tag_local));
+                        function.instruction(&Instruction::LocalSet(data_value.0.tag));
+                    }
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
@@ -16924,11 +17329,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_proxy_set_invariant_check(
-            proxy_target_payload_local,
-            proxy_target_tag_local,
-            key_local,
-            payload_local,
-            tag_local,
+            ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local),
+            PropertyKeyLocals::new(key_local, proxy_key_tag_local),
+            ProxySetValueLocals::new(payload_local, tag_local),
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19483,138 +19886,57 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_proxy_set_invariant_check(
+    fn emit_proxy_set_descriptor_same_value_i32(
         &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        key_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
+        incoming: ProxySetValueLocals,
+        target: DescriptorDataValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let present_local = self.reserve_temp_local();
-        let buffer_local = self.reserve_temp_local();
-        let len_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let entry_key_local = self.reserve_temp_local();
-        let descriptor_kind_local = self.reserve_temp_local();
-        let target_value_payload_local = self.reserve_temp_local();
-        let target_value_tag_local = self.reserve_temp_local();
-        let setter_tag_local = self.reserve_temp_local();
+        self.emit_tagged_payload_same_value_i32(
+            incoming.0.tag,
+            incoming.0.payload,
+            target.0.tag,
+            target.0.payload,
+            function,
+        )
+    }
 
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(target_value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(target_value_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(setter_tag_local));
+    pub(crate) fn emit_proxy_set_invariant_check(
+        &mut self,
+        target: ProxyTargetLocals,
+        key: PropertyKeyLocals,
+        incoming: ProxySetValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let descriptor = self.reserve_proxy_set_descriptor_locals();
+        self.emit_direct_own_descriptor_for_proxy_set(target, key, descriptor, function)?;
 
-        self.emit_is_object_entry_backed_tag_i32(target_tag_local, function);
+        descriptor.fact.emit_present_i32(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_PTR_OFFSET,
-            buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_LEN_OFFSET,
-            len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(buffer_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_KEY_OFFSET,
-            entry_key_local,
-            function,
-        );
-        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
+        descriptor.fact.emit_accessor_i32(function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(present_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
-            descriptor_kind_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-            target_value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_DATA_TAG_OFFSET,
-            target_value_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_SETTER_TAG_OFFSET,
-            setter_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-        ));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
+        descriptor.fact.emit_configurable_i32(function);
+        function.instruction(&Instruction::I32Eqz);
+        descriptor.setter.emit_undefined_i32(function);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_tagged_payload_same_value_i32(
-            value_tag_local,
-            value_payload_local,
-            target_value_tag_local,
-            target_value_payload_local,
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Proxy set trap result is incompatible with target descriptor",
+            self.result_local,
+            self.result_tag_local,
             function,
         )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        descriptor.fact.emit_configurable_i32(function);
+        function.instruction(&Instruction::I32Eqz);
+        descriptor.fact.emit_writable_i32(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_proxy_set_descriptor_same_value_i32(incoming, descriptor.data_value, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
@@ -19627,40 +19949,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-        ));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(setter_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy set trap result is incompatible with target descriptor",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(setter_tag_local);
-        self.release_temp_local(target_value_tag_local);
-        self.release_temp_local(target_value_payload_local);
-        self.release_temp_local(descriptor_kind_local);
-        self.release_temp_local(entry_key_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(len_local);
-        self.release_temp_local(buffer_local);
-        self.release_temp_local(present_local);
+        self.release_proxy_set_descriptor_locals(descriptor);
         Ok(())
     }
 

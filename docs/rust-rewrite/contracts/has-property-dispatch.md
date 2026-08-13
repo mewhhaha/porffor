@@ -5,8 +5,10 @@ AOT backend. It is deliberately centered on one complete internal method. It
 does not claim that `[[Get]]`, `[[Set]]`, `[[Delete]]` or
 `[[OwnPropertyKeys]]` share the same full dispatch. The direct-target
 `[[GetOwnProperty]]` fact and `[[IsExtensible]]` pieces described below are
-also consumed by bounded Proxy `[[Delete]]` post-trap validation; that does not
-migrate the delete trap lookup or fallback path.
+also consumed by bounded Proxy `[[Delete]]` post-trap validation. A richer
+projection of that same direct descriptor authority is consumed by bounded
+Proxy `[[Set]]` post-trap validation. Neither migration changes trap lookup,
+fallback or the complete internal-method dispatch.
 
 ## One product entry
 
@@ -100,14 +102,46 @@ property, then reject a present non-configurable descriptor, and only then send
 a present configurable descriptor through the shared `[[IsExtensible]]`
 operation.
 
+There is still only one direct-own-descriptor representation loop. Its closed
+`DirectOwnDescriptorProjectionLocals` result domain has a value-free `Fact`
+variant and a `ProxySet` variant containing the complete
+`ProxySetDescriptorLocals`: the fact, a typed descriptor data value and a typed
+accessor setter. Adding a representation or projection without handling it is
+an exhaustive-match compile error. Passing an incoming Proxy-Set value where a
+descriptor data value or setter is required is a Rust type error rather than a
+positional-local transposition.
+
+The richer projection reads descriptor storage without invoking getters.
+Array indices use the descriptor-kind and raw value/setter readers, Array
+`length` carries its numeric value, boxed-String virtual properties carry the
+actual length or code-unit String, and arguments data indices use the existing
+mapped-arguments read only after the descriptor is known to be data. Arguments
+accessors and special `length`/`callee` properties read their setter/value slots
+directly. Missing setters are normalized to tagged `undefined` once. The
+integer-indexed branch remains explicit even though its current descriptor is
+configurable and therefore imposes no Proxy-Set frozen-property restriction.
+Ordinary entry storage is consulted before virtual fallbacks, so a Function
+`prototype` entry retains an observed `writable: false` transition. The
+DataView/intrinsic cases remain the next fallback, ahead of the generic
+function-internal `prototype` slot.
+
+Proxy `[[Set]]` validates a truthy trap result in ECMA-262 order: accept an
+absent descriptor; for a present non-configurable, non-writable data descriptor
+require `SameValue(V, targetDesc.[[Value]])`; for a present non-configurable
+accessor reject only when `targetDesc.[[Set]]` is `undefined`; otherwise accept.
+A callable Proxy setter is therefore accepted even though its runtime tag is
+Object. The old Object/Function/arguments `HEAP_OBJECT_ENTRY_SIZE` scan is not a
+descriptor authority and has been removed from this consumer.
+
 This remains a bounded consumer migration. The direct fact is not the recursive
 Proxy descriptor-record protocol: when `[[ProxyTarget]]` is itself a Proxy, the
 eventual implementation must perform that target's `GetMethod`, call,
 descriptor conversion and complete compatibility validation without allocating
-through the public builtin. The `has` and `deleteProperty` invariant consumers
-therefore make no nested-Proxy-target closure claim. Other Proxy internal
-methods, module-namespace descriptor behavior, and broader nested
-exotic-handler `[[Get]]` closure remain T11 work.
+through the public builtin. The `has`, `deleteProperty` and `set` invariant
+consumers therefore make no nested-Proxy-target closure claim. Proxy `[[Get]]`
+still has its older value-bearing scan. Other Proxy internal methods,
+module-namespace descriptor behavior, and broader nested exotic-handler
+`[[Get]]` closure remain T11 work.
 
 ## Verification boundary
 
@@ -127,18 +161,26 @@ cargo test -p lila-aot-wasm tests::typedarray_has_property_module_validates -- -
 cargo test -p lila-engine tests::wasm_backend_has_property_dispatches_every_live_exotic_branch -- --exact
 cargo test -p lila-engine tests::wasm_backend_proxy_descriptor_and_extensibility_preserve_handler_tags -- --exact
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_delete_property_fixture -- --exact
+cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_set_direct_descriptor_invariants -- --exact
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_get_prototype_of_fixture -- --exact
 ./target/debug/lila test262 run built-ins/Proxy/has --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Proxy/set --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Reflect/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Reflect/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Reflect/set --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/TypedArrayConstructors/internals/HasProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
-The direct-target Proxy Array invariants are covered by the focused delete and
-descriptor regressions above. Closure still requires the complete pinned
-Proxy/Reflect, Object and TypedArray trees; these focused filters are only the
-cheapest regression gates for this seam.
+The direct-target Proxy Array invariants are covered by the focused delete,
+descriptor and Set regressions above. The Set fixture also covers dense/sparse
+indices, symbols, boxed String, mapped arguments, arguments accessors without
+getter invocation, callable-Proxy setters, `SameValue` edge cases, a Function
+`prototype` frozen through its materialized descriptor entry and both
+assignment/Reflect entry points. It is written but remains unrun while the
+shared verification lane owns Cargo and Test262. Closure still requires the
+complete pinned Proxy/Reflect, Object and TypedArray trees; these focused
+filters are only the cheapest regression gates for this seam.

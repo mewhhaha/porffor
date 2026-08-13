@@ -96,6 +96,30 @@ and the direct descriptor fact does not recursively validate a nested Proxy
 target. The expanded fixture has not run while the release matrix owns runtime
 verification.
 
+Proxy `[[Set]]` truthy-result validation now joins those direct-target
+consumers through a richer projection of the same descriptor authority. One
+closed Rust result domain selects either the value-free fact or a complete
+Proxy-Set record containing distinct fact, data-value and setter locals; both
+views consume the same exhaustive object-representation loop. Target, property
+key and incoming value are typed call-site roles. Array, arguments,
+boxed-String, Function-special and ordinary values are read from descriptor
+storage without invoking getters, and mapped arguments data observes the
+current parameter value. Missing setters normalize to tagged `undefined`; a
+callable Proxy setter is accepted because ECMA-262 tests only whether
+`[[Set]]` is undefined. Ordinary entry storage wins before virtual fallbacks,
+so freezing a Function's materialized `prototype` entry changes the invariant
+while DataView/intrinsic fallbacks remain available when no entry exists.
+
+The focused Wasm-AOT fixture covers Array length and dense/sparse indices,
+named and Symbol keys, boxed-String virtual values, mapped arguments and an
+arguments accessor whose getter must not run, callable-Proxy setters,
+`SameValue` edge cases, writable and frozen Function `prototype` entries,
+integer-indexed no-false-positive cases and both assignment and Reflect entry
+points. It is written but has not run while the shared verification lane owns
+Cargo and Test262. This is only the post-trap, direct-target migration: Set
+trap lookup/fallback and recursive nested-Proxy target `[[GetOwnProperty]]`
+remain T11 work, and Proxy `[[Get]]` still has its older value-bearing scan.
+
 The retained Proxy slots now also have one typed read authority. The reader
 accepts the same `ProxySlotLocals` record as the writer, maps each heap word into
 the distinct target/handler newtype, and emits the revoked-handler check before

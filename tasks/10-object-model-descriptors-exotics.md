@@ -61,11 +61,29 @@ representation order as `[[HasProperty]]`. A false `has` result and a true
 and check extensibility only for a present configurable property. The former
 raw Array/ordinary delete scan and direct `HEAP_CAP_OFFSET` test are gone.
 
+Proxy `[[Set]]` truthy-result validation now consumes a richer typed projection
+from that same direct-own-descriptor authority rather than maintaining another
+representation scan. `DirectOwnDescriptorProjectionLocals` is a closed Rust
+domain: the value-free fact and the complete Proxy-Set projection share one
+exhaustive `ObjectInternalMethodBranch` loop. The latter carries distinct fact,
+descriptor-data and accessor-setter locals, while target, property key and
+incoming value are separate typed roles at both Set call sites. Array length
+and indices, mapped arguments data, arguments special/accessor slots,
+boxed-String virtual values, Function-special and ordinary storage are observed
+without allocating a public descriptor object or invoking a getter. Missing
+setters normalize to tagged `undefined`, and the invariant tests exactly that
+state rather than requiring a Function tag, so callable Proxy setters remain
+valid. Ordinary entries precede virtual fallbacks, preserving a Function
+`prototype` entry's later `writable: false` transition while keeping the
+DataView/intrinsic and generic internal-slot fallbacks ordered behind it. The
+former Object/Function/arguments raw entry scan is gone.
+
 This is direct-target closure only. The fact deliberately marks a nested Proxy
 target as handled without treating its own storage as the target descriptor;
 the recursive Proxy descriptor-record protocol remains T11 work. The complete
-`[[Delete]]` dispatch, trap lookup and fallback path also remain separate from
-the full `[[HasProperty]]` dispatcher.
+`[[Delete]]` and `[[Set]]` dispatch, trap lookup and fallback paths also remain
+separate from the full `[[HasProperty]]` dispatcher. Proxy `[[Get]]` retains its
+older value-bearing invariant scan.
 
 This is still a foundation, not task closure. Array application and index
 paths, arguments descriptors, several builtin/exotic emitters and lowering
@@ -75,7 +93,9 @@ ordinary `Object.defineProperty` adapter still relies on its emitted run-time
 6.2.6.5 step-9 check, and the shortcut audit still finds path/source-dependent
 materializations. `cargo check -p lila-ir -p lila-aot-wasm` and the focused
 array descriptor CLI fixture were green at the earlier descriptor checkpoint;
-the HasProperty batch has not rerun them. A complete current-pin Wasm-AOT
+the HasProperty and Proxy-Set batches have not rerun them. The focused
+Proxy-Set direct-descriptor fixture is written but has not run while the shared
+verification lane owns Cargo and Test262. A complete current-pin Wasm-AOT
 Object/descriptor subtree run has not been performed.
 
 ## Objective

@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::objects::{PropertyKeyLocals, ProxySetValueLocals, ProxyTargetLocals};
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_proxy_define_property_trap_invariants(
@@ -970,11 +971,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_proxy_set_invariant_check(
-            proxy_target_payload_local,
-            proxy_target_tag_local,
-            key_string_local,
-            value_payload_local,
-            value_tag_local,
+            ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local),
+            PropertyKeyLocals::new(key_string_local, key_property_tag_local),
+            ProxySetValueLocals::new(value_payload_local, value_tag_local),
             function,
         )?;
         function.instruction(&Instruction::End);

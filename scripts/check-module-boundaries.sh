@@ -518,11 +518,11 @@ require_fixed_string_count crates/lila-aot-wasm/src/expressions.rs "$uint32_call
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$uint32_call" 1 'ToUint32 authority call'
 require_fixed_string_count crates/lila-aot-wasm/src/operations.rs "$uint32_call" 4 'ToUint32 authority call'
 
-# T11's value-free direct [[GetOwnProperty]] fact. One typed authority owns the
-# representation split used by the public descriptor invariant checks plus
-# Proxy [[HasProperty]] and [[Delete]]. Array-only mirrors would let a new
-# exotic silently escape one consumer again, so keep the closed branch order
-# and reviewed call sites exact.
+# T11's direct [[GetOwnProperty]] observations. One typed authority owns the
+# representation split used by the value-free public descriptor/Has/Delete
+# fact and the richer Proxy-Set projection. Array-only or ordinary-entry mirrors
+# would let a new exotic silently escape one consumer again, so keep the closed
+# branch order, projection domain and reviewed call sites exact.
 own_descriptor_fact='emit_direct_own_descriptor_fact('
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
@@ -536,8 +536,85 @@ require_fixed_string_count \
   'closed object-internal-method branch consumer'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$own_descriptor_fact" 3 'own-descriptor fact definition/HasProperty/Proxy Delete call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/object.rs "$own_descriptor_fact" 2 'Object.getOwnPropertyDescriptor invariant call'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  'enum DirectOwnDescriptorProjectionLocals {' \
+  1 \
+  'closed direct-own-descriptor projection domain'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'pub(crate) struct PropertyKeyLocals(TaggedLocals);' 1 'typed Proxy-Set property key role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'pub(crate) struct ProxySetValueLocals(TaggedLocals);' 1 'typed Proxy-Set incoming value role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorDataValueLocals(TaggedLocals);' 1 'typed descriptor data-value role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorSetterLocals(TaggedLocals);' 1 'typed descriptor setter role'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  'fn emit_direct_own_descriptor(' \
+  1 \
+  'direct-own-descriptor representation authority'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor(' 3 'direct-own-descriptor definition/fact/Proxy Set call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor_for_proxy_set(' 2 'typed Proxy-Set descriptor wrapper definition/call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_proxy_set_invariant_check(' 2 'Proxy-Set invariant definition/object-write call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/reflect.rs 'emit_proxy_set_invariant_check(' 1 'Reflect.set typed Proxy-Set invariant call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'DirectOwnDescriptorProjectionLocals::ProxySet(' 1 'complete Proxy-Set descriptor projection construction'
 if grep -RFl --include='*.rs' 'emit_proxy_array_target_own_descriptor_flags' crates/lila-aot-wasm/src >/dev/null; then
   fail 'Array-only Proxy own-descriptor mirrors must not bypass the typed authority'
+fi
+
+proxy_set_invariant_body="$(sed -n \
+  '/^    pub(crate) fn emit_proxy_set_invariant_check(/,/^    pub(crate) fn emit_object_delete_ordinary(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+for raw_proxy_set_scan in \
+  'emit_is_object_entry_backed_tag_i32' \
+  'HEAP_PTR_OFFSET' \
+  'HEAP_LEN_OFFSET' \
+  'HEAP_OBJECT_ENTRY_SIZE' \
+  'HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET' \
+  'HEAP_OBJECT_DATA_' \
+  'HEAP_OBJECT_SETTER_'
+do
+  if grep -Fq "$raw_proxy_set_scan" <<<"$proxy_set_invariant_body"; then
+    fail "Proxy [[Set]] invariant must not rebuild descriptor storage through $raw_proxy_set_scan"
+  fi
+done
+if ! grep -Fq 'emit_direct_own_descriptor_for_proxy_set(' <<<"$proxy_set_invariant_body"; then
+  fail 'Proxy [[Set]] invariant must consume the typed direct-own-descriptor projection'
+fi
+if ! grep -Fq 'descriptor.setter.emit_undefined_i32(' <<<"$proxy_set_invariant_body"; then
+  fail 'Proxy [[Set]] accessor invariant must test exactly tagged undefined'
+fi
+
+direct_own_descriptor_body="$(sed -n \
+  '/^    fn emit_direct_own_descriptor(/,/^    pub(crate) fn emit_proxy_has_invariant_check(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+for observable_descriptor_read in \
+  'emit_object_read(' \
+  'emit_array_index_get(' \
+  'emit_function_handle_call('
+do
+  if grep -Fq "$observable_descriptor_read" <<<"$direct_own_descriptor_body"; then
+    fail "direct own-descriptor observation must not invoke getters through $observable_descriptor_read"
+  fi
+done
+
+ordinary_direct_descriptor_body="$(sed -n \
+  '/ObjectInternalMethodBranch::Ordinary => {/,/self.release_temp_local(function_like_local)/p' \
+  <<<"$direct_own_descriptor_body")"
+if [ "$(grep -Fc 'self.emit_own_descriptor_from_entries(' <<<"$ordinary_direct_descriptor_body" || true)" -ne 1 ]; then
+  fail 'ordinary direct descriptors must have one exact entry-storage projection'
+fi
+if ! awk '
+  /self\.emit_own_descriptor_from_entries\(/ && !entry { entry = NR }
+  /for \(target_tag, target_global, key, descriptor\) in \[/ { intrinsic = NR }
+  /DescriptorWord::of_data\(true, false, false\)\.as_i64\(\)/ { function_fallback = NR }
+  END { exit !(entry && intrinsic && function_fallback && entry < intrinsic && intrinsic < function_fallback) }
+' <<<"$ordinary_direct_descriptor_body"; then
+  fail 'ordinary descriptor precedence must be entry storage, intrinsic fallback, then Function prototype fallback'
+fi
+function_prototype_fallback="$(sed -n \
+  '/A function-like value with no materialized entry still/,/DescriptorWord::of_data(true, false, false).as_i64()/p' \
+  <<<"$ordinary_direct_descriptor_body")"
+if ! grep -Fq 'Instruction::LocalGet(fact.present)' <<<"$function_prototype_fallback" \
+  || ! grep -Fq 'Instruction::I64Eqz' <<<"$function_prototype_fallback"; then
+  fail 'Function prototype fallback must be gated on an absent real entry'
 fi
 
 # T11's Proxy record has one typed writer and one typed live reader. Keep the
