@@ -17,9 +17,42 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-13: Number intrinsic ownership
+
+The complete eleven-member Number intrinsic family now lives in
+`builtins/number.rs`: `Number`, its four non-coercing predicates and its six
+prototype methods. The catalog match keeps one typed delegate per ID. A closed
+`NumberBuiltin` owns the parent-facing family choice, and a private closed
+`NumberPrototypeOperation` owns the six operations that share receiver
+validation. Neither domain admits an unrelated `StandardBuiltinId`; both
+behavior matches are exhaustive and the boundary audit rejects catch-all arms.
+
+This is a semantic-free source move. Static source/token comparisons against
+the parent commit `4dec427e6` confirm the same emitted instruction and temporary-
+local order for all four predicates, the Number and remaining String constructor
+paths, the shared prototype receiver path, all six prototype operations and the
+final local releases. Numeric conversion and formatting algorithms remain with
+`operations.rs`. A focused CLI fixture characterizes the intended unchanged
+runtime family surface, but has not executed while the resource-bounded matrix
+owns Cargo and Test262.
+
+The static write-phase gates are green: `git diff --check`,
+`check-module-boundaries.sh`, `check-task-plan.sh` and
+`rustfmt --edition 2024 --check --config skip_children=true` over the four
+touched Rust files (`builtins/mod.rs`, `builtins/number.rs`,
+`builtins/standard.rs` and `cli/language_numerics.rs`). `skip_children=true` is
+required so this focused gate does not recursively format unrelated builtin
+modules. Compile, focused fixture execution, current-pin Number and pre/post
+golden gates remain deferred. The pre-edit golden must later be built from
+parent commit `4dec427e6` in a separate worktree after copying the committed
+`wasm_number_builtin_family.js` fixture into that worktree. The before and after
+captures therefore use the same 583-fixture corpus and their formal `diff -r`
+remains meaningful and reproducible. No Number behavior or conformance
+improvement is claimed by this extraction.
+
 ### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Thirteen previously coupled builtin stores now have separate owners:
+Fourteen previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -62,6 +95,12 @@ Thirteen previously coupled builtin stores now have separate owners:
   realm-local TypeError route together. After the intervening T20 residue
   consolidation, the extraction reduced `standard.rs` from 35,532 to 35,439
   lines.
+- `lila-aot-wasm/src/builtins/number.rs` owns all eleven Number intrinsic bodies
+  behind a closed `NumberBuiltin` domain. A private closed
+  `NumberPrototypeOperation` owns the six methods that share Number receiver
+  validation; the constructor and four static predicates complete the family.
+  Eleven typed delegates preserve the flat catalog dispatch, and `standard.rs`
+  fell from 33,730 to 33,512 lines.
 - `lila-aot-wasm/src/builtins/function.rs` owns the complete five-member
   Function intrinsic family behind a private closed `FunctionBuiltin` domain:
   the constructor and `Function.prototype.{call,apply,bind,toString}`. The
@@ -134,6 +173,11 @@ The JSON move is a verbatim body extraction after normalizing only the closed
 enum path and rustfmt layout. Its compile, focused parse/reviver, stringify,
 raw-JSON and cross-realm gates, and real `built-ins/JSON` shard remain queued
 behind the same matrix run.
+The Number move is statically source/token-equivalent for the four predicates,
+both split constructor paths, shared receiver path, six prototype operations and
+temporary-local releases. Its static boundary/task/diff/rustfmt gates are green;
+compile, focused fixture, pre/post golden and real `built-ins/Number` gates remain
+queued behind the same matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
@@ -163,10 +207,10 @@ bounded owners:
   `bootstrap.rs` consumes it through an exhaustive installer match.
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
-- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, Function, global
-  numeric, URI, Error and JSON 2026-08-13:** their bodies are family modules; Reflect
-  already has the same boundary. Other large inline families should follow the
-  same exhaustive-delegate shape.
+- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, Number, Function,
+  global numeric, URI, Error and JSON 2026-08-13:** their bodies are family
+  modules; Reflect already has the same boundary. Other large inline families
+  should follow the same exhaustive-delegate shape.
 
 ### Landed 2026-08-12: catalog-owned bootstrap routing
 

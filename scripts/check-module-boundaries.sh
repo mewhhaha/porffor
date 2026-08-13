@@ -255,7 +255,7 @@ require_fixed_string_count \
   'typed StructSet encoder boundary before a mutable GC field exists'
 
 for module in array bigint binary_data boolean bootstrap date errors function \
-              global_numeric host iterators json math object proxy reflect \
+              global_numeric host iterators json math number object proxy reflect \
               standard string symbol uri; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
@@ -267,23 +267,24 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, Function, global numeric,
-# URI, Error and JSON
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, Number, Function, global
+# numeric, URI, Error and JSON
 # builtin body boundaries. The exhaustive StandardBuiltinId dispatch remains in
 # standard.rs, but family bodies are one-line delegates so unrelated builtin
 # work no longer collides with ~11k lines of Object descriptor/prototype
 # implementation, the Proxy lifecycle, the Math emitter family, Symbol's
 # registry/prototype implementation or BigInt's constructor, fixed-width and
-# prototype implementation, Boolean's constructor and prototype receiver
-# logic, Function's constructor and four prototype methods, the Error intrinsic
-# family, or JSON's parse/stringify/raw-JSON wrappers. The two coercing global
-# numeric predicates and the six global URI and Annex-B codec wrappers likewise
-# stay out of the shared dispatcher.
+# prototype implementation, Boolean's constructor and prototype receiver logic,
+# Number's constructor, predicates and prototype methods, Function's constructor
+# and four prototype methods, the Error intrinsic family, or JSON's
+# parse/stringify/raw-JSON wrappers. The two coercing global numeric predicates
+# and the six global URI and Annex-B codec wrappers likewise stay out of the
+# shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after Function extraction: 34,088 raw lines. This keeps
-# roughly the same small dispatch-only margin as the prior 34,675-line cap;
-# substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 34300
+# Measured immediately after Number extraction: 33,512 raw lines. This leaves
+# 213 lines of dispatch-maintenance headroom and removes most of the prior cap's
+# drift; substantive bodies belong in family modules.
+check_raw_line_budget "$wasm_standard_builtins" 33725
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
@@ -295,6 +296,47 @@ require_fixed_string_count "$wasm_standard_builtins" 'self.emit_boolean_builtin(
 # Measured immediately after extraction: 139 raw lines. The narrow margin is
 # for maintenance of this family, not adjacent builtin implementations.
 check_raw_line_budget "$wasm_boolean_builtins" 175
+
+wasm_number_builtins="crates/lila-aot-wasm/src/builtins/number.rs"
+check_no_inline_legacy_includes "$wasm_number_builtins"
+if ! grep -q '^pub(super) enum NumberBuiltin' "$wasm_number_builtins" \
+  || ! grep -q '^enum NumberPrototypeOperation' "$wasm_number_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_number_builtins" \
+  || ! grep -q '^        match operation {' "$wasm_number_builtins"; then
+  fail "$wasm_number_builtins must dispatch through the closed Number builtin/prototype domains"
+fi
+require_fixed_string_count \
+  "$wasm_number_builtins" \
+  'fn emit_number_constructor_builtin(' \
+  1 \
+  'Number constructor body'
+require_fixed_string_count \
+  "$wasm_number_builtins" \
+  'fn emit_number_prototype_builtin(' \
+  1 \
+  'shared Number prototype receiver/body dispatch'
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  'emit_number_builtin(' \
+  11 \
+  'Number builtin delegate'
+if grep -q 'StandardBuiltinId::' "$wasm_number_builtins"; then
+  fail "$wasm_number_builtins must accept only its closed family domains, not StandardBuiltinId"
+fi
+if grep -Eq '^[[:space:]]*_ =>|unreachable!\(' "$wasm_number_builtins"; then
+  fail "$wasm_number_builtins must keep both family matches exhaustive without catch-all arms"
+fi
+require_fixed_string_count \
+  crates/lila-cli/tests/cli/language_numerics.rs \
+  'fn run_wasm_backend_succeeds_for_number_builtin_family_fixture()' \
+  1 \
+  'Number builtin-family CLI regression'
+if [ ! -f crates/lila-cli/tests/fixtures/wasm_number_builtin_family.js ]; then
+  fail 'Number builtin-family fixture must remain present'
+fi
+# Measured immediately after extraction: 328 raw lines. The narrow margin is
+# for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_number_builtins" 370
 
 wasm_function_builtins="crates/lila-aot-wasm/src/builtins/function.rs"
 check_no_inline_legacy_includes "$wasm_function_builtins"

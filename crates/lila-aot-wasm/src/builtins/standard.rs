@@ -13,6 +13,7 @@ use super::function::FunctionBuiltin;
 use super::global_numeric::GlobalNumericBuiltin;
 use super::json::JsonBuiltin;
 use super::math::MathBuiltin as MathFn;
+use super::number::NumberBuiltin;
 use super::object::{EnumerableOwnProperties, IntegrityTest, PrototypeLookup};
 use super::symbol::SymbolBuiltin as SymbolFn;
 use super::temporal::ZonedDateTimeField;
@@ -29669,212 +29670,34 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_bigint_builtin(BigIntBuiltin::AsUintN, function)?
             }
             StandardBuiltinId::NumberIsInteger => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-                    function.instruction(&Instruction::LocalGet(arg_payload_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-                    function.instruction(&Instruction::F64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                self.emit_number_builtin(NumberBuiltin::IsInteger, function)?
             }
             StandardBuiltinId::NumberIsSafeInteger => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Abs);
-                function.instruction(&Instruction::F64Const(Ieee64::from(
-                    9_007_199_254_740_991.0,
-                )));
-                function.instruction(&Instruction::F64Le);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                self.emit_number_builtin(NumberBuiltin::IsSafeInteger, function)?
             }
             StandardBuiltinId::NumberIsNaN => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                self.emit_number_builtin(NumberBuiltin::IsNaN, function)?
             }
             StandardBuiltinId::NumberIsFinite => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(arg_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Eq);
-                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-                    function.instruction(&Instruction::LocalGet(arg_payload_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-                    function.instruction(&Instruction::F64Ne);
-                    function.instruction(&Instruction::I32And);
-                }
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                self.emit_number_builtin(NumberBuiltin::IsFinite, function)?
             }
-            StandardBuiltinId::NumberPrototypeToExponential
-            | StandardBuiltinId::NumberPrototypeToFixed
-            | StandardBuiltinId::NumberPrototypeToPrecision
-            | StandardBuiltinId::NumberPrototypeToString
-            | StandardBuiltinId::NumberPrototypeToLocaleString
-            | StandardBuiltinId::NumberPrototypeValueOf => {
-                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Number prototype receiver",
-                    )
-                })?;
-                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Number prototype receiver",
-                    )
-                })?;
-                let boxed_kind_local = self.reserve_temp_local();
-                let number_payload_local = self.reserve_temp_local();
-
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(receiver_payload_local));
-                function.instruction(&Instruction::LocalSet(number_payload_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_OBJECT_BOXED_KIND_OFFSET,
-                    boxed_kind_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(boxed_kind_local));
-                function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_NUMBER as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-                    number_payload_local,
-                    function,
-                );
-                function.instruction(&Instruction::Else);
-                self.emit_throw_current_function_realm_type_error(
-                    "Number.prototype method requires a Number receiver",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::Else);
-                self.emit_throw_current_function_realm_type_error(
-                    "Number.prototype method requires a Number receiver",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-
-                if builtin == StandardBuiltinId::NumberPrototypeValueOf {
-                    function.instruction(&Instruction::LocalGet(number_payload_local));
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                } else if builtin == StandardBuiltinId::NumberPrototypeToFixed {
-                    self.emit_number_to_fixed_payload(number_payload_local, function)?;
-                } else if builtin == StandardBuiltinId::NumberPrototypeToExponential {
-                    self.emit_number_to_exponential_payload(number_payload_local, function)?;
-                } else if builtin == StandardBuiltinId::NumberPrototypeToPrecision {
-                    self.emit_number_to_precision_payload(number_payload_local, function)?;
-                } else if builtin == StandardBuiltinId::NumberPrototypeToString {
-                    self.emit_number_to_string_with_radix_result(number_payload_local, function)?;
-                } else {
-                    self.emit_number_to_string_payload(number_payload_local, function)?;
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                }
-
-                self.release_temp_local(number_payload_local);
-                self.release_temp_local(boxed_kind_local);
+            StandardBuiltinId::NumberPrototypeToExponential => {
+                self.emit_number_builtin(NumberBuiltin::PrototypeToExponential, function)?
+            }
+            StandardBuiltinId::NumberPrototypeToFixed => {
+                self.emit_number_builtin(NumberBuiltin::PrototypeToFixed, function)?
+            }
+            StandardBuiltinId::NumberPrototypeToPrecision => {
+                self.emit_number_builtin(NumberBuiltin::PrototypeToPrecision, function)?
+            }
+            StandardBuiltinId::NumberPrototypeToString => {
+                self.emit_number_builtin(NumberBuiltin::PrototypeToString, function)?
+            }
+            StandardBuiltinId::NumberPrototypeToLocaleString => {
+                self.emit_number_builtin(NumberBuiltin::PrototypeToLocaleString, function)?
+            }
+            StandardBuiltinId::NumberPrototypeValueOf => {
+                self.emit_number_builtin(NumberBuiltin::PrototypeValueOf, function)?
             }
             StandardBuiltinId::BigIntPrototypeToString => {
                 self.emit_bigint_builtin(BigIntBuiltin::PrototypeToString, function)?
@@ -30542,7 +30365,10 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::BooleanConstructor => {
                 self.emit_boolean_builtin(BooleanBuiltin::Constructor, function)?
             }
-            StandardBuiltinId::NumberConstructor | StandardBuiltinId::StringConstructor => {
+            StandardBuiltinId::NumberConstructor => {
+                self.emit_number_builtin(NumberBuiltin::Constructor, function)?
+            }
+            StandardBuiltinId::StringConstructor => {
                 let arg_payload_local = self.reserve_temp_local();
                 let arg_tag_local = self.reserve_temp_local();
                 let primitive_payload_local = self.reserve_temp_local();
@@ -30554,104 +30380,60 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64GtU);
                 function.instruction(&Instruction::I64ExtendI32U);
                 function.instruction(&Instruction::LocalSet(has_arg_local));
-                match builtin {
-                    StandardBuiltinId::NumberConstructor => {
-                        function.instruction(&Instruction::LocalGet(has_arg_local));
-                        function.instruction(&Instruction::I64Eqz);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-                        function.instruction(&Instruction::I64ReinterpretF64);
-                        function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(primitive_tag_local));
-                        function.instruction(&Instruction::Else);
-                        self.emit_value_to_number_payload_allow_bigint(
-                            arg_tag_local,
-                            arg_payload_local,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                        // A ToPrimitive throw inside the conversion above leaves
-                        // completion=THROW with the original error already in
-                        // `self.result_local`/`self.result_tag_local` (untouched,
-                        // since the number-conversion helper skips further
-                        // processing on throw). Propagate to the active
-                        // try/catch handler here (this arm is nested one
-                        // untracked `If` deep, the `has_arg_local` check above)
-                        // instead of falling through and stamping a bogus
-                        // Number tag over the thrown error.
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(primitive_tag_local));
-                        function.instruction(&Instruction::End);
-                    }
-                    StandardBuiltinId::StringConstructor => {
-                        function.instruction(&Instruction::LocalGet(has_arg_local));
-                        function.instruction(&Instruction::I64Eqz);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-                        function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(primitive_tag_local));
-                        function.instruction(&Instruction::Else);
-                        function.instruction(&Instruction::LocalGet(arg_tag_local));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                        function.instruction(&Instruction::I64Eq);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        // `String(symbol)` is special-cased by the spec to
-                        // return `SymbolDescriptiveString(symbol)` directly,
-                        // bypassing the generic (throwing) ToString path.
-                        self.emit_symbol_descriptive_string_to_local(
-                            arg_payload_local,
-                            primitive_payload_local,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::Else);
-                        // `emit_value_to_string_payload` routes non-string
-                        // arguments through the shared outlined ToString
-                        // helper, which hard-returns the whole (possibly
-                        // inlined-at-this-call-site) function on a Symbol/
-                        // ToPrimitive throw — that would escape past an
-                        // enclosing in-function try/catch. Dispatch
-                        // Object/Array/Arguments ToPrimitive ourselves and
-                        // select the active-handler route at this call site's
-                        // known nesting depth instead.
-                        let string_arg_primitive_payload_local = self.reserve_temp_local();
-                        let string_arg_primitive_tag_local = self.reserve_temp_local();
-                        self.emit_tagged_to_primitive_locals(
-                            ToPrimitiveHint::String,
-                            arg_payload_local,
-                            arg_tag_local,
-                            string_arg_primitive_payload_local,
-                            string_arg_primitive_tag_local,
-                            ToPrimitiveAbruptRoute::ActiveHandler,
-                            function,
-                        )?;
-                        self.emit_primitive_to_string_payload(
-                            string_arg_primitive_payload_local,
-                            string_arg_primitive_tag_local,
-                            PrimitiveToStringAbruptRoute::ActiveHandler,
-                            function,
-                        )?;
-                        self.release_temp_local(string_arg_primitive_tag_local);
-                        self.release_temp_local(string_arg_primitive_payload_local);
-                        function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                        function.instruction(&Instruction::End);
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(primitive_tag_local));
-                        function.instruction(&Instruction::End);
-                    }
-                    _ => unreachable!(),
-                }
+                function.instruction(&Instruction::LocalGet(has_arg_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(self.strings.payload("")));
+                function.instruction(&Instruction::LocalSet(primitive_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(primitive_tag_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(arg_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                // `String(symbol)` is special-cased by the spec to
+                // return `SymbolDescriptiveString(symbol)` directly,
+                // bypassing the generic (throwing) ToString path.
+                self.emit_symbol_descriptive_string_to_local(
+                    arg_payload_local,
+                    primitive_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                // `emit_value_to_string_payload` routes non-string
+                // arguments through the shared outlined ToString
+                // helper, which hard-returns the whole (possibly
+                // inlined-at-this-call-site) function on a Symbol/
+                // ToPrimitive throw — that would escape past an
+                // enclosing in-function try/catch. Dispatch
+                // Object/Array/Arguments ToPrimitive ourselves and
+                // select the active-handler route at this call site's
+                // known nesting depth instead.
+                let string_arg_primitive_payload_local = self.reserve_temp_local();
+                let string_arg_primitive_tag_local = self.reserve_temp_local();
+                self.emit_tagged_to_primitive_locals(
+                    ToPrimitiveHint::String,
+                    arg_payload_local,
+                    arg_tag_local,
+                    string_arg_primitive_payload_local,
+                    string_arg_primitive_tag_local,
+                    ToPrimitiveAbruptRoute::ActiveHandler,
+                    function,
+                )?;
+                self.emit_primitive_to_string_payload(
+                    string_arg_primitive_payload_local,
+                    string_arg_primitive_tag_local,
+                    PrimitiveToStringAbruptRoute::ActiveHandler,
+                    function,
+                )?;
+                self.release_temp_local(string_arg_primitive_tag_local);
+                self.release_temp_local(string_arg_primitive_payload_local);
+                function.instruction(&Instruction::LocalSet(primitive_payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(primitive_tag_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(primitive_payload_local));
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::LocalGet(primitive_tag_local));

@@ -20,6 +20,7 @@ pub(crate) use intl_datetimeformat::intl_date_time_format_pool_strings;
 mod iterators;
 mod json;
 mod math;
+mod number;
 mod object;
 mod promise;
 mod proxy;
