@@ -96,6 +96,21 @@ The exact Wasm-AOT regression covering those four handler representations,
 Object and Reflect entry points, exact `this`, and abrupt lookup is written but
 has not run while the release matrix owns runtime verification.
 
+The shared proxy-aware `[[GetPrototypeOf]]` emitter now consumes that same typed
+live-slot reader and full object-read seam. It no longer reconstructs every
+handler as an Object, so Function, Array and arguments handlers retain their
+tags for both `GetMethod` and trap `this`, while a Proxy handler observes the
+complete `[[Get]]` protocol. Abrupt method lookup is routed before the
+absent/non-callable split. The existing object-or-null result check,
+non-extensible target prototype equality check, nested-target fallback and late
+result publication remain unchanged.
+
+The existing `getPrototypeOf` Wasm-AOT fixture now covers both Object and
+Reflect entry points across those handler representations, an inherited `get`
+trap on a Proxy handler's own handler and an abrupt accessor lookup. It has not
+run while the release matrix owns runtime verification. Other Proxy methods
+that still reconstruct an Object handler remain separate migrations.
+
 This is deliberately not the recursive Proxy descriptor-record protocol.
 When `[[ProxyTarget]]` is itself a Proxy, `[[GetOwnProperty]]` must run that
 Proxy's `GetMethod`, call and full `IsCompatiblePropertyDescriptor` validation;

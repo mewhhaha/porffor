@@ -451,15 +451,16 @@ fi
 
 # T11's Proxy record has one typed writer and one typed live reader. Keep the
 # raw handler-tag offset private to objects.rs (apart from its heap declaration)
-# and keep the reviewed HasProperty, IsExtensible and public descriptor
-# consumers on the reader so no path can silently reconstruct an Object tag.
+# and keep the reviewed HasProperty, GetPrototypeOf, IsExtensible and public
+# descriptor consumers on the reader so no path can silently reconstruct an
+# Object tag.
 proxy_slot_reader='emit_load_live_proxy_slots('
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
   'pub(crate) fn emit_load_live_proxy_slots(' \
   1 \
   'typed live-Proxy-slot reader authority'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 3 'live-Proxy-slot reader definition/internal call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 4 'live-Proxy-slot reader definition/internal call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/object.rs "$proxy_slot_reader" 1 'public descriptor live-Proxy-slot reader call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'HEAP_PROXY_HANDLER_TAG_OFFSET' 2 'Proxy handler-tag writer/reader authority'
 proxy_handler_tag_files="$(grep -RFl --include='*.rs' 'HEAP_PROXY_HANDLER_TAG_OFFSET' crates/lila-aot-wasm/src | sort || true)"

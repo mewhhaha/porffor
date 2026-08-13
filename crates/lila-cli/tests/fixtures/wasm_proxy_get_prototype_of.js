@@ -77,4 +77,56 @@ var badInstanceProxy = new Proxy(instanceTarget, {
 Object.preventExtensions(instanceTarget);
 if (!throwsTypeError(function() { return badInstanceProxy instanceof Custom; })) failures |= 256;
 
+var taggedProto = { tagged: true };
+var taggedCalls = [];
+
+function taggedGetPrototypeOf(label, expectedHandler) {
+  return function() {
+    taggedCalls.push(label + ":" + (this === expectedHandler));
+    return taggedProto;
+  };
+}
+
+function functionHandler() {}
+functionHandler.getPrototypeOf = taggedGetPrototypeOf("function", functionHandler);
+if (Object.getPrototypeOf(new Proxy({}, functionHandler)) !== taggedProto) failures |= 512;
+
+var arrayHandler = [];
+arrayHandler.getPrototypeOf = taggedGetPrototypeOf("array", arrayHandler);
+if (Reflect.getPrototypeOf(new Proxy({}, arrayHandler)) !== taggedProto) failures |= 1024;
+
+var argumentsHandler = (function() { return arguments; })();
+argumentsHandler.getPrototypeOf = taggedGetPrototypeOf("arguments", argumentsHandler);
+if (Object.getPrototypeOf(new Proxy({}, argumentsHandler)) !== taggedProto) failures |= 2048;
+
+var nestedHandler;
+var nestedLookupHandler = Object.create({
+  get: function(_target, key) {
+    taggedCalls.push("nested-get:" + key);
+    return taggedGetPrototypeOf("nested", nestedHandler);
+  },
+});
+nestedHandler = new Proxy({}, nestedLookupHandler);
+if (Reflect.getPrototypeOf(new Proxy({}, nestedHandler)) !== taggedProto) failures |= 4096;
+
+var abruptMarker = {};
+var abruptLookupHandler = {};
+Object.defineProperty(abruptLookupHandler, "get", {
+  get: function() {
+    throw abruptMarker;
+  },
+});
+var abruptHandler = new Proxy({}, abruptLookupHandler);
+var abruptObserved = false;
+try {
+  Object.getPrototypeOf(new Proxy({}, abruptHandler));
+} catch (error) {
+  abruptObserved = error === abruptMarker;
+}
+if (!abruptObserved) failures |= 8192;
+
+var expectedTaggedCalls =
+  "function:true,array:true,arguments:true,nested-get:getPrototypeOf,nested:true";
+if (taggedCalls.join(",") !== expectedTaggedCalls) failures |= 16384;
+
 failures === 0;

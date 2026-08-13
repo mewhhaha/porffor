@@ -77,13 +77,16 @@ live slot set without emitting that check first. Raw consumers may inspect the
 handler-payload marker only to decide whether an Object is a Proxy; they may not
 reconstruct the retained fields themselves.
 
-`[[HasProperty]]`, `[[IsExtensible]]` and the public
+`[[HasProperty]]`, `[[IsExtensible]]`, `[[GetPrototypeOf]]` and the public
 `getOwnPropertyDescriptor` path consume the same loaded handler pair. Their trap
 lookups go through the existing full object-read seam with the handler itself as
 receiver, so Function, Array, arguments and nested-Proxy handlers receive their
 real storage and prototype behavior. A lookup getter's abrupt completion is
 routed before any absent/non-callable decision. A present trap is called with
-the same tagged handler as `this`.
+the same tagged handler as `this`. `[[GetPrototypeOf]]` keeps its existing
+object-or-null result check and exact-prototype check for non-extensible targets;
+this bounded migration changes only how its live slots and handler method are
+obtained.
 
 The false-result invariant uses a separate value-free direct-own-descriptor
 fact over the same closed representation order. Array, arguments,
@@ -107,17 +110,22 @@ whose prototype is a Proxy, integer-indexed present and `-0` cases, an
 absent-trap nested Proxy target and a callable-Proxy `has` trap. A second
 regression covers the descriptor and extensibility consumer migration with
 Function, Array, arguments and nested-Proxy handlers, exact handler `this`,
-Object and Reflect entry points, and abrupt trap lookup. The focused
-compile-time and runtime checkpoint is:
+Object and Reflect entry points, and abrupt trap lookup. The `getPrototypeOf`
+fixture applies the same contract to Function, Array, arguments and nested-Proxy
+handlers, both public entry points, an inherited Proxy `get` trap and an abrupt
+Proxy-handler lookup. The focused compile-time and runtime checkpoint is:
 
 ```sh
 cargo test -p lila-aot-wasm tests::operations_emits_has_property_spec_operation -- --exact
 cargo test -p lila-aot-wasm tests::typedarray_has_property_module_validates -- --exact
 cargo test -p lila-engine tests::wasm_backend_has_property_dispatches_every_live_exotic_branch -- --exact
 cargo test -p lila-engine tests::wasm_backend_proxy_descriptor_and_extensibility_preserve_handler_tags -- --exact
+cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_get_prototype_of_fixture -- --exact
 ./target/debug/lila test262 run built-ins/Proxy/has --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Reflect/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/TypedArrayConstructors/internals/HasProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
