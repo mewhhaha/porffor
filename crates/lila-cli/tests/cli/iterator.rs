@@ -619,6 +619,26 @@ fn run_wasm_backend_closes_the_sync_iterator_when_an_async_from_sync_value_rejec
 }
 
 #[test]
+fn run_wasm_backend_defines_collection_prototype_to_string_tags() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_collection_prototype_to_string_tag.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_collection_iterator_receiver_realm_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

@@ -92,6 +92,20 @@ ordering, source inventory and focused cross-realm evidence are recorded in
 This closes only those algorithm-created TypeErrors, not successful
 cross-realm construction, iterator closing, weak reachability or T21.
 
+The four collection prototype `Symbol.toStringTag` descriptors now have one
+closed installation authority. `CollectionPrototypeIntrinsic` exhaustively
+derives both the prototype global and its matching `Map`, `Set`, `WeakMap` or
+`WeakSet` String value; one emitter owns the well-known-symbol key and the
+non-writable, non-enumerable, configurable descriptor. Each family installer
+calls it once after its existing methods and accessors, so Map and Set can no
+longer omit the property while WeakMap and WeakSet duplicate the raw shape.
+The representation and deferred verification law is recorded in
+[`collection-prototype-to-string-tag.md`](../docs/rust-rewrite/contracts/collection-prototype-to-string-tag.md).
+This closes only those four intrinsic data properties, not constructor-realm
+fallbacks, weak reachability or the complete collection trees. Runtime, Cargo
+and focused pinned-suite verification remain deferred while the low-RAM
+current-pin matrix owns those resources.
+
 The sole product Wasmtime policy now records
 `WasmWeakReachabilityCapability::Unavailable` independently of its DRC
 collector choice. Every product engine therefore carries the missing

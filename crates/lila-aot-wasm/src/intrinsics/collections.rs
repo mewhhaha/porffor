@@ -7,7 +7,74 @@
 use super::super::*;
 use super::IntrinsicInstall;
 
+#[derive(Clone, Copy)]
+enum CollectionPrototypeIntrinsic {
+    Map,
+    Set,
+    WeakMap,
+    WeakSet,
+}
+
+impl CollectionPrototypeIntrinsic {
+    const fn prototype_global_index(self) -> u32 {
+        match self {
+            Self::Map => MAP_PROTOTYPE_GLOBAL_INDEX,
+            Self::Set => SET_PROTOTYPE_GLOBAL_INDEX,
+            Self::WeakMap => WEAK_MAP_PROTOTYPE_GLOBAL_INDEX,
+            Self::WeakSet => WEAK_SET_PROTOTYPE_GLOBAL_INDEX,
+        }
+    }
+
+    const fn to_string_tag(self) -> &'static str {
+        match self {
+            Self::Map => "Map",
+            Self::Set => "Set",
+            Self::WeakMap => "WeakMap",
+            Self::WeakSet => "WeakSet",
+        }
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
+    fn emit_collection_prototype_to_string_tag(
+        &mut self,
+        intrinsic: CollectionPrototypeIntrinsic,
+        prototype_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(intrinsic.to_string_tag()),
+        ));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            prototype_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+
+        Ok(())
+    }
+
     pub(crate) fn install_map_constructor_intrinsics(
         &mut self,
         context: &IntrinsicInstall<'_>,
@@ -29,6 +96,7 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         } = *context;
 
+        let intrinsic = CollectionPrototypeIntrinsic::Map;
         let map_prototype_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let getter_payload_local = self.reserve_temp_local();
@@ -69,7 +137,7 @@ impl<'a> FunctionBuilder<'a> {
             true,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(MAP_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::GlobalGet(intrinsic.prototype_global_index()));
         function.instruction(&Instruction::LocalSet(map_prototype_local));
         for (name, builtin) in [
             ("clear", StandardBuiltinId::MapPrototypeClear),
@@ -138,6 +206,7 @@ impl<'a> FunctionBuilder<'a> {
             true,
             function,
         )?;
+        self.emit_collection_prototype_to_string_tag(intrinsic, map_prototype_local, function)?;
         self.release_temp_local(getter_tag_local);
         self.release_temp_local(getter_payload_local);
         self.release_temp_local(key_local);
@@ -167,8 +236,9 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         } = *context;
 
+        let intrinsic = CollectionPrototypeIntrinsic::WeakMap;
         let weak_map_prototype_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(WEAK_MAP_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::GlobalGet(intrinsic.prototype_global_index()));
         function.instruction(&Instruction::LocalSet(weak_map_prototype_local));
         for (name, builtin) in [
             ("delete", StandardBuiltinId::WeakMapPrototypeDelete),
@@ -196,31 +266,11 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
             self.emit_object_define_function_data(weak_map_prototype_local, name, &meta, function)?;
         }
-        let key_local = self.reserve_temp_local();
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.toStringTag"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("WeakMap")));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_append_data_property_with_flags(
+        self.emit_collection_prototype_to_string_tag(
+            intrinsic,
             weak_map_prototype_local,
-            key_local,
-            payload_local,
-            tag_local,
-            false,
-            false,
-            true,
             function,
         )?;
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        self.release_temp_local(key_local);
         self.release_temp_local(weak_map_prototype_local);
 
         Ok(())
@@ -247,8 +297,9 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         } = *context;
 
+        let intrinsic = CollectionPrototypeIntrinsic::WeakSet;
         let prototype_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(WEAK_SET_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::GlobalGet(intrinsic.prototype_global_index()));
         function.instruction(&Instruction::LocalSet(prototype_local));
         for (name, builtin) in [
             ("add", StandardBuiltinId::WeakSetPrototypeAdd),
@@ -267,31 +318,7 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
             self.emit_object_define_function_data(prototype_local, name, &meta, function)?;
         }
-        let key_local = self.reserve_temp_local();
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.toStringTag"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("WeakSet")));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_append_data_property_with_flags(
-            prototype_local,
-            key_local,
-            payload_local,
-            tag_local,
-            false,
-            false,
-            true,
-            function,
-        )?;
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
-        self.release_temp_local(key_local);
+        self.emit_collection_prototype_to_string_tag(intrinsic, prototype_local, function)?;
         self.release_temp_local(prototype_local);
 
         Ok(())
@@ -619,6 +646,7 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         } = *context;
 
+        let intrinsic = CollectionPrototypeIntrinsic::Set;
         let set_prototype_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let getter_payload_local = self.reserve_temp_local();
@@ -649,7 +677,7 @@ impl<'a> FunctionBuilder<'a> {
             true,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(SET_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::GlobalGet(intrinsic.prototype_global_index()));
         function.instruction(&Instruction::LocalSet(set_prototype_local));
         for (name, builtin) in [
             ("add", StandardBuiltinId::SetPrototypeAdd),
@@ -738,6 +766,7 @@ impl<'a> FunctionBuilder<'a> {
             true,
             function,
         )?;
+        self.emit_collection_prototype_to_string_tag(intrinsic, set_prototype_local, function)?;
         self.release_temp_local(getter_tag_local);
         self.release_temp_local(getter_payload_local);
         self.release_temp_local(key_local);
