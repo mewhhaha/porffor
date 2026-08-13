@@ -42,6 +42,15 @@ before returning a non-zero exit. This closes command-level false-green and
 zero-selection paths; it does not prove that the harness semantics which
 produced a verdict are correct.
 
+Direct-run resume checkpoints now cross a typed identity boundary containing
+both the manifest hash and the execution backend. A checkpoint must also carry
+the current matrix-strategy version before any recorded completion can enter a
+new run. A SpecExec checkpoint therefore cannot skip Wasm-AOT execution and be
+rewritten under a Wasm-AOT label, and a mismatched manifest body cannot be
+silently relabelled from its file name. This identity check is deliberately
+narrow: shard-selection identity and the remaining semantic materialization
+debt stay open work.
+
 ## Objective
 
 Make the Test262 runner an honest observer of compiler behavior rather than a second semantic implementation. Replace source-pattern simulations, test-path materializations and permissive host fallbacks with explicit host APIs and general compiler/runtime semantics.

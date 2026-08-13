@@ -19572,7 +19572,11 @@ fn execute_cases(
     install_test262_panic_hook();
 
     let previous = if run_config.resume {
-        load_previous_snapshot(config, &run_config.snapshot_name, manifest.manifest_hash)?
+        load_previous_snapshot(
+            config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_run(manifest, run_config),
+        )?
     } else {
         None
     };
@@ -19973,6 +19977,28 @@ fn compile_options_for_case(case: &TestCase) -> CompileOptions {
     }
 }
 
+/// The evidence dimensions a direct-run checkpoint must match before resume.
+///
+/// Keeping the backend beside the manifest hash in one required argument makes
+/// it impossible to call the checkpoint loader with only the file-name
+/// identity. That former shape let a completed SpecExec checkpoint enter a
+/// Wasm-AOT run and skip every case before the result was rewritten with a
+/// Wasm-AOT label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResumeCheckpointIdentity {
+    manifest_hash: u64,
+    execution_backend: ExecutionBackend,
+}
+
+impl ResumeCheckpointIdentity {
+    fn for_run(manifest: &SuiteManifest, run_config: &RunConfig) -> Self {
+        Self {
+            manifest_hash: manifest.manifest_hash,
+            execution_backend: run_config.execution_backend,
+        }
+    }
+}
+
 fn write_resume_case_checkpoint(
     config: &SuiteConfig,
     manifest: &SuiteManifest,
@@ -20234,7 +20260,7 @@ fn run_one_case_in_child_process(
         match load_previous_snapshot(
             &child_config,
             &child_snapshot_name,
-            child_manifest.manifest_hash,
+            ResumeCheckpointIdentity::for_run(&child_manifest, run_config),
         ) {
             Ok(Some(snapshot)) => result_from_single_case_snapshot(case, snapshot, duration_ms),
             Ok(None) => Err(format!(
@@ -22194,11 +22220,11 @@ fn validate_resume_aggregate_snapshot(
 fn load_previous_snapshot(
     config: &SuiteConfig,
     snapshot_name: &str,
-    manifest_hash: u64,
+    identity: ResumeCheckpointIdentity,
 ) -> Result<Option<ProgressSnapshot>, String> {
     let path = config
         .snapshot_dir
-        .join(format!("{snapshot_name}-{manifest_hash}.json"));
+        .join(format!("{snapshot_name}-{}.json", identity.manifest_hash));
     if !path.exists() {
         return Ok(None);
     }
@@ -22207,9 +22233,31 @@ fn load_previous_snapshot(
     // hard boundary rather than an absent checkpoint. Treating it as absent
     // would let the next checkpoint overwrite evidence in place.
     file.require_current(&path, "resume checkpoint")?;
-    let mut snapshot = snapshot_from_file(file)?;
-    snapshot.manifest_hash = manifest_hash;
-    Ok(Some(snapshot))
+    if file.manifest_hash != identity.manifest_hash {
+        return Err(format!(
+            "resume checkpoint mismatch for manifest_hash in {}: expected {}, found {}",
+            path.display(),
+            identity.manifest_hash,
+            file.manifest_hash
+        ));
+    }
+    if file.execution_backend != identity.execution_backend.as_str() {
+        return Err(format!(
+            "resume checkpoint mismatch for execution_backend in {}: expected {}, found {}",
+            path.display(),
+            identity.execution_backend.as_str(),
+            file.execution_backend
+        ));
+    }
+    if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
+        return Err(format!(
+            "resume checkpoint mismatch for matrix_strategy_version in {}: expected {}, found {}",
+            path.display(),
+            MATRIX_STRATEGY_VERSION,
+            file.matrix_strategy_version
+        ));
+    }
+    snapshot_from_file(file).map(Some)
 }
 
 struct ResolvedAggregateSnapshot {
@@ -34775,7 +34823,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn execute_cases_resume_reuses_case_checkpoint_snapshot() {
+    fn execute_cases_resume_reuses_same_backend_case_checkpoint_snapshot() {
         let config = fixture_config();
         fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
         let cases = vec![
@@ -34839,11 +34887,151 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .expect("first case should exist");
         assert_eq!(first.duration_ms, 0);
 
-        let resumed_snapshot =
-            load_previous_snapshot(&config, &run_config.snapshot_name, manifest.manifest_hash)
-                .expect("snapshot load should work")
-                .expect("snapshot should exist");
+        let resumed_snapshot = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+        )
+        .expect("snapshot load should work")
+        .expect("snapshot should exist");
         assert_eq!(resumed_snapshot.completed_paths.len(), 2);
+        assert_eq!(resumed_snapshot.manifest_hash, manifest.manifest_hash);
+        assert_eq!(
+            resumed_snapshot.execution_backend,
+            run_config.execution_backend
+        );
+        assert_eq!(
+            resumed_snapshot.matrix_strategy_version,
+            MATRIX_STRATEGY_VERSION
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn execute_cases_resume_rejects_cross_backend_checkpoint_before_dispatch_and_preserves_it() {
+        let (runner_path, sentinel_path) = recording_case_runner("resume-cross-backend");
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        config.worker_count = 1;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![synthetic_case("resume/cross-backend.js")];
+        let manifest = attempt_journal_manifest(&config, "resume-cross-backend", &cases);
+        let spec_run = RunConfig {
+            resume: true,
+            snapshot_name: "resume-cross-backend".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        write_resume_case_checkpoint(
+            &config,
+            &manifest,
+            &[TestResult {
+                test_path: cases[0].path.clone(),
+                status: TestStatus::Passed,
+                duration_ms: 7,
+            }],
+            &spec_run,
+        )
+        .expect("SpecExec checkpoint should write");
+        let checkpoint_path =
+            snapshot_paths_for_name(&config, &spec_run.snapshot_name, manifest.manifest_hash)
+                .json_path;
+        let checkpoint_before = fs::read(&checkpoint_path).expect("checkpoint should be readable");
+
+        let wasm_run = RunConfig {
+            execution_backend: ExecutionBackend::WasmAot,
+            ..spec_run.clone()
+        };
+        let error = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &wasm_run,
+        )
+        .expect_err("SpecExec evidence must not enter a Wasm-AOT resume");
+
+        assert!(
+            error.contains("resume checkpoint mismatch for execution_backend"),
+            "unexpected error: {error}"
+        );
+        assert!(error.contains("expected wasm-aot, found spec-exec"));
+        assert!(
+            recorded_case_paths(&sentinel_path).is_empty(),
+            "backend mismatch must fail before any case reaches dispatch"
+        );
+        assert_eq!(
+            fs::read(&checkpoint_path).expect("checkpoint should remain readable"),
+            checkpoint_before,
+            "a rejected checkpoint must not be relabelled or rewritten"
+        );
+    }
+
+    #[test]
+    fn resume_checkpoint_identity_rejects_tampered_manifest_and_matrix_strategy() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = vec![synthetic_case("resume/tampered-manifest.js")];
+        let manifest = attempt_journal_manifest(&config, "resume-tampered-manifest", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "resume-tampered-manifest".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        write_resume_case_checkpoint(
+            &config,
+            &manifest,
+            &[TestResult {
+                test_path: cases[0].path.clone(),
+                status: TestStatus::Passed,
+                duration_ms: 7,
+            }],
+            &run_config,
+        )
+        .expect("checkpoint should write");
+
+        let checkpoint_path =
+            snapshot_paths_for_name(&config, &run_config.snapshot_name, manifest.manifest_hash)
+                .json_path;
+        let mut file = read_snapshot_file(&checkpoint_path).expect("checkpoint should parse");
+        let tampered_hash = file.manifest_hash.wrapping_add(1);
+        file.manifest_hash = tampered_hash;
+        write_snapshot_file_for_test(&checkpoint_path, &file);
+
+        let error = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+        )
+        .expect_err("the body manifest hash must agree with its checkpoint identity");
+        assert!(
+            error.contains("resume checkpoint mismatch for manifest_hash"),
+            "unexpected error: {error}"
+        );
+        assert!(error.contains(&format!(
+            "expected {}, found {tampered_hash}",
+            manifest.manifest_hash
+        )));
+
+        file.manifest_hash = manifest.manifest_hash;
+        file.matrix_strategy_version = MATRIX_STRATEGY_VERSION.wrapping_add(1);
+        write_snapshot_file_for_test(&checkpoint_path, &file);
+        let error = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+        )
+        .expect_err("the checkpoint must use the current matrix strategy");
+        assert!(
+            error.contains("resume checkpoint mismatch for matrix_strategy_version"),
+            "unexpected error: {error}"
+        );
+        assert!(error.contains(&format!(
+            "expected {MATRIX_STRATEGY_VERSION}, found {}",
+            file.matrix_strategy_version
+        )));
     }
 
     #[test]
@@ -34999,10 +35187,13 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         );
         assert!(!child_snapshot_dir.exists());
 
-        let resumed_snapshot =
-            load_previous_snapshot(&config, &run_config.snapshot_name, manifest.manifest_hash)
-                .expect("snapshot load should work")
-                .expect("snapshot should exist");
+        let resumed_snapshot = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+        )
+        .expect("snapshot load should work")
+        .expect("snapshot should exist");
         assert_eq!(resumed_snapshot.completed_paths, vec![case.path.clone()]);
         assert_eq!(resumed_snapshot.failures.len(), 1);
     }
