@@ -14,8 +14,9 @@ use lila_test262::{
         ArithmeticReductionLimit, DifferentialCase, DifferentialReport, DifferentialVerdict,
         GeneratedArithmeticCampaignOutcome, SpecExecOracle,
     },
-    ArtifactProducer, ConformanceRunner, FailureKind, FailureOrigin, LocalHarnessSource,
-    OutcomeKind, PublicationBackend, RunConfig, SuiteConfig, VerifiedAggregateSummary,
+    ArtifactProducer, ConformanceRunVerdict, ConformanceRunner, FailureKind, FailureOrigin,
+    LocalHarnessSource, OutcomeKind, PublicationBackend, RunConfig, SuiteConfig,
+    VerifiedAggregateSummary,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -2581,6 +2582,39 @@ fn is_identifier_continue(ch: char) -> bool {
     is_identifier_start(ch) || ch.is_ascii_digit()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Test262VerdictCommand {
+    Run,
+    Shard,
+}
+
+impl Test262VerdictCommand {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Run => "run",
+            Self::Shard => "shard",
+        }
+    }
+}
+
+fn require_passing_test262_verdict(
+    command: Test262VerdictCommand,
+    verdict: ConformanceRunVerdict,
+) -> Result<(), String> {
+    let command = command.as_str();
+    match verdict {
+        ConformanceRunVerdict::NoEvidence => Err(format!(
+            "test262 {command} produced no verdict: zero cases were selected"
+        )),
+        ConformanceRunVerdict::Passed { .. } => Ok(()),
+        ConformanceRunVerdict::Failed { total, failed } => Err(format!(
+            "test262 {command} failed: {} of {} cases did not pass",
+            failed.get(),
+            total.get()
+        )),
+    }
+}
+
 fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() {
         return Err(format!("test262 needs a subcommand\n\n{}", usage()));
@@ -2658,14 +2692,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                     failure.detail
                 );
             }
-            if summary.passed != summary.total {
-                return Err(format!(
-                    "test262 run failed: {} of {} cases did not pass",
-                    summary.total - summary.passed,
-                    summary.total
-                ));
-            }
-            Ok(())
+            require_passing_test262_verdict(Test262VerdictCommand::Run, summary.verdict()?)
         }
         "report" => {
             let summary = match parsed.matrix_node.as_deref() {
@@ -3036,11 +3063,23 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
         "shard" => {
             let summary = runner.run_shard(parsed.run_config)?;
             println!("execution_backend: {}", execution_backend.as_str());
-            println!("shard: {}/{}", summary.shard_index + 1, summary.shard_count);
+            println!(
+                "shard: {}/{}",
+                summary.one_based_shard_index()?,
+                summary.shard_count
+            );
             println!("total: {}", summary.total);
             println!("passed: {}", summary.passed);
             println!("failed: {}", summary.failures.len());
-            Ok(())
+            for kind in FailureKind::ALL {
+                let count = summary
+                    .failures
+                    .iter()
+                    .filter(|failure| failure.kind == kind)
+                    .count();
+                println!("{}: {}", kind.as_str(), count);
+            }
+            require_passing_test262_verdict(Test262VerdictCommand::Shard, summary.verdict()?)
         }
         _ => Err(format!("unknown test262 subcommand: {subcommand}")),
     }

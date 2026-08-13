@@ -827,9 +827,8 @@ fn test262_run_writes_summary() {
     assert!(stdout.contains("Unsupported: 0"));
 }
 
-#[test]
-fn test262_run_exits_unsuccessfully_when_a_case_fails() {
-    let suite_root = unique_project_dir("test262-failing-run");
+fn failing_test262_suite_root(name: &str) -> std::path::PathBuf {
+    let suite_root = unique_project_dir(name);
     let test_dir = suite_root.join("test/language/fail");
     fs::create_dir_all(&test_dir).expect("failing test262 directory should be created");
     fs::write(
@@ -837,6 +836,22 @@ fn test262_run_exits_unsuccessfully_when_a_case_fails() {
         "/*---\nflags: [raw]\n---*/\nthrow new Error('intentional failure');\n",
     )
     .expect("failing test262 case should write");
+    suite_root
+}
+
+fn unsupported_test262_suite_root(name: &str) -> std::path::PathBuf {
+    let suite_root = unique_project_dir(name);
+    write_project_file(
+        &suite_root,
+        "test/language/unsupported/feature.js",
+        "/*---\nfeatures: [immutable-arraybuffer]\nflags: [raw]\n---*/\ntrue;\n",
+    );
+    suite_root
+}
+
+#[test]
+fn test262_run_exits_unsuccessfully_when_a_case_fails() {
+    let suite_root = failing_test262_suite_root("test262-failing-run");
 
     let output = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"))
         .arg("test262")
@@ -856,6 +871,147 @@ fn test262_run_exits_unsuccessfully_when_a_case_fails() {
     assert!(stdout.contains("passed: 0"));
     assert!(String::from_utf8_lossy(&output.stderr)
         .contains("test262 run failed: 1 of 1 cases did not pass"));
+}
+
+#[test]
+fn test262_shard_exits_unsuccessfully_and_keeps_failure_snapshot() {
+    let suite_root = failing_test262_suite_root("test262-failing-shard");
+    let snapshot_dir = unique_snapshot_dir("failing-shard");
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("test262")
+        .arg("shard")
+        .arg("1/1")
+        .arg("--suite-root")
+        .arg(&suite_root)
+        .arg("--snapshot-dir")
+        .arg(&snapshot_dir)
+        .arg("--snapshot-name")
+        .arg("cli-failing-shard")
+        .output()
+        .expect("failing test262 shard should complete");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("shard: 1/1"));
+    assert!(stdout.contains("total: 1"));
+    assert!(stdout.contains("passed: 0"));
+    assert!(stdout.contains("failed: 1"));
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("test262 shard failed: 1 of 1 cases did not pass"));
+
+    let snapshot_paths = fs::read_dir(&snapshot_dir)
+        .expect("failed shard snapshot directory should exist")
+        .map(|entry| {
+            entry
+                .expect("failed shard snapshot entry should read")
+                .path()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        snapshot_paths.len(),
+        2,
+        "failed shard should retain its JSON and text snapshots"
+    );
+    let json_path = snapshot_paths
+        .iter()
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .expect("failed shard JSON snapshot should exist");
+    let json = fs::read_to_string(json_path).expect("failed shard JSON snapshot should read");
+    assert!(json.contains("\"total\": 1"));
+    assert!(json.contains("\"passed\": 0"));
+    assert!(json.contains("language/fail/throws.js"));
+}
+
+#[test]
+fn test262_run_exits_unsuccessfully_when_selection_is_empty() {
+    let suite_root = failing_test262_suite_root("test262-empty-selection");
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("test262")
+        .arg("run")
+        .arg("language/not-present")
+        .arg("--suite-root")
+        .arg(&suite_root)
+        .arg("--snapshot-dir")
+        .arg(unique_snapshot_dir("empty-selection"))
+        .arg("--snapshot-name")
+        .arg("cli-empty-selection")
+        .output()
+        .expect("empty test262 selection should complete");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("total: 0"));
+    assert!(stdout.contains("passed: 0"));
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("test262 run produced no verdict: zero cases were selected"));
+}
+
+#[test]
+fn test262_run_and_shard_reject_unsupported_and_keep_failure_snapshots() {
+    let suite_root = unsupported_test262_suite_root("test262-unsupported-verdict");
+
+    for (command, shard_selector) in [("run", None), ("shard", Some("1/1"))] {
+        let snapshot_dir = unique_snapshot_dir(&format!("unsupported-{command}"));
+        let snapshot_name = format!("cli-unsupported-{command}");
+        let mut process = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"));
+        process.arg("test262").arg(command);
+        if let Some(shard_selector) = shard_selector {
+            process.arg(shard_selector);
+        }
+        let output = process
+            .arg("--suite-root")
+            .arg(&suite_root)
+            .arg("--snapshot-dir")
+            .arg(&snapshot_dir)
+            .arg("--snapshot-name")
+            .arg(&snapshot_name)
+            .output()
+            .expect("unsupported test262 selection should complete");
+
+        assert!(!output.status.success(), "test262 {command} must be red");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("total: 1"), "test262 {command}: {stdout}");
+        assert!(stdout.contains("passed: 0"), "test262 {command}: {stdout}");
+        assert!(
+            stdout.contains("Unsupported: 1"),
+            "test262 {command}: {stdout}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(&format!(
+                "test262 {command} failed: 1 of 1 cases did not pass"
+            )),
+            "test262 {command} should explain its red verdict"
+        );
+
+        let snapshot_paths = fs::read_dir(&snapshot_dir)
+            .expect("unsupported failure snapshot directory should exist")
+            .map(|entry| {
+                entry
+                    .expect("unsupported failure snapshot entry should read")
+                    .path()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            snapshot_paths.len(),
+            2,
+            "test262 {command} should retain its JSON and text snapshots"
+        );
+        let json_path = snapshot_paths
+            .iter()
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .expect("unsupported failure JSON snapshot should exist");
+        let json =
+            fs::read_to_string(json_path).expect("unsupported failure JSON snapshot should read");
+        assert!(json.contains("\"Unsupported\": 1"));
+        assert!(json.contains("\"kind\": \"Unsupported\""));
+        assert!(json.contains("language/unsupported/feature.js"));
+    }
 }
 
 #[cfg(feature = "spec-exec-oracle")]

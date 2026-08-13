@@ -307,6 +307,9 @@ Three sharp edges, all verified in the source:
 - **Each shard needs its own `--snapshot-name`.** Snapshots key on the
   whole-manifest hash, which is identical across shards, and resume state is not
   filtered by the shard's case set — two shards under one name cross-contaminate.
+- **A shard is process-green only when it selected at least one case and every
+  selected case passed.** Failed shards still write their diagnostic snapshot,
+  then exit non-zero; a zero-case selection is `NoEvidence`, not `0/0` green.
 - **`compare-snapshots` cannot diff shard runs.** It requires a complete
   498-node aggregate on both sides. Until a `compare-run-snapshots` equivalent
   exists, rung 3 gives a pass count with nothing to compare it against; treat it

@@ -834,9 +834,9 @@ Recent focused progress through `2026-07-27`:
 - Real-suite execution checkpoints every ten completed cases even on a first
   run, forced child snapshots live in private temporary directories, and the
   low-RAM publisher leaves node validation and retry decisions to the Rust
-  harness. `test262 run` exits unsuccessfully whenever any requested case does
-  not pass, so shell batches can stop reliably instead of continuing after a
-  conformance failure. On this machine, two case workers improved throughput without
+  harness. `test262 run` and `test262 shard` exit unsuccessfully whenever a
+  selection is empty or any requested case does not pass, so shell batches can
+  stop reliably instead of continuing after a conformance failure. On this machine, two case workers improved throughput without
   exceeding the task's 50% RAM ceiling; four workers added contention and were
   not retained. Dormant `$262.createRealm` support no longer roots every
   standard global: one representative non-realm case compiled 17.5% faster

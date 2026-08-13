@@ -24725,6 +24725,89 @@ fn json_escape(input: &str) -> String {
         .replace('\n', "\\n")
 }
 
+/// The process-level meaning of one completed conformance selection.
+///
+/// A zero-case selection is evidence of nothing, so it is distinct from a
+/// pass. Both terminal verdicts carry a non-zero denominator, and a failed
+/// verdict carries a non-zero failure count. Callers obtain this domain only
+/// after the summary's total, pass count and failure records reconcile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConformanceRunVerdict {
+    NoEvidence,
+    Passed {
+        total: NonZeroUsize,
+    },
+    Failed {
+        total: NonZeroUsize,
+        failed: NonZeroUsize,
+    },
+}
+
+impl ConformanceRunVerdict {
+    fn from_counts(
+        context: &str,
+        total: usize,
+        passed: usize,
+        failure_records: usize,
+    ) -> Result<Self, String> {
+        let failed = total.checked_sub(passed).ok_or_else(|| {
+            format!("{context} integrity failure: passed count {passed} exceeds total {total}")
+        })?;
+        if failed != failure_records {
+            return Err(format!(
+                "{context} integrity failure: total {total} minus passed {passed} is {failed}, but {failure_records} failure records exist"
+            ));
+        }
+
+        match (NonZeroUsize::new(total), NonZeroUsize::new(failed)) {
+            (None, None) => Ok(Self::NoEvidence),
+            (Some(total), None) => Ok(Self::Passed { total }),
+            (Some(total), Some(failed)) => Ok(Self::Failed { total, failed }),
+            (None, Some(_)) => unreachable!(
+                "a non-zero failure count cannot remain after reconciling a zero total"
+            ),
+        }
+    }
+}
+
+impl ShardSummary {
+    pub fn one_based_shard_index(&self) -> Result<NonZeroUsize, String> {
+        self.shard_index
+            .checked_add(1)
+            .and_then(NonZeroUsize::new)
+            .ok_or_else(|| {
+                format!(
+                    "test262 shard summary integrity failure: zero-based shard index {} cannot be represented as one-based",
+                    self.shard_index
+                )
+            })
+    }
+
+    pub fn verdict(&self) -> Result<ConformanceRunVerdict, String> {
+        let shard_number = self.one_based_shard_index()?;
+        ConformanceRunVerdict::from_counts(
+            &format!(
+                "test262 shard {}/{} summary",
+                shard_number, self.shard_count
+            ),
+            self.total,
+            self.passed,
+            self.failures.len(),
+        )
+    }
+}
+
+impl RunSummary {
+    pub fn verdict(&self) -> Result<ConformanceRunVerdict, String> {
+        ConformanceRunVerdict::from_counts(
+            "test262 run summary",
+            self.total,
+            self.passed,
+            self.failures.len(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -24950,6 +25033,77 @@ mod tests {
             worker_count: 2,
             case_runner_bin: None,
         }
+    }
+
+    #[test]
+    fn conformance_run_verdict_separates_no_evidence_passed_and_failed() {
+        assert_eq!(
+            ConformanceRunVerdict::from_counts("selection", 0, 0, 0)
+                .expect("zero coherent counts should produce a verdict"),
+            ConformanceRunVerdict::NoEvidence
+        );
+        assert_eq!(
+            ConformanceRunVerdict::from_counts("selection", 3, 3, 0)
+                .expect("a non-empty green selection should produce a verdict"),
+            ConformanceRunVerdict::Passed {
+                total: NonZeroUsize::new(3).expect("three is non-zero"),
+            }
+        );
+
+        let shard = ShardSummary {
+            shard_index: 0,
+            shard_count: 4,
+            total: 3,
+            passed: 2,
+            failures: vec![failure(
+                "language/fail.js",
+                "[origin:local-harness] intentional failure",
+                0,
+            )],
+        };
+        assert_eq!(
+            shard
+                .verdict()
+                .expect("a coherent red shard should produce a verdict"),
+            ConformanceRunVerdict::Failed {
+                total: NonZeroUsize::new(3).expect("three is non-zero"),
+                failed: NonZeroUsize::new(1).expect("one is non-zero"),
+            }
+        );
+    }
+
+    #[test]
+    fn conformance_run_verdict_rejects_inconsistent_counts() {
+        assert_eq!(
+            ConformanceRunVerdict::from_counts("selection", 1, 2, 0)
+                .expect_err("passes cannot exceed the denominator"),
+            "selection integrity failure: passed count 2 exceeds total 1"
+        );
+        assert_eq!(
+            ConformanceRunVerdict::from_counts("selection", 2, 1, 0)
+                .expect_err("the failure count must match the recorded failures"),
+            "selection integrity failure: total 2 minus passed 1 is 1, but 0 failure records exist"
+        );
+    }
+
+    #[test]
+    fn shard_verdict_rejects_an_index_that_cannot_become_one_based() {
+        let shard = ShardSummary {
+            shard_index: usize::MAX,
+            shard_count: usize::MAX,
+            total: 0,
+            passed: 0,
+            failures: Vec::new(),
+        };
+        assert_eq!(
+            shard
+                .verdict()
+                .expect_err("the public zero-based index must not wrap or panic"),
+            format!(
+                "test262 shard summary integrity failure: zero-based shard index {} cannot be represented as one-based",
+                usize::MAX
+            )
+        );
     }
 
     #[cfg(feature = "spec-exec-oracle")]

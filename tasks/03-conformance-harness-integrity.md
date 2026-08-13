@@ -33,6 +33,15 @@ boundary, and the semantic dispatch is an exhaustive Rust match. This closes
 one host-ABI drift path; it does not establish that every `$262` operation or
 agent case satisfies the acceptance criteria below.
 
+Direct `test262 run` and `test262 shard` completion now cross one typed verdict
+boundary. `NoEvidence`, a non-empty all-pass `Passed`, and a non-empty
+`Failed` verdict are distinct states backed by `NonZeroUsize`; inconsistent
+total, pass and failure counts do not produce a verdict. The CLI exhaustively
+maps only `Passed` to process success, while retaining a failed run's snapshot
+before returning a non-zero exit. This closes command-level false-green and
+zero-selection paths; it does not prove that the harness semantics which
+produced a verdict are correct.
+
 ## Objective
 
 Make the Test262 runner an honest observer of compiler behavior rather than a second semantic implementation. Replace source-pattern simulations, test-path materializations and permissive host fallbacks with explicit host APIs and general compiler/runtime semantics.
