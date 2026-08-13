@@ -38,6 +38,19 @@ closed `RegExpUnicodeMode` from flag parsing through atom and character-class
 dispatch. Compiled flags cannot represent both Unicode modes at once, and a new
 mode must define its parser routing exhaustively.
 
+Ordinary legacy/`u` classes now narrow that outer mode to a closed
+`OrdinaryClassMode` before choosing an instruction representation. Both the
+ASCII bitmap and code-point range parsers require that typed grammar mode and
+enforce the same control, decimal/octal and identity-escape verdicts. Encoding
+selection therefore cannot make Annex B escapes legal under `u` or change
+`\cA` from U+0001 into literal class members. An incomplete legacy `\c`
+preserves the standalone backslash and following `c` as two class members in
+either representation. The focused
+[contract](../docs/rust-rewrite/contracts/regexp-unicode-class-escape-grammar.md)
+records the boundary and witnesses. This does not add arbitrary runtime
+pattern compilation, close the dynamic-loop Test262 cases, or change the
+UnicodeSets parser.
+
 Named-group identifier classification now uses a closed start/continue domain
 and the pinned ICU `ID_Start`/`ID_Continue` tables directly. The RegExp parser
 no longer asks the third-party regex dependency to decide that product grammar

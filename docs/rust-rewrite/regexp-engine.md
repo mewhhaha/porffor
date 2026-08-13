@@ -52,6 +52,17 @@ characters. A closed start/continue domain now selects the pinned ICU
 `ID_Start` or `ID_Continue` property directly. This is the first code invariant
 landed from the architecture below.
 
+Ordinary character classes now select a closed `Legacy` or `Unicode` grammar
+mode before choosing their bitmap or range instruction representation. Every
+ordinary-class representation is entered through that mode, so an ASCII fast
+path cannot admit Annex B control/octal or unrestricted identity escapes under
+`u`, and accepted escapes such as `\cA` have the same value in either
+representation. An incomplete legacy `\c` likewise preserves Annex B's
+standalone-backslash atom boundary through either encoder. See the
+focused [Unicode ordinary-class escape contract](contracts/regexp-unicode-class-escape-grammar.md).
+This does not change the separate UnicodeSets class grammar or supply arbitrary
+runtime pattern compilation.
+
 Legacy direct astral source now has its own closed parsed-term case. It stores a
 validated UTF-16 surrogate pair, emits the lead once, and applies any following
 quantifier only to the trail, as required by the non-Unicode grammar's code-unit

@@ -335,6 +335,40 @@ impl RegExpUnicodeMode {
     }
 }
 
+/// The two grammars that may reach an ordinary character-class parser.
+///
+/// `UnicodeSets` has a distinct class parser and is deliberately not
+/// representable here. Bitmap versus code-point ranges is only an encoding
+/// choice; both ordinary encoders must receive the same grammar mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OrdinaryClassMode {
+    Legacy,
+    Unicode,
+}
+
+impl OrdinaryClassMode {
+    const fn is_unicode(self) -> bool {
+        match self {
+            Self::Legacy => false,
+            Self::Unicode => true,
+        }
+    }
+
+    const fn unicode_mode(self) -> RegExpUnicodeMode {
+        match self {
+            Self::Legacy => RegExpUnicodeMode::Legacy,
+            Self::Unicode => RegExpUnicodeMode::Unicode,
+        }
+    }
+
+    fn allows_class_identity_escape(self, escaped: u8) -> bool {
+        match self {
+            Self::Legacy => true,
+            Self::Unicode => is_class_identity_escape(escaped),
+        }
+    }
+}
+
 /// RegExp flags that affect matching wrappers rather than match instructions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RegExpFlags {
@@ -1502,12 +1536,14 @@ fn parse_instruction_atom(
             RegExpInstruction::literal_ascii(byte)
         }
         b'[' => match unicode_mode {
-            RegExpUnicodeMode::Legacy => parse_class(bytes, offset, unicode_mode, modifiers, pool)?,
+            RegExpUnicodeMode::Legacy => {
+                parse_class(bytes, offset, OrdinaryClassMode::Legacy, modifiers, pool)?
+            }
             RegExpUnicodeMode::Unicode => {
                 if let Some(instruction) = parse_single_unicode_class(bytes, offset)? {
                     instruction
                 } else {
-                    parse_class(bytes, offset, unicode_mode, modifiers, pool)?
+                    parse_class(bytes, offset, OrdinaryClassMode::Unicode, modifiers, pool)?
                 }
             }
             RegExpUnicodeMode::UnicodeSets => {
@@ -2646,13 +2682,13 @@ fn class_needs_code_point_ranges(bytes: &[u8], offset: usize) -> bool {
 fn parse_class(
     bytes: &[u8],
     offset: &mut usize,
-    mode: RegExpUnicodeMode,
+    mode: OrdinaryClassMode,
     modifiers: Modifiers,
     pool: &mut RegExpRangePool,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
-    let unicode = mode.is_unicode_mode();
+    let unicode = mode.is_unicode();
     if !class_needs_code_point_ranges(bytes, *offset) {
-        return parse_ascii_class(bytes, offset);
+        return parse_ascii_class(bytes, offset, mode);
     }
     let class_offset = *offset;
     let mut cursor = class_offset + 1;
@@ -2672,7 +2708,7 @@ fn parse_class(
             break;
         }
         let range_offset = cursor;
-        let start = parse_class_atom(bytes, &mut cursor, mode)?;
+        let start = parse_class_atom(bytes, &mut cursor, mode.unicode_mode())?;
         if bytes.get(cursor) == Some(&b'-') && bytes.get(cursor + 1) != Some(&b']') {
             cursor += 1;
             if bytes.get(cursor).is_none() {
@@ -2682,7 +2718,7 @@ fn parse_class(
                     "regular-expression character class is unclosed",
                 ));
             }
-            let end = parse_class_atom(bytes, &mut cursor, mode)?;
+            let end = parse_class_atom(bytes, &mut cursor, mode.unicode_mode())?;
             match (start, end) {
                 (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
                     return Err(RegExpCompileError::invalid_syntax(
@@ -2822,6 +2858,13 @@ fn parse_class_atom(
             *cursor += 3;
             Ok(ClassAtom::CodePoint(control))
         }
+        // Annex B's standalone-backslash `ClassAtomNoDash` owns only the
+        // backslash when `c` cannot complete either control escape. Leave `c`
+        // for the next atom instead of turning the pair into one identity.
+        b'c' if !unicode => {
+            *cursor += 1;
+            Ok(ClassAtom::CodePoint(u32::from(b'\\')))
+        }
         b'x' => {
             let digits = bytes.get(offset + 2..offset + 4);
             if let Some(digits) = digits.filter(|digits| digits.iter().all(u8::is_ascii_hexdigit)) {
@@ -2876,7 +2919,7 @@ fn parse_class_atom(
             *cursor = end;
             Ok(ClassAtom::CodePoint(u32::from(value)))
         }
-        b'0' => {
+        b'0' if !matches!(bytes.get(offset + 2), Some(b'0'..=b'9')) => {
             *cursor += 2;
             Ok(ClassAtom::CodePoint(0))
         }
@@ -3683,6 +3726,7 @@ struct AsciiClassAtom {
 fn parse_ascii_class(
     bytes: &[u8],
     offset: &mut usize,
+    mode: OrdinaryClassMode,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
     let class_offset = *offset;
     let mut cursor = class_offset + 1;
@@ -3709,7 +3753,7 @@ fn parse_ascii_class(
         if member == b']' {
             break;
         }
-        let range_start = parse_ascii_class_atom(bytes, &mut cursor)?;
+        let range_start = parse_ascii_class_atom(bytes, &mut cursor, mode)?;
 
         if bytes.get(cursor) == Some(&b'-') && bytes.get(cursor + 1) != Some(&b']') {
             let range_offset = cursor;
@@ -3721,7 +3765,7 @@ fn parse_ascii_class(
                     "regular-expression character class is unclosed",
                 ));
             }
-            let range_end = parse_ascii_class_atom(bytes, &mut cursor)?;
+            let range_end = parse_ascii_class_atom(bytes, &mut cursor, mode)?;
             match (range_start.singleton, range_end.singleton) {
                 (Some(start), Some(end)) if end < start => {
                     return Err(RegExpCompileError::invalid_syntax(
@@ -3787,6 +3831,7 @@ fn parse_single_unicode_class(
 fn parse_ascii_class_atom(
     bytes: &[u8],
     cursor: &mut usize,
+    mode: OrdinaryClassMode,
 ) -> Result<AsciiClassAtom, RegExpCompileError> {
     let offset = *cursor;
     let Some(&member) = bytes.get(offset) else {
@@ -3836,15 +3881,32 @@ fn parse_ascii_class_atom(
             add_ascii_member(&mut atom.bitmap_low, &mut atom.bitmap_high, 0x20);
             Ok(atom)
         }
-        b'c' if matches!(bytes.get(offset + 2), Some(b'0'..=b'9') | Some(b'_')) => {
+        b'c' if matches!(bytes.get(offset + 2), Some(b'a'..=b'z') | Some(b'A'..=b'Z')) => {
+            let control = bytes[offset + 2].to_ascii_uppercase() % 32;
+            *cursor += 3;
+            Ok(singleton_ascii_class_atom(control))
+        }
+        b'c' if mode == OrdinaryClassMode::Legacy
+            && matches!(bytes.get(offset + 2), Some(b'0'..=b'9') | Some(b'_')) =>
+        {
             let control = bytes[offset + 2] % 32;
             *cursor += 3;
             Ok(singleton_ascii_class_atom(control))
         }
-        b'0'..=b'7' => {
+        // Annex B's standalone-backslash `ClassAtomNoDash` consumes only the
+        // backslash here. The loop parses `c` separately.
+        b'c' if mode == OrdinaryClassMode::Legacy => {
+            *cursor += 1;
+            Ok(singleton_ascii_class_atom(b'\\'))
+        }
+        b'0'..=b'7' if mode == OrdinaryClassMode::Legacy => {
             let (value, end) = parse_legacy_octal_escape(bytes, offset);
             *cursor = end;
             Ok(singleton_ascii_class_atom(value))
+        }
+        b'0' if !matches!(bytes.get(offset + 2), Some(b'0'..=b'9')) => {
+            *cursor += 2;
+            Ok(singleton_ascii_class_atom(0))
         }
         b'b' => {
             *cursor += 2;
@@ -3861,6 +3923,13 @@ fn parse_ascii_class_atom(
             };
             *cursor += 2;
             Ok(singleton_ascii_class_atom(value))
+        }
+        escaped if !mode.allows_class_identity_escape(escaped) => {
+            Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::ClassEscape,
+                offset,
+                "invalid regular-expression class escape",
+            ))
         }
         _ => {
             *cursor += 2;
@@ -5849,20 +5918,10 @@ mod tests {
             );
         }
 
-        // The class path always had the rule right. Its continued agreement is
-        // what identified the atom path as the defect, so it is pinned too.
-        //
-        // The `A` is load-bearing and not decoration.
-        // `class_needs_code_point_ranges` sends a class down `parse_class` only
-        // when it contains one of `p P u x w W D S` after a backslash, or a
-        // non-ASCII byte. A bare `[\/]` therefore goes to `parse_ascii_class`,
-        // whose `parse_ascii_class_atom` takes no `RegExpUnicodeMode` and
-        // accepts every escaped byte unconditionally — green whatever
-        // `is_class_identity_escape` does, i.e. pinning nothing. A plain `A` is
-        // not a trigger either — the second assertion below says so, because
-        // that is the mistake this comment exists to stop — so the class carries
-        // a `\w` and the `parse_class` / `parse_class_atom(_, _,
-        // RegExpUnicodeMode::Unicode)` path is actually consulted.
+        // The two class representations must both keep the rule. The `\w` is
+        // load-bearing: it forces the code-point range path while bare `[\/]`
+        // takes the ASCII bitmap path. Both now receive the same closed
+        // ordinary-class grammar mode.
         assert!(!class_needs_code_point_ranges(br"[\/]", 0));
         assert!(!class_needs_code_point_ranges(br"[\/A]", 0));
         assert!(class_needs_code_point_ranges(br"[\/\w]", 0));
@@ -5921,13 +5980,9 @@ mod tests {
         // is why it was the one punctuator HEAD already accepted.
         //
         // Under `v` a bare `[\-]` reaches `parse_unicode_sets_class`
-        // unconditionally, so it exercises the rule. Under `u` it does NOT: a
-        // class with no `p P u x w W D S` escape and no non-ASCII byte is
-        // handled by `parse_ascii_class`, which has no `RegExpUnicodeMode` and
-        // accepts every escaped byte, so the `u` leg needs the trailing `\w` to force
-        // the code-point path and reach `is_class_identity_escape` at all. The
-        // same trap as the `[\/]` assertion in
-        // `unicode_mode_accepts_solidus_identity_escape`.
+        // unconditionally. Under `u`, the bare and `\w`-suffixed spellings
+        // deliberately exercise the bitmap and range representations under the
+        // same ordinary-class grammar mode.
         assert!(!class_needs_code_point_ranges(br"[\-]", 0));
         assert!(class_needs_code_point_ranges(br"[\-\w]", 0));
         for flags in ["u", "v"] {
@@ -6033,14 +6088,10 @@ mod tests {
             (SyntaxRule::Flags, "a", "gg"),
             (SyntaxRule::CharacterEscape, "\\", ""),
             (SyntaxRule::IdentityEscape, r"\q", "u"),
-            // The `\u0041` is load-bearing, not decoration. Written `[\q]`,
-            // `class_needs_code_point_ranges` sees no `\p \P \u \x \w \W \D \S`
-            // and no non-ASCII byte, picks `parse_ascii_class`, and that parser
-            // does not apply the Unicode-mode `ClassEscape` rule at all -- so
-            // `[\q]` under `u` compiles today. That divergence is the
-            // under-rejection recorded in
-            // `class_verdicts_do_not_depend_on_the_class_representation`.
-            (SyntaxRule::ClassEscape, r"[\q\u0041]", "u"),
+            // This deliberately takes the ASCII bitmap path. The ordinary
+            // class mode must enforce `ClassEscape` before representation can
+            // affect the verdict.
+            (SyntaxRule::ClassEscape, r"[\q]", "u"),
             (SyntaxRule::ClassSetCharacter, "[!!]", "v"),
             (SyntaxRule::ClassStringDisjunction, r"[\q]", "v"),
             (SyntaxRule::ClassSetExpression, "[a&&b--c]", "v"),
@@ -6133,15 +6184,8 @@ mod tests {
     /// is what forces the code-point path, so each witness is compiled through
     /// both representations and the two verdicts are compared.
     ///
-    /// Positive witnesses only, deliberately. The negative direction diverges
-    /// at this head — `[\q]` under `u` is accepted by the ASCII path and
-    /// rejected by the code-point path — and that is an UNDER-rejection (a
-    /// missing SyntaxError), the opposite of the over-rejection this lane owns.
-    /// It is recorded in `target/lane-notes/re-verdict-b8-integration.md` rather
-    /// than fixed blind here, because closing it means gating `\c<digit>`,
-    /// legacy octal and the identity-escape fallthrough in
-    /// `parse_ascii_class_atom`, which is a matcher-path change with its own
-    /// blast radius.
+    /// Both accepted and rejected witnesses are pinned: choosing a smaller
+    /// instruction representation cannot admit Annex B grammar under `u`.
     #[test]
     fn class_verdicts_do_not_depend_on_the_class_representation() {
         let bodies = [
@@ -6186,6 +6230,137 @@ mod tests {
             assert!(
                 RegExpProgram::compile(&format!("[{body}]"), "v").is_ok(),
                 "`[{body}]` under `v` must compile"
+            );
+        }
+
+        for body in [r"\q", r"\c", r"\c0", r"\1", r"\8", r"\01"] {
+            let bitmap_source = format!("[{body}]");
+            let ranges_source = format!("[{body}\\u0041]");
+            assert!(
+                !class_needs_code_point_ranges(bitmap_source.as_bytes(), 0),
+                "`{bitmap_source}` must take the ASCII bitmap parser"
+            );
+            assert!(
+                class_needs_code_point_ranges(ranges_source.as_bytes(), 0),
+                "`{ranges_source}` must take the code-point range parser"
+            );
+
+            for source in [&bitmap_source, &ranges_source] {
+                let error = RegExpProgram::compile(source, "u")
+                    .expect_err("Annex B class escape must be rejected under `u`");
+                assert_eq!(
+                    error.kind,
+                    RegExpCompileErrorKind::InvalidSyntax,
+                    "{source}"
+                );
+                assert_eq!(error.rule, Some(SyntaxRule::ClassEscape), "{source}");
+
+                assert!(
+                    RegExpProgram::compile(source, "").is_ok(),
+                    "legacy grammar must keep accepting `{source}`"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_bare_class_control_escape_preserves_backslash_and_c() {
+        let bitmap_source = r"[\c]";
+        let ranges_source = r"[\c\u0041]";
+        assert!(!class_needs_code_point_ranges(bitmap_source.as_bytes(), 0));
+        assert!(class_needs_code_point_ranges(ranges_source.as_bytes(), 0));
+
+        let bitmap = RegExpProgram::compile(bitmap_source, "").expect("legacy bitmap `\\c`");
+        assert_eq!(
+            bitmap.instructions[0],
+            RegExpInstruction::positive_ascii_class(
+                0,
+                (1_u64 << (b'\\' - 64)) | (1_u64 << (b'c' - 64)),
+            )
+        );
+
+        let ranges = RegExpProgram::compile(ranges_source, "").expect("legacy range `\\c`");
+        assert_eq!(
+            ranges.ranges,
+            vec![
+                (u32::from(b'A'), u32::from(b'A')),
+                (u32::from(b'\\'), u32::from(b'\\')),
+                (u32::from(b'c'), u32::from(b'c')),
+            ]
+        );
+    }
+
+    #[test]
+    fn class_control_underscore_has_mode_and_representation_invariant_semantics() {
+        // Prefix both the Pattern and class body so the asserted source offset
+        // cannot accidentally be the class opener or its first member.
+        let bitmap_source = r"x[ab\c_]";
+        let ranges_source = r"x[ab\c_\u0041]";
+        assert!(!class_needs_code_point_ranges(bitmap_source.as_bytes(), 1));
+        assert!(class_needs_code_point_ranges(ranges_source.as_bytes(), 1));
+
+        for source in [bitmap_source, ranges_source] {
+            let error = RegExpProgram::compile(source, "u")
+                .expect_err("`\\c_` is an Annex B class escape, not Unicode grammar");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{source}"
+            );
+            assert_eq!(error.rule, Some(SyntaxRule::ClassEscape), "{source}");
+            assert_eq!(error.offset, 4, "{source}");
+        }
+
+        let bitmap = RegExpProgram::compile(bitmap_source, "").expect("legacy bitmap `\\c_`");
+        assert_eq!(
+            bitmap.instructions[1],
+            RegExpInstruction::positive_ascii_class(
+                1_u64 << 0x1f,
+                (1_u64 << (b'a' - 64)) | (1_u64 << (b'b' - 64)),
+            )
+        );
+
+        let ranges = RegExpProgram::compile(ranges_source, "").expect("legacy range `\\c_`");
+        assert_eq!(
+            ranges.ranges,
+            vec![
+                (0x1f, 0x1f),
+                (u32::from(b'A'), u32::from(b'A')),
+                (u32::from(b'a'), u32::from(b'b')),
+            ]
+        );
+    }
+
+    #[test]
+    fn class_escape_values_do_not_depend_on_the_class_representation() {
+        assert!(!class_needs_code_point_ranges(br"[\cA]", 0));
+        assert!(class_needs_code_point_ranges(br"[\cA\u0002]", 0));
+        for flags in ["", "u"] {
+            let bitmap = RegExpProgram::compile(r"[\cA]", flags)
+                .unwrap_or_else(|error| panic!("bitmap `\\cA` under `{flags}`: {error}"));
+            assert!(bitmap.instructions[0].positive_ascii_class_contains(0x01));
+            assert!(!bitmap.instructions[0].positive_ascii_class_contains(b'c'));
+            assert!(!bitmap.instructions[0].positive_ascii_class_contains(b'A'));
+
+            let ranges = RegExpProgram::compile(r"[\cA\u0002]", flags)
+                .unwrap_or_else(|error| panic!("range `\\cA` under `{flags}`: {error}"));
+            assert!(ranges_contain(&ranges.ranges, 0x01));
+            assert!(!ranges_contain(&ranges.ranges, u32::from(b'c')));
+            assert!(!ranges_contain(&ranges.ranges, u32::from(b'A')));
+        }
+
+        assert!(!class_needs_code_point_ranges(br"[\0]", 0));
+        assert!(class_needs_code_point_ranges(br"[\0\u0002]", 0));
+        let bitmap = RegExpProgram::compile(r"[\0]", "u").expect("`\\0` is valid under `u`");
+        assert!(bitmap.instructions[0].positive_ascii_class_contains(0));
+        let ranges = RegExpProgram::compile(r"[\0\u0002]", "u")
+            .expect("range-path `\\0` is valid under `u`");
+        assert!(ranges_contain(&ranges.ranges, 0));
+
+        for source in [r"[\/]", r"[\-]", r"[\^]", r"[\\]"] {
+            assert!(
+                RegExpProgram::compile(source, "u").is_ok(),
+                "legal Unicode class identity escape `{source}` must remain accepted"
             );
         }
     }
