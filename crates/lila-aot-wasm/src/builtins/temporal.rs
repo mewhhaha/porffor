@@ -147,6 +147,19 @@ const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
 const SECONDS_PER_DAY: i64 = 86_400;
 
 #[derive(Clone, Copy)]
+pub(super) enum TemporalTimeCalendarUse {
+    /// `ToTemporalTime` validates annotation syntax but ignores the calendar
+    /// value, including an unknown identifier.
+    Ignore,
+    /// `ToTemporalCalendarIdentifier` resolves the annotation value (or the
+    /// ISO default) through the backend's closed calendar domain.
+    Resolve {
+        calendar_payload_local: u32,
+        calendar_tag_local: u32,
+    },
+}
+
+#[derive(Clone, Copy)]
 enum TemporalIsoParseGoal {
     Instant,
     TimeZoneIdentifier {
@@ -206,6 +219,7 @@ enum TemporalIsoParseGoal {
         minute_destination_local: u32,
         second_destination_local: u32,
         nanosecond_destination_local: u32,
+        calendar_use: TemporalTimeCalendarUse,
     },
 }
 
@@ -4246,6 +4260,7 @@ impl<'a> FunctionBuilder<'a> {
             minute_destination_local,
             second_destination_local,
             nanosecond_destination_local,
+            calendar_use,
         } = parse_goal
         {
             // `09:00:00Z` and `2019-10-01T09:00:00Z` both name an instant, not
@@ -4287,6 +4302,24 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
+
+            match calendar_use {
+                TemporalTimeCalendarUse::Ignore => {}
+                TemporalTimeCalendarUse::Resolve {
+                    calendar_payload_local,
+                    calendar_tag_local,
+                } => self.emit_temporal_iso_calendar_annotation(
+                    string_payload_local,
+                    calendar_count_local,
+                    calendar_start_local,
+                    calendar_end_local,
+                    calendar_payload_local,
+                    calendar_tag_local,
+                    "Invalid Temporal time-string calendar annotation",
+                    function,
+                )?,
+            }
+
             // A parsed leap second is clamped, not rejected: `23:59:60` is
             // `23:59:59`.
             function.instruction(&Instruction::LocalGet(second_local));
@@ -4837,13 +4870,15 @@ impl<'a> FunctionBuilder<'a> {
     /// time, and the proposal resolves that tie by demanding the `T`
     /// designator. `1232` is not ambiguous — there is no 32nd day — so it
     /// stays a time.
-    pub(crate) fn emit_temporal_parse_plain_time_string(
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_temporal_parse_plain_time_string(
         &mut self,
         string_payload_local: u32,
         hour_destination_local: u32,
         minute_destination_local: u32,
         second_destination_local: u32,
         nanosecond_destination_local: u32,
+        calendar_use: TemporalTimeCalendarUse,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let offset_local = self.reserve_temp_local();
@@ -5148,6 +5183,7 @@ impl<'a> FunctionBuilder<'a> {
                 minute_destination_local,
                 second_destination_local,
                 nanosecond_destination_local,
+                calendar_use,
             },
             function,
         )?;
@@ -7242,12 +7278,9 @@ impl<'a> FunctionBuilder<'a> {
     ///   ISO date cannot). A calendar spelled out of digits would break it, and
     ///   would have to move the compare below the time attempt.
     ///
-    /// Known deviation: `emit_temporal_parse_plain_time_string` has no calendar
-    /// out-parameter and never reaches `emit_temporal_iso_calendar_annotation`,
-    /// so the time arm hard-codes `iso8601` and
-    /// `pd.withCalendar("T11:30[u-ca=notacal]")` wrongly succeeds instead of
-    /// throwing. No `built-ins` test covers it; the only tests in that shape
-    /// are `intl402` files that need a non-ISO calendar and are out of scope.
+    /// The final time attempt selects the resolving time-string policy. This
+    /// is distinct from `ToTemporalTime`, whose call selects
+    /// [`TemporalTimeCalendarUse::Ignore`].
     pub(crate) fn compile_temporal_calendar_identifier_helper(
         &mut self,
         real: bool,
@@ -7372,6 +7405,10 @@ impl<'a> FunctionBuilder<'a> {
             minute_local,
             second_local,
             nanosecond_local,
+            TemporalTimeCalendarUse::Resolve {
+                calendar_payload_local: result_payload_local,
+                calendar_tag_local: probe_tag_local,
+            },
             &mut function,
         )?;
         function.instruction(&Instruction::End);

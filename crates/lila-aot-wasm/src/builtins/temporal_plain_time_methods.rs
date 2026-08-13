@@ -11,6 +11,7 @@
 //! have to agree on what `halfEven` means.
 
 use super::super::*;
+use super::temporal::TemporalTimeCalendarUse;
 use super::temporal_options::{
     StringValuedOption, TemporalOverflow, TemporalRoundingMode, TemporalTimeUnit, TemporalUnit,
     TemporalUnitSlot,
@@ -283,6 +284,7 @@ impl<'a> FunctionBuilder<'a> {
             field_locals[1],
             field_locals[2],
             nanoseconds_local,
+            TemporalTimeCalendarUse::Ignore,
             function,
         )?;
         // The parser hands back one nanosecond count for the whole fraction.

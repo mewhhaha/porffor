@@ -38,6 +38,14 @@ the carried identity's pinned tzdb field is metadata for the selected complete
 data line; the current Locale-only external provider still does not claim that
 capability.
 
+Temporal time-string parsing now carries an exhaustive calendar-consumer
+policy. `PlainTime` consumes the `Ignore` arm required by its grammar, while
+`ToTemporalCalendarIdentifier` consumes `Resolve`, so a time string's
+`[u-ca=...]` value is canonicalized exactly when it denotes a calendar. This
+keeps `PlainTime.from("T11:30[u-ca=unknown]")` valid while making
+`withCalendar("T11:30[u-ca=notacal]")` throw instead of silently defaulting to
+`iso8601`. Complete calendar coverage and the full Temporal tree remain open.
+
 ## Objective
 
 Implement exact Date semantics and the complete Temporal API for the pinned revisions using deterministic clock, calendar and time-zone interfaces. Reuse vendored `temporal_rs` where appropriate, but preserve JavaScript-observable coercion, property access, branding, realm and descriptor behavior in Lila's own runtime/compiler layers.
