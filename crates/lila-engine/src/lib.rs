@@ -14901,6 +14901,101 @@ try {
     }
 
     #[test]
+    fn wasm_backend_proxy_descriptor_and_extensibility_preserve_handler_tags() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var calls = [];
+
+function descriptorTrap(label, handler) {
+  return function(target, key) {
+    calls.push(label + ":" + (this === handler) + ":" + key);
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  };
+}
+
+function functionHandler() {}
+functionHandler.getOwnPropertyDescriptor = descriptorTrap(
+  "function",
+  functionHandler
+);
+
+var arrayHandler = [];
+arrayHandler.getOwnPropertyDescriptor = descriptorTrap("array", arrayHandler);
+
+var argumentsHandler = (function() { return arguments; })();
+argumentsHandler.isExtensible = function(target) {
+  calls.push("arguments:" + (this === argumentsHandler));
+  return Reflect.isExtensible(target);
+};
+
+var nestedHandler;
+nestedHandler = new Proxy({}, {
+  get: function(_target, key) {
+    calls.push("nested-get:" + key);
+    if (key === "isExtensible") {
+      return function(target) {
+        calls.push("nested:" + (this === nestedHandler));
+        return Reflect.isExtensible(target);
+      };
+    }
+  }
+});
+
+var marker = {};
+var abruptHandler = new Proxy({}, {
+  get: function(_target, key) {
+    if (key === "getOwnPropertyDescriptor" || key === "isExtensible") {
+      throw marker;
+    }
+  }
+});
+var descriptorAbrupt = false;
+try {
+  Object.getOwnPropertyDescriptor(new Proxy({}, abruptHandler), "missing");
+} catch (error) {
+  descriptorAbrupt = error === marker;
+}
+var extensibilityAbrupt = false;
+try {
+  Reflect.isExtensible(new Proxy({}, abruptHandler));
+} catch (error) {
+  extensibilityAbrupt = error === marker;
+}
+
+[
+  Object.getOwnPropertyDescriptor(
+    new Proxy({ first: 1 }, functionHandler),
+    "first"
+  ).value,
+  Reflect.getOwnPropertyDescriptor(
+    new Proxy({ second: 2 }, arrayHandler),
+    "second"
+  ).value,
+  Object.isExtensible(new Proxy({}, argumentsHandler)),
+  Reflect.isExtensible(new Proxy({}, nestedHandler)),
+  descriptorAbrupt,
+  extensibilityAbrupt,
+  calls.join(",")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Proxy descriptor and extensibility methods should retain handler tags");
+        assert!(
+            outcome.note.contains(
+                "string(1|2|true|true|true|true|function:true:first,array:true:second,arguments:true,nested-get:isExtensible,nested:true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_proxy_descriptor_facts_cover_direct_exotic_targets() {
         let outcome = engine()
             .run_script(

@@ -423,6 +423,27 @@ if grep -RFl --include='*.rs' 'emit_proxy_array_target_own_descriptor_flags' cra
   fail 'Array-only Proxy own-descriptor mirrors must not bypass the typed authority'
 fi
 
+# T11's Proxy record has one typed writer and one typed live reader. Keep the
+# raw handler-tag offset private to objects.rs (apart from its heap declaration)
+# and keep the reviewed HasProperty, IsExtensible and public descriptor
+# consumers on the reader so no path can silently reconstruct an Object tag.
+proxy_slot_reader='emit_load_live_proxy_slots('
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  'pub(crate) fn emit_load_live_proxy_slots(' \
+  1 \
+  'typed live-Proxy-slot reader authority'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 3 'live-Proxy-slot reader definition/internal call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object.rs "$proxy_slot_reader" 1 'public descriptor live-Proxy-slot reader call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'HEAP_PROXY_HANDLER_TAG_OFFSET' 2 'Proxy handler-tag writer/reader authority'
+proxy_handler_tag_files="$(grep -RFl --include='*.rs' 'HEAP_PROXY_HANDLER_TAG_OFFSET' crates/lila-aot-wasm/src | sort || true)"
+expected_proxy_handler_tag_files="$(printf '%s\n' \
+  crates/lila-aot-wasm/src/heap.rs \
+  crates/lila-aot-wasm/src/objects.rs | sort)"
+if [ "$proxy_handler_tag_files" != "$expected_proxy_handler_tag_files" ]; then
+  fail 'Proxy handler-tag heap access must stay inside the typed slot authority'
+fi
+
 if [ "$failures" -ne 0 ]; then
   exit 1
 fi

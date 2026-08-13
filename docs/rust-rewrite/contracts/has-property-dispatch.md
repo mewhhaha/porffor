@@ -68,54 +68,56 @@ a proxy-only word in the generic 256-byte object allocation and is registered
 as a non-pointer layout slot; it does not move the target words or alter any
 other object representation.
 
-`[[HasProperty]]` consumes both retained handler locals. Its trap lookup goes
-through the existing full object-read seam with the handler itself as receiver,
-so Function, Array, arguments and nested-Proxy handlers receive their real
-storage and prototype behavior. A lookup getter's abrupt completion must leave
-the HasProperty traversal before any absent/non-callable decision. A present
-trap is called with the same tagged handler as `this`.
+One typed reader is the only authority that maps the four Proxy heap words back
+to `ProxySlotLocals`. Its input record still has distinct target and handler
+newtypes, so omitting a tag or swapping the two roles is a compile error at both
+the writer and the reader. The reader also owns the revoked-handler check;
+callers choose one of the closed completion routes but cannot load a supposedly
+live slot set without emitting that check first. Raw consumers may inspect the
+handler-payload marker only to decide whether an Object is a Proxy; they may not
+reconstruct the retained fields themselves.
 
-This contract intentionally migrates only the `has` consumer in the bounded
-batch. Other Proxy internal methods that still reconstruct an Object handler
-tag remain explicit T11 consumers of the same retained slot and shared
-`[[Get]]`; the new representation makes those follow-up migrations possible
-without another layout change.
+`[[HasProperty]]`, `[[IsExtensible]]` and the public
+`getOwnPropertyDescriptor` path consume the same loaded handler pair. Their trap
+lookups go through the existing full object-read seam with the handler itself as
+receiver, so Function, Array, arguments and nested-Proxy handlers receive their
+real storage and prototype behavior. A lookup getter's abrupt completion is
+routed before any absent/non-callable decision. A present trap is called with
+the same tagged handler as `this`.
 
-The false-result invariant remains a separate seam. The existing
-`Object.getOwnPropertyDescriptor` builtin does implement Array, arguments and
-integer-indexed own descriptors, and `emit_object_is_extensible_i32` is already
-typed. But invoking a full builtin descriptor allocation from inside the raw
-HasProperty branch would couple completion routing and allocation into the
-dispatcher, while the only reusable compact helper today is Array-specific.
-This batch therefore does not duplicate that helper or call a builtin from the
-raw branch. The durable next step is a value-free typed own-descriptor fact
-emitter, consumed jointly by the public descriptor builtin and Proxy invariant
-checks; its closed exotic cases are outside this handler-layout migration.
+The false-result invariant uses a separate value-free direct-own-descriptor
+fact over the same closed representation order. Array, arguments,
+integer-indexed, boxed-String, Function-special and ordinary own properties are
+therefore checked without allocating a public descriptor object, and a present
+configurable property reaches the shared `[[IsExtensible]]` operation only
+after the descriptor test.
 
-The last step is not closed by the HasProperty dispatch alone. The current
-post-trap checker reads ordinary Object/Function property storage directly; it
-does not yet consume a complete `[[GetOwnProperty]]` and `[[IsExtensible]]`
-dispatch for Array, arguments, integer-indexed or module-namespace targets.
-Consequently this batch must not claim all Proxy `has` invariants. In
-particular, reporting an Array's non-configurable `length` as absent remains a
-T11 blocker until that descriptor dispatch exists:
-`Reflect.has(new Proxy([], { has() { return false; } }), "length")` must throw a
-`TypeError`, while the current ordinary-only invariant checker can return
-`false`. Adding an Array-only mirror of the invariant would duplicate the exact
-abstraction T10 is meant to create.
+This remains a bounded consumer migration. The direct fact is not the recursive
+Proxy descriptor-record protocol: when `[[ProxyTarget]]` is itself a Proxy, the
+eventual implementation must perform that target's `GetMethod`, call,
+descriptor conversion and complete compatibility validation without allocating
+through the public builtin. Other Proxy internal methods, module-namespace
+descriptor behavior, and broader nested exotic-handler `[[Get]]` closure remain
+T11 work.
 
 ## Verification boundary
 
-The durable positive regression combines ordinary inheritance, an Array whose
-prototype is a Proxy, integer-indexed present and `-0` cases, an absent-trap
-nested Proxy target and a callable-Proxy `has` trap. The focused compile-time
-and runtime checkpoint is:
+The durable HasProperty regression combines ordinary inheritance, an Array
+whose prototype is a Proxy, integer-indexed present and `-0` cases, an
+absent-trap nested Proxy target and a callable-Proxy `has` trap. A second
+regression covers the descriptor and extensibility consumer migration with
+Function, Array, arguments and nested-Proxy handlers, exact handler `this`,
+Object and Reflect entry points, and abrupt trap lookup. The focused
+compile-time and runtime checkpoint is:
 
 ```sh
 cargo test -p lila-aot-wasm tests::operations_emits_has_property_spec_operation -- --exact
 cargo test -p lila-aot-wasm tests::typedarray_has_property_module_validates -- --exact
 cargo test -p lila-engine tests::wasm_backend_has_property_dispatches_every_live_exotic_branch -- --exact
+cargo test -p lila-engine tests::wasm_backend_proxy_descriptor_and_extensibility_preserve_handler_tags -- --exact
 ./target/debug/lila test262 run built-ins/Proxy/has --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/TypedArrayConstructors/internals/HasProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 

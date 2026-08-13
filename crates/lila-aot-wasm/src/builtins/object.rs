@@ -1,4 +1,7 @@
 use super::super::*;
+use crate::objects::{
+    ProxyHandlerLocals, ProxyRevocationRoute, ProxySlotLocals, ProxyTargetLocals,
+};
 use lila_ir::PropertyDescriptorKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4170,37 +4173,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy handler is null",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_load_live_proxy_slots(
+            target_payload_local,
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(value_payload_local, value_tag_local),
+                ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local),
+            ),
+            ProxyRevocationRoute::CurrentFunctionRealm,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(proxy_handler_tag_local));
         function.instruction(&Instruction::I64Const(
             self.strings.payload("getOwnPropertyDescriptor"),
         ));
         function.instruction(&Instruction::LocalSet(entry_key_local));
-        self.emit_object_read_ordinary(
+        self.emit_object_read_without_throw_propagation(
             proxy_handler_payload_local,
             proxy_handler_tag_local,
             proxy_handler_payload_local,
@@ -4210,6 +4196,7 @@ impl<'a> FunctionBuilder<'a> {
             proxy_trap_tag_local,
             function,
         )?;
+        self.emit_return_current_completion_if_throw(function);
         self.emit_is_callable_i32(proxy_trap_tag_local, proxy_trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(key_tag_local));

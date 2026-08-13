@@ -81,6 +81,21 @@ arguments `length` (including delete-and-recreate), both public descriptor-trap
 result forms and the absent/non-extensible ordering case. It has not run while
 the release matrix owns runtime verification.
 
+The retained Proxy slots now also have one typed read authority. The reader
+accepts the same `ProxySlotLocals` record as the writer, maps each heap word into
+the distinct target/handler newtype, and emits the revoked-handler check before
+the loaded slots become usable. Its closed completion route keeps the existing
+builtin, internal-helper and HasProperty throw boundaries explicit. Both the
+public descriptor path and shared `[[IsExtensible]]` now join `has` in consuming
+the exact handler tag and the proxy-aware object-read seam for `GetMethod`.
+Function, Array, arguments and nested-Proxy handlers therefore retain their
+storage behavior and exact handler-as-`this` identity in these three methods;
+an abrupt trap lookup is routed before callable/absent classification.
+
+The exact Wasm-AOT regression covering those four handler representations,
+Object and Reflect entry points, exact `this`, and abrupt lookup is written but
+has not run while the release matrix owns runtime verification.
+
 This is deliberately not the recursive Proxy descriptor-record protocol.
 When `[[ProxyTarget]]` is itself a Proxy, `[[GetOwnProperty]]` must run that
 Proxy's `GetMethod`, call and full `IsCompatiblePropertyDescriptor` validation;
