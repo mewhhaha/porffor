@@ -47,6 +47,16 @@ last occurrence, and an empty simple list remains `Mapped(empty)`. The semantic
 and storage boundaries are recorded in
 `docs/rust-rewrite/contracts/arguments-object-construction-protocol.md`.
 
+Bound-function creation now preserves `[[BoundThis]]` as the exact tagged
+ECMAScript value supplied to `bind`. A private two-source domain admits only
+builtin argument zero and the compiler-owned Proxy revocation Object; sibling
+modules cannot call the raw payload/tag allocator. Strict preservation and
+sloppy substitution/boxing remain centralized in the target-call path, so a
+strict primitive is not boxed during binding and a sloppy primitive receives a
+fresh wrapper on each invocation. The boundary and its cross-realm nonclaim are
+recorded in
+`docs/rust-rewrite/contracts/bound-function-this-capture.md`.
+
 Cross-realm Function construction remains an explicit dynamic-source
 exclusion, and complete Function/class/private-element subtrees have not been
 verified against the current pin without materializations. This remains an

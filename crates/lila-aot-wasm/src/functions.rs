@@ -207,6 +207,17 @@ pub(crate) enum FunctionPrototypeMaterialization {
     BootstrapSupplied,
 }
 
+/// The complete set of compiler-owned sources for a bound function's exact
+/// `[[BoundThis]]` value.
+///
+/// This domain is private so sibling emitters cannot pass an already-adapted
+/// payload/tag pair to bound-function storage. The dispatcher below owns both
+/// local reservation and materialization for each legal source.
+enum ExactBoundThisSource {
+    BindArgumentZero,
+    ProxyRevocationObject(u32),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RealmFunctionInternalPrototypePolicy {
     RealmFunctionPrototype,
@@ -356,6 +367,75 @@ mod realm_function_materialization_tests {
                 .contains("emit_function_value_payload_in_realm(meta, realm_functions,"),
             "canonical realm host functions must use the coupled realm/prototype context"
         );
+    }
+}
+
+#[cfg(test)]
+mod bound_this_capture_tests {
+    #[test]
+    fn bound_this_capture_has_closed_producers_and_call_time_adaptation() {
+        let functions = include_str!("functions.rs");
+        let bind = include_str!("builtins/function.rs");
+        let proxy = include_str!("builtins/proxy.rs");
+
+        let source_marker = concat!("enum ExactBound", "ThisSource {");
+        let source_domain = functions
+            .split_once(source_marker)
+            .expect("exact bound-this source domain should exist")
+            .1
+            .split_once("\n}")
+            .expect("exact bound-this source domain should be bounded")
+            .0;
+        assert!(source_domain.contains("BindArgumentZero"));
+        assert!(source_domain.contains("ProxyRevocationObject(u32)"));
+        assert_eq!(
+            source_domain
+                .lines()
+                .filter(|line| line.trim_end().ends_with(','))
+                .count(),
+            2,
+            "every exact bound-this source must be explicit"
+        );
+
+        let raw_allocator = concat!("emit_alloc_bound_function_", "value(");
+        let private_raw_definition = concat!("    fn emit_alloc_bound_function_", "value(");
+        let public_raw_definition =
+            concat!("    pub(crate) fn emit_alloc_bound_function_", "value(");
+        assert_eq!(
+            functions.matches(raw_allocator).count(),
+            2,
+            "the raw allocator must have one definition and one private dispatcher call"
+        );
+        assert_eq!(functions.matches(private_raw_definition).count(), 1);
+        assert!(!functions.contains(public_raw_definition));
+
+        let bind_entry = concat!("emit_alloc_bound_function_", "for_bind");
+        let proxy_entry = concat!("emit_alloc_proxy_revocation_", "bound_function");
+        assert_eq!(functions.matches(bind_entry).count(), 1);
+        assert_eq!(functions.matches(proxy_entry).count(), 1);
+        assert_eq!(bind.matches(bind_entry).count(), 1);
+        assert_eq!(proxy.matches(proxy_entry).count(), 1);
+        assert!(!bind.contains(raw_allocator));
+        assert!(!proxy.contains(raw_allocator));
+
+        let eager_adapter = concat!("emit_adapt_call_", "this_arg");
+        assert!(!functions.contains(eager_adapter));
+        assert!(!bind.contains(eager_adapter));
+
+        let common_call_marker = concat!(
+            "pub(crate) fn emit_function_handle_call_",
+            "with_argv_inner("
+        );
+        let common_call_end = concat!("pub(crate) fn emit_prepare_super_", "construct_to_locals(");
+        let common_call = functions
+            .split_once(common_call_marker)
+            .expect("common target-call path should exist")
+            .1
+            .split_once(common_call_end)
+            .expect("common target-call path should be bounded")
+            .0;
+        assert!(common_call.contains("FUNCTION_FLAG_STRICT"));
+        assert!(common_call.contains("emit_value_to_object_locals"));
     }
 }
 
@@ -2041,99 +2121,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_adapt_call_this_arg(
-        &mut self,
-        input_payload_local: u32,
-        input_tag_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(input_payload_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_is_heap_object_like_tag_i32(input_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(input_payload_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_boxed_wrapper_from_locals(
-            NUMBER_PROTOTYPE_GLOBAL_INDEX,
-            BOXED_PRIMITIVE_KIND_NUMBER,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_boxed_wrapper_from_locals(
-            STRING_PROTOTYPE_GLOBAL_INDEX,
-            BOXED_PRIMITIVE_KIND_STRING,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(input_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_boxed_wrapper_from_locals(
-            BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
-            BOXED_PRIMITIVE_KIND_BOOLEAN,
-            input_payload_local,
-            input_tag_local,
-            payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Function.prototype.call/apply thisArg adaptation failed",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
     pub(crate) fn emit_load_bound_function_record(
         &mut self,
         record_local: u32,
@@ -2404,7 +2391,95 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_alloc_bound_function_value(
+    /// Create the bound function required by `Function.prototype.bind`.
+    ///
+    /// Argument zero is captured here so the builtin emitter cannot adapt or
+    /// otherwise replace it before it becomes `[[BoundThis]]`.
+    pub(crate) fn emit_alloc_bound_function_for_bind(
+        &mut self,
+        target_payload_local: u32,
+        target_tag_local: u32,
+        bound_args_payload_local: u32,
+        payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_alloc_bound_function_from_exact_source(
+            target_payload_local,
+            target_tag_local,
+            ExactBoundThisSource::BindArgumentZero,
+            bound_args_payload_local,
+            payload_local,
+            function,
+        )
+    }
+
+    /// Create the hidden revocation closure used by `Proxy.revocable`.
+    ///
+    /// The captured Proxy is already an Object; this entry point installs its
+    /// exact identity without exposing the raw bound-this tag to the Proxy
+    /// emitter.
+    pub(crate) fn emit_alloc_proxy_revocation_bound_function(
+        &mut self,
+        target_payload_local: u32,
+        target_tag_local: u32,
+        proxy_payload_local: u32,
+        bound_args_payload_local: u32,
+        payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_alloc_bound_function_from_exact_source(
+            target_payload_local,
+            target_tag_local,
+            ExactBoundThisSource::ProxyRevocationObject(proxy_payload_local),
+            bound_args_payload_local,
+            payload_local,
+            function,
+        )
+    }
+
+    fn emit_alloc_bound_function_from_exact_source(
+        &mut self,
+        target_payload_local: u32,
+        target_tag_local: u32,
+        source: ExactBoundThisSource,
+        bound_args_payload_local: u32,
+        payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let bound_this_payload_local = self.reserve_temp_local();
+        let bound_this_tag_local = self.reserve_temp_local();
+
+        match source {
+            ExactBoundThisSource::BindArgumentZero => self.emit_builtin_arg_to_locals(
+                0,
+                bound_this_payload_local,
+                bound_this_tag_local,
+                function,
+            ),
+            ExactBoundThisSource::ProxyRevocationObject(proxy_payload_local) => {
+                function.instruction(&Instruction::LocalGet(proxy_payload_local));
+                function.instruction(&Instruction::LocalSet(bound_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(bound_this_tag_local));
+            }
+        }
+
+        self.emit_alloc_bound_function_value(
+            target_payload_local,
+            target_tag_local,
+            bound_this_payload_local,
+            bound_this_tag_local,
+            bound_args_payload_local,
+            payload_local,
+            function,
+        )?;
+
+        self.release_temp_local(bound_this_tag_local);
+        self.release_temp_local(bound_this_payload_local);
+        Ok(())
+    }
+
+    fn emit_alloc_bound_function_value(
         &mut self,
         target_payload_local: u32,
         target_tag_local: u32,

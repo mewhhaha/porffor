@@ -58,9 +58,9 @@ fn inspect_reports_phase_twenty_eight_bind_builtin_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("function_proto_binds=2"));
-    assert!(stdout.contains("bound_functions=2"));
-    assert!(stdout.contains("bound_function_constructs=2"));
+    assert!(stdout.contains("function_proto_binds=6"));
+    assert!(stdout.contains("bound_functions=6"));
+    assert!(stdout.contains("bound_function_constructs=6"));
     assert!(stdout.contains("error_proto_to_strings=2"));
 }
 

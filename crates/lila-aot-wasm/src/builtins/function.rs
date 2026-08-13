@@ -246,25 +246,8 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in lila wasm-aot first slice: missing Function.prototype.bind receiver",
                     )
                 })?;
-                let this_arg_payload_local = self.reserve_temp_local();
-                let this_arg_tag_local = self.reserve_temp_local();
-                let bound_this_payload_local = self.reserve_temp_local();
-                let bound_this_tag_local = self.reserve_temp_local();
                 let bound_args_payload_local = self.reserve_temp_local();
 
-                self.emit_builtin_arg_to_locals(
-                    0,
-                    this_arg_payload_local,
-                    this_arg_tag_local,
-                    function,
-                );
-                self.emit_adapt_call_this_arg(
-                    this_arg_payload_local,
-                    this_arg_tag_local,
-                    bound_this_payload_local,
-                    bound_this_tag_local,
-                    function,
-                )?;
                 self.emit_rest_array_payload(1, function)?;
                 function.instruction(&Instruction::LocalSet(bound_args_payload_local));
 
@@ -272,11 +255,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_alloc_bound_function_value(
+                self.emit_alloc_bound_function_for_bind(
                     receiver_payload_local,
                     receiver_tag_local,
-                    bound_this_payload_local,
-                    bound_this_tag_local,
                     bound_args_payload_local,
                     self.result_local,
                     function,
@@ -299,10 +280,6 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
 
                 self.release_temp_local(bound_args_payload_local);
-                self.release_temp_local(bound_this_tag_local);
-                self.release_temp_local(bound_this_payload_local);
-                self.release_temp_local(this_arg_tag_local);
-                self.release_temp_local(this_arg_payload_local);
             }
             FunctionBuiltin::PrototypeToString => {
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {

@@ -216,13 +216,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(zero_local));
         self.emit_alloc_array_payload_with_length(zero_local, empty_args_payload_local, function)?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(handler_tag_local));
-        self.emit_alloc_bound_function_value(
+        self.emit_alloc_proxy_revocation_bound_function(
             revoke_target_payload_local,
             revoke_target_tag_local,
             proxy_payload_local,
-            handler_tag_local,
             empty_args_payload_local,
             revoke_payload_local,
             function,
