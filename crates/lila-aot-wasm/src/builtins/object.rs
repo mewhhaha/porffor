@@ -1,6 +1,7 @@
 use super::super::*;
+use super::array::ArrayConcatSpreadableSlotValue;
 use crate::objects::{
-    ProxyHandlerLocals, ProxyRevocationRoute, ProxySlotLocals, ProxyTargetLocals,
+    ProxyHandlerLocals, ProxyRevocationRoute, ProxySlotLocals, ProxyTargetLocals, TaggedLocals,
 };
 use lila_ir::PropertyDescriptorKind;
 
@@ -3223,22 +3224,12 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_local_at_offset(
+        self.emit_array_is_concat_spreadable_slot_write(
             target_payload_local,
-            HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_PAYLOAD_OFFSET,
-            getter_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            target_payload_local,
-            HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_TAG_OFFSET,
-            getter_tag_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            target_payload_local,
-            HEAP_ARRAY_IS_CONCAT_SPREADABLE_DESCRIPTOR_KIND_OFFSET,
-            ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR,
+            ArrayConcatSpreadableSlotValue::Getter(TaggedLocals::new(
+                getter_payload_local,
+                getter_tag_local,
+            )),
             function,
         );
         function.instruction(&Instruction::Else);
@@ -3526,10 +3517,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_array_is_concat_spreadable_write(
             target_payload_local,
-            value_payload_local,
-            value_tag_local,
+            TaggedLocals::new(value_payload_local, value_tag_local),
             function,
-        )?;
+        );
         function.instruction(&Instruction::Else);
         self.emit_known_array_index_from_property_key(
             key_string_local,

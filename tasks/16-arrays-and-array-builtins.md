@@ -33,12 +33,28 @@ raw validation boolean. Generic `Array.prototype.at` and the validated
 `%TypedArray%.prototype.at` path are the only inhabitants, so adding another
 receiver policy cannot silently inherit either branch's error behavior.
 
+Array-owned `Symbol.isConcatSpreadable` data properties now retain one exact
+tagged JavaScript value instead of an eagerly coerced truthiness word. A closed
+`ArrayConcatSpreadableSlotValue::{Data, Getter}` shape owns the sole occupied
+slot writer, pairing every payload with its tag and exhaustively selecting the
+data/accessor descriptor role. Reads distinguish absence from the two occupied
+shapes, return data unchanged, and invoke callable getters; `concat` remains
+the later boundary that applies `ToBoolean`. The shared tagged payload slot is
+already a GC edge, so object identity is retained without growing the Array
+record. The old pointer-free truthiness cell is no longer a behavioral source
+or sink, but its allocator initialization and physical slot remain pending a
+conflict-free record-layout cleanup. The storage, read-order and verification
+boundaries for this seam are recorded in
+`docs/rust-rewrite/contracts/array-concat-spreadable-tagged-slot.md`.
+
 This is not yet a universal borrowed-Array seam. Indexed `Get` still belongs to
 the general object/integer-indexed protocol, and Array iterators, getters and
 other exotic consumers have not been migrated to the witness type. The
 existing Test262 materializers also remain: several encode constructor/subclass
-and BigInt breadth that this witness migration does not settle, so none can be
-honestly deleted on the strength of this tranche alone.
+and BigInt breadth that these invariant migrations do not settle, so none can
+be honestly deleted on their strength alone. The `@@isConcatSpreadable` seam
+also does not claim complete descriptor attributes, deletion/redefinition,
+inherited setters, Proxy traps or Array-record compaction.
 
 ## Objective
 

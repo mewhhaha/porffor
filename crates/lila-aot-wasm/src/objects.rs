@@ -7470,10 +7470,9 @@ impl<'a> FunctionBuilder<'a> {
                 {
                     self.emit_array_is_concat_spreadable_write(
                         target_local,
-                        payload_local,
-                        tag_local,
+                        TaggedLocals::new(payload_local, tag_local),
                         function,
-                    )?;
+                    );
                 } else if matches!(key, PropertyKeyIr::StringExpr(_)) {
                     let key_local = computed_key_local.expect("computed array property key local");
                     let index_local = self.reserve_temp_local();
@@ -7544,10 +7543,9 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_array_is_concat_spreadable_write(
                         target_local,
-                        payload_local,
-                        tag_local,
+                        TaggedLocals::new(payload_local, tag_local),
                         function,
-                    )?;
+                    );
                     function.instruction(&Instruction::Else);
                     self.emit_object_write(
                         target_local,

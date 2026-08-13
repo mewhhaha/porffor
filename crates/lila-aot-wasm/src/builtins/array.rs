@@ -69,6 +69,55 @@ impl ArrayAtReceiverPolicy {
     }
 }
 
+/// The two occupied shapes of an Array's own `@@isConcatSpreadable` slot.
+///
+/// The descriptor word owns absence. An occupied value always carries its tag
+/// and payload together, and its variant exhaustively selects the matching
+/// data/accessor descriptor shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArrayConcatSpreadableSlotValue {
+    Data(TaggedLocals),
+    Getter(TaggedLocals),
+}
+
+impl ArrayConcatSpreadableSlotValue {
+    const fn tagged(self) -> TaggedLocals {
+        match self {
+            Self::Data(tagged) | Self::Getter(tagged) => tagged,
+        }
+    }
+
+    const fn descriptor_kind(self) -> u64 {
+        match self {
+            Self::Data(_) => ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_DATA,
+            Self::Getter(_) => ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR,
+        }
+    }
+}
+
+#[cfg(test)]
+mod array_concat_spreadable_slot_tests {
+    use super::*;
+
+    #[test]
+    fn occupied_shapes_preserve_the_tagged_value_and_select_descriptor_role() {
+        let tagged = TaggedLocals::new(17, 23);
+        let data = ArrayConcatSpreadableSlotValue::Data(tagged);
+        let getter = ArrayConcatSpreadableSlotValue::Getter(tagged);
+
+        assert_eq!(data.tagged(), tagged);
+        assert_eq!(getter.tagged(), tagged);
+        assert_eq!(
+            data.descriptor_kind(),
+            ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_DATA
+        );
+        assert_eq!(
+            getter.descriptor_kind(),
+            ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR
+        );
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_init_array_exotic_slots(&self, array_local: u32, function: &mut Function) {
         self.store_i64_const_at_offset(
@@ -203,28 +252,30 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-        function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            array_local,
-            HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET,
-            payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            array_local,
+            HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_PAYLOAD_OFFSET,
+            payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            array_local,
+            HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_TAG_OFFSET,
+            tag_local,
+            function,
+        );
         function.instruction(&Instruction::Else);
         self.load_i64_to_local_from_offset(
             array_local,
@@ -238,14 +289,13 @@ impl<'a> FunctionBuilder<'a> {
             getter_payload_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(getter_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(getter_tag_local, getter_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             getter_payload_local,
             getter_tag_local,
-            Some((array_local, Some(receiver_tag_local))),
+            array_local,
+            receiver_tag_local,
             &[],
             payload_local,
             tag_local,
@@ -258,6 +308,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(tag_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
 
         self.release_temp_local(receiver_tag_local);
         self.release_temp_local(getter_tag_local);
@@ -267,40 +318,43 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn emit_array_is_concat_spreadable_write(
-        &mut self,
+        &self,
         array_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        value: TaggedLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
+    ) {
+        self.emit_array_is_concat_spreadable_slot_write(
             array_local,
-            HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET,
-            u64::MAX,
+            ArrayConcatSpreadableSlotValue::Data(value),
             function,
         );
-        function.instruction(&Instruction::Else);
-        self.compile_truthy_tagged_i32(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
+    }
+
+    pub(crate) fn emit_array_is_concat_spreadable_slot_write(
+        &self,
+        array_local: u32,
+        value: ArrayConcatSpreadableSlotValue,
+        function: &mut Function,
+    ) {
+        let tagged = value.tagged();
         self.store_i64_local_at_offset(
             array_local,
-            HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET,
-            self.scratch_local,
+            HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_PAYLOAD_OFFSET,
+            tagged.payload,
             function,
         );
-        function.instruction(&Instruction::End);
+        self.store_i64_local_at_offset(
+            array_local,
+            HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_TAG_OFFSET,
+            tagged.tag,
+            function,
+        );
         self.store_i64_const_at_offset(
             array_local,
             HEAP_ARRAY_IS_CONCAT_SPREADABLE_DESCRIPTOR_KIND_OFFSET,
-            ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_DATA,
+            value.descriptor_kind(),
             function,
         );
-        Ok(())
     }
 
     pub(crate) fn emit_array_constructor_read(
