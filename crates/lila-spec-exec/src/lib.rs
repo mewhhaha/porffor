@@ -19,7 +19,11 @@ use boa_engine::object::ObjectInitializer;
 use boa_engine::property::{Attribute, PropertyDescriptor};
 use boa_engine::value::TryFromJs;
 use boa_engine::{
-    js_string, Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, Source,
+    js_string, Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, JsVariant,
+    Script, Source,
+};
+use lila_runtime::{
+    HostHooks, HostOutputEvent, ObservedCompletion, ObservedJsValue, ObservedNumber,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -30,6 +34,15 @@ pub struct ModuleHostConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcome {
+    pub note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedExecutionOutcome {
+    pub completion: ObservedCompletion,
+    pub output_events: Vec<HostOutputEvent>,
+    /// Backend diagnostic text retained for humans and legacy adapters. It is
+    /// not the structured value and must not be used for semantic comparison.
     pub note: String,
 }
 
@@ -77,9 +90,16 @@ struct HostRealmScope {
 struct HostSession {
     can_block: bool,
     started_at: StdInstant,
+    host_hooks: Arc<dyn HostHooks>,
+    output_events: HostOutputEvents,
     reports_tx: Sender<String>,
     reports_rx: Mutex<Receiver<String>>,
     agents: Mutex<Vec<AgentHandle>>,
+}
+
+enum HostOutputEvents {
+    DelegateOnly,
+    Capture(Mutex<Vec<HostOutputEvent>>),
 }
 
 struct AgentHandle {
@@ -101,12 +121,30 @@ struct AgentThreadState {
 }
 
 impl HostRealmScope {
-    fn new(can_block: bool) -> Self {
+    fn legacy(can_block: bool, host_hooks: Arc<dyn HostHooks>) -> Self {
+        Self::new(can_block, host_hooks, HostOutputEvents::DelegateOnly)
+    }
+
+    fn observed(can_block: bool, host_hooks: Arc<dyn HostHooks>) -> Self {
+        Self::new(
+            can_block,
+            host_hooks,
+            HostOutputEvents::Capture(Mutex::new(Vec::new())),
+        )
+    }
+
+    fn new(
+        can_block: bool,
+        host_hooks: Arc<dyn HostHooks>,
+        output_events: HostOutputEvents,
+    ) -> Self {
         reset_host_realms();
         let (reports_tx, reports_rx) = mpsc::channel();
         let host_session = Arc::new(HostSession {
             can_block,
             started_at: StdInstant::now(),
+            host_hooks,
+            output_events,
             reports_tx,
             reports_rx: Mutex::new(reports_rx),
             agents: Mutex::new(Vec::new()),
@@ -115,6 +153,14 @@ impl HostRealmScope {
             *session.borrow_mut() = Some(host_session.clone());
         });
         Self { host_session }
+    }
+
+    fn finish_output_events(&self) -> Vec<HostOutputEvent> {
+        // Agents share this execution's sink. Join them before taking the
+        // transcript so a line emitted while shutdown is in flight is not
+        // silently left behind in the session.
+        self.host_session.shutdown();
+        self.host_session.output_events.take()
     }
 }
 
@@ -132,6 +178,11 @@ impl Drop for HostRealmScope {
 }
 
 impl HostSession {
+    fn print_line(&self, text: String) {
+        self.output_events.record(&text);
+        self.host_hooks.print_line(&text);
+    }
+
     fn start_agent(self: &Arc<Self>, source: String) -> Result<(), ExecutionError> {
         let (command_tx, command_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
@@ -210,6 +261,27 @@ impl HostSession {
         for handle in handles {
             let _ = handle.join.join();
         }
+    }
+}
+
+impl HostOutputEvents {
+    fn record(&self, text: &str) {
+        if let Self::Capture(events) = self {
+            events
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(HostOutputEvent::PrintLine(text.to_string()));
+        }
+    }
+
+    fn take(&self) -> Vec<HostOutputEvent> {
+        let Self::Capture(events) = self else {
+            return Vec::new();
+        };
+        let mut events = events
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *events)
     }
 }
 
@@ -355,13 +427,63 @@ fn invoke_agent_callback(
     Ok(())
 }
 
+#[derive(Debug)]
+struct StdoutHostHooks;
+
+impl HostHooks for StdoutHostHooks {
+    fn print_line(&self, text: &str) {
+        // Preserve the legacy direct spec-exec behavior: its old host printer
+        // suppressed an empty rendered argument list instead of printing a
+        // blank line. The observed event channel still records that event.
+        if !text.is_empty() {
+            println!("{text}");
+        }
+    }
+}
+
+fn observe_js_value(value: &JsValue) -> ObservedJsValue {
+    match value.variant() {
+        JsVariant::Undefined => ObservedJsValue::Undefined,
+        JsVariant::Null => ObservedJsValue::Null,
+        JsVariant::Boolean(value) => ObservedJsValue::Boolean(value),
+        JsVariant::Integer32(value) => {
+            ObservedJsValue::Number(ObservedNumber::from_f64(f64::from(value)))
+        }
+        JsVariant::Float64(value) => ObservedJsValue::Number(ObservedNumber::from_f64(value)),
+        JsVariant::String(value) => ObservedJsValue::String(value.to_vec().into_boxed_slice()),
+        JsVariant::BigInt(value) => ObservedJsValue::BigInt(value.to_string().into_boxed_str()),
+        JsVariant::Symbol(_) => ObservedJsValue::Symbol,
+        JsVariant::Object(_) => ObservedJsValue::Object,
+    }
+}
+
+fn observe_opaque_throw(value: &JsValue) -> (ObservedJsValue, String) {
+    let value = observe_js_value(value);
+    let note = format!("uncaught ECMAScript throw ({})", value.type_name());
+    (value, note)
+}
+
+fn observe_js_error(error: &JsError, context: &mut Context) -> (ObservedJsValue, String) {
+    if let Some(value) = error.as_opaque() {
+        // Boa's host-side `Display` for an opaque value recursively reveals
+        // symbol descriptions, own properties, prototype constructors, Error
+        // fields and Promise state. The observation contract is type-only for
+        // Symbol and Object, so even diagnostic text must stay within it.
+        return observe_opaque_throw(value);
+    }
+
+    let note = error.to_string();
+    let value = error.to_opaque(context);
+    (observe_js_value(&value), note)
+}
+
 pub fn execute_script(
     source: &str,
     filename: Option<&str>,
     argv: &[String],
     can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let _host_realms = HostRealmScope::new(can_block);
+    let _host_realms = HostRealmScope::legacy(can_block, Arc::new(StdoutHostHooks));
     let mut context = Context::builder()
         .job_executor(Rc::new(SimpleJobExecutor::new()))
         .can_block(can_block)
@@ -380,6 +502,54 @@ pub fn execute_script(
     })
 }
 
+pub fn observe_script(
+    source: &str,
+    filename: Option<&str>,
+    argv: &[String],
+    can_block: bool,
+    host_hooks: Arc<dyn HostHooks>,
+) -> Result<ObservedExecutionOutcome, ExecutionError> {
+    let host_realms = HostRealmScope::observed(can_block, host_hooks);
+    let mut context = Context::builder()
+        .job_executor(Rc::new(SimpleJobExecutor::new()))
+        .can_block(can_block)
+        .build()
+        .map_err(|err| ExecutionError::new(err.to_string()))?;
+    install_host_globals(&mut context, argv)?;
+    let script = Script::parse(source_with_name(source, filename), None, &mut context)
+        .map_err(|error| format_js_error(error, &mut context))?;
+    let (mut completion, mut note) = match script.evaluate(&mut context) {
+        Ok(value) => (
+            ObservedCompletion::Normal(observe_js_value(&value)),
+            "spec-exec script completed in Rust host".to_string(),
+        ),
+        Err(error) => {
+            let (value, error_note) = observe_js_error(&error, &mut context);
+            (ObservedCompletion::Throw(value), error_note)
+        }
+    };
+
+    // A host checkpoint drains jobs even after top-level abrupt completion.
+    // A queued failure replaces a normal completion, but never the primary
+    // top-level throw whose jobs the checkpoint is draining.
+    if let Err(error) = context.run_jobs() {
+        if matches!(completion, ObservedCompletion::Normal(_)) {
+            let (value, error_note) = observe_js_error(&error, &mut context);
+            completion = ObservedCompletion::Throw(value);
+            note = error_note;
+        }
+    }
+    if matches!(completion, ObservedCompletion::Normal(_)) {
+        check_test262_async_done(&mut context)?;
+    }
+
+    Ok(ObservedExecutionOutcome {
+        completion,
+        output_events: host_realms.finish_output_events(),
+        note,
+    })
+}
+
 pub fn execute_module(
     source: &str,
     filename: Option<&str>,
@@ -387,7 +557,7 @@ pub fn execute_module(
     argv: &[String],
     can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let _host_realms = HostRealmScope::new(can_block);
+    let _host_realms = HostRealmScope::legacy(can_block, Arc::new(StdoutHostHooks));
     let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
     let loader = Rc::new(Test262ModuleLoader::new(
         host.module_root.as_deref(),
@@ -426,11 +596,109 @@ pub fn execute_module(
                 ),
             })
         }
-        PromiseState::Rejected(err) => Err(format_opaque_error(err, &mut context)),
+        PromiseState::Rejected(value) => Err(format_opaque_error(value, &mut context)),
         PromiseState::Pending => Err(ExecutionError::new(
             "runtime module jobs are still pending after host job flush",
         )),
     }
+}
+
+pub fn observe_module(
+    source: &str,
+    filename: Option<&str>,
+    host: ModuleHostConfig,
+    argv: &[String],
+    can_block: bool,
+    host_hooks: Arc<dyn HostHooks>,
+) -> Result<ObservedExecutionOutcome, ExecutionError> {
+    let host_realms = HostRealmScope::observed(can_block, host_hooks);
+    let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
+    let loader = Rc::new(Test262ModuleLoader::new(
+        host.module_root.as_deref(),
+        module_path.as_deref(),
+    ));
+    let mut context = Context::builder()
+        .job_executor(Rc::new(SimpleJobExecutor::new()))
+        .module_loader(loader.clone())
+        .can_block(can_block)
+        .build()
+        .map_err(|err| ExecutionError::new(err.to_string()))?;
+    install_host_globals(&mut context, argv)?;
+
+    let module = Module::parse(source_with_name(source, filename), None, &mut context)
+        .map_err(|err| format_js_error(err, &mut context))?;
+    loader.insert(
+        module_path.clone().unwrap_or_else(|| loader.entry_path()),
+        LoadedModuleKind::Source,
+        module.clone(),
+    );
+    let load_promise = module.load(&mut context);
+    context
+        .run_jobs()
+        .map_err(|error| format_js_error(error, &mut context))?;
+    match load_promise.state() {
+        PromiseState::Fulfilled(_) => {}
+        PromiseState::Rejected(value) => {
+            return Err(ExecutionError::new(JsError::from_opaque(value).to_string()));
+        }
+        PromiseState::Pending => {
+            return Err(ExecutionError::new(
+                "runtime module loading is still pending after host job flush",
+            ));
+        }
+    }
+    module
+        .link(&mut context)
+        .map_err(|error| format_js_error(error, &mut context))?;
+
+    let promise = module.evaluate(&mut context);
+    let job_throw = context.run_jobs().err().map(|error| {
+        let (value, note) = observe_js_error(&error, &mut context);
+        (ObservedCompletion::Throw(value), note)
+    });
+
+    let normal_note = || {
+        format!(
+            "spec-exec module completed in Rust host{}",
+            module_path
+                .as_deref()
+                .map(|path| format!(" ({})", path.display()))
+                .unwrap_or_default()
+        )
+    };
+
+    let (completion, note) = match promise.state() {
+        PromiseState::Fulfilled(value) => {
+            if let Some(job_throw) = job_throw {
+                job_throw
+            } else {
+                check_test262_async_done(&mut context)?;
+                (
+                    ObservedCompletion::Normal(observe_js_value(&value)),
+                    normal_note(),
+                )
+            }
+        }
+        PromiseState::Rejected(value) => {
+            let (value, note) = observe_opaque_throw(&value);
+            (ObservedCompletion::Throw(value), note)
+        }
+        PromiseState::Pending => {
+            if let Some(job_throw) = job_throw {
+                job_throw
+            } else {
+                return Err(ExecutionError::new(
+                    "runtime module jobs are still pending after host job flush",
+                ));
+            }
+        }
+    };
+
+    Ok(ObservedExecutionOutcome {
+        completion,
+        output_events: host_realms.finish_output_events(),
+        note,
+    })
 }
 
 #[derive(Debug, Default)]
@@ -2095,9 +2363,7 @@ fn host_print(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRes
     if rendered.starts_with("Test262:AsyncTestFailure:") {
         return Err(JsNativeError::error().with_message(rendered).into());
     }
-    if !rendered.is_empty() {
-        println!("{rendered}");
-    }
+    current_host_session()?.print_line(rendered);
     Ok(JsValue::undefined())
 }
 
@@ -2464,7 +2730,22 @@ fn json_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boa_engine::Script;
+
+    #[derive(Debug)]
+    struct SilentHostHooks;
+
+    impl HostHooks for SilentHostHooks {}
+
+    fn observe_script(source: &str) -> ObservedExecutionOutcome {
+        super::observe_script(
+            source,
+            Some("observed-script.js"),
+            &[],
+            false,
+            Arc::new(SilentHostHooks),
+        )
+        .expect("observed spec-exec script should reach an ECMAScript completion")
+    }
 
     fn execute_script(
         source: &str,
@@ -2498,6 +2779,167 @@ mod tests {
             &[],
         )
         .expect("spec exec module should run");
+    }
+
+    #[test]
+    fn observed_script_keeps_primary_throw_and_drains_printing_jobs() {
+        let outcome = observe_script(
+            r#"
+            print("sync");
+            Promise.resolve().then(() => {
+              print("job");
+              throw new RangeError("secondary");
+            });
+            throw -0;
+            "#,
+        );
+
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Throw(ObservedJsValue::Number(ObservedNumber::from_f64(-0.0)))
+        );
+        assert_eq!(
+            outcome.output_events,
+            vec![
+                HostOutputEvent::PrintLine("sync".to_string()),
+                HostOutputEvent::PrintLine("job".to_string()),
+            ]
+        );
+        assert!(
+            !outcome.note.contains("secondary"),
+            "the queued failure must not replace the primary throw: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn observed_objects_never_invoke_user_stringification() {
+        for source in [
+            "({ toString() { print('coerced'); return 'wrong'; } })",
+            "throw { secret: 't25-private-property', toString() { print('coerced'); return 'wrong'; } }",
+        ] {
+            let outcome = observe_script(source);
+            assert!(matches!(
+                outcome.completion,
+                ObservedCompletion::Normal(ObservedJsValue::Object)
+                    | ObservedCompletion::Throw(ObservedJsValue::Object)
+            ));
+            assert_eq!(outcome.output_events, Vec::<HostOutputEvent>::new());
+            assert!(!outcome.note.contains("t25-private-property"));
+            assert!(!outcome.note.contains("wrong"));
+        }
+    }
+
+    #[test]
+    fn observed_strings_retain_lone_surrogates_and_symbols_stay_type_only() {
+        let string = observe_script("'a\\ud800b'");
+        assert_eq!(
+            string.completion,
+            ObservedCompletion::Normal(ObservedJsValue::String(
+                vec![0x0061, 0xd800, 0x0062].into_boxed_slice()
+            ))
+        );
+
+        let symbol = observe_script("Symbol('private-description')");
+        assert_eq!(
+            symbol.completion,
+            ObservedCompletion::Normal(ObservedJsValue::Symbol)
+        );
+
+        let thrown_symbol = observe_script("throw Symbol('t25-private-description')");
+        assert_eq!(
+            thrown_symbol.completion,
+            ObservedCompletion::Throw(ObservedJsValue::Symbol)
+        );
+        assert_eq!(thrown_symbol.note, "uncaught ECMAScript throw (symbol)");
+    }
+
+    #[test]
+    fn observed_module_captures_print_before_rejection() {
+        let outcome = super::observe_module(
+            "print('module'); throw 3n;",
+            Some("observed-module.mjs"),
+            ModuleHostConfig::default(),
+            &[],
+            false,
+            Arc::new(SilentHostHooks),
+        )
+        .expect("module rejection should be an observed ECMAScript throw");
+
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Throw(ObservedJsValue::BigInt("3".into()))
+        );
+        assert_eq!(
+            outcome.output_events,
+            vec![HostOutputEvent::PrintLine("module".to_string())]
+        );
+    }
+
+    #[test]
+    fn observed_module_rejection_note_does_not_reveal_opaque_value_details() {
+        let outcome = super::observe_module(
+            "throw Symbol('t25-private-module-description');",
+            Some("observed-module-symbol.mjs"),
+            ModuleHostConfig::default(),
+            &[],
+            false,
+            Arc::new(SilentHostHooks),
+        )
+        .expect("module rejection should be an observed ECMAScript throw");
+
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Throw(ObservedJsValue::Symbol)
+        );
+        assert_eq!(outcome.note, "uncaught ECMAScript throw (symbol)");
+    }
+
+    #[test]
+    fn observed_parse_and_module_loader_failures_remain_execution_errors() {
+        let parse_error = super::observe_script(
+            "let = ;",
+            Some("observed-parse-error.js"),
+            &[],
+            false,
+            Arc::new(SilentHostHooks),
+        )
+        .expect_err("a parser failure is not an ECMAScript throw completion");
+        assert!(!parse_error.message().is_empty());
+
+        let loader_error = super::observe_module(
+            r#"import value from "./ignored" with { type: "t25-unsupported" };"#,
+            Some("observed-loader-error.mjs"),
+            ModuleHostConfig::default(),
+            &[],
+            false,
+            Arc::new(SilentHostHooks),
+        )
+        .expect_err("a module-loader failure is not an ECMAScript throw completion");
+        assert!(loader_error
+            .message()
+            .contains("unsupported import attribute type `t25-unsupported`"));
+    }
+
+    #[test]
+    fn legacy_execute_keeps_javascript_throw_as_execution_error() {
+        let error = execute_script("throw 1;", Some("legacy-throw.js"), &[])
+            .expect_err("legacy execute_script must preserve its error contract");
+        assert!(!error.message().is_empty());
+    }
+
+    #[test]
+    fn legacy_output_delegates_without_retaining_a_transcript() {
+        let events = HostOutputEvents::DelegateOnly;
+        events.record("streamed only");
+        assert!(events.take().is_empty());
+
+        let events = HostOutputEvents::Capture(Mutex::new(Vec::new()));
+        events.record("captured");
+        assert_eq!(
+            events.take(),
+            vec![HostOutputEvent::PrintLine("captured".to_string())]
+        );
     }
 
     #[test]

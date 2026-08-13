@@ -1000,6 +1000,97 @@ impl HostRandom for SystemHostRandom {
     }
 }
 
+/// One Number carried across the engine observation boundary.
+///
+/// The bits preserve signed zero and every non-NaN value exactly. All NaN
+/// payloads collapse to one canonical representation so two conforming
+/// backends do not disagree only because their arithmetic chose different NaN
+/// payload bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ObservedNumber(u64);
+
+impl ObservedNumber {
+    pub const CANONICAL_NAN_BITS: u64 = 0x7ff8_0000_0000_0000;
+
+    pub const fn from_bits(bits: u64) -> Self {
+        const EXPONENT_MASK: u64 = 0x7ff0_0000_0000_0000;
+        const SIGNIFICAND_MASK: u64 = 0x000f_ffff_ffff_ffff;
+
+        if bits & EXPONENT_MASK == EXPONENT_MASK && bits & SIGNIFICAND_MASK != 0 {
+            Self(Self::CANONICAL_NAN_BITS)
+        } else {
+            Self(bits)
+        }
+    }
+
+    pub fn from_f64(value: f64) -> Self {
+        Self::from_bits(value.to_bits())
+    }
+
+    pub const fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub const fn to_f64(self) -> f64 {
+        f64::from_bits(self.0)
+    }
+}
+
+/// Owned ECMAScript value data that both execution backends can report
+/// without retaining an engine heap or invoking user code.
+///
+/// `Symbol` and `Object` intentionally carry type only. Symbol descriptions,
+/// symbol identity, object identity and object structure require a later,
+/// explicitly versioned observation contract; backend addresses and coerced
+/// strings are not substitutes for either.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObservedJsValue {
+    Undefined,
+    Null,
+    Boolean(bool),
+    Number(ObservedNumber),
+    String(Box<[u16]>),
+    BigInt(Box<str>),
+    Symbol,
+    Object,
+}
+
+impl ObservedJsValue {
+    pub const fn type_name(&self) -> &'static str {
+        match self {
+            Self::Undefined => "undefined",
+            Self::Null => "null",
+            Self::Boolean(_) => "boolean",
+            Self::Number(_) => "number",
+            Self::String(_) => "string",
+            Self::BigInt(_) => "bigint",
+            Self::Symbol => "symbol",
+            Self::Object => "object",
+        }
+    }
+}
+
+/// The two completion kinds that may cross a Script or Module host boundary.
+///
+/// Return, break and continue are consumed inside ECMAScript evaluation. If a
+/// backend exposes one at this boundary, that is an invalid backend ABI rather
+/// than another inhabitant of this enum.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObservedCompletion {
+    Normal(ObservedJsValue),
+    Throw(ObservedJsValue),
+}
+
+/// One observable host-output event produced during an execution.
+///
+/// `PrintLine` is already the result of the program's `print` operation. An
+/// observer records this text verbatim and must not coerce the completion value
+/// or the original arguments a second time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostOutputEvent {
+    PrintLine(String),
+}
+
 pub trait HostHooks: Send + Sync {
     fn shell_name(&self) -> &'static str {
         "lila-shell"
@@ -1299,6 +1390,35 @@ mod tests {
                 .get(),
             0.5
         );
+    }
+
+    #[test]
+    fn observed_numbers_canonicalize_nan_and_preserve_signed_zero() {
+        for bits in [
+            f64::NAN.to_bits(),
+            0x7ff0_0000_0000_0001,
+            0xfff8_0000_0000_0042,
+        ] {
+            assert_eq!(
+                ObservedNumber::from_bits(bits).bits(),
+                ObservedNumber::CANONICAL_NAN_BITS
+            );
+        }
+
+        let positive_zero = ObservedNumber::from_f64(0.0);
+        let negative_zero = ObservedNumber::from_f64(-0.0);
+        assert_ne!(positive_zero, negative_zero);
+        assert_eq!(positive_zero.bits(), 0.0f64.to_bits());
+        assert_eq!(negative_zero.bits(), (-0.0f64).to_bits());
+    }
+
+    #[test]
+    fn observed_strings_retain_utf16_code_units_without_coercion() {
+        let value = ObservedJsValue::String(vec![0x0061, 0xd800, 0x0062].into_boxed_slice());
+        let ObservedJsValue::String(units) = value else {
+            panic!("observed value should remain a string");
+        };
+        assert_eq!(&*units, &[0x0061, 0xd800, 0x0062]);
     }
 
     #[test]

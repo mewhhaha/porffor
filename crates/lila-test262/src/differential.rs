@@ -1,12 +1,13 @@
 //! Deterministic differential-corpus replay.
 //!
-//! This is intentionally a narrow first observation protocol. The engine does
-//! not yet expose structured normal values, thrown values, or the spec-exec
-//! host's printed events. A v1 corpus program therefore has to be a
-//! self-checking, no-output program: normal completion means its assertions
-//! held, and abrupt completion means they did not (or that the backend could
-//! not execute the probe). The report records that narrow comparison and the
-//! capability gaps; it never calls equal process disposition full semantic
+//! This is intentionally a narrow first observation protocol. The engine now
+//! exposes structured normal and thrown values plus per-run host output for
+//! both backends, but report schema v1 consumes only projected disposition and
+//! output emptiness. A v1 corpus program therefore remains a self-checking,
+//! no-output program: normal completion means its assertions held, and abrupt
+//! completion means they did not (or that the backend could not execute the
+//! probe). The report records that narrow comparison and the remaining
+//! capability gaps; it never calls equal disposition full semantic
 //! equivalence.
 
 use std::fmt;
@@ -18,7 +19,10 @@ use std::sync::{Arc, Mutex};
 
 use lila_engine::CompileOptions;
 #[cfg(feature = "spec-exec-oracle")]
-use lila_engine::{Engine, EngineError, ExecutionBackend, HostHooks, RealmBuilder, RunOptions};
+use lila_engine::{
+    Engine, EngineError, ExecutionBackend, HostOutputEvent, ObservedCompletion, RealmBuilder,
+    RunOptions,
+};
 #[cfg(feature = "spec-exec-oracle")]
 use lila_ir::IrDiagnosticPhase;
 use serde::{Deserialize, Serialize};
@@ -87,9 +91,8 @@ impl DifferentialGoal {
 ///
 /// Programs in this protocol must not call a host output hook. They encode
 /// their assertions in the source and complete normally only when all of them
-/// hold. This restriction is data, not a claim that the runner can enforce it;
-/// `SpecExecOutputEventsUnavailable` remains an explicit report gap until both
-/// backends expose output through the same engine observation API.
+/// hold. Both backends expose per-run output through the engine observation
+/// API, so replay rejects the case contract when either transcript is nonempty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservationContract {
@@ -330,6 +333,8 @@ pub struct BackendObservation {
     pub execution: ExecutionObservation,
 }
 
+/// Report-v1 reason vocabulary. The existing reason remains part of the public
+/// schema even though current replay can capture spec-exec output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputUnavailableReason {
@@ -366,8 +371,7 @@ pub enum ObservationGap {
 }
 
 pub const COMPARED_DIMENSIONS: [ComparedDimension; 1] = [ComparedDimension::SelfCheckDisposition];
-pub const OBSERVATION_GAPS: [ObservationGap; 11] = [
-    ObservationGap::SpecExecOutputEventsUnavailable,
+pub const OBSERVATION_GAPS: [ObservationGap; 10] = [
     ObservationGap::UnstructuredNormalValue,
     ObservationGap::UnstructuredCompletionKind,
     ObservationGap::UnstructuredThrownValue,
@@ -565,7 +569,7 @@ struct CapturingOutput {
 }
 
 #[cfg(feature = "spec-exec-oracle")]
-impl HostHooks for CapturingOutput {
+impl lila_engine::HostHooks for CapturingOutput {
     fn print_line(&self, text: &str) {
         self.events
             .lock()
@@ -577,15 +581,13 @@ impl HostHooks for CapturingOutput {
 #[cfg(feature = "spec-exec-oracle")]
 fn execute_case(case: &DifferentialCase, backend: DifferentialBackend) -> BackendObservation {
     let captured_output = Arc::new(Mutex::new(Vec::new()));
-    let realm = match backend {
-        DifferentialBackend::WasmAot => RealmBuilder::new()
+    let engine = Engine::new(
+        RealmBuilder::new()
             .with_host_hooks(Box::new(CapturingOutput {
                 events: Arc::clone(&captured_output),
             }))
             .build(),
-        DifferentialBackend::SpecExec => RealmBuilder::new().build(),
-    };
-    let engine = Engine::new(realm);
+    );
     let compile = compile_options_for_case(case);
     let run = RunOptions {
         backend: backend.execution_backend(),
@@ -598,42 +600,79 @@ fn execute_case(case: &DifferentialCase, backend: DifferentialBackend) -> Backen
         ..RunOptions::default()
     };
     let outcome = match case.goal {
-        DifferentialGoal::Script => engine.run_script(&case.source, compile, run),
-        DifferentialGoal::Module => engine.run_module(&case.source, compile, run),
+        DifferentialGoal::Script => engine.observe_script(&case.source, compile, run),
+        DifferentialGoal::Module => engine.observe_module(&case.source, compile, run),
     };
-    let execution = match outcome {
+    let (execution, output_events) = match outcome {
         Ok(outcome) if outcome.backend_used == backend.execution_backend() => {
-            ExecutionObservation::Normal {
-                backend_note: outcome.note,
-            }
+            let execution = match outcome.completion {
+                ObservedCompletion::Normal(_) => ExecutionObservation::Normal {
+                    backend_note: outcome.note,
+                },
+                ObservedCompletion::Throw(_) => ExecutionObservation::Error {
+                    phase: execution_failure_phase(backend),
+                    message: outcome.note,
+                },
+            };
+            (execution, captured_output_events(outcome.output_events))
         }
-        Ok(outcome) => ExecutionObservation::Error {
-            phase: FailurePhase::RunnerInvariant,
-            message: format!(
-                "requested backend {} reported backend {}",
-                backend.execution_backend().as_str(),
-                outcome.backend_used.as_str()
-            ),
-        },
-        Err(error) => observe_engine_error(backend, &error),
-    };
-    let output_events = match backend {
-        DifferentialBackend::WasmAot => {
-            let mut events = captured_output
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(outcome) => {
+            let output_events = captured_output_events(outcome.output_events);
+            (
+                ExecutionObservation::Error {
+                    phase: FailurePhase::RunnerInvariant,
+                    message: format!(
+                        "requested backend {} reported backend {}",
+                        backend.execution_backend().as_str(),
+                        outcome.backend_used.as_str()
+                    ),
+                },
+                output_events,
+            )
+        }
+        Err(error) => (
+            observe_engine_error(backend, &error),
+            // The observation envelope deliberately keeps EngineError separate
+            // from ECMAScript completion and therefore cannot own partial
+            // events. The realm hook shadows the same print channel so this
+            // branch can still report every event emitted before the failure.
             OutputEventsObservation::Captured {
-                events: std::mem::take(&mut *events),
-            }
-        }
-        DifferentialBackend::SpecExec => OutputEventsObservation::Unavailable {
-            reason: OutputUnavailableReason::SpecExecBypassesEngineHostHooks,
-        },
+                events: take_captured_output(&captured_output),
+            },
+        ),
     };
     BackendObservation {
         backend,
         output_events,
         execution,
+    }
+}
+
+#[cfg(feature = "spec-exec-oracle")]
+fn captured_output_events(events: Vec<HostOutputEvent>) -> OutputEventsObservation {
+    OutputEventsObservation::Captured {
+        events: events
+            .into_iter()
+            .map(|event| match event {
+                HostOutputEvent::PrintLine(text) => text,
+            })
+            .collect(),
+    }
+}
+
+#[cfg(feature = "spec-exec-oracle")]
+fn take_captured_output(output: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+    let mut events = output
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::mem::take(&mut *events)
+}
+
+#[cfg(feature = "spec-exec-oracle")]
+const fn execution_failure_phase(backend: DifferentialBackend) -> FailurePhase {
+    match backend {
+        DifferentialBackend::WasmAot => FailurePhase::WasmRuntimeOrBackend,
+        DifferentialBackend::SpecExec => FailurePhase::SpecExecExecution,
     }
 }
 
@@ -660,10 +699,7 @@ fn observe_engine_error(backend: DifferentialBackend, error: &EngineError) -> Ex
     } else if error.wasm_gc_capability().is_some() {
         FailurePhase::WasmRuntimeCapability
     } else {
-        match backend {
-            DifferentialBackend::WasmAot => FailurePhase::WasmRuntimeOrBackend,
-            DifferentialBackend::SpecExec => FailurePhase::SpecExecExecution,
-        }
+        execution_failure_phase(backend)
     };
     ExecutionObservation::Error {
         phase,
@@ -678,11 +714,12 @@ fn compare_observations(
 ) -> DifferentialReport {
     let wasm_disposition = wasm_aot.execution.disposition();
     let spec_disposition = spec_exec.execution.disposition();
-    let wasm_obeys_no_output_contract = match &wasm_aot.output_events {
-        OutputEventsObservation::Captured { events } => events.is_empty(),
-        OutputEventsObservation::Unavailable { .. } => false,
-    };
-    let verdict = if wasm_obeys_no_output_contract {
+    let obeys_no_output_contract =
+        |observation: &BackendObservation| match &observation.output_events {
+            OutputEventsObservation::Captured { events } => events.is_empty(),
+            OutputEventsObservation::Unavailable { .. } => false,
+        };
+    let verdict = if obeys_no_output_contract(&wasm_aot) && obeys_no_output_contract(&spec_exec) {
         match (wasm_disposition, spec_disposition) {
             (ExecutionDisposition::Normal, ExecutionDisposition::Normal) => {
                 DifferentialVerdict::BothCompleted
@@ -766,17 +803,9 @@ mod tests {
         backend: DifferentialBackend,
         execution: ExecutionObservation,
     ) -> BackendObservation {
-        let output_events = match backend {
-            DifferentialBackend::WasmAot => {
-                OutputEventsObservation::Captured { events: Vec::new() }
-            }
-            DifferentialBackend::SpecExec => OutputEventsObservation::Unavailable {
-                reason: OutputUnavailableReason::SpecExecBypassesEngineHostHooks,
-            },
-        };
         BackendObservation {
             backend,
-            output_events,
+            output_events: OutputEventsObservation::Captured { events: Vec::new() },
             execution,
         }
     }
@@ -888,7 +917,7 @@ mod tests {
         assert_eq!(json["schema_version"], 1);
         assert_eq!(json["semantic_equivalence"], "not_established");
         assert_eq!(json["compared_dimensions"][0], "self_check_disposition");
-        assert_eq!(json["observation_gaps"].as_array().unwrap().len(), 11);
+        assert_eq!(json["observation_gaps"].as_array().unwrap().len(), 10);
         assert_eq!(json["wasm_aot"]["execution"]["disposition"], "normal");
         assert_eq!(json["spec_exec"]["execution"]["disposition"], "normal");
         assert_eq!(
@@ -900,39 +929,66 @@ mod tests {
             serde_json::json!([])
         );
         assert_eq!(
-            json["spec_exec"]["output_events"]["reason"],
-            "spec_exec_bypasses_engine_host_hooks"
+            json["spec_exec"]["output_events"]["availability"],
+            "captured"
+        );
+        assert_eq!(
+            json["spec_exec"]["output_events"]["events"],
+            serde_json::json!([])
         );
     }
 
     #[test]
-    fn captured_output_makes_a_no_output_case_red() {
-        let case = case();
-        let mut wasm = observation(
-            DifferentialBackend::WasmAot,
-            ExecutionObservation::Normal {
-                backend_note: "wasm diagnostic".to_string(),
-            },
+    fn report_v1_keeps_the_original_unavailable_and_gap_vocabulary() {
+        let unavailable = serde_json::to_value(OutputEventsObservation::Unavailable {
+            reason: OutputUnavailableReason::SpecExecBypassesEngineHostHooks,
+        })
+        .expect("legacy output availability should remain serializable");
+        assert_eq!(
+            unavailable,
+            serde_json::json!({
+                "availability": "unavailable",
+                "reason": "spec_exec_bypasses_engine_host_hooks"
+            })
         );
-        wasm.output_events = OutputEventsObservation::Captured {
-            events: vec!["unexpected output".to_string()],
-        };
-        let report = compare_observations(
-            &case,
-            wasm,
-            observation(
+        assert_eq!(
+            serde_json::to_value(ObservationGap::SpecExecOutputEventsUnavailable)
+                .expect("legacy observation gap should remain serializable"),
+            "spec_exec_output_events_unavailable"
+        );
+    }
+
+    #[test]
+    fn either_backend_output_makes_a_no_output_case_red() {
+        let case = case();
+        for output_backend in [DifferentialBackend::WasmAot, DifferentialBackend::SpecExec] {
+            let mut wasm = observation(
+                DifferentialBackend::WasmAot,
+                ExecutionObservation::Normal {
+                    backend_note: "wasm diagnostic".to_string(),
+                },
+            );
+            let mut spec_exec = observation(
                 DifferentialBackend::SpecExec,
                 ExecutionObservation::Normal {
                     backend_note: "oracle diagnostic".to_string(),
                 },
-            ),
-        );
+            );
+            let output_events = OutputEventsObservation::Captured {
+                events: vec!["unexpected output".to_string()],
+            };
+            match output_backend {
+                DifferentialBackend::WasmAot => wasm.output_events = output_events,
+                DifferentialBackend::SpecExec => spec_exec.output_events = output_events,
+            }
+            let report = compare_observations(&case, wasm, spec_exec);
 
-        assert_eq!(
-            report.verdict(),
-            DifferentialVerdict::ObservationContractViolated
-        );
-        assert!(!report.is_green());
+            assert_eq!(
+                report.verdict(),
+                DifferentialVerdict::ObservationContractViolated
+            );
+            assert!(!report.is_green());
+        }
     }
 
     #[cfg(not(feature = "spec-exec-oracle"))]

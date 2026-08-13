@@ -8,8 +8,8 @@ use lila_intl::{
 };
 use lila_ir::{
     lower_module_graph_with_host_surface_policy, lower_script_graph_with_host_surface_policy,
-    lower_with_host_surface_policy, source_writes_dynamic_import, IrDiagnostic, ProgramIr,
-    ValueKind,
+    lower_with_host_surface_policy, source_writes_dynamic_import, CompletionKindIr, IrDiagnostic,
+    ProgramIr, ValueKind,
 };
 use lila_runtime::AgentHostOperation;
 use sha2::{Digest, Sha256};
@@ -1073,13 +1073,14 @@ fn is_wasm_epoch_interrupt(err: &wasmtime::Error) -> bool {
 }
 
 pub use lila_runtime::{
-    AgentId, GlobalEnvironmentId, HostClock, HostHooks, HostRandom, HostRandomError,
-    IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind, IntrinsicLink,
-    IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
+    AgentId, GlobalEnvironmentId, HostClock, HostHooks, HostOutputEvent, HostRandom,
+    HostRandomError, IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind,
+    IntrinsicLink, IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
     IntrinsicPropertyValue, IntrinsicRole, MonotonicClockDuration, MonotonicClockInstant,
-    NullHostHooks, RandomUnitInterval, Realm, RealmBuilder, RealmGlobal, RealmId, RealmIntrinsics,
-    RealmObjectId, RealmObjectKind, SystemHostClock, SystemHostRandom, UtcEpochMilliseconds,
-    INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS,
+    NullHostHooks, ObservedCompletion, ObservedJsValue, ObservedNumber, RandomUnitInterval, Realm,
+    RealmBuilder, RealmGlobal, RealmId, RealmIntrinsics, RealmObjectId, RealmObjectKind,
+    SystemHostClock, SystemHostRandom, UtcEpochMilliseconds, INTRINSIC_DESCRIPTORS,
+    INTRINSIC_PROPERTY_DESCRIPTORS,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1201,6 +1202,17 @@ pub struct CompilationUnit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutcome {
     pub backend_used: ExecutionBackend,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedRunOutcome {
+    pub backend_used: ExecutionBackend,
+    pub completion: ObservedCompletion,
+    pub output_events: Vec<HostOutputEvent>,
+    /// Type-bounded backend diagnostic text for humans. It is not the
+    /// structured completion value and never contains the private rendering
+    /// retained for legacy adapters.
     pub note: String,
 }
 
@@ -1372,9 +1384,75 @@ pub struct Engine {
     realm: Realm,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WasmExecutionMode {
+    Legacy,
+    Structured,
+}
+
+enum WasmExecutionOutcome {
+    Legacy(RunOutcome),
+    Structured(ObservedRunOutcome),
+}
+
+impl WasmExecutionOutcome {
+    fn into_legacy(self) -> Result<RunOutcome, EngineError> {
+        match self {
+            Self::Legacy(outcome) => Ok(outcome),
+            Self::Structured(_) => Err(EngineError::new(
+                "internal wasm execution mode mismatch: expected legacy outcome",
+            )),
+        }
+    }
+
+    fn into_structured(self) -> Result<ObservedRunOutcome, EngineError> {
+        match self {
+            Self::Structured(outcome) => Ok(outcome),
+            Self::Legacy(_) => Err(EngineError::new(
+                "internal wasm execution mode mismatch: expected structured outcome",
+            )),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum WasmOutputEvents {
+    DelegateOnly,
+    Capture(Arc<Mutex<Vec<HostOutputEvent>>>),
+}
+
+impl WasmOutputEvents {
+    fn for_mode(mode: WasmExecutionMode) -> Self {
+        match mode {
+            WasmExecutionMode::Legacy => Self::DelegateOnly,
+            WasmExecutionMode::Structured => Self::Capture(Arc::new(Mutex::new(Vec::new()))),
+        }
+    }
+
+    fn record(&self, text: &str) {
+        if let Self::Capture(events) = self {
+            events
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(HostOutputEvent::PrintLine(text.to_string()));
+        }
+    }
+
+    fn take(&self) -> Vec<HostOutputEvent> {
+        let Self::Capture(events) = self else {
+            return Vec::new();
+        };
+        let mut events = events
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *events)
+    }
+}
+
 #[derive(Clone)]
 struct WasmHostState {
     realm: Realm,
+    output_events: WasmOutputEvents,
     intl_kernel: Arc<IntlKernel<EmbeddedLocaleProvider>>,
     can_block: bool,
     monotonic_clock_origin: MonotonicClockInstant,
@@ -1962,6 +2040,41 @@ impl Engine {
         )
     }
 
+    /// Executes one Script while keeping ECMAScript abrupt completion distinct
+    /// from compiler, host and backend failures.
+    pub fn observe_script(
+        &self,
+        source: &str,
+        options: CompileOptions,
+        run: RunOptions,
+    ) -> Result<ObservedRunOutcome, EngineError> {
+        self.observe_source(source, ParseGoal::Script, options, run)
+    }
+
+    /// Executes one Module while keeping ECMAScript rejection distinct from
+    /// compiler, loader, host and backend failures.
+    pub fn observe_module(
+        &self,
+        source: &str,
+        options: CompileOptions,
+        run: RunOptions,
+    ) -> Result<ObservedRunOutcome, EngineError> {
+        self.observe_source(source, ParseGoal::Module, options, run)
+    }
+
+    fn observe_source(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        run: RunOptions,
+    ) -> Result<ObservedRunOutcome, EngineError> {
+        if run.backend == ExecutionBackend::SpecExec {
+            return self.observe_with_spec_exec(source, options.filename.as_deref(), goal, run);
+        }
+        self.observe_source_with_cached_wasm(source, goal, options, run.timeout_ms, run.can_block)
+    }
+
     /// Runs a script through the Wasm-AOT backend on the calling thread.
     ///
     /// Callers must provide a thread with at least 64MiB of stack. This is
@@ -2090,14 +2203,38 @@ impl Engine {
         can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
         run_on_sized_stack(|| {
-            self.run_source_with_cached_wasm_on_current_thread(
+            self.execute_source_with_cached_wasm_on_current_thread(
                 source,
                 goal,
                 options,
                 timeout_ms,
                 can_block,
                 WasmModuleMemoryCachePolicy::Retain,
+                WasmExecutionMode::Legacy,
             )
+            .and_then(WasmExecutionOutcome::into_legacy)
+        })
+    }
+
+    fn observe_source_with_cached_wasm(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+        can_block: bool,
+    ) -> Result<ObservedRunOutcome, EngineError> {
+        run_on_sized_stack(|| {
+            self.execute_source_with_cached_wasm_on_current_thread(
+                source,
+                goal,
+                options,
+                timeout_ms,
+                can_block,
+                WasmModuleMemoryCachePolicy::Retain,
+                WasmExecutionMode::Structured,
+            )
+            .and_then(WasmExecutionOutcome::into_structured)
         })
     }
 
@@ -2110,6 +2247,28 @@ impl Engine {
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
     ) -> Result<RunOutcome, EngineError> {
+        self.execute_source_with_cached_wasm_on_current_thread(
+            source,
+            goal,
+            options,
+            timeout_ms,
+            can_block,
+            memory_cache_policy,
+            WasmExecutionMode::Legacy,
+        )
+        .and_then(WasmExecutionOutcome::into_legacy)
+    }
+
+    fn execute_source_with_cached_wasm_on_current_thread(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        memory_cache_policy: WasmModuleMemoryCachePolicy,
+        mode: WasmExecutionMode,
+    ) -> Result<WasmExecutionOutcome, EngineError> {
         let cache = program_wasm_cache();
         let artifact = self.load_or_compile_program_wasm_on_current_thread(
             source,
@@ -2117,11 +2276,12 @@ impl Engine {
             options.clone(),
             cache.clone(),
         )?;
-        let result = self.run_with_wasm_bytes_inner(
+        let result = self.execute_with_wasm_bytes_inner(
             &artifact.bytes,
             timeout_ms,
             can_block,
             memory_cache_policy,
+            mode,
         );
         let Err(error) = &result else {
             return result;
@@ -2131,7 +2291,13 @@ impl Engine {
         }
 
         let artifact = self.compile_program_wasm_on_current_thread(source, goal, options, cache)?;
-        self.run_with_wasm_bytes_inner(&artifact.bytes, timeout_ms, can_block, memory_cache_policy)
+        self.execute_with_wasm_bytes_inner(
+            &artifact.bytes,
+            timeout_ms,
+            can_block,
+            memory_cache_policy,
+            mode,
+        )
     }
 
     fn load_or_compile_program_wasm_on_current_thread(
@@ -2473,6 +2639,47 @@ impl Engine {
         })
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
+    fn observe_with_spec_exec(
+        &self,
+        source: &str,
+        filename: Option<&str>,
+        goal: ParseGoal,
+        run: RunOptions,
+    ) -> Result<ObservedRunOutcome, EngineError> {
+        let host_hooks = self.realm.host_hooks();
+        run_on_sized_stack(move || {
+            let outcome = match goal {
+                ParseGoal::Module => lila_spec_exec::observe_module(
+                    source,
+                    filename,
+                    lila_spec_exec::ModuleHostConfig {
+                        module_root: run.module_root.clone().map(Into::into),
+                        test_path: run.test_path.clone().map(Into::into),
+                    },
+                    &run.argv,
+                    run.can_block,
+                    host_hooks,
+                ),
+                ParseGoal::Script => lila_spec_exec::observe_script(
+                    source,
+                    filename,
+                    &run.argv,
+                    run.can_block,
+                    host_hooks,
+                ),
+            }
+            .map_err(|err| EngineError::new(err.to_string()))?;
+
+            Ok(ObservedRunOutcome {
+                backend_used: ExecutionBackend::SpecExec,
+                completion: outcome.completion,
+                output_events: outcome.output_events,
+                note: outcome.note,
+            })
+        })
+    }
+
     #[cfg(not(feature = "spec-exec-oracle"))]
     fn run_with_spec_exec(
         &self,
@@ -2481,6 +2688,21 @@ impl Engine {
         _goal: ParseGoal,
         _run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
+        Err(EngineError::new(
+            "spec-exec is a developer-only differential oracle backend and is not linked into \
+             this build; rebuild with `--features spec-exec-oracle` (lila-engine/lila-cli) \
+             to use it for differential testing only, never as the product execution backend",
+        ))
+    }
+
+    #[cfg(not(feature = "spec-exec-oracle"))]
+    fn observe_with_spec_exec(
+        &self,
+        _source: &str,
+        _filename: Option<&str>,
+        _goal: ParseGoal,
+        _run: RunOptions,
+    ) -> Result<ObservedRunOutcome, EngineError> {
         Err(EngineError::new(
             "spec-exec is a developer-only differential oracle backend and is not linked into \
              this build; rebuild with `--features spec-exec-oracle` (lila-engine/lila-cli) \
@@ -2537,13 +2759,32 @@ impl Engine {
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
     ) -> Result<RunOutcome, EngineError> {
-        self.run_with_wasm_bytes_inner_with_agents(
+        self.execute_with_wasm_bytes_inner(
+            bytes,
+            timeout_ms,
+            can_block,
+            memory_cache_policy,
+            WasmExecutionMode::Legacy,
+        )
+        .and_then(WasmExecutionOutcome::into_legacy)
+    }
+
+    fn execute_with_wasm_bytes_inner(
+        &self,
+        bytes: &[u8],
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        memory_cache_policy: WasmModuleMemoryCachePolicy,
+        mode: WasmExecutionMode,
+    ) -> Result<WasmExecutionOutcome, EngineError> {
+        self.execute_with_wasm_bytes_inner_with_agents(
             bytes,
             timeout_ms,
             can_block,
             memory_cache_policy,
             None,
             None,
+            mode,
         )
     }
 
@@ -2556,6 +2797,28 @@ impl Engine {
         agent_harness: Option<WasmAgentHarness>,
         agent_execution: Option<WasmAgentExecution>,
     ) -> Result<RunOutcome, EngineError> {
+        self.execute_with_wasm_bytes_inner_with_agents(
+            bytes,
+            timeout_ms,
+            can_block,
+            memory_cache_policy,
+            agent_harness,
+            agent_execution,
+            WasmExecutionMode::Legacy,
+        )
+        .and_then(WasmExecutionOutcome::into_legacy)
+    }
+
+    fn execute_with_wasm_bytes_inner_with_agents(
+        &self,
+        bytes: &[u8],
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        memory_cache_policy: WasmModuleMemoryCachePolicy,
+        agent_harness: Option<WasmAgentHarness>,
+        agent_execution: Option<WasmAgentExecution>,
+        mode: WasmExecutionMode,
+    ) -> Result<WasmExecutionOutcome, EngineError> {
         let trace_wasm = std::env::var_os("LILA_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
         let trace_phase = |phase: &str, started: std::time::Instant| {
@@ -2747,6 +3010,7 @@ impl Engine {
             &engine,
             WasmHostState {
                 realm: self.realm.clone(),
+                output_events: WasmOutputEvents::for_mode(mode),
                 intl_kernel,
                 can_block,
                 monotonic_clock_origin: self.realm.host_clock().monotonic_instant(),
@@ -3163,17 +3427,32 @@ impl Engine {
                     let len = usize::try_from(len).map_err(|_| {
                         wasmtime::Error::msg("wasmtime host import failed: negative utf-8 length")
                     })?;
-                    let mut bytes = vec![0; len];
+                    let memory_byte_len = match &memory {
+                        WasmtimeExtern::Memory(memory) => memory.data_size(&caller),
+                        WasmtimeExtern::SharedMemory(memory) => memory.data_size(),
+                        _ => {
+                            return Err(wasmtime::Error::msg(
+                                "wasmtime host import failed: missing exported memory",
+                            ));
+                        }
+                    };
+                    let span = wasm_memory_span(ptr, len, memory_byte_len, "wasm print input")
+                        .map_err(|err| {
+                            wasmtime::Error::msg(format!("wasmtime host import failed: {err}"))
+                        })?;
+                    let mut bytes = vec![0; span.len()];
                     match memory {
                         WasmtimeExtern::Memory(memory) => {
-                            memory.read(&caller, ptr, &mut bytes).map_err(|err| {
-                                wasmtime::Error::msg(format!(
-                                    "wasmtime host import failed: unable to read memory: {err}"
-                                ))
-                            })?;
+                            memory
+                                .read(&caller, span.start, &mut bytes)
+                                .map_err(|err| {
+                                    wasmtime::Error::msg(format!(
+                                        "wasmtime host import failed: unable to read memory: {err}"
+                                    ))
+                                })?;
                         }
                         WasmtimeExtern::SharedMemory(memory) => {
-                            read_wasmtime_shared_memory(&memory, ptr, &mut bytes).map_err(
+                            read_wasmtime_shared_memory(&memory, span.start, &mut bytes).map_err(
                                 |err| {
                                     wasmtime::Error::msg(format!(
                                         "wasmtime host import failed: unable to read memory: {err}"
@@ -3181,17 +3460,14 @@ impl Engine {
                                 },
                             )?;
                         }
-                        _ => {
-                            return Err(wasmtime::Error::msg(
-                                "wasmtime host import failed: missing exported memory",
-                            ));
-                        }
+                        _ => unreachable!("memory kind was validated before allocation"),
                     }
                     let text = String::from_utf8(bytes).map_err(|err| {
                         wasmtime::Error::msg(format!(
                             "wasmtime host import failed: invalid utf-8: {err}"
                         ))
                     })?;
+                    caller.data().output_events.record(&text);
                     caller.data().realm.host_hooks().print_line(&text);
                     Ok(())
                 },
@@ -3276,30 +3552,71 @@ impl Engine {
                 "wasm completion_kind export had unexpected type",
             ));
         };
-        // Read the throw diagnostics *before* rendering, because the rendering
-        // is what consumes them: without the message, a thrown heap object
-        // renders as nothing but its address.
-        let thrown_error = if completion_kind != 0 {
-            ThrownErrorText::read(&instance, &mut store, result_kind)?
-        } else {
-            ThrownErrorText::NONE
+        let completion_kind = i64::from(completion_kind);
+        let is_throw = match completion_kind {
+            kind if kind == CompletionKindIr::Normal.abi_code() => false,
+            kind if kind == CompletionKindIr::Throw.abi_code() => true,
+            other => {
+                return Err(EngineError::new(format!(
+                    "wasm top-level completion used invalid kind {other}; expected normal or throw"
+                )));
+            }
         };
-        let note = render_wasmtime_completion(
-            result_tag,
-            payload,
-            wasmtime_exported_memory(&instance, &mut store),
-            &mut store,
-            thrown_error.message(),
-        )?;
-        if completion_kind != 0 {
-            let prefix = thrown_error.name_prefix();
-            return Err(EngineError::new(format!("uncaught throw: {prefix}{note}")));
+        match mode {
+            WasmExecutionMode::Legacy => {
+                // Legacy callers retain the historical human rendering. Keep
+                // all Error-property/global reads and heap-handle formatting
+                // in this mode so structured Object/Symbol observation remains
+                // type-only by construction.
+                let thrown_error = if is_throw {
+                    ThrownErrorText::read(&instance, &mut store, result_kind)?
+                } else {
+                    ThrownErrorText::NONE
+                };
+                let note = render_wasmtime_completion(
+                    result_tag,
+                    payload,
+                    wasmtime_exported_memory(&instance, &mut store),
+                    &mut store,
+                    thrown_error.message(),
+                )?;
+                if is_throw {
+                    let prefix = thrown_error.name_prefix();
+                    return Err(EngineError::new(format!("uncaught throw: {prefix}{note}")));
+                }
+                Ok(WasmExecutionOutcome::Legacy(RunOutcome {
+                    backend_used: ExecutionBackend::WasmAot,
+                    note,
+                }))
+            }
+            WasmExecutionMode::Structured => {
+                let value = observe_wasmtime_value(
+                    result_tag,
+                    payload,
+                    wasmtime_exported_memory(&instance, &mut store),
+                    &mut store,
+                )?;
+                let completion = if is_throw {
+                    ObservedCompletion::Throw(value)
+                } else {
+                    ObservedCompletion::Normal(value)
+                };
+                let note = match &completion {
+                    ObservedCompletion::Normal(value) => {
+                        format!("wasm-aot normal completion ({})", value.type_name())
+                    }
+                    ObservedCompletion::Throw(value) => {
+                        format!("uncaught ECMAScript throw ({})", value.type_name())
+                    }
+                };
+                Ok(WasmExecutionOutcome::Structured(ObservedRunOutcome {
+                    backend_used: ExecutionBackend::WasmAot,
+                    completion,
+                    output_events: store.data().output_events.take(),
+                    note,
+                }))
+            }
         }
-
-        Ok(RunOutcome {
-            backend_used: ExecutionBackend::WasmAot,
-            note,
-        })
     }
 }
 
@@ -3308,7 +3625,229 @@ enum WasmtimeExportedMemory {
     Shared(wasmtime::SharedMemory),
 }
 
+fn observe_wasmtime_value(
+    tag: WasmRuntimeValueTag,
+    payload: i64,
+    memory: Option<WasmtimeExportedMemory>,
+    store: &mut WasmtimeStore<WasmHostState>,
+) -> Result<ObservedJsValue, EngineError> {
+    match tag {
+        WasmRuntimeValueTag::HeapBigInt => {
+            let decimal = decode_wasmtime_heap_bigint(payload, memory, store)?;
+            Ok(ObservedJsValue::BigInt(decimal.into_boxed_str()))
+        }
+        WasmRuntimeValueTag::ValueKind(kind) => match kind {
+            ValueKind::Undefined => Ok(ObservedJsValue::Undefined),
+            ValueKind::Null => Ok(ObservedJsValue::Null),
+            ValueKind::Boolean => match payload {
+                0 => Ok(ObservedJsValue::Boolean(false)),
+                1 => Ok(ObservedJsValue::Boolean(true)),
+                other => Err(EngineError::new(format!(
+                    "wasm boolean completion used invalid payload {other}; expected 0 or 1"
+                ))),
+            },
+            ValueKind::Number => Ok(ObservedJsValue::Number(ObservedNumber::from_bits(
+                payload as u64,
+            ))),
+            ValueKind::String => {
+                let value = decode_wasmtime_string_units(payload, memory, store)?;
+                Ok(ObservedJsValue::String(value))
+            }
+            ValueKind::BigInt => Ok(ObservedJsValue::BigInt(
+                payload.to_string().into_boxed_str(),
+            )),
+            ValueKind::Symbol => Ok(ObservedJsValue::Symbol),
+            ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments => {
+                Ok(ObservedJsValue::Object)
+            }
+            ValueKind::Dynamic => Err(EngineError::new(
+                "wasm completion used dynamic tag; expected concrete runtime tag",
+            )),
+        },
+    }
+}
+
+fn decode_wasmtime_heap_bigint(
+    payload: i64,
+    memory: Option<WasmtimeExportedMemory>,
+    store: &mut WasmtimeStore<WasmHostState>,
+) -> Result<String, EngineError> {
+    let memory = memory.ok_or_else(|| {
+        EngineError::new("wasm heap BigInt result needs exported memory, but none exists")
+    })?;
+    let memory_byte_len = match &memory {
+        WasmtimeExportedMemory::Unshared(memory) => memory.data_size(&*store),
+        WasmtimeExportedMemory::Shared(memory) => memory.data_size(),
+    };
+    decode_heap_bigint_decimal(payload as u64, memory_byte_len, |offset, bytes| {
+        memory.read(store, offset, bytes)
+    })
+    .map_err(|error| {
+        EngineError::new(format!(
+            "failed to decode wasm heap BigInt completion: {error}"
+        ))
+    })
+}
+
+fn decode_wasmtime_string(
+    payload: i64,
+    memory: Option<WasmtimeExportedMemory>,
+    store: &mut WasmtimeStore<WasmHostState>,
+) -> Result<String, EngineError> {
+    let bytes = read_wasmtime_string_bytes(payload, memory, store)?;
+    render_legacy_wtf8_text(bytes)
+}
+
+fn decode_wasmtime_string_units(
+    payload: i64,
+    memory: Option<WasmtimeExportedMemory>,
+    store: &mut WasmtimeStore<WasmHostState>,
+) -> Result<Box<[u16]>, EngineError> {
+    let bytes = read_wasmtime_string_bytes(payload, memory, store)?;
+    decode_utf8_wtf8_to_utf16(&bytes)
+}
+
+fn read_wasmtime_string_bytes(
+    payload: i64,
+    memory: Option<WasmtimeExportedMemory>,
+    store: &mut WasmtimeStore<WasmHostState>,
+) -> Result<Vec<u8>, EngineError> {
+    let memory = memory.ok_or_else(|| {
+        EngineError::new("wasm string result needs exported memory, but none exists")
+    })?;
+    let span = wasm_string_payload_span(payload, memory.data_size(&*store))?;
+    let mut bytes = vec![0; span.len()];
+    memory.read(store, span.start, &mut bytes)?;
+    Ok(bytes)
+}
+
+fn wasm_string_payload_span(
+    payload: i64,
+    memory_byte_len: usize,
+) -> Result<core::ops::Range<usize>, EngineError> {
+    let offset = ((payload as u64) >> 32) as usize;
+    let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
+    wasm_memory_span(offset, len, memory_byte_len, "wasm string result")
+}
+
+fn wasm_memory_span(
+    offset: usize,
+    len: usize,
+    memory_byte_len: usize,
+    label: &str,
+) -> Result<core::ops::Range<usize>, EngineError> {
+    let end = offset
+        .checked_add(len)
+        .filter(|end| *end <= memory_byte_len)
+        .ok_or_else(|| EngineError::new(format!("{label} points outside exported memory")))?;
+    Ok(offset..end)
+}
+
+fn decode_utf8_wtf8_to_utf16(bytes: &[u8]) -> Result<Box<[u16]>, EngineError> {
+    fn continuation(byte: u8) -> bool {
+        byte & 0xc0 == 0x80
+    }
+
+    fn invalid(offset: usize) -> EngineError {
+        EngineError::new(format!(
+            "wasm string result is not valid UTF-8/WTF-8 at byte {offset}"
+        ))
+    }
+
+    let mut units = Vec::with_capacity(bytes.len());
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let first = bytes[offset];
+        let (code_point, width) = match first {
+            0x00..=0x7f => (u32::from(first), 1),
+            0xc2..=0xdf => {
+                let Some(&second) = bytes.get(offset + 1) else {
+                    return Err(invalid(offset));
+                };
+                if !continuation(second) {
+                    return Err(invalid(offset));
+                }
+                ((u32::from(first & 0x1f) << 6) | u32::from(second & 0x3f), 2)
+            }
+            0xe0..=0xef => {
+                let (Some(&second), Some(&third)) = (bytes.get(offset + 1), bytes.get(offset + 2))
+                else {
+                    return Err(invalid(offset));
+                };
+                let second_is_valid = match first {
+                    0xe0 => (0xa0..=0xbf).contains(&second),
+                    // Unlike UTF-8, WTF-8 deliberately admits encoded UTF-16
+                    // surrogate code points in ED A0..BF 80..BF.
+                    0xed => (0x80..=0xbf).contains(&second),
+                    _ => continuation(second),
+                };
+                if !second_is_valid || !continuation(third) {
+                    return Err(invalid(offset));
+                }
+                (
+                    (u32::from(first & 0x0f) << 12)
+                        | (u32::from(second & 0x3f) << 6)
+                        | u32::from(third & 0x3f),
+                    3,
+                )
+            }
+            0xf0..=0xf4 => {
+                let (Some(&second), Some(&third), Some(&fourth)) = (
+                    bytes.get(offset + 1),
+                    bytes.get(offset + 2),
+                    bytes.get(offset + 3),
+                ) else {
+                    return Err(invalid(offset));
+                };
+                let second_is_valid = match first {
+                    0xf0 => (0x90..=0xbf).contains(&second),
+                    0xf4 => (0x80..=0x8f).contains(&second),
+                    _ => continuation(second),
+                };
+                if !second_is_valid || !continuation(third) || !continuation(fourth) {
+                    return Err(invalid(offset));
+                }
+                (
+                    (u32::from(first & 0x07) << 18)
+                        | (u32::from(second & 0x3f) << 12)
+                        | (u32::from(third & 0x3f) << 6)
+                        | u32::from(fourth & 0x3f),
+                    4,
+                )
+            }
+            _ => return Err(invalid(offset)),
+        };
+
+        if code_point <= 0xffff {
+            units.push(code_point as u16);
+        } else {
+            let surrogate = code_point - 0x1_0000;
+            units.push(0xd800 | ((surrogate >> 10) as u16));
+            units.push(0xdc00 | ((surrogate & 0x03ff) as u16));
+        }
+        offset += width;
+    }
+    Ok(units.into_boxed_slice())
+}
+
+fn render_legacy_wtf8_text(bytes: Vec<u8>) -> Result<String, EngineError> {
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(text),
+        Err(error) => {
+            decode_utf8_wtf8_to_utf16(error.as_bytes())?;
+            Ok("<non-scalar UTF-16>".to_string())
+        }
+    }
+}
+
 impl WasmtimeExportedMemory {
+    fn data_size(&self, store: &WasmtimeStore<WasmHostState>) -> usize {
+        match self {
+            Self::Unshared(memory) => memory.data_size(store),
+            Self::Shared(memory) => memory.data_size(),
+        }
+    }
+
     fn read(
         &self,
         store: &mut WasmtimeStore<WasmHostState>,
@@ -3445,13 +3984,8 @@ fn read_wasmtime_string_payload_global(
             "wasm {global_name} string needs exported memory, but none exists"
         ))
     })?;
-    let offset = ((payload as u64) >> 32) as usize;
-    let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
-    let mut bytes = vec![0; len];
-    memory.read(store, offset, &mut bytes)?;
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|err| EngineError::new(format!("wasm string result is not utf-8: {err}")))
+    let bytes = read_wasmtime_string_bytes(payload, Some(memory), store)?;
+    render_legacy_wtf8_text(bytes).map(Some)
 }
 
 /// Render a completion value for a human.
@@ -3501,20 +4035,7 @@ fn render_wasmtime_completion(
                     }
                 }
                 ValueKind::Number => format!("{}", f64::from_bits(payload as u64)),
-                ValueKind::String => {
-                    let offset = ((payload as u64) >> 32) as usize;
-                    let len = ((payload as u64) & 0xFFFF_FFFF) as usize;
-                    let memory = memory.ok_or_else(|| {
-                        EngineError::new(
-                            "wasm string result needs exported memory, but none exists",
-                        )
-                    })?;
-                    let mut bytes = vec![0; len];
-                    memory.read(store, offset, &mut bytes)?;
-                    String::from_utf8(bytes).map_err(|err| {
-                        EngineError::new(format!("wasm string result is not utf-8: {err}"))
-                    })?
-                }
+                ValueKind::String => decode_wasmtime_string(payload, memory, store)?,
                 ValueKind::Object
                 | ValueKind::Array
                 | ValueKind::Function
@@ -4327,6 +4848,209 @@ report;
         ))
     }
 
+    #[test]
+    fn observed_wasm_completion_is_typed_and_captures_print_once() {
+        let delegated_lines = Arc::new(Mutex::new(Vec::new()));
+        let engine = engine_with_captured_prints(Arc::clone(&delegated_lines));
+        let outcome = engine
+            .observe_script(
+                r#"
+                print("observed line");
+                ({
+                  secret: "t25-private-property",
+                  toString() { print("coerced"); return "wrong"; }
+                });
+                "#,
+                CompileOptions::default(),
+                RunOptions::default(),
+            )
+            .expect("an object completion should be observed without coercion");
+
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Normal(ObservedJsValue::Object)
+        );
+        assert_eq!(
+            outcome.output_events,
+            vec![HostOutputEvent::PrintLine("observed line".to_string())]
+        );
+        assert_eq!(outcome.note, "wasm-aot normal completion (object)");
+        let debug = format!("{outcome:?}");
+        assert!(!debug.contains("handle@"));
+        assert!(!debug.contains("t25-private-property"));
+        assert_eq!(
+            *delegated_lines.lock().expect("capture mutex poisoned"),
+            vec!["observed line".to_string()]
+        );
+    }
+
+    #[test]
+    fn observed_wasm_throw_stays_distinct_from_engine_error_and_legacy_adapter() {
+        let engine = engine();
+        let source = "throw { secret: 't25-private-property', get message() { print('inspected'); return 'wrong'; } };";
+        let outcome = engine
+            .observe_script(source, CompileOptions::default(), RunOptions::default())
+            .expect("an ECMAScript throw is a successful observed execution");
+
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Throw(ObservedJsValue::Object)
+        );
+        assert_eq!(outcome.note, "uncaught ECMAScript throw (object)");
+        assert!(outcome.output_events.is_empty());
+        assert!(!format!("{outcome:?}").contains("handle@"));
+
+        let error = engine
+            .run_script(source, CompileOptions::default(), RunOptions::default())
+            .expect_err("the legacy run API must keep throws as EngineError");
+        assert!(error.message().starts_with("uncaught throw: "));
+
+        let non_scalar_error = engine
+            .observe_script(
+                "throw new Error('\\ud800');",
+                CompileOptions::default(),
+                RunOptions::default(),
+            )
+            .expect("private legacy diagnostics must not break structured object observation");
+        assert_eq!(
+            non_scalar_error.completion,
+            ObservedCompletion::Throw(ObservedJsValue::Object)
+        );
+        assert_eq!(non_scalar_error.note, "uncaught ECMAScript throw (object)");
+    }
+
+    #[test]
+    fn observed_wasm_primitives_preserve_number_and_bigint_data() {
+        let engine = engine();
+        let negative_zero = engine
+            .observe_script("-0;", CompileOptions::default(), RunOptions::default())
+            .expect("negative zero should complete normally");
+        assert_eq!(
+            negative_zero.completion,
+            ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(-0.0)))
+        );
+
+        let bigint = engine
+            .observe_script(
+                "123456789012345678901234567890n;",
+                CompileOptions::default(),
+                RunOptions::default(),
+            )
+            .expect("heap BigInt should complete normally");
+        assert_eq!(
+            bigint.completion,
+            ObservedCompletion::Normal(ObservedJsValue::BigInt(
+                "123456789012345678901234567890".into()
+            ))
+        );
+
+        let lone_surrogate = engine
+            .observe_script(
+                "'a\\ud800b';",
+                CompileOptions::default(),
+                RunOptions::default(),
+            )
+            .expect("WTF-8 lone surrogate should remain observable as a UTF-16 unit");
+        assert_eq!(
+            lone_surrogate.completion,
+            ObservedCompletion::Normal(ObservedJsValue::String(
+                vec![0x0061, 0xd800, 0x0062].into_boxed_slice()
+            ))
+        );
+    }
+
+    #[test]
+    fn wasm_output_capture_is_enabled_only_for_structured_execution() {
+        let legacy = WasmOutputEvents::for_mode(WasmExecutionMode::Legacy);
+        legacy.record("discarded");
+        assert!(legacy.take().is_empty());
+
+        let structured = WasmOutputEvents::for_mode(WasmExecutionMode::Structured);
+        structured.record("captured");
+        assert_eq!(
+            structured.take(),
+            vec![HostOutputEvent::PrintLine("captured".to_string())]
+        );
+    }
+
+    #[test]
+    fn observed_wtf8_decoder_preserves_utf16_units_and_rejects_invalid_bytes() {
+        for (bytes, expected) in [
+            (&b"a\xc3\xa9"[..], &['a' as u16, 0x00e9][..]),
+            (&[0xf0, 0x9f, 0x98, 0x80][..], &[0xd83d, 0xde00][..]),
+            (
+                &[0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80][..],
+                &[0xd83d, 0xde00][..],
+            ),
+            (&[0xed, 0xa0, 0x80][..], &[0xd800][..]),
+            (&[0xed, 0xb0, 0x80][..], &[0xdc00][..]),
+        ] {
+            assert_eq!(
+                &*decode_utf8_wtf8_to_utf16(bytes)
+                    .expect("valid UTF-8/WTF-8 should decode losslessly"),
+                expected
+            );
+        }
+
+        for bytes in [
+            &[0x80][..],
+            &[0xc0, 0x80][..],
+            &[0xe0, 0x80, 0x80][..],
+            &[0xf4, 0x90, 0x80, 0x80][..],
+            &[0xf0, 0x9f, 0x98][..],
+        ] {
+            assert!(decode_utf8_wtf8_to_utf16(bytes).is_err());
+        }
+    }
+
+    #[test]
+    fn wasm_memory_spans_bound_string_diagnostics_and_prints_before_allocation() {
+        let payload = ((8_u64 << 32) | u64::from(u32::MAX)) as i64;
+        assert!(wasm_string_payload_span(payload, 64 * 1024).is_err());
+        assert!(wasm_string_payload_span(i64::from(u32::MAX), 64 * 1024).is_err());
+
+        let payload = ((8_u64 << 32) | 24) as i64;
+        assert_eq!(wasm_string_payload_span(payload, 32).unwrap(), 8..32);
+        assert!(wasm_memory_span(8, usize::MAX, 32, "wasm print input").is_err());
+        assert!(wasm_memory_span(31, 2, 32, "wasm print input").is_err());
+        assert_eq!(
+            wasm_memory_span(8, 24, 32, "wasm print input").unwrap(),
+            8..32
+        );
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn observed_spec_exec_delegates_and_captures_without_revealing_symbol_description() {
+        let delegated_lines = Arc::new(Mutex::new(Vec::new()));
+        let engine = engine_with_captured_prints(Arc::clone(&delegated_lines));
+        let outcome = engine
+            .observe_script(
+                "print('oracle line'); throw Symbol('t25-private-description');",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::SpecExec,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("spec-exec throw should be an observed completion");
+
+        assert_eq!(
+            outcome.completion,
+            ObservedCompletion::Throw(ObservedJsValue::Symbol)
+        );
+        assert_eq!(
+            outcome.output_events,
+            vec![HostOutputEvent::PrintLine("oracle line".to_string())]
+        );
+        assert_eq!(outcome.note, "uncaught ECMAScript throw (symbol)");
+        assert!(!format!("{outcome:?}").contains("t25-private-description"));
+        assert_eq!(
+            *delegated_lines.lock().expect("capture mutex poisoned"),
+            vec!["oracle line".to_string()]
+        );
+    }
+
     /// Recomputes the two rankings independently of
     /// `describe_largest_wasm_code_body` and asserts the reported indices and
     /// figures are the ones the module actually has.
@@ -4538,6 +5262,7 @@ report;
             &wasm_engine,
             WasmHostState {
                 realm: engine.realm.clone(),
+                output_events: WasmOutputEvents::DelegateOnly,
                 intl_kernel: shared_embedded_intl_kernel()
                     .expect("embedded Intl kernel should initialize"),
                 can_block: true,

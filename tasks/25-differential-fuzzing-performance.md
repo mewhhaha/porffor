@@ -1,6 +1,6 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-**Status:** Bounded campaign in progress — versioned replay plus one deterministic Add/Sub generator and reducer exist; structured values, broader generation/reduction, performance budgets and CI remain open
+**Status:** Bounded campaign in progress — versioned replay, one deterministic Add/Sub generator/reducer and an additive observed-execution seam exist; structured value comparison, broader generation/reduction, performance budgets and CI remain open
 
 **Parallel group:** Validation lane  
 **Depends on:** T01, T02, T03, T04  
@@ -41,13 +41,12 @@ as corpus entries. The committed seed-1/checks-4/depth-2 case pins the PRNG,
 grammar rendering and schema encoding.
 
 This first observation protocol is intentionally smaller than the objective
-below. The current engine APIs expose backend identity, a backend diagnostic
-note on normal completion, and error text/limited compiler phase metadata.
-They do not expose a common structured JS value or output-event channel for
-both backends. Schema v1 therefore admits only self-checking, no-output probes
-and compares their normal-versus-error disposition. Reports retain Wasm-AOT
-host-hook events, mark spec-exec events unavailable, say semantic equivalence
-is `not_established`, and enumerate every missing observation capability. A
+below. The engine exposes backend identity, a typed normal-or-throw completion,
+and an execution-scoped `print` event channel for both backends. Schema v1
+deliberately projects that richer result back to self-checking, no-output
+probes: it compares only normal-versus-error disposition and verifies that both
+transcripts are empty. Reports say semantic equivalence is `not_established`
+and enumerate every value/identity observation capability they still omit. A
 shared failure or observed no-output contract violation is red, not a match.
 The committed foundation and generated cases plus feature-gated end-to-end
 contract tests make this slice durable, but they do not satisfy the full
@@ -57,6 +56,78 @@ reducer, fuzz, performance, or CI requirements.
 ## Objective
 
 Build automated methods that discover semantic divergences, crashes, hangs and pathological code generation before they become one-off Test262 investigations. Maintain performance without adding test-specific or observably incorrect fast paths.
+
+## Bounded observed-execution contract
+
+The first structured boundary is additive. `Engine::observe_script` and
+`Engine::observe_module` return an owned observation whose completion is
+either `Normal(value)` or `Throw(value)`. Compiler diagnostics, module-loader
+failures, host failures, Wasmtime traps, timeouts and invalid backend ABI data
+remain `EngineError`. Existing `run_*` entry points preserve their public API
+and abrupt-completion shape: Wasm legacy execution turns a JavaScript throw
+into an `EngineError`, while spec-exec keeps its separate legacy execution path.
+Throw classification and spec-exec job/print side effects therefore do not
+change as an incidental consequence of differential work.
+
+One Wasm string edge case is an intentional correctness change rather than a
+compatibility claim. The observed core decodes the runtime's bounded UTF-8/WTF-8
+payload directly to UTF-16, so a normal or thrown String containing a lone
+surrogate is observable. Legacy `run_*` execution now succeeds for a normal
+lone-surrogate completion with a generic non-scalar String note where its old
+strict Rust UTF-8 renderer returned `EngineError`; ordinary scalar diagnostics
+retain their legacy rendering.
+
+Spec-exec compatibility is behavioral, not merely a matching return type. Its
+legacy path still returns immediately after a top-level Script throw,
+does not drain that Script's queued jobs, and uses its historical stdout host
+printer. The observed path has its own host checkpoint: it drains queued jobs
+after capturing the primary completion, while never replacing a primary throw
+with a later job failure. Module observation stages parse, load, link and
+evaluate separately: parse/load/link failures are engine failures, whereas a
+rejected evaluation promise is a JavaScript throw.
+
+The shared value domain is deliberately smaller than a serializer:
+
+- `undefined`, `null`, Boolean, Number, String and BigInt retain owned value
+  data. Numbers canonicalize NaN while preserving signed zero, and Strings
+  retain UTF-16 code units.
+- Symbol is type-only in this batch. Description, registry membership and
+  identity remain explicit observation gaps.
+- Object is type-only. The observer must not call user coercion hooks, inspect
+  properties, publish a backend heap handle or guess an object class.
+
+Each observation also owns the ordered `print` lines emitted by its root
+execution context. Those lines are the result of the program's actual host
+`print` operation, including its ordinary argument coercions; collecting an
+event must not add a second coercion. The event sink is scoped to one execution
+and shared with the job checkpoint and module evaluation performed by that
+execution. It is not a process-global transcript. Legacy execution selects a
+closed delegate-only mode and streams to its existing host hook without
+retaining a duplicate transcript.
+
+Diagnostic text stays inside the same boundary. An opaque Symbol or Object
+throw receives only a type label; Boa debug rendering and Wasm heap handles are
+kept out of public observed outcomes (including their `Debug` output).
+Structured Wasm execution never reads the throw-diagnostic globals or invokes
+the legacy renderer. A separate legacy mode retains its bounded historical
+human diagnostic, using a generic placeholder for valid non-scalar UTF-16.
+
+Corpus and report schema v1 remain the self-checking, no-output protocol. The
+differential runner consumes the common event channel and projects the typed
+completion back to v1's normal-versus-error disposition. It does not serialize
+or compare the new values yet, and matching projected dispositions still do
+not establish semantic equivalence.
+
+This seam does not yet carry a partial transcript inside `EngineError`,
+identify Symbols or Objects, expose Symbol descriptions, classify Error
+objects/realms/prototypes, or isolate a backend panic/host crash. Agent-produced
+output is excluded from the common typed-transcript contract in this batch:
+Wasm worker stores run delegate-only and the root typed outcome does not capture
+their lines, while spec-exec's shared observed session can currently surface
+agent lines. Their presence and ordering are therefore not backend-comparable
+and consumers must not rely on them. Differential schema v1 shadows the existing
+realm output hook so it can still report output emitted before an `EngineError`;
+the typed outcome is authoritative for completed normal and throw executions.
 
 ## Differential execution framework
 
