@@ -99,6 +99,26 @@ ordinary evaluation dependencies after resolution erases the request context.
 Non-eager units consequently have neither `[[AsyncEvaluation]]` nor pending
 async dependencies.
 
+### Runtime participation domain
+
+Loading/linking participation and artifact participation are distinct. A unit
+reached only through `import source` remains parsed and linked, and an active
+referrer can receive its module source object, but the unit contributes no body
+or runtime scaffolding of its own. `ModuleMaterializationModeIr` is the private
+closed domain for the two artifact-present cases (`Eager` and `Deferred`),
+derived once and exhaustively from `ModuleEvaluationModeIr`;
+`ModuleGraphIr::materialized_units` is the common source for namespace and
+module-source aliases, `import.meta` cells, dynamic-import dispatchers and
+runtime-only collision checks. A namespace carries that typed mode rather than
+a parallel deferred boolean and cannot be created for a source-only unit.
+
+Dynamic components are discovered in full before evaluation-mode
+classification, then components whose referrer does not materialize are
+removed from the artifact registry. This preserves dynamic edges needed by the
+fixed point without compiling an `import()` call site whose containing module
+can never run. The precise invariants and regression shape live in
+`docs/rust-rewrite/contracts/module-runtime-participation.md`.
+
 Dynamic-import targets are compiled into the same artifact, not separate Wasm
 modules, and dispatch through the artifact's generated dynamic-import registry.
 Target-body evaluation is not fully lazy yet: `StatementIr::ModuleUnitOnce` and

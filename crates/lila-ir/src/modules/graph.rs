@@ -398,6 +398,20 @@ pub enum ModuleEvaluationModeIr {
     NotEvaluated,
 }
 
+/// How a linked unit participates in runtime source generation.
+///
+/// `NotEvaluated` deliberately has no inhabitant here: a source-phase-only
+/// unit stays in the loaded and linked graph, but no runtime collector may
+/// receive it. Keeping this type private prevents callers from manufacturing a
+/// namespace or dispatcher for a unit whose body is absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ModuleMaterializationModeIr {
+    /// The unit's body is emitted inline.
+    Eager,
+    /// The unit's body is emitted as a deferred thunk.
+    Deferred,
+}
+
 impl ModuleEvaluationModeIr {
     /// Diagnostic spelling.
     #[must_use]
@@ -406,6 +420,21 @@ impl ModuleEvaluationModeIr {
             Self::Eager => "eager",
             Self::Deferred => "deferred",
             Self::NotEvaluated => "not evaluated",
+        }
+    }
+
+    /// Runtime source-generation participation for this evaluation mode.
+    ///
+    /// This is the single exhaustive crossing from graph classification into
+    /// artifact materialization. A new evaluation mode must decide here
+    /// whether it contributes runtime state instead of inheriting a boolean
+    /// default at one of the collectors.
+    #[must_use]
+    const fn materialization(self) -> Option<ModuleMaterializationModeIr> {
+        match self {
+            Self::Eager => Some(ModuleMaterializationModeIr::Eager),
+            Self::Deferred => Some(ModuleMaterializationModeIr::Deferred),
+            Self::NotEvaluated => None,
         }
     }
 }
@@ -458,6 +487,11 @@ pub struct ModuleGraphIr {
     /// Index into `evaluation_order` at which each component starts.
     pub scc_starts: Vec<usize>,
     /// Dynamic-import components compiled into this artifact.
+    ///
+    /// Discovery initially sees every call site in the loaded closure because
+    /// those edges participate in evaluation-mode classification. After that
+    /// fixed point, components whose referrer does not materialize are removed,
+    /// so every row here names a call site that can run in this artifact.
     pub components: Vec<DynamicComponentIr>,
     /// When each unit's body runs, indexed by [`ModuleUnitId`].
     ///
@@ -568,6 +602,38 @@ impl ModuleGraphIr {
             .get(module as usize)
             .copied()
             .unwrap_or_default()
+    }
+
+    /// Runtime source-generation mode for one unit.
+    ///
+    /// `None` means either that `module` is not a unit of this graph or that it
+    /// is source-phase-only. An unlinked graph follows [`Self::evaluation_mode`]
+    /// and therefore retains its documented eager default.
+    #[must_use]
+    pub(super) fn materialization_mode(
+        &self,
+        module: ModuleUnitId,
+    ) -> Option<ModuleMaterializationModeIr> {
+        let index = usize::try_from(module).ok()?;
+        self.units.get(index)?;
+        self.evaluation_mode(module).materialization()
+    }
+
+    /// Units allowed to contribute bodies, aliases, objects or dispatchers to
+    /// the emitted artifact.
+    pub(super) fn materialized_units(
+        &self,
+    ) -> impl Iterator<Item = (ModuleUnitId, ModuleMaterializationModeIr, &ModuleUnitIr)> {
+        self.units
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, unit)| {
+                let id = ModuleUnitId::try_from(index).expect(
+                    "unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID",
+                );
+                self.materialization_mode(id)
+                    .map(|mode| (id, mode, unit))
+            })
     }
 
     /// Resolved evaluation dependencies of one unit, in
@@ -1069,13 +1135,17 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
     }
 
     compute_evaluation_order(graph);
-    // Before `classify_evaluation_modes`, not after: a dynamic request carries
-    // a phase too, so which unit is eager, deferred or never evaluated depends
-    // on the component registry. `modules::link` collects again after lowering
-    // has resolved everything it needs; the pass is a pure function of the
-    // linked graph, so running it twice cannot disagree with itself.
-    super::dynamic::collect_components(graph);
-    classify_evaluation_modes(graph);
+    // Discovery must precede classification: a dynamic request carries a phase
+    // too, so it can make its target eager, deferred or source-only. Runtime
+    // components are fixed only after that reachability fixed point; a call
+    // site in a source-only referrer is link metadata, not artifact code.
+    let components = super::dynamic::discover_components(graph);
+    classify_evaluation_modes(graph, &components);
+    let components: Vec<_> = components
+        .into_iter()
+        .filter(|component| graph.materialization_mode(component.referrer).is_some())
+        .collect();
+    graph.components = components;
     report_unlinkable_phases(graph);
 }
 
@@ -1108,7 +1178,7 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
 /// a thunked exporter's cell is not in the merged scope at all. The deferred
 /// module itself still evaluates only on first touch; what runs early is the
 /// side effects of the modules it imports.
-fn classify_evaluation_modes(graph: &mut ModuleGraphIr) {
+fn classify_evaluation_modes(graph: &mut ModuleGraphIr, components: &[DynamicComponentIr]) {
     let count = graph.units.len();
     // `(referrer, phase, target)` once, so the fixed point below is a walk over
     // an edge list rather than a repeated resolve of every request.
@@ -1132,7 +1202,7 @@ fn classify_evaluation_modes(graph: &mut ModuleGraphIr) {
     // a module just as surely. Their referrer is a unit of this graph, so a
     // dynamic edge out of a module nothing evaluates opens nothing — an
     // `import()` written in a source-phase-only module never runs.
-    for component in &graph.components {
+    for component in components {
         let (Ok(referrer), Ok(target)) = (
             usize::try_from(component.referrer),
             usize::try_from(component.module),

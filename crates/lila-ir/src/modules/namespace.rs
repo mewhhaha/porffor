@@ -93,16 +93,19 @@
 //! Two of the three module request phases are materialized here as well:
 //!
 //! * `import defer * as ns from "m"` gives `m` a *Deferred Module Namespace*
-//!   ([`ModuleNamespaceIr::deferred`]). Its getters route through the thunk
-//!   [`deferred_body_source`] wraps `m`'s body in, so the first read of any
-//!   export is what evaluates `m`. lila triggers evaluation on `[[Get]]` of
-//!   an export only; the proposal also triggers it from `[[HasProperty]]`,
-//!   `[[OwnPropertyKeys]]` and friends, which an accessor cannot observe.
+//!   (the deferred [`ModuleMaterializationModeIr`] case). Its getters route
+//!   through the thunk [`deferred_body_source`] wraps `m`'s body in, so the
+//!   first read of any export is what evaluates `m`. lila triggers evaluation
+//!   on `[[Get]]` of an export only; the proposal also triggers it from
+//!   `[[HasProperty]]`, `[[OwnPropertyKeys]]` and friends, which an accessor
+//!   cannot observe.
 //! * `import source src from "m"` gives `m` a module source object
 //!   ([`module_source_object_source`]) and nothing else: `m` is resolved, loaded
 //!   and parsed, but never instantiated and never evaluated.
 
 use crate::*;
+
+use super::graph::ModuleMaterializationModeIr;
 
 /// One entry of a module namespace object's export table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,10 +135,12 @@ pub struct ModuleNamespaceIr {
     /// [`MergedName::minted`] mints it from the unit id and a
     /// [`UnitCellRole`] rather than from source.
     pub cell: MergedName,
-    /// `true` when this is a *Deferred* Module Namespace: the module is only
-    /// reached through `import defer`, so reading any export of this object
-    /// evaluates the module first.
-    pub deferred: bool,
+    /// How the reflected module is present in the artifact.
+    ///
+    /// Private so a namespace cannot be manufactured for a source-only unit,
+    /// and typed so direct and deferred getter generation is exhaustive rather
+    /// than selected by a parallel boolean.
+    mode: ModuleMaterializationModeIr,
     /// Merged-script source that materializes this object, or the reason it
     /// cannot be expressed as Script text.
     ///
@@ -359,17 +364,18 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
         // `writable` unspellable here, which is 6.2.6.5 step 9 as a compile
         // error rather than as an emitted TypeError.
         let mut getter = String::from("() => ");
-        if namespace.deferred {
-            // A deferred module's bindings live in its thunk's scope, not in
-            // the merged one, so the getter goes through the export table the
-            // thunk publishes — and calling the thunk is what makes the first
-            // read of any export evaluate the module.
-            getter.push_str(defer_evaluate.as_str());
-            getter.push_str("()[");
-            push_js_string_literal(&mut getter, export.export_name.as_str());
-            getter.push_str("]()");
-        } else {
-            getter.push_str(reference.as_str());
+        match namespace.mode {
+            ModuleMaterializationModeIr::Eager => getter.push_str(reference.as_str()),
+            ModuleMaterializationModeIr::Deferred => {
+                // A deferred module's bindings live in its thunk's scope, not
+                // in the merged one, so the getter goes through the export
+                // table the thunk publishes — and calling the thunk is what
+                // makes the first read of any export evaluate the module.
+                getter.push_str(defer_evaluate.as_str());
+                getter.push_str("()[");
+                push_js_string_literal(&mut getter, export.export_name.as_str());
+                getter.push_str("]()");
+            }
         }
         text.push_str(", ");
         text.push_str(
@@ -423,14 +429,16 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
 /// text, so a graph that cannot be linked says exactly what stopped it instead
 /// of emitting source that binds the wrong thing.
 pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrDiagnostic>> {
-    let has_source_import = graph.units.iter().any(|unit| {
+    let has_source_import = graph.materialized_units().any(|(_, _, unit)| {
         unit.record
             .import_entries
             .iter()
             .any(|entry| entry.request.phase == ImportPhaseIr::Source)
     });
     let dynamic_source_modules = graph.dynamic_source_modules();
-    if graph.units.iter().all(|unit| unit.namespace.is_none())
+    if graph
+        .materialized_units()
+        .all(|(_, _, unit)| unit.namespace.is_none())
         && !has_source_import
         && dynamic_source_modules.is_empty()
     {
@@ -454,15 +462,18 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
     // The deferred export tables first: a deferred namespace's getter calls a
     // thunk that assigns to one, and the thunk is a hoisted `function` that any
     // unit body can reach before its own declaration is stepped over.
-    for unit in &graph.units {
-        if graph.evaluation_mode(unit.record.id) == ModuleEvaluationModeIr::Deferred {
-            text.push_str(&deferred_cells_declaration(unit.record.id));
+    for (module, mode, _) in graph.materialized_units() {
+        match mode {
+            ModuleMaterializationModeIr::Eager => {}
+            ModuleMaterializationModeIr::Deferred => {
+                text.push_str(&deferred_cells_declaration(module));
+            }
         }
     }
     for module in &source_modules {
         text.push_str(&module_source_object_source(*module));
     }
-    for unit in &graph.units {
+    for (_, _, unit) in graph.materialized_units() {
         let Some(namespace) = unit.namespace.as_ref() else {
             continue;
         };
@@ -506,12 +517,12 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
 /// `Dynamic` gets no runtime uninitialized check at all, so the emitted program
 /// would read a zero tag, which is `ValueKind::Undefined`.
 fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
-    for unit in &graph.units {
-        // A unit that does not evaluate inline declares nothing in the merged
-        // scope: a deferred body is a function body, and a source-phase-only
-        // module has no body in the artifact at all.
-        if graph.evaluation_mode(unit.record.id) != ModuleEvaluationModeIr::Eager {
-            continue;
+    for (_, mode, unit) in graph.materialized_units() {
+        match mode {
+            ModuleMaterializationModeIr::Eager => {}
+            // A deferred body is a function body, so its declarations cannot
+            // shadow the globals used by the outer prelude.
+            ModuleMaterializationModeIr::Deferred => continue,
         }
         for shadowed in unit
             .record
@@ -553,11 +564,12 @@ fn collect_namespace_aliases(
     // for the same reason `check_linkable` excludes them: they are deliberately
     // the exporting unit's cell.
     let mut declared: BTreeMap<MergedName, &str> = BTreeMap::new();
-    for unit in &graph.units {
-        // Same reason as `report_shadowed_namespace_globals`: only an eagerly
-        // evaluated unit puts its top-level bindings in the merged scope.
-        if graph.evaluation_mode(unit.record.id) != ModuleEvaluationModeIr::Eager {
-            continue;
+    for (_, mode, unit) in graph.materialized_units() {
+        match mode {
+            ModuleMaterializationModeIr::Eager => {}
+            // Same reason as `report_shadowed_namespace_globals`: a deferred
+            // unit's declarations live in its thunk scope.
+            ModuleMaterializationModeIr::Deferred => continue,
         }
         for binding in &unit.record.environment {
             if binding.kind != ModuleBindingKindIr::Import {
@@ -568,7 +580,7 @@ fn collect_namespace_aliases(
 
     let mut aliases = Vec::new();
     let mut owners: BTreeMap<MergedName, &str> = BTreeMap::new();
-    for unit in &graph.units {
+    for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
             if entry.import_name != ImportNameIr::Namespace {
@@ -807,7 +819,7 @@ fn collect_module_source_aliases(
 ) -> (BTreeSet<ModuleUnitId>, Vec<(MergedName, MergedName)>) {
     let mut modules = BTreeSet::new();
     let mut aliases = Vec::new();
-    for unit in &graph.units {
+    for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
             if entry.request.phase != ImportPhaseIr::Source {
@@ -864,17 +876,22 @@ fn namespace_unsupported(key: &str, reason: &str) -> IrDiagnostic {
 ///
 /// Returns the storage name of the cell holding the identity-cached namespace
 /// object, so repeated `import * as ns` and `import()` of the same module
-/// observe the same object.
-pub(crate) fn ensure_namespace(graph: &mut ModuleGraphIr, module: ModuleUnitId) -> MergedName {
+/// observe the same object. Returns `None` for an invalid or source-only unit;
+/// such a unit has no environment whose exports a namespace could expose.
+pub(crate) fn ensure_namespace(
+    graph: &mut ModuleGraphIr,
+    module: ModuleUnitId,
+) -> Option<MergedName> {
     let cell = MergedName::minted(module, UnitCellRole::Namespace);
+    let mode = graph.materialization_mode(module)?;
     let Some(index) = usize::try_from(module)
         .ok()
         .filter(|index| *index < graph.units.len())
     else {
-        return cell;
+        return None;
     };
     if graph.units[index].namespace.is_some() {
-        return cell;
+        return Some(cell);
     }
 
     let mut exports: Vec<ModuleNamespaceExportIr> = graph
@@ -904,12 +921,12 @@ pub(crate) fn ensure_namespace(graph: &mut ModuleGraphIr, module: ModuleUnitId) 
         module,
         exports,
         cell: cell.clone(),
-        deferred: graph.evaluation_mode(module) == ModuleEvaluationModeIr::Deferred,
+        mode,
         source: Ok(String::new()),
     };
     namespace.source = namespace_object_source(&namespace);
     graph.units[index].namespace = Some(namespace);
-    cell
+    Some(cell)
 }
 
 /// Materializes a namespace object for every module an importer or an
@@ -920,7 +937,7 @@ pub(crate) fn ensure_namespace(graph: &mut ModuleGraphIr, module: ModuleUnitId) 
 /// object too even though nobody imports it directly.
 pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
     let mut observed = BTreeSet::new();
-    for unit in &graph.units {
+    for (_, _, unit) in graph.materialized_units() {
         // `import * as ns from "m"`, and `export * as ns from "m"` re-exported
         // onward. Both hand `m`'s `UnitCellRole::Namespace` cell to a reader, so
         // both make `m`'s namespace object observable.
@@ -949,7 +966,9 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
 
     let mut pending: Vec<ModuleUnitId> = observed.iter().copied().collect();
     while let Some(module) = pending.pop() {
-        ensure_namespace(graph, module);
+        let Some(_) = ensure_namespace(graph, module) else {
+            continue;
+        };
         let Some(namespace) = usize::try_from(module)
             .ok()
             .and_then(|index| graph.units.get(index))
@@ -1015,7 +1034,7 @@ mod tests {
             "export { a as 'a b' };\n",
         );
         let mut graph = graph_of(&[("m", graph_source)]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let namespace = graph.units[0]
             .namespace
             .as_ref()
@@ -1048,7 +1067,7 @@ mod tests {
     #[test]
     fn namespace_entries_point_at_the_exporter_cell() {
         let mut graph = graph_of(&[("m", "export let value = 1;")]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let namespace = graph.units[0]
             .namespace
             .as_ref()
@@ -1073,8 +1092,8 @@ mod tests {
     #[test]
     fn namespace_identity_is_cached_in_one_cell() {
         let mut graph = graph_of(&[("m", "export let value = 1;")]);
-        let first = ensure_namespace(&mut graph, 0);
-        let second = ensure_namespace(&mut graph, 0);
+        let first = ensure_namespace(&mut graph, 0).expect("entry materializes");
+        let second = ensure_namespace(&mut graph, 0).expect("entry materializes");
         assert_eq!(first, second);
         assert_eq!(first, MergedName::minted(0, UnitCellRole::Namespace));
         assert_eq!(
@@ -1088,7 +1107,7 @@ mod tests {
     #[test]
     fn star_exports_do_not_contribute_default() {
         let mut graph = graph_of(&[("m", "export * from 'other';")]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let namespace = graph.units[0]
             .namespace
             .as_ref()
@@ -1151,7 +1170,7 @@ mod tests {
     #[test]
     fn namespace_source_creates_a_null_prototype_non_extensible_object() {
         let mut graph = graph_of(&[("m", "export const value = 41;")]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
         let binding = MergedName::minted(0, UnitCellRole::Namespace);
         let binding = binding.as_str();
@@ -1179,7 +1198,7 @@ mod tests {
     #[test]
     fn namespace_source_reads_the_exporter_binding_rather_than_a_snapshot() {
         let mut graph = graph_of(&[("m", "export let value = 41;")]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
 
         assert!(source.contains("get: () => value,"), "got {source}");
@@ -1203,7 +1222,7 @@ mod tests {
     #[test]
     fn namespace_source_separates_the_export_name_from_the_local_name() {
         let mut graph = graph_of(&[("m", "const a = 1;\nexport { a as b };")]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
         assert!(source.contains("\"b\", { get: () => a,"), "got {source}");
     }
@@ -1214,7 +1233,7 @@ mod tests {
     #[test]
     fn namespace_source_defines_to_string_tag_last_and_locked_down() {
         let mut graph = graph_of(&[("m", "export const value = 1;")]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
 
         let tag = source
@@ -1241,7 +1260,7 @@ mod tests {
             "export { a as 'a b' };\n",
         );
         let mut graph = graph_of(&[("m", graph_source)]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
         assert!(
             source.find("\"a b\"") < source.find("\"b\""),
@@ -1259,7 +1278,7 @@ mod tests {
             "export { a as '\\u{10000}' };\n",
         );
         let mut graph = graph_of(&[("m", graph_source)]);
-        ensure_namespace(&mut graph, 0);
+        ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
 
         assert!(
@@ -1283,7 +1302,7 @@ mod tests {
                 },
             }],
             cell: MergedName::minted(module, UnitCellRole::Namespace),
-            deferred: false,
+            mode: ModuleMaterializationModeIr::Eager,
             source: Ok(String::new()),
         }
     }

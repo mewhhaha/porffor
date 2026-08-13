@@ -218,13 +218,18 @@ pub struct DynamicComponentIr {
     pub module: ModuleUnitId,
 }
 
-/// Registers every statically discoverable `import()` target as a component.
+/// Discovers every statically knowable `import()` target in the loaded graph.
 ///
 /// A call site with a computed specifier registers nothing: it resolves at
 /// runtime against whatever the registry already holds, and rejects if nothing
 /// matches. That is the entire dynamic-source story — there is no fallback
 /// path that reaches a parser.
-pub(crate) fn collect_components(graph: &mut ModuleGraphIr) {
+///
+/// The returned set is intentionally wider than the artifact registry. Graph
+/// classification needs edges from every loaded unit to decide which units
+/// materialize; after that fixed point, `modules::graph::link` retains only
+/// components whose referrer can run.
+pub(super) fn discover_components(graph: &ModuleGraphIr) -> Vec<DynamicComponentIr> {
     let mut components: Vec<DynamicComponentIr> = Vec::new();
     for index in 0..graph.units.len() {
         let referrer = ModuleUnitId::try_from(index)
@@ -252,7 +257,7 @@ pub(crate) fn collect_components(graph: &mut ModuleGraphIr) {
             });
         }
     }
-    graph.components = components;
+    components
 }
 
 impl ModuleGraphIr {
@@ -443,10 +448,7 @@ impl ModuleGraphIr {
     #[must_use]
     pub fn dynamic_import_dispatchers(&self) -> String {
         let mut text = String::new();
-        for (index, unit) in self.units.iter().enumerate() {
-            let Ok(referrer) = ModuleUnitId::try_from(index) else {
-                continue;
-            };
+        for (referrer, _, unit) in self.materialized_units() {
             // One per phase the unit actually writes, so an unphased graph
             // emits exactly the one dispatcher it always did.
             let phases: BTreeSet<ImportPhaseIr> = unit
@@ -709,7 +711,7 @@ impl ModuleGraphIr {
     pub fn check_dynamic_import_linkable(&self) -> Vec<IrDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        for unit in &self.units {
+        for (_, _, unit) in self.materialized_units() {
             let key = unit.record.key.as_str();
             for binding in &unit.record.environment {
                 // The merged spelling: the collision is with a name the linker
@@ -803,7 +805,7 @@ impl ModuleGraphIr {
         diagnostics
     }
 
-    /// Modules whose namespace object an `import()` can reach.
+    /// Modules whose namespace object a materialized `import()` can reach.
     ///
     /// Transitive, because `export * as inner from "m"` makes one namespace's
     /// export *be* another module's namespace: resolving the outer one hands the
@@ -1378,13 +1380,12 @@ mod tests {
         }
     }
 
-    /// Builds a graph the way the linker does: link, then the two collectors, so
-    /// `components` and `namespace` are populated exactly as they are in
-    /// production.
+    /// Builds a graph the way the linker does: link fixes the active component
+    /// registry, then namespace collection materializes what those components
+    /// observe.
     fn graph_of(sources: &ModuleGraphSources) -> ModuleGraphIr {
         let mut graph = crate::modules::build_graph(sources).expect("graph should build");
         crate::modules::link(&mut graph);
-        collect_components(&mut graph);
         crate::modules::namespace::collect_observed_namespaces(&mut graph);
         graph
     }

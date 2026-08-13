@@ -115,7 +115,7 @@
 
 use crate::*;
 
-use super::dynamic::collect_components;
+use super::graph::ModuleMaterializationModeIr;
 use super::namespace::{
     collect_observed_namespaces, deferred_body_source, namespace_prelude_source,
     namespace_target_reference, shadows_prelude_global,
@@ -156,15 +156,15 @@ pub fn evaluation_components(graph: &ModuleGraphIr) -> Vec<Vec<ModuleUnitId>> {
 /// Script-goal source text for the whole linked graph, or the reasons it could
 /// not be linked.
 ///
-/// The two collectors run first and unconditionally: they are pure functions of
-/// the linked graph, they are what makes `ProgramIr::modules` describe the
-/// namespaces and `import()` components the program actually observes, and the
-/// engine keeps `modules` on a failing program.
+/// Namespace collection runs first and unconditionally. Dynamic components
+/// were already discovered for evaluation-mode classification and filtered to
+/// materialized referrers by `modules::graph::link`; together those steps make
+/// `ProgramIr::modules` describe exactly the runtime objects and call sites the
+/// artifact can observe, including on a failing program.
 pub(crate) fn linked_script_source(
     sources: &ModuleGraphSources,
     graph: &mut ModuleGraphIr,
 ) -> Result<SourceUnit, Vec<IrDiagnostic>> {
-    collect_components(graph);
     collect_observed_namespaces(graph);
 
     let mut diagnostics = Vec::new();
@@ -196,10 +196,11 @@ pub(crate) fn linked_script_source(
     // point: an alias has to read the exporter's cell at every read, not once.
     text.push_str(&binding_alias_prelude(&aliases));
 
-    // Every `import.meta` object exists before any body runs: a unit's body can
-    // call a function of a unit whose own body has not run yet, and 13.3.12
-    // gives that function an object either way.
-    for unit in &graph.units {
+    // Every materialized unit's `import.meta` object exists before any body
+    // runs: a unit's body can call a function of a unit whose own body has not
+    // run yet, and 13.3.12 gives that function an object either way. A
+    // source-only unit has no body or environment and therefore no object.
+    for (_, _, unit) in graph.materialized_units() {
         if unit.record.import_meta_uses() > 0 {
             text.push_str(&import_meta_binding(unit.record.id, &unit.meta_url).declaration);
             text.push('\n');
@@ -221,9 +222,9 @@ pub(crate) fn linked_script_source(
     for unit_id in emission_order(graph) {
         // A module reached only through `import source` is resolved, loaded,
         // parsed and linked, but never instantiated: it contributes no body.
-        if graph.evaluation_mode(unit_id) == ModuleEvaluationModeIr::NotEvaluated {
+        let Some(mode) = graph.materialization_mode(unit_id) else {
             continue;
-        }
+        };
         let unit = graph.unit(unit_id);
         if graph.entry_is_script && unit_id == graph.entry {
             // Script text, emitted as itself: there is no module syntax to
@@ -262,11 +263,10 @@ pub(crate) fn linked_script_source(
             })
             .and_then(|stripped| graph.rewrite_dynamic_import_calls(unit_id, &stripped))
             // `import defer`: the body becomes a thunk the namespace calls.
-            .and_then(|body| {
-                if graph.evaluation_mode(unit_id) == ModuleEvaluationModeIr::Deferred {
+            .and_then(|body| match mode {
+                ModuleMaterializationModeIr::Eager => Ok(body),
+                ModuleMaterializationModeIr::Deferred => {
                     deferred_body_source(graph, unit_id, &body)
-                } else {
-                    Ok(body)
                 }
             });
         match rewritten {
@@ -471,21 +471,20 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
     // holds one cell per name. Import bindings are excluded because they are
     // deliberately the exporting unit's cell.
     let mut owners: BTreeMap<MergedName, &str> = BTreeMap::new();
-    for unit_id in &graph.evaluation_order {
-        // A deferred unit's bindings live in its thunk's scope and a
-        // source-phase-only unit has no body at all, so neither can collide
-        // with anything in the merged scope.
-        if graph.evaluation_mode(*unit_id) != ModuleEvaluationModeIr::Eager {
-            continue;
+    for (unit_id, mode, unit) in graph.materialized_units() {
+        match mode {
+            ModuleMaterializationModeIr::Eager => {}
+            // A deferred unit's bindings live in its thunk scope and cannot
+            // collide with declarations in the merged top level.
+            ModuleMaterializationModeIr::Deferred => continue,
         }
         // The Script entry of a script graph declares into the Script's own
         // top-level scope, outside the wrapper the modules share, so its names
         // collide with nothing here. (A *global* alias it shadows is a real
         // problem, and `collect_binding_aliases` still sees it.)
-        if graph.entry_is_script && *unit_id == graph.entry {
+        if graph.entry_is_script && unit_id == graph.entry {
             continue;
         }
-        let unit = graph.unit(*unit_id);
         for binding in &unit.record.environment {
             if binding.kind == ModuleBindingKindIr::Import {
                 continue;
@@ -527,10 +526,7 @@ fn collect_binding_aliases(
     let mut aliases: Vec<(MergedName, MergedName)> = Vec::new();
     let mut owners: BTreeMap<MergedName, (MergedName, String)> = BTreeMap::new();
 
-    for unit in &graph.units {
-        if graph.evaluation_mode(unit.record.id) == ModuleEvaluationModeIr::NotEvaluated {
-            continue;
-        }
+    for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
             if entry.request.phase == ImportPhaseIr::Source {
@@ -631,9 +627,10 @@ fn collect_binding_aliases(
 /// that both imports and declares one name is an early error.
 fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<MergedName, String> {
     let mut declared = BTreeMap::new();
-    for unit in &graph.units {
-        if graph.evaluation_mode(unit.record.id) != ModuleEvaluationModeIr::Eager {
-            continue;
+    for (_, mode, unit) in graph.materialized_units() {
+        match mode {
+            ModuleMaterializationModeIr::Eager => {}
+            ModuleMaterializationModeIr::Deferred => continue,
         }
         for binding in &unit.record.environment {
             if binding.kind != ModuleBindingKindIr::Import {
@@ -1265,6 +1262,101 @@ mod tests {
             linked.source_text.contains(&format!("const src = {cell};")),
             "got {}",
             linked.source_text
+        );
+    }
+
+    /// A source-only unit is still parsed and linked, but none of the runtime
+    /// scaffolding named by its own body belongs to the artifact. This is one
+    /// contract rather than four feature tests: every collector must consume
+    /// the same materialization witness or an inactive alias leaks into the
+    /// entry's merged scope.
+    #[test]
+    fn module_source_only_units_contribute_no_runtime_scaffolding() {
+        let sources = sources_of(
+            &[
+                (
+                    "inactive",
+                    "import * as ghost from \"namespace\";\n\
+                     import source nested from \"nested\";\n\
+                     import.meta;\n\
+                     import(\"dynamic\");\n\
+                     export const value = 1;",
+                ),
+                ("namespace", "export const visible = 1;"),
+                ("nested", "export const nested = 1;"),
+                ("dynamic", "export const dynamic = 1;"),
+                (
+                    "entry",
+                    "import source artifact from \"inactive\";\n\
+                     print(typeof ghost);\n\
+                     artifact;",
+                ),
+            ],
+            4,
+            vec![
+                (0, plain("namespace"), 1),
+                (0, phased("nested", ImportPhaseIr::Source), 2),
+                (0, plain("dynamic"), 3),
+                (4, phased("inactive", ImportPhaseIr::Source), 0),
+            ],
+        );
+        let mut graph = graph_of(&sources);
+
+        for module in 0..4 {
+            assert_eq!(
+                graph.evaluation_mode(module),
+                ModuleEvaluationModeIr::NotEvaluated
+            );
+        }
+        assert!(
+            graph.components.is_empty(),
+            "an import() in a source-only referrer is not an artifact component"
+        );
+        assert_eq!(
+            crate::modules::namespace::ensure_namespace(&mut graph, 0),
+            None,
+            "a source-only unit has no environment for a namespace"
+        );
+
+        let linked = linked_script_source(&sources, &mut graph)
+            .expect("source-only runtime scaffolding must not reject the active graph");
+        let text = &linked.source_text;
+        let inactive_source = MergedName::minted(0, UnitCellRole::ModuleSource);
+        assert!(
+            text.contains(&format!(
+                "const {} = Object.create(null);",
+                inactive_source.as_str()
+            )),
+            "the active referrer's source object is required: {text}"
+        );
+        assert!(
+            text.contains(&format!("const artifact = {};", inactive_source.as_str())),
+            "the active source binding is required: {text}"
+        );
+
+        for absent in [
+            MergedName::minted(1, UnitCellRole::Namespace),
+            MergedName::minted(2, UnitCellRole::ModuleSource),
+            MergedName::minted(3, UnitCellRole::Namespace),
+            MergedName::minted(0, UnitCellRole::ImportMeta),
+        ] {
+            assert!(
+                !text.contains(absent.as_str()),
+                "inactive runtime cell {} leaked into: {text}",
+                absent.as_str()
+            );
+        }
+        assert!(
+            !text.contains("const ghost ="),
+            "inactive alias leaked: {text}"
+        );
+        assert!(
+            !text.contains("function $lila$module$import$0("),
+            "inactive dispatcher leaked: {text}"
+        );
+        assert!(
+            text.contains("print(typeof ghost)"),
+            "the active observation must remain: {text}"
         );
     }
 
