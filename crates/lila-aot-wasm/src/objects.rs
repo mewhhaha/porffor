@@ -12,6 +12,127 @@ use lila_ir::property_descriptor::{
     ValidatedDescriptor, TO_PROPERTY_DESCRIPTOR_ORDER,
 };
 
+/// The five legal private-element heap rows, with their required locals.
+///
+/// Keeping receiver and value presence inside the variant prevents the raw
+/// kind/`Option` Cartesian product described by
+/// `docs/rust-rewrite/contracts/private-element-entry-protocol.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrivateElementEntryLocals {
+    Brand {
+        receiver: (u32, u32),
+    },
+    Field {
+        receiver: (u32, u32),
+        value: (u32, u32),
+    },
+    SetterDefinition {
+        value: (u32, u32),
+    },
+    MethodDefinition {
+        value: (u32, u32),
+    },
+    GetterDefinition {
+        value: (u32, u32),
+    },
+}
+
+impl PrivateElementEntryLocals {
+    const fn kind(self) -> PrivateElementHeapKind {
+        match self {
+            Self::Brand { .. } => PrivateElementHeapKind::Brand,
+            Self::Field { .. } => PrivateElementHeapKind::Field,
+            Self::SetterDefinition { .. } => PrivateElementHeapKind::SetterDefinition,
+            Self::MethodDefinition { .. } => PrivateElementHeapKind::MethodDefinition,
+            Self::GetterDefinition { .. } => PrivateElementHeapKind::GetterDefinition,
+        }
+    }
+
+    const fn receiver(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Brand { receiver } | Self::Field { receiver, .. } => Some(receiver),
+            Self::SetterDefinition { .. }
+            | Self::MethodDefinition { .. }
+            | Self::GetterDefinition { .. } => None,
+        }
+    }
+
+    const fn value(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Brand { .. } => None,
+            Self::Field { value, .. }
+            | Self::SetterDefinition { value }
+            | Self::MethodDefinition { value }
+            | Self::GetterDefinition { value } => Some(value),
+        }
+    }
+}
+
+#[cfg(test)]
+mod private_element_entry_protocol_tests {
+    use super::*;
+
+    #[test]
+    fn private_element_rows_fix_wire_and_storage_projections() {
+        let receiver = (11, 12);
+        let value = (21, 22);
+        let rows = [
+            (
+                PrivateElementEntryLocals::Brand { receiver },
+                PrivateElementHeapKind::Brand,
+                Some(receiver),
+                None,
+            ),
+            (
+                PrivateElementEntryLocals::Field { receiver, value },
+                PrivateElementHeapKind::Field,
+                Some(receiver),
+                Some(value),
+            ),
+            (
+                PrivateElementEntryLocals::SetterDefinition { value },
+                PrivateElementHeapKind::SetterDefinition,
+                None,
+                Some(value),
+            ),
+            (
+                PrivateElementEntryLocals::MethodDefinition { value },
+                PrivateElementHeapKind::MethodDefinition,
+                None,
+                Some(value),
+            ),
+            (
+                PrivateElementEntryLocals::GetterDefinition { value },
+                PrivateElementHeapKind::GetterDefinition,
+                None,
+                Some(value),
+            ),
+        ];
+
+        for (entry, kind, expected_receiver, expected_value) in rows {
+            assert_eq!(entry.kind(), kind);
+            assert_eq!(entry.receiver(), expected_receiver);
+            assert_eq!(entry.value(), expected_value);
+            assert_eq!(kind.has_receiver(), expected_receiver.is_some());
+            assert_eq!(kind.has_value(), expected_value.is_some());
+        }
+
+        assert_eq!(
+            rows.map(|(_, kind, _, _)| kind.wire_word()),
+            [0, 1, 2, 3, 4]
+        );
+        assert_eq!(
+            [
+                PrivateElementDefinitionKind::Setter,
+                PrivateElementDefinitionKind::Method,
+                PrivateElementDefinitionKind::Getter,
+            ]
+            .map(|kind| kind.heap_kind().wire_word()),
+            [2, 3, 4]
+        );
+    }
+}
+
 /// Wasm blocks opened by the **runtime** strictness guard on an object write.
 ///
 /// PutValue 3.d asks whether `V.[[Strict]]` is true. When that answer is only
@@ -9066,10 +9187,10 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_private_element_entry_add(
-            Some((receiver_payload_local, receiver_tag_local)),
             token_local,
-            PRIVATE_ELEMENT_KIND_BRAND,
-            None,
+            PrivateElementEntryLocals::Brand {
+                receiver: (receiver_payload_local, receiver_tag_local),
+            },
             function,
         )
     }
@@ -9084,10 +9205,11 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_private_element_entry_add(
-            Some((receiver_payload_local, receiver_tag_local)),
             token_local,
-            PRIVATE_ELEMENT_KIND_FIELD,
-            Some((value_payload_local, value_tag_local)),
+            PrivateElementEntryLocals::Field {
+                receiver: (receiver_payload_local, receiver_tag_local),
+                value: (value_payload_local, value_tag_local),
+            },
             function,
         )
     }
@@ -9100,10 +9222,10 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_private_element_entry_add(
-            None,
             token_local,
-            PRIVATE_ELEMENT_KIND_SETTER,
-            Some((setter_payload_local, setter_tag_local)),
+            PrivateElementEntryLocals::SetterDefinition {
+                value: (setter_payload_local, setter_tag_local),
+            },
             function,
         )
     }
@@ -9116,10 +9238,10 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_private_element_entry_add(
-            None,
             token_local,
-            PRIVATE_ELEMENT_KIND_METHOD,
-            Some((method_payload_local, method_tag_local)),
+            PrivateElementEntryLocals::MethodDefinition {
+                value: (method_payload_local, method_tag_local),
+            },
             function,
         )
     }
@@ -9132,25 +9254,29 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_private_element_entry_add(
-            None,
             token_local,
-            PRIVATE_ELEMENT_KIND_GETTER,
-            Some((getter_payload_local, getter_tag_local)),
+            PrivateElementEntryLocals::GetterDefinition {
+                value: (getter_payload_local, getter_tag_local),
+            },
             function,
         )
     }
 
     fn emit_private_element_entry_add(
         &mut self,
-        receiver_locals: Option<(u32, u32)>,
         token_local: u32,
-        kind: u64,
-        value_locals: Option<(u32, u32)>,
+        entry: PrivateElementEntryLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let realm_local = self.reserve_temp_local();
         let previous_local = self.reserve_temp_local();
         let entry_local = self.reserve_temp_local();
+        let kind = entry.kind();
+        let receiver_locals = entry.receiver();
+        let value_locals = entry.value();
+
+        debug_assert_eq!(kind.has_receiver(), receiver_locals.is_some());
+        debug_assert_eq!(kind.has_value(), value_locals.is_some());
 
         if let Some((receiver_payload_local, receiver_tag_local)) = receiver_locals {
             let extensible_local = self.reserve_temp_local();
@@ -9235,7 +9361,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             entry_local,
             HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
-            kind,
+            kind.wire_word(),
             function,
         );
         if let Some((value_payload_local, value_tag_local)) = value_locals {
@@ -9278,6 +9404,48 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_private_receiver_kind_guard(kind_local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::Brand.wire_word() as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::Field.wire_word() as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_private_definition_kind_guard(kind_local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::SetterDefinition.wire_word() as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::MethodDefinition.wire_word() as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::GetterDefinition.wire_word() as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+    }
+
     pub(crate) fn emit_private_element_find(
         &mut self,
         receiver_local: u32,
@@ -9288,6 +9456,7 @@ impl<'a> FunctionBuilder<'a> {
         let realm_local = self.reserve_temp_local();
         let stored_receiver_local = self.reserve_temp_local();
         let stored_token_local = self.reserve_temp_local();
+        let stored_kind_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(realm_local));
@@ -9322,6 +9491,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            entry_local,
+            HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
+            stored_kind_local,
+            function,
+        );
+        Self::emit_private_receiver_kind_guard(stored_kind_local, function);
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
         self.load_i64_to_local_from_offset(
@@ -9334,6 +9510,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(stored_kind_local);
         self.release_temp_local(stored_token_local);
         self.release_temp_local(stored_receiver_local);
         self.release_temp_local(realm_local);
@@ -9342,11 +9519,12 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_private_element_definition_find(
         &mut self,
         token_local: u32,
-        kind: u64,
+        kind: PrivateElementDefinitionKind,
         entry_local: u32,
         function: &mut Function,
     ) {
         let realm_local = self.reserve_temp_local();
+        let stored_receiver_local = self.reserve_temp_local();
         let stored_token_local = self.reserve_temp_local();
         let stored_kind_local = self.reserve_temp_local();
 
@@ -9365,6 +9543,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::BrIf(1));
         self.load_i64_to_local_from_offset(
             entry_local,
+            HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
+            stored_receiver_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            entry_local,
             HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET,
             stored_token_local,
             function,
@@ -9378,12 +9562,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(stored_token_local));
         function.instruction(&Instruction::LocalGet(token_local));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(stored_kind_local));
-        function.instruction(&Instruction::I64Const(kind as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(stored_receiver_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(2));
+        Self::emit_private_definition_kind_guard(stored_kind_local, function);
+        function.instruction(&Instruction::LocalGet(stored_kind_local));
+        function.instruction(&Instruction::I64Const(kind.heap_kind().wire_word() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::BrIf(2));
         function.instruction(&Instruction::End);
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -9397,6 +9584,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(stored_kind_local);
         self.release_temp_local(stored_token_local);
+        self.release_temp_local(stored_receiver_local);
         self.release_temp_local(realm_local);
     }
 
@@ -9486,7 +9674,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(private_kind_local));
-        function.instruction(&Instruction::I64Const(PRIVATE_ELEMENT_KIND_FIELD as i64));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::Field.wire_word() as i64,
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
@@ -9504,7 +9694,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_private_element_definition_find(
             brand_token_local,
-            PRIVATE_ELEMENT_KIND_METHOD,
+            PrivateElementDefinitionKind::Method,
             definition_local,
             function,
         );
@@ -9513,7 +9703,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_private_element_definition_find(
             brand_token_local,
-            PRIVATE_ELEMENT_KIND_GETTER,
+            PrivateElementDefinitionKind::Getter,
             definition_local,
             function,
         );
@@ -9540,7 +9730,9 @@ impl<'a> FunctionBuilder<'a> {
             getter_tag_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(PRIVATE_ELEMENT_KIND_GETTER as i64));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::GetterDefinition.wire_word() as i64,
+        ));
         function.instruction(&Instruction::LocalSet(private_kind_local));
         function.instruction(&Instruction::Else);
         self.load_i64_to_local_from_offset(
@@ -9555,13 +9747,17 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(PRIVATE_ELEMENT_KIND_METHOD as i64));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::MethodDefinition.wire_word() as i64,
+        ));
         function.instruction(&Instruction::LocalSet(private_kind_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(private_kind_local));
-        function.instruction(&Instruction::I64Const(PRIVATE_ELEMENT_KIND_GETTER as i64));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::GetterDefinition.wire_word() as i64,
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_function_handle_call_with_throw_propagation(
@@ -9659,7 +9855,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(private_kind_local));
-        function.instruction(&Instruction::I64Const(PRIVATE_ELEMENT_KIND_FIELD as i64));
+        function.instruction(&Instruction::I64Const(
+            PrivateElementHeapKind::Field.wire_word() as i64,
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.store_i64_local_at_offset(
@@ -9677,7 +9875,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_private_element_definition_find(
             brand_token_local,
-            PRIVATE_ELEMENT_KIND_SETTER,
+            PrivateElementDefinitionKind::Setter,
             setter_definition_local,
             function,
         );

@@ -27,6 +27,16 @@ AsyncGeneratorFunction while suppressing their automatically generated
 `prototype` object. The exact matrix and boundary choices are recorded in
 `docs/rust-rewrite/contracts/function-protocol.md`.
 
+Private-element heap storage now has the closed five-row
+`PrivateElementHeapKind` protocol. Receiver rows are either a brand or a field;
+shared definition rows are a setter, method or getter. The entry writer accepts
+only legal row variants instead of independently combining an optional
+receiver, a raw integer kind and an optional value, and definition lookup has
+the narrower three-kind domain. Private read and write trap compiler-owned
+corrupt rows rather than treating an unknown kind as a brand. The stable wire
+words and backend/spec boundary are recorded in
+`docs/rust-rewrite/contracts/private-element-entry-protocol.md`.
+
 Cross-realm Function construction remains an explicit dynamic-source
 exclusion, and complete Function/class/private-element subtrees have not been
 verified against the current pin without materializations. This remains an

@@ -492,11 +492,67 @@ pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET: u64 = 24;
 pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET: u64 = 32;
 pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 40;
 pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_SIZE: u64 = 48;
-pub(crate) const PRIVATE_ELEMENT_KIND_BRAND: u64 = 0;
-pub(crate) const PRIVATE_ELEMENT_KIND_FIELD: u64 = 1;
-pub(crate) const PRIVATE_ELEMENT_KIND_SETTER: u64 = 2;
-pub(crate) const PRIVATE_ELEMENT_KIND_METHOD: u64 = 3;
-pub(crate) const PRIVATE_ELEMENT_KIND_GETTER: u64 = 4;
+
+/// The closed wire domain stored in a private-element heap entry.
+///
+/// This is a backend storage protocol, not ECMA-262's `field`/`method`/
+/// `accessor` domain. Methods and accessors install one receiver brand and
+/// share their callable definitions across instances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PrivateElementHeapKind {
+    Brand,
+    Field,
+    SetterDefinition,
+    MethodDefinition,
+    GetterDefinition,
+}
+
+impl PrivateElementHeapKind {
+    pub(crate) const fn wire_word(self) -> u64 {
+        match self {
+            Self::Brand => 0,
+            Self::Field => 1,
+            Self::SetterDefinition => 2,
+            Self::MethodDefinition => 3,
+            Self::GetterDefinition => 4,
+        }
+    }
+
+    pub(crate) const fn has_receiver(self) -> bool {
+        match self {
+            Self::Brand | Self::Field => true,
+            Self::SetterDefinition | Self::MethodDefinition | Self::GetterDefinition => false,
+        }
+    }
+
+    pub(crate) const fn has_value(self) -> bool {
+        match self {
+            Self::Brand => false,
+            Self::Field
+            | Self::SetterDefinition
+            | Self::MethodDefinition
+            | Self::GetterDefinition => true,
+        }
+    }
+}
+
+/// The subset legal for a shared private callable-definition lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PrivateElementDefinitionKind {
+    Setter,
+    Method,
+    Getter,
+}
+
+impl PrivateElementDefinitionKind {
+    pub(crate) const fn heap_kind(self) -> PrivateElementHeapKind {
+        match self {
+            Self::Setter => PrivateElementHeapKind::SetterDefinition,
+            Self::Method => PrivateElementHeapKind::MethodDefinition,
+            Self::Getter => PrivateElementHeapKind::GetterDefinition,
+        }
+    }
+}
 #[allow(dead_code)]
 pub(crate) const HEAP_PRIVATE_ENV_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
