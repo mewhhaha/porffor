@@ -104,6 +104,27 @@ claim that generator state machines, IteratorClose, helper closing or the whole
 Iterator tree are complete. The seam is dry-written and statically checked;
 Cargo, runtime and pinned Test262 gates remain deferred to the central verifier.
 
+The `%Iterator%` active-function rejection now uses the private closed
+`ActiveStandardBuiltinFunction::IteratorConstructor` identity instead of
+comparing `NewTarget` directly with the entry-realm constructor global. The
+typed emitter selects the self-backed created-realm function from the builtin
+environment when present and otherwise selects the exhaustively mapped entry
+global. This preserves exact object identity: constructing a realm's Iterator
+with itself throws before prototype lookup, while using either realm's distinct
+Iterator as the other realm's `NewTarget` remains a valid subclass-style
+construction. The shared construct dispatcher now classifies Iterator as
+direct-returning in `crates/lila-aot-wasm/src/functions.rs`, so its body performs
+the sole prototype Get and allocation after active-function rejection instead
+of inheriting generic preconstruction.
+Structural guards pin both identity producers, exact direct-returning membership
+and dispatch/Get/allocation source order. One CLI fixture covers the raw
+two-realm identity matrix and one observable prototype Get in both distinct
+directions. This is direct specification/source closure rather than a measured
+pinned Test262 failure. It does not generalize active-function identity to every
+builtin or complete broader T15 semantics. The seam is dry-written and
+statically checked; Cargo, runtime and pinned Test262 gates remain deferred to
+the central verifier.
+
 ## Objective
 
 Implement resumable generator execution, the complete iterator protocols, iterator helpers and explicit resource management through reusable state-machine and iterator-operation layers.

@@ -683,3 +683,29 @@ fn run_wasm_backend_uses_new_target_realm_for_iterator_prototype() {
     assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(stdout.contains("number(262"), "{stdout}");
 }
+
+/// `%Iterator%` rejects only its exact active function object. Created-realm
+/// copies share one emitted builtin body, but remain distinct function objects
+/// when either one is supplied as the other's `NewTarget`.
+#[test]
+fn run_wasm_backend_distinguishes_iterator_active_function_across_realms() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_iterator_constructor_active_function_realm.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(1515"), "{stdout}");
+}

@@ -3093,6 +3093,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::AsyncDisposableStackConstructor,
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
+            StandardBuiltinId::IteratorConstructor,
         ]
         .into_iter()
         .filter_map(|builtin| {

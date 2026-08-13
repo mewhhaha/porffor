@@ -40,6 +40,26 @@ enum IteratorHelperPrototypeOperation {
     Return,
 }
 
+/// A standard builtin whose algorithm observes its active function object's
+/// identity.
+///
+/// Created-realm copies share one emitted body with the entry-realm builtin,
+/// so the body cannot identify the active object by its entry global alone.
+/// Keeping the entry-global mapping behind this closed domain makes adding a
+/// second such builtin an exhaustive-match decision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActiveStandardBuiltinFunction {
+    IteratorConstructor,
+}
+
+impl ActiveStandardBuiltinFunction {
+    const fn entry_global_index(self) -> u32 {
+        match self {
+            Self::IteratorConstructor => ITERATOR_CONSTRUCTOR_GLOBAL_INDEX,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ArrayBufferSliceKind {
     Ordinary,
@@ -126,6 +146,26 @@ impl AtomicsIntegerOperation {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    /// Emit the exact active standard-builtin function payload.
+    ///
+    /// Created-realm standard builtins that need their own identity are
+    /// self-backed through `current_env_local`; entry-realm builtins carry zero
+    /// there and use their preallocated global. The closed identity supplies
+    /// that fallback rather than exposing a raw global at the call site.
+    fn emit_active_standard_builtin_function_payload(
+        &self,
+        active: ActiveStandardBuiltinFunction,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::GlobalGet(active.entry_global_index()));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::End);
+    }
+
     fn compile_typed_array_prototype_reverse_builtin(
         &mut self,
         function: &mut Function,
@@ -7881,7 +7921,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(
                     self.new_target_payload_local().unwrap(),
                 ));
-                function.instruction(&Instruction::GlobalGet(ITERATOR_CONSTRUCTOR_GLOBAL_INDEX));
+                self.emit_active_standard_builtin_function_payload(
+                    ActiveStandardBuiltinFunction::IteratorConstructor,
+                    function,
+                );
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::I32Or);

@@ -1,5 +1,14 @@
 # Iterator constructor realm prototype
 
+## Scope
+
+This contract spans the closed realm-prototype selection and generic construct
+routing in `crates/lila-aot-wasm/src/functions.rs`, the Iterator body in
+`crates/lila-aot-wasm/src/builtins/standard.rs`, the structural guards in
+`crates/lila-aot-wasm/src/lib.rs`, and the focused CLI fixture/test. Existing
+bootstrap and created-realm publication remain verified inputs rather than heap
+layout changes.
+
 `Iterator` creates its result with
 `OrdinaryCreateFromConstructor(NewTarget, "%Iterator.prototype%")`. The shared
 `GetPrototypeFromConstructor` rule is observable when
@@ -44,6 +53,13 @@ without consulting the fallback. Its representation tag travels with its
 payload into allocation so Object, Function and Array prototypes keep their
 exact identity and behavior.
 
+The shared `[[Construct]]` dispatcher classifies Iterator as a direct-returning
+constructor. Its dispatch invokes the Iterator body and leaves the generic
+construct block before that generic path reads `NewTarget.prototype` or
+preallocates a receiver. This makes the body the sole owner of the observable
+Get, fallback resolution and allocation; without that routing, the generic path
+and body would perform the operation twice.
+
 ## Storage and publication
 
 The realm-intrinsics record already owns and publishes the
@@ -65,10 +81,12 @@ getter pins one observable `prototype` read, a thrown getter pins abrupt
 completion before allocation, and a revocable function Proxy pins the required
 `GetFunctionRealm` TypeError route after the getter returns a primitive.
 
-The structural guard bounds the Iterator constructor arm. It requires exactly
-one typed required-realm selection and one tagged allocation, and rejects the
-legacy payload-only helper, `CurrentGlobal` selection and payload-only allocator
-inside that arm.
+The structural guards bound both the Iterator constructor arm and shared
+construct dispatcher. They require exactly one typed required-realm selection
+and one tagged allocation in the body, reject the legacy payload-only helper,
+`CurrentGlobal` selection and payload-only allocator there, and pin exactly one
+direct-returning Iterator membership before the generic prototype Get and
+receiver allocation.
 
 ## Deferred gates
 
@@ -90,6 +108,8 @@ current-pin publication path.
 This seam does not implement general generator suspension, `yield*`,
 `IteratorClose`, `AsyncIteratorClose`, iterator-helper close behavior, explicit
 resource disposal or GC validation. It does not claim that the complete
-Iterator tree is green. It changes only Iterator construction's primitive
-`NewTarget.prototype` fallback and preserves the exact representation tag of an
-explicit Object, Function or Array prototype through result allocation.
+Iterator tree is green. It changes Iterator construction's primitive
+`NewTarget.prototype` fallback, preserves the exact representation tag of an
+explicit Object, Function or Array prototype through result allocation, and
+routes Iterator directly to that owning body instead of pre-running generic
+construction.

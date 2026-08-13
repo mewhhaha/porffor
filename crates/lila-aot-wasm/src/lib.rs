@@ -442,6 +442,152 @@ mod tests {
     }
 
     #[test]
+    fn iterator_constructor_active_function_is_realm_local_and_closed() {
+        let functions = include_str!("functions.rs");
+        let standard = include_str!("builtins/standard.rs");
+        let bootstrap = include_str!("builtins/bootstrap.rs");
+        let host = include_str!("builtins/host.rs");
+
+        let domain = standard
+            .split_once("enum ActiveStandardBuiltinFunction {")
+            .expect("active standard-builtin domain should exist")
+            .1
+            .split_once("}\n\nimpl ActiveStandardBuiltinFunction")
+            .expect("active standard-builtin domain should be bounded")
+            .0;
+        let mapping = standard
+            .split_once("impl ActiveStandardBuiltinFunction {")
+            .expect("active standard-builtin global map should exist")
+            .1
+            .split_once("enum ArrayBufferSliceKind")
+            .expect("active standard-builtin global map should be bounded")
+            .0;
+        assert_eq!(domain.matches("    IteratorConstructor,").count(), 1);
+        assert_eq!(
+            domain
+                .lines()
+                .filter(|line| line.trim_end().ends_with(','))
+                .count(),
+            1
+        );
+        assert_eq!(
+            mapping
+                .matches("Self::IteratorConstructor => ITERATOR_CONSTRUCTOR_GLOBAL_INDEX")
+                .count(),
+            1
+        );
+
+        let emitter = standard
+            .split_once("fn emit_active_standard_builtin_function_payload(")
+            .expect("active standard-builtin emitter should exist")
+            .1
+            .split_once("fn compile_typed_array_prototype_reverse_builtin(")
+            .expect("active standard-builtin emitter should be bounded")
+            .0;
+        for (operation, count) in [
+            ("LocalGet(self.current_env_local)", 2),
+            ("Instruction::I64Eqz", 1),
+            ("Instruction::If(BlockType::Result(ValType::I64))", 1),
+            ("Instruction::GlobalGet(active.entry_global_index())", 1),
+        ] {
+            assert_eq!(
+                emitter.matches(operation).count(),
+                count,
+                "active standard-builtin emission must retain exactly {count} {operation} occurrence(s)"
+            );
+        }
+        let environment_test = emitter
+            .find("LocalGet(self.current_env_local)")
+            .expect("active emitter must inspect its realm environment");
+        let entry_fallback = emitter
+            .find("Instruction::GlobalGet(active.entry_global_index())")
+            .expect("active emitter must retain the typed entry fallback");
+        let created_identity = emitter
+            .rfind("LocalGet(self.current_env_local)")
+            .expect("active emitter must select its created-realm identity");
+        assert!(environment_test < entry_fallback && entry_fallback < created_identity);
+
+        let constructor = standard
+            .split_once("StandardBuiltinId::IteratorConstructor => {")
+            .expect("Iterator constructor builtin should exist")
+            .1
+            .split_once("StandardBuiltinId::FunctionConstructor => {")
+            .expect("Iterator constructor builtin should be bounded")
+            .0;
+        let active_call = "self.emit_active_standard_builtin_function_payload(\n                    ActiveStandardBuiltinFunction::IteratorConstructor,\n                    function,\n                );";
+        assert_eq!(constructor.matches(active_call).count(), 1);
+        assert!(
+            !constructor.contains("Instruction::GlobalGet(ITERATOR_CONSTRUCTOR_GLOBAL_INDEX)"),
+            "Iterator construction must not compare NewTarget with the entry global directly"
+        );
+        let active_test = constructor.find(active_call).unwrap();
+        let active_throw = constructor
+            .find("emit_throw_current_function_realm_type_error(")
+            .unwrap();
+        let prototype_resolution = constructor
+            .find("emit_new_target_prototype_to_locals(")
+            .unwrap();
+        assert!(active_test < active_throw && active_throw < prototype_resolution);
+
+        let entry_identity = "self.init_builtin_constructor_object(\n                StandardBuiltinId::IteratorConstructor,\n                ITERATOR_PROTOTYPE_GLOBAL_INDEX";
+        assert_eq!(bootstrap.matches(entry_identity).count(), 1);
+        let created_identity = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            iterator_constructor_local";
+        assert_eq!(host.matches(created_identity).count(), 1);
+        let created_type_error = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,\n            type_error_prototype_local";
+        assert_eq!(host.matches(created_type_error).count(), 1);
+
+        let construct = functions
+            .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
+            .expect("shared construct path should exist")
+            .1
+            .split_once("pub(crate) fn copy_function_realm_typed_array_prototypes(")
+            .expect("shared construct path should be bounded")
+            .0;
+        let direct_returning_domain = construct
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct_returning_domain
+                .matches("StandardBuiltinId::IteratorConstructor,")
+                .count(),
+            1,
+            "Iterator must route to its body before generic construction"
+        );
+        let direct_dispatch = construct
+            .find("for table_index in direct_returning_constructor_table_indices {")
+            .expect("direct-returning constructor dispatch should exist");
+        let generic_prototype_get = construct
+            .find("function.instruction(&Instruction::I64Const(self.strings.payload(\"prototype\")));")
+            .expect("generic construct path should read NewTarget.prototype");
+        let generic_preallocation = construct
+            .find("self.emit_alloc_plain_object_with_prototype_and_tag(")
+            .expect("generic construct path should allocate its receiver");
+        assert!(
+            direct_dispatch < generic_prototype_get
+                && generic_prototype_get < generic_preallocation,
+            "Iterator's direct-returning body must run before generic prototype Get and allocation"
+        );
+        let direct_dispatch_body = &construct[direct_dispatch..generic_prototype_get];
+        assert_eq!(
+            direct_dispatch_body
+                .matches("Instruction::CallIndirect {")
+                .count(),
+            1
+        );
+        assert_eq!(
+            direct_dispatch_body
+                .matches("function.instruction(&Instruction::Br(1));")
+                .count(),
+            1,
+            "a direct-returning constructor must leave the generic construct block"
+        );
+    }
+
+    #[test]
     fn date_constructor_realm_prototype_is_required_and_published() {
         let heap = include_str!("heap.rs");
         let functions = include_str!("functions.rs");
