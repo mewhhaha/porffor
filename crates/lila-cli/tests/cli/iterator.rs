@@ -235,6 +235,28 @@ fn run_wasm_backend_succeeds_for_iterator_helper_prototype_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_dispatches_borrowed_iterator_helper_methods_for_all_families() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_iterator_helper_prototype_dispatch_matrix.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "iterator helper dispatch matrix: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_iterator_from_wrapper_return_invalid_this_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

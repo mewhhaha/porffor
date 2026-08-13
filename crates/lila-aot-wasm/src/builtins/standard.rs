@@ -24,6 +24,17 @@ const ITERATOR_ZIP_MODE_SHORTEST: u64 = 0.0_f64.to_bits();
 const ITERATOR_ZIP_MODE_LONGEST: u64 = 1.0_f64.to_bits();
 const ITERATOR_ZIP_MODE_STRICT: u64 = 2.0_f64.to_bits();
 
+/// Which shared `%IteratorHelperPrototype%` method is dispatching to a concrete
+/// helper family.
+///
+/// This is a closed specification domain, not a flag: adding another shared
+/// operation must define its target for every helper family below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IteratorHelperPrototypeOperation {
+    Next,
+    Return,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ArrayBufferSliceKind {
     Ordinary,
@@ -3922,7 +3933,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         this_payload_local: u32,
         this_tag_local: u32,
-        is_return: bool,
+        operation: IteratorHelperPrototypeOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let brand_local = self.reserve_temp_local();
@@ -4001,10 +4012,9 @@ impl<'a> FunctionBuilder<'a> {
             if !creator_is_initialized {
                 continue;
             }
-            let builtin = if is_return {
-                return_builtin
-            } else {
-                next_builtin
+            let builtin = match operation {
+                IteratorHelperPrototypeOperation::Next => next_builtin,
+                IteratorHelperPrototypeOperation::Return => return_builtin,
             };
             let meta = self
                 .functions
@@ -14215,7 +14225,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_helper_dispatch(
                     this_payload_local,
                     this_tag_local,
-                    false,
+                    IteratorHelperPrototypeOperation::Next,
                     function,
                 )?;
             }
@@ -14233,7 +14243,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_helper_dispatch(
                     this_payload_local,
                     this_tag_local,
-                    true,
+                    IteratorHelperPrototypeOperation::Return,
                     function,
                 )?;
             }

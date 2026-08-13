@@ -77,6 +77,19 @@ initialization still returns `undefined`. This seam is dry-written and
 statically checked in this batch; Cargo and focused runtime gates remain
 deferred to the central verifier.
 
+The shared `%IteratorHelperPrototype%` dispatcher now carries the private closed
+`IteratorHelperPrototypeOperation::{Next, Return}` domain instead of an
+`is_return: bool`. The two shared-prototype builtin arms are its only producers,
+and every concrete helper-family target choice matches it exhaustively. Adding
+an operation without a target is therefore `E0004`; passing the former boolean
+is `E0308`. A single CLI fixture borrows the shared `next` and `return` methods
+and exercises both on concat, zip, map, filter, flatMap, take and drop helpers.
+The representation change preserves the existing target builtins and emitted
+instruction order. This is invariant hardening, not a claim that broader helper
+semantics or IteratorClose coverage are complete. The seam is dry-written and
+statically checked; Cargo, runtime and pinned Test262 gates remain deferred to
+the central verifier.
+
 ## Objective
 
 Implement resumable generator execution, the complete iterator protocols, iterator helpers and explicit resource management through reusable state-machine and iterator-operation layers.
