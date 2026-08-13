@@ -334,6 +334,14 @@ mod tests {
                 EarlyErrorCode::DuplicateLexicalDeclaration,
             ),
             (
+                "Duplicate parameter name not allowed in this context",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "duplicate parameter name not allowed in unique formal parameters",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
                 "module cannot contain `super` on the top-level",
                 EarlyErrorCode::ModuleTopLevelSuper,
             ),
@@ -380,6 +388,25 @@ mod tests {
                 "{boa_message}"
             );
         }
+    }
+
+    #[test]
+    fn duplicate_formal_parameter_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "function duplicate(a, a) {}",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("module code is strict, so duplicate formal parameters should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::DuplicateFormalParameter)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
     }
 
     /// Drift B1, closed. A duplicate `__proto__` inside a *dependency* module

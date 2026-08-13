@@ -20,7 +20,7 @@ pub use lila_front::{EarlyErrorCode, ParseClassified};
 /// Which stage rejects a program carrying this code.
 ///
 /// The single `EarlyErrorCode → IrDiagnosticKind` map, exhaustive with no
-/// catch-all: a nineteenth code is `error[E0004]` here, which is the point.
+/// catch-all: a new code is `error[E0004]` here, which is the point.
 /// Phase and error type are then functions of the *kind*, so one code fixes all
 /// three and nothing can be paired inconsistently.
 ///
@@ -32,6 +32,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
     match code {
         EarlyErrorCode::ObjectDuplicateProto
         | EarlyErrorCode::DuplicateLexicalDeclaration
+        | EarlyErrorCode::DuplicateFormalParameter
         | EarlyErrorCode::DuplicateLabel
         | EarlyErrorCode::UndefinedBreakTarget
         | EarlyErrorCode::UndefinedContinueTarget

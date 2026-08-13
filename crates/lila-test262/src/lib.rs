@@ -20635,7 +20635,7 @@ fn compile_negative_error_detail(err: &lila_engine::EngineError) -> String {
     if let Some(diagnostic) = err.ir_diagnostic() {
         // `NO_EARLY_ERROR_CODE` names the *absence* of a code — an `Unsupported`
         // or `Lowering` diagnostic. It is spelled once, in
-        // `lila_front::early_error_code`, beside the eighteen codes it must
+        // `lila_front::early_error_code`, beside the closed code domain it must
         // never collide with; assertion P5' proves no `wire_name()` equals it.
         // It must stay a distinct token rather than an `EarlyErrorCode`
         // variant: a code that named the absence of a code would let `Some(_)`

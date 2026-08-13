@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary and duplicate-formal-parameter classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,14 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+Duplicate formal parameters now have one closed diagnostic condition across
+entry and retained dependency parsing. The classifier follows pinned Boa's two
+exact, case-sensitive wordings and preserves the spec exception for sloppy
+ordinary functions with simple parameter lists. This closes that bounded
+misclassification only; it does not claim the remaining formal-parameter early
+errors or the current-pin parser bucket are complete. The focused Cargo and
+Test262 verification is deferred to the shared verification lane.
 
 ## Objective
 

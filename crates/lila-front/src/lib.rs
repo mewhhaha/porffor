@@ -287,7 +287,7 @@ pub enum ParseCode {
 
 impl ParseCode {
     /// The single spelling authority for the two `P_...` codes; an early code
-    /// delegates to [`EarlyErrorCode::wire_name`], which owns all eighteen of
+    /// delegates to [`EarlyErrorCode::wire_name`], which owns all of
     /// the `E_...` spellings.
     #[must_use]
     pub const fn wire_name(self) -> &'static str {
@@ -710,6 +710,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn duplicate_formal_parameter_wordings_report_one_early_error() {
+        for source in [
+            "function duplicate(a = 0, a) {}",
+            "(a, a) => 0",
+            "class Duplicate { method(a, a) {} }",
+        ] {
+            let err = parse(source, ParseOptions::script())
+                .expect_err("duplicate formal parameters should fail in this context");
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::DuplicateFormalParameter),
+                "{source:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_formal_parameter_fixture_preserves_the_sloppy_script_exception() {
+        let source = include_str!("../tests/fixtures/duplicate_formal_parameters.js");
+        parse(source, ParseOptions::script())
+            .expect("sloppy ordinary function with a simple duplicate list should parse");
+
+        let err = parse(source, ParseOptions::module())
+            .expect_err("module code is strict, so duplicate formal parameters should fail");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::DuplicateFormalParameter),
+            "{err:?}"
+        );
+    }
+
     /// Drift B3, closed.
     ///
     /// `ModuleParser::parse` words this one ``lexical name `x` declared
@@ -1124,6 +1159,7 @@ switch (0) {
     #[test]
     fn only_parse_table_codes_are_parse_classified() {
         assert!(ParseClassified::from_early(EarlyErrorCode::ObjectDuplicateProto).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());

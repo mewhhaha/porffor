@@ -1,5 +1,19 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-13 duplicate-formal-parameter amendment
+
+T07 now classifies duplicate formal-parameter rejections through one new closed
+code and exactly the two case-sensitive messages emitted by the pinned Boa
+parser. The normative extension is:
+
+`docs/rust-rewrite/contracts/duplicate-formal-parameter-early-errors.md`
+
+The current domain has **19** variants and the one parse-failure table has
+**17** rows. The 18-variant and 15-row counts below describe the original
+taxonomy checkpoint; they are retained as measured history, not current counts.
+The extension deliberately preserves sloppy Script ordinary functions with a
+simple duplicate parameter list.
+
 ## 2026-08-12 parse-once amendment
 
 T07 supersedes the contract's old two-parser boundary. `lila-front` now owns
@@ -25,8 +39,9 @@ area brief, three of which change the encoding:
 - §0.1 — `EarlyErrorCode` cannot live in `lila-ir`; `lila-front` does not
   depend on it and cannot name its types. The enum, the table and the classifier
   go in a new `crates/lila-front/src/early_error_code.rs`.
-- §0.2 — the domain has **18** inhabitants, not 20. `E_IR_DIAGNOSTIC` names the
-  absence of a code and `E_TEST_EARLY` is a test fixture.
+- §0.2 — the original domain had **18** inhabitants, not 20.
+  `E_IR_DIAGNOSTIC` names the absence of a code and `E_TEST_EARLY` is a test
+  fixture. The 2026-08-13 extension adds the nineteenth real condition.
 - §0.4 — the `E_DUPLICATE_LEXICAL_DECLARATION` drift is bidirectional and one
   direction is conformance-visible, not merely taxonomy-visible.
 
@@ -72,7 +87,7 @@ evaluated by rustc for the first time**, which is what the whole encoding is for
 - `cargo check -p lila-front` — clean at that checkpoint. **P1–P6, P5′ and P10
   passed**: no empty
   fragment or fragment string, no `wire_name()` colliding with
-  `NO_EARLY_ERROR_CODE`, the 15-row `PARSE_FAILURE_RULE_TABLE` matches
+  `NO_EARLY_ERROR_CODE`, the then-15-row `PARSE_FAILURE_RULE_TABLE` matched
   `PARSE_FAILURE_RULE_COUNT`, every row's witnesses are matched by that row's own
   fragments, and `INTERPOLATING_MESSAGE_SHAPES` eats no witness.
 - `cargo check -p lila-ir` — clean at that checkpoint. **P7–P9 passed**: every

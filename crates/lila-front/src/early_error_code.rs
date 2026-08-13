@@ -37,7 +37,7 @@
 //! `Error::general` / `Error::lex` with no machine-readable kind, so the only
 //! oracle available is the message text. The types here buy **single-sourcing**
 //! (one spelling authority, one table, one classifier) and **exhaustiveness** (a
-//! nineteenth code fails to build at every consumer). They do **not** buy oracle
+//! new code fails to build at every consumer). They do **not** buy oracle
 //! robustness: if boa rewords a message, one row goes dead and no compile error
 //! fires. The `witnesses` column is the mitigation — it keeps the byte strings
 //! boa actually emits beside the fragments that are supposed to select them, in
@@ -115,7 +115,7 @@ macro_rules! early_error_codes {
         /// One pre-evaluation rejection condition. See the module docs.
         ///
         /// This is a closed domain: `match` over it without a catch-all, so that
-        /// a nineteenth condition is `error[E0004]` at every consumer rather
+        /// a new condition is `error[E0004]` at every consumer rather
         /// than a silent fall-through to some default classification.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(u8)]
@@ -132,14 +132,14 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 18] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 19] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
             /// This function's arms are the only `"E_..."` literals in the
             /// workspace, apart from [`NO_EARLY_ERROR_CODE`] — the one
             /// placeholder that names the *absence* of a code, now spelled in
-            /// this module beside them and proved distinct from all eighteen by
+            /// this module beside them and proved distinct from every code by
             /// assertion P5'.
             #[must_use]
             pub const fn wire_name(self) -> &'static str {
@@ -180,6 +180,11 @@ early_error_codes! {
     /// `VarDeclaredNames`, or a formal parameter name intersecting the body's
     /// `LexicallyDeclaredNames`.
     DuplicateLexicalDeclaration => "E_DUPLICATE_LEXICAL_DECLARATION";
+    /// Duplicate `BoundNames` in a non-simple formal-parameter list, strict
+    /// function code, or a grammar production requiring
+    /// `UniqueFormalParameters`. Sloppy ordinary functions with simple
+    /// parameter lists are deliberately excluded.
+    DuplicateFormalParameter => "E_DUPLICATE_FORMAL_PARAMETER";
     /// 14.13.1. `ContainsDuplicateLabels` with argument « » is `true`.
     DuplicateLabel => "E_DUPLICATE_LABEL";
     /// 14.13.1, applied by 16.1.1 / 16.2.1.2. `ContainsUndefinedBreakTarget`
@@ -258,7 +263,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 15;
+const PARSE_FAILURE_RULE_COUNT: usize = 17;
 
 /// The one fragment table.
 ///
@@ -344,25 +349,41 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::DuplicateLexicalDeclaration,
         witnesses: &["formal parameter `x` declared in lexically declared names"],
     },
-    // 8. boa_parser/src/parser/mod.rs:567
+    // 8. Ten pinned Boa producer sites use this exact, case-sensitive wording
+    //    for non-simple parameter lists and strict/context checks. See
+    //    `duplicate-formal-parameter-early-errors.md` for the measured inventory.
+    ParseFailureRule {
+        fragments: &["Duplicate parameter name not allowed in this context"],
+        code: EarlyErrorCode::DuplicateFormalParameter,
+        witnesses: &["Duplicate parameter name not allowed in this context"],
+    },
+    // 9. boa_parser/src/parser/function/mod.rs:199, shared by every
+    //    `UniqueFormalParameters` consumer. The lowercase `duplicate` is part
+    //    of the pinned message contract.
+    ParseFailureRule {
+        fragments: &["duplicate parameter name not allowed in unique formal parameters"],
+        code: EarlyErrorCode::DuplicateFormalParameter,
+        witnesses: &["duplicate parameter name not allowed in unique formal parameters"],
+    },
+    // 10. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
         fragments: &["module cannot contain", "super"],
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
-    // 9. boa_parser/src/parser/mod.rs:575
+    // 11. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
         fragments: &["module cannot contain", "new.target"],
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
-    // 10. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
+    // 12. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
         fragments: &["invalid private identifier usage"],
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
-    // 11-15. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
+    // 13-17. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
         fragments: &["duplicate label"],
         code: EarlyErrorCode::DuplicateLabel,
@@ -409,7 +430,7 @@ const fn rule_matches(rule: &ParseFailureRule, message: &str) -> bool {
 ///
 /// Spelled once, here, beside the codes it must never collide with; assertion
 /// P5' proves no `wire_name()` equals it. `lila-test262` names this constant
-/// rather than re-spelling the literal, so a nineteenth variant spelled
+/// rather than re-spelling the literal, so a new variant spelled
 /// `E_IR_DIAGNOSTIC` fails to build instead of silently merging with the
 /// "no code" bucket in every failure report.
 pub const NO_EARLY_ERROR_CODE: &str = "E_IR_DIAGNOSTIC";
@@ -695,8 +716,8 @@ const fn wire_names_are_well_formed() -> bool {
 /// P5': no code's `wire_name()` collides with [`NO_EARLY_ERROR_CODE`].
 ///
 /// That token names the *absence* of a code in every failure-detail string a
-/// coded diagnostic does not produce. A nineteenth variant spelled the same way
-/// would pass P4 and P5 — it is distinct from the other eighteen and
+/// coded diagnostic does not produce. A new variant spelled the same way would
+/// pass P4 and P5 — it is distinct from the other codes and
 /// well-formed — and would then be indistinguishable from "no code" in every
 /// report built from the wire name, reintroducing exactly the confusion the
 /// `Option<EarlyErrorCode>` representation was chosen to end.
