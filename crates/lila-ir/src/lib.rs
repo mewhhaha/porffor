@@ -51,7 +51,7 @@ use boa_interner::Interner;
 use boa_parser::{Parser, Source};
 use lila_front::{ParseGoal, ParsedModule, ParsedScript, ParsedSource, SourceUnit};
 use num_bigint::{BigInt, BigUint, Sign};
-use num_traits::{One, ToPrimitive, Zero};
+use num_traits::ToPrimitive;
 use regress::Regex;
 
 mod analysis;

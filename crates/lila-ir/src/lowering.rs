@@ -654,7 +654,6 @@ pub(crate) struct ScriptLowerer<'a> {
     static_generator_element_values: BTreeMap<String, Vec<TypedExpr>>,
     static_generator_call_overrides: BTreeMap<String, TypedExpr>,
     static_iterator_binding_values: BTreeMap<String, Vec<f64>>,
-    static_array_iterator_overrides: BTreeMap<String, Vec<f64>>,
     top_level_this_uses: usize,
     used_host_builtins: BTreeSet<HostBuiltinId>,
     host_builtin_calls: usize,
@@ -1167,7 +1166,6 @@ impl<'a> ScriptLowerer<'a> {
             static_generator_element_values: BTreeMap::new(),
             static_generator_call_overrides: BTreeMap::new(),
             static_iterator_binding_values: BTreeMap::new(),
-            static_array_iterator_overrides: BTreeMap::new(),
             top_level_this_uses: 0,
             used_host_builtins: BTreeSet::new(),
             host_builtin_calls: 0,
@@ -14117,15 +14115,6 @@ impl<'a> ScriptLowerer<'a> {
                                 );
                             }
                         }
-                        if target_name == MATH_NAME && field_name == "sumPrecise" && args.len() == 1
-                        {
-                            if let Some(value) = self.static_sum_precise_iterable_arg(&args[0]) {
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::Number),
-                                    ExprIr::Number(value.to_bits()),
-                                );
-                            }
-                        }
                         if target_name == STRING_NAME
                             && field_name == "fromCharCode"
                             && !args.is_empty()
@@ -26162,12 +26151,6 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_property_assign(&mut self, access: &PropertyAccess, rhs: &Expression) -> TypedExpr {
         match access {
             PropertyAccess::Simple(access) => {
-                if self
-                    .try_static_array_iterator_override(access.target(), access.field(), rhs)
-                    .is_some()
-                {
-                    return TypedExpr::undefined();
-                }
                 let target = self.lower_property_target(access.target());
 
                 match target.kind {
@@ -29696,60 +29679,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn static_sum_precise_literal_array(&self, expr: &Expression) -> Option<f64> {
-        let Expression::ArrayLiteral(array) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        let mut saw_pos_inf = false;
-        let mut saw_neg_inf = false;
-        let mut saw_pos_zero = false;
-        let mut finite_values = Vec::new();
-        for element in array.as_ref() {
-            let element = element.as_ref()?;
-            let value = self.static_sum_precise_number_element(element)?;
-            if value.is_nan() {
-                return Some(f64::NAN);
-            }
-            if value == f64::INFINITY {
-                saw_pos_inf = true;
-            }
-            if value == f64::NEG_INFINITY {
-                saw_neg_inf = true;
-            }
-            if value == 0.0 {
-                if value.to_bits() == 0.0f64.to_bits() {
-                    saw_pos_zero = true;
-                }
-            } else if value.is_finite() {
-                finite_values.push(value);
-            }
-        }
-        match (saw_pos_inf, saw_neg_inf) {
-            (true, true) => Some(f64::NAN),
-            (true, false) => Some(f64::INFINITY),
-            (false, true) => Some(f64::NEG_INFINITY),
-            (false, false) if finite_values.is_empty() && saw_pos_zero => Some(0.0),
-            (false, false) if finite_values.is_empty() => Some(-0.0),
-            (false, false) => Some(Self::static_precise_sum(&finite_values)),
-        }
-    }
-
-    fn static_sum_precise_iterable_arg(&self, expr: &Expression) -> Option<f64> {
-        if let Some(value) = self.static_sum_precise_literal_array(expr) {
-            return Some(value);
-        }
-        if let Some(values) = self.static_generator_call_values(expr) {
-            return Some(Self::static_sum_precise_values(values));
-        }
-        if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(expr) {
-            let name = self.interner.resolve_expect(identifier.sym()).to_string();
-            if let Some(values) = self.static_array_iterator_overrides.get(&name) {
-                return Some(Self::static_sum_precise_values(values));
-            }
-        }
-        None
-    }
-
     fn static_generator_call_values(&self, expr: &Expression) -> Option<&[f64]> {
         let name = self.static_generator_call_name(expr)?;
         self.static_generator_sum_values
@@ -30217,75 +30146,6 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn static_generator_name_values(&self, expr: &Expression) -> Option<&[f64]> {
-        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        self.static_generator_sum_values
-            .get(&name)
-            .map(Vec::as_slice)
-    }
-
-    fn static_target_identifier_name(&self, expr: &Expression) -> Option<String> {
-        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        Some(self.interner.resolve_expect(identifier.sym()).to_string())
-    }
-
-    fn try_static_array_iterator_override(
-        &mut self,
-        target: &Expression,
-        field: &PropertyAccessField,
-        rhs: &Expression,
-    ) -> Option<()> {
-        let PropertyAccessField::Expr(field_expr) = field else {
-            return None;
-        };
-        if self.try_well_known_symbol_key_name(field_expr) != Some(WellKnownSymbol::Iterator) {
-            return None;
-        }
-        let target_name = self.static_target_identifier_name(target)?;
-        let values = self.static_generator_name_values(rhs)?.to_vec();
-        self.static_array_iterator_overrides
-            .insert(target_name, values);
-        Some(())
-    }
-
-    fn static_sum_precise_values(values: &[f64]) -> f64 {
-        let mut saw_pos_inf = false;
-        let mut saw_neg_inf = false;
-        let mut saw_pos_zero = false;
-        let mut finite_values = Vec::new();
-        for &value in values {
-            if value.is_nan() {
-                return f64::NAN;
-            }
-            if value == f64::INFINITY {
-                saw_pos_inf = true;
-            }
-            if value == f64::NEG_INFINITY {
-                saw_neg_inf = true;
-            }
-            if value == 0.0 {
-                if value.to_bits() == 0.0f64.to_bits() {
-                    saw_pos_zero = true;
-                }
-            } else if value.is_finite() {
-                finite_values.push(value);
-            }
-        }
-        match (saw_pos_inf, saw_neg_inf) {
-            (true, true) => f64::NAN,
-            (true, false) => f64::INFINITY,
-            (false, true) => f64::NEG_INFINITY,
-            (false, false) if finite_values.is_empty() && saw_pos_zero => 0.0,
-            (false, false) if finite_values.is_empty() => -0.0,
-            (false, false) => Self::static_precise_sum(&finite_values),
-        }
-    }
-
     fn array_literal_from_static_generator_values(&self, values: &[f64]) -> TypedExpr {
         Self::array_literal_from_lowered(
             values
@@ -30346,109 +30206,6 @@ impl<'a> ScriptLowerer<'a> {
             return 0.0;
         }
         (value + 0.5).floor()
-    }
-
-    fn static_precise_sum(values: &[f64]) -> f64 {
-        let mut terms = Vec::new();
-        let mut min_shift = i32::MAX;
-        for &value in values {
-            if value == 0.0 {
-                continue;
-            }
-            let (negative, mantissa, shift) = Self::decompose_finite_f64(value);
-            min_shift = min_shift.min(shift);
-            terms.push((negative, mantissa, shift));
-        }
-
-        if terms.is_empty() {
-            return 0.0;
-        }
-
-        let mut total = BigInt::zero();
-        for (negative, mantissa, shift) in terms {
-            let scaled = BigUint::from(mantissa) << ((shift - min_shift) as usize);
-            let term = BigInt::from_biguint(Sign::Plus, scaled);
-            if negative {
-                total -= term;
-            } else {
-                total += term;
-            }
-        }
-
-        Self::round_exact_power_two_sum_to_f64(total, min_shift)
-    }
-
-    fn decompose_finite_f64(value: f64) -> (bool, u64, i32) {
-        let bits = value.to_bits();
-        let negative = (bits >> 63) != 0;
-        let exponent = ((bits >> 52) & 0x7ff) as i32;
-        let fraction = bits & ((1u64 << 52) - 1);
-        if exponent == 0 {
-            (negative, fraction, -1074)
-        } else {
-            (negative, (1u64 << 52) | fraction, exponent - 1023 - 52)
-        }
-    }
-
-    fn round_exact_power_two_sum_to_f64(total: BigInt, scale: i32) -> f64 {
-        if total.is_zero() {
-            return 0.0;
-        }
-
-        let negative = total.sign() == Sign::Minus;
-        let sign_bits = if negative { 1u64 << 63 } else { 0 };
-        let magnitude = total.magnitude().clone();
-        let mut exponent = magnitude.bits() as i32 - 1 + scale;
-        if exponent > 1023 {
-            return f64::from_bits(sign_bits | (0x7ffu64 << 52));
-        }
-
-        if exponent >= -1022 {
-            let bit_len = magnitude.bits();
-            let mut significand = if bit_len > 53 {
-                Self::round_shift_right(&magnitude, bit_len - 53)
-            } else {
-                &magnitude << ((53 - bit_len) as usize)
-            };
-            if significand.bits() > 53 {
-                significand >>= 1usize;
-                exponent += 1;
-                if exponent > 1023 {
-                    return f64::from_bits(sign_bits | (0x7ffu64 << 52));
-                }
-            }
-            let significand = significand.to_u64().unwrap_or(u64::MAX);
-            let exponent_bits = ((exponent + 1023) as u64) << 52;
-            let fraction_bits = significand - (1u64 << 52);
-            return f64::from_bits(sign_bits | exponent_bits | fraction_bits);
-        }
-
-        let subnormal_shift = scale + 1074;
-        let significand = if subnormal_shift >= 0 {
-            &magnitude << (subnormal_shift as usize)
-        } else {
-            Self::round_shift_right(&magnitude, (-subnormal_shift) as u64)
-        };
-        if significand.is_zero() {
-            return f64::from_bits(sign_bits);
-        }
-        f64::from_bits(sign_bits | significand.to_u64().unwrap_or(u64::MAX))
-    }
-
-    fn round_shift_right(value: &BigUint, shift: u64) -> BigUint {
-        if shift == 0 {
-            return value.clone();
-        }
-        let quotient = value >> (shift as usize);
-        let truncated = &quotient << (shift as usize);
-        let remainder = value - &truncated;
-        let half = BigUint::one() << ((shift - 1) as usize);
-        let quotient_is_odd = (&quotient & BigUint::one()) == BigUint::one();
-        if remainder > half || (remainder == half && quotient_is_odd) {
-            quotient + BigUint::one()
-        } else {
-            quotient
-        }
     }
 
     fn static_sum_precise_number_element(&self, expr: &Expression) -> Option<f64> {

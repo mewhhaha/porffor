@@ -5065,8 +5065,20 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.store_i64_local_at_offset(
                 method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
                 HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
                 type_error_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
                 function,
             );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));

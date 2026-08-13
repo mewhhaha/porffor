@@ -83,6 +83,31 @@ positive-zero output and large/tiny finite vectors. This batch has run only
 static gates for that seam; the focused Wasm fixture, pinned `Math/hypot` tree
 and broader Math gates remain deferred, and this is not a correctly-rounded
 last-bit, current-pin baseline-delta, complete Math or T20 closure claim. The
+`Math.sumPrecise` backend now consumes every input through the runtime sync
+iterator protocol; lowering no longer materializes literal arrays, generators
+or overridden array iterators into a compile-time answer. A closed iterator
+error policy gives the Math algorithm its defining/current-function-realm
+TypeErrors without changing the legacy realm route of array consumers, and an
+explicit count guard plus exact Number-tag check are the only algorithm-created
+errors that close the iterator while preserving the original throw. Five
+closed reduction states retain the specification's minus-zero, finite,
+infinity and NaN behavior while still visiting later values. Finite terms are
+added to one fixed signed 34-limb two's-complement accumulator: binary64 values
+are integer multiples of `2^-1074`, their largest coefficient has 2098 bits,
+and fewer than `2^53` terms need at most 2151 signed magnitude bits, below the
+2176-bit buffer. The sole finisher converts to magnitude and rounds once to
+nearest, ties to even. The focused
+[runtime reduction contract](../docs/rust-rewrite/contracts/math-sum-precise-runtime.md),
+bounded structure test and registered CLI fixture cover the runtime routes,
+signed zero, cancellation, adversarial rounding, exceptional-state
+continuation, close behavior and created-realm TypeErrors. This batch has run
+only static gates for the seam; the fixture also witnesses created-realm
+primitive iterator-prototype selection. The focused Wasm fixture, practical runtime
+coverage of the `2^53 - 1` RangeError guard, pinned `Math/sumPrecise` tree and
+broader Math gates remain deferred. It is not a generic iterator-realm or
+generator-close closure, an own/created-realm Arguments iterator repair, a
+current-HEAD ten-of-ten Test262 result, a throughput claim, complete Math or
+T20 closure. The
 JSON reviver frame protocol now has a theory source of
 truth at `docs/rust-rewrite/contracts/json-reviver-frame.md`. Its dynamic frame
 stores closed typed states and an explicit nested-versus-root property role;

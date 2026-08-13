@@ -42,7 +42,7 @@ pub(crate) const REALM_EVAL_SCRIPT_ESCAPE_MESSAGE: &str =
 /// points (`emit_throw_runtime_error`, `_to_active_handler`,
 /// `_with_prototype_local` and the four `emit_throw_current_function_realm_*`
 /// wrappers) was walked transitively through the `&str` parameters they forward
-/// through, giving 903 reachable message literals; the 126 below plus the two
+/// through, giving 908 reachable message literals; the 131 below plus the two
 /// typed RegExp matcher failures are the ones absent from both this file and
 /// `builtins::intl_date_time_format_pool_strings()`.
 ///
@@ -111,6 +111,11 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Map constructor requires new",
     "Map constructor set method is not callable",
     "Map.prototype.forEach callback must be callable",
+    "Math.sumPrecise input is not iterable",
+    "Math.sumPrecise iterable contains too many values",
+    "Math.sumPrecise iterator method must return an object",
+    "Math.sumPrecise iterator next method is not callable",
+    "Math.sumPrecise iterator next result must be an object",
     "Object.prototype.__proto__ setter called on null or undefined",
     "Object.prototype.__proto__ setter could not set prototype",
     "Object.prototype.hasOwnProperty called on null or undefined",

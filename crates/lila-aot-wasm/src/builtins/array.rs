@@ -1,5 +1,6 @@
 use super::super::*;
 use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use crate::control_flow::SyncIteratorErrorPolicy;
 use crate::objects::{TaggedLocals, WasmPartialDescriptor};
 use lila_ir::property_descriptor::Presence;
 
@@ -858,6 +859,7 @@ impl<'a> FunctionBuilder<'a> {
                         method_payload_local,
                         method_tag_local,
                         iterator_locals,
+                        SyncIteratorErrorPolicy::LegacyMainRealm,
                         function,
                     )?;
                     function.instruction(&Instruction::I64Const(0));
@@ -865,7 +867,12 @@ impl<'a> FunctionBuilder<'a> {
 
                     let break_target = self.open_frame(ControlFrameKind::Block, function);
                     let loop_target = self.open_frame(ControlFrameKind::Loop, function);
-                    self.emit_sync_iterator_step_value(iterator_locals, done_local, function)?;
+                    self.emit_sync_iterator_step_value(
+                        iterator_locals,
+                        done_local,
+                        SyncIteratorErrorPolicy::LegacyMainRealm,
+                        function,
+                    )?;
                     function.instruction(&Instruction::LocalGet(done_local));
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::I64Ne);

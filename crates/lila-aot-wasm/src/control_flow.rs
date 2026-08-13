@@ -110,6 +110,20 @@ pub(crate) struct SyncIteratorLocals {
     pub(crate) value_tag: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SyncIteratorErrorPolicy {
+    LegacyMainRealm,
+    MathSumPrecise,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SyncIteratorProtocolError {
+    NotIterable,
+    MethodResultNotObject,
+    NextNotCallable,
+    NextResultNotObject,
+}
+
 #[derive(Clone, Copy)]
 struct DestructuringIteratorLocals {
     iterator_payload: u32,
@@ -7762,6 +7776,7 @@ impl<'a> FunctionBuilder<'a> {
             method_payload,
             method_tag,
             locals.protocol(),
+            SyncIteratorErrorPolicy::LegacyMainRealm,
             function,
         )?;
         function.instruction(&Instruction::I64Const(0));
@@ -7883,6 +7898,52 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    fn emit_arguments_iterator_method_to_locals(
+        &mut self,
+        source_payload: u32,
+        source_tag: u32,
+        method_payload: u32,
+        method_tag: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let source_name = "$sync.iterator.arguments.source";
+        self.push_scope();
+        self.binding_scopes
+            .last_mut()
+            .expect("binding scope stack must exist")
+            .insert(
+                source_name.to_string(),
+                BindingStorage::Dynamic {
+                    tag_local: source_tag,
+                    payload_local: source_payload,
+                },
+            );
+        let source = TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Arguments,
+                possible_kinds: KindSet::from_kind(ValueKind::Arguments),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::Identifier(source_name.to_string()),
+        );
+        let method = TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::PropertyRead {
+                target: Box::new(source),
+                key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
+            },
+        );
+        self.compile_expr_to_locals(&method, method_payload, method_tag, function)?;
+        self.pop_scope();
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_get_iterator_from_value_locals(
         &mut self,
@@ -7892,6 +7953,7 @@ impl<'a> FunctionBuilder<'a> {
         method_payload: u32,
         method_tag: u32,
         locals: SyncIteratorLocals,
+        error_policy: SyncIteratorErrorPolicy,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         // The arguments exotic object resolves `@@iterator` through a dedicated
@@ -7900,40 +7962,20 @@ impl<'a> FunctionBuilder<'a> {
         // symbol-key read below misses that arm and leaves `arguments` without
         // an iterator, so `const [x, y] = arguments;` throws TypeError.
         if value_info.kind == ValueKind::Arguments {
-            let source_name = "$array.destructure.source";
-            self.push_scope();
-            self.binding_scopes
-                .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(
-                    source_name.to_string(),
-                    BindingStorage::Dynamic {
-                        tag_local: source_tag,
-                        payload_local: source_payload,
-                    },
-                );
-            let source =
-                TypedExpr::from_info(value_info, ExprIr::Identifier(source_name.to_string()));
-            let method = TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::PropertyRead {
-                    target: Box::new(source),
-                    key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
-                },
-            );
-            self.compile_expr_to_locals(&method, method_payload, method_tag, function)?;
-            self.pop_scope();
+            self.emit_arguments_iterator_method_to_locals(
+                source_payload,
+                source_tag,
+                method_payload,
+                method_tag,
+                function,
+            )?;
             return self.finish_get_iterator_from_method(
                 source_payload,
                 source_tag,
                 method_payload,
                 method_tag,
                 locals,
+                error_policy,
                 function,
             );
         }
@@ -7946,11 +7988,9 @@ impl<'a> FunctionBuilder<'a> {
         let source_object_tag = self.reserve_temp_local();
         self.compile_nullish_tagged_i32(source_tag, function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "destructuring value is not iterable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            error_policy,
+            SyncIteratorProtocolError::NotIterable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -7958,13 +7998,38 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         // Primitive sources (notably strings) resolve `@@iterator` through their
         // wrapper prototype; ToObject leaves objects, arrays and functions alone.
-        self.emit_value_to_object_locals(
-            source_payload,
-            source_tag,
-            source_object_payload,
-            source_object_tag,
-            function,
-        )?;
+        match error_policy {
+            SyncIteratorErrorPolicy::LegacyMainRealm => self.emit_value_to_object_locals(
+                source_payload,
+                source_tag,
+                source_object_payload,
+                source_object_tag,
+                function,
+            )?,
+            SyncIteratorErrorPolicy::MathSumPrecise => self
+                .emit_value_to_current_function_realm_object_locals(
+                    source_payload,
+                    source_tag,
+                    source_object_payload,
+                    source_object_tag,
+                    function,
+                )?,
+        }
+        let has_runtime_arguments_arm = value_info.possible_kinds.contains(ValueKind::Arguments);
+        if has_runtime_arguments_arm {
+            function.instruction(&Instruction::LocalGet(source_tag));
+            function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_arguments_iterator_method_to_locals(
+                source_payload,
+                source_tag,
+                method_payload,
+                method_tag,
+                function,
+            )?;
+            function.instruction(&Instruction::Else);
+        }
         function.instruction(&Instruction::I64Const(
             self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
@@ -7979,6 +8044,10 @@ impl<'a> FunctionBuilder<'a> {
             method_tag,
             function,
         )?;
+        if has_runtime_arguments_arm {
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
         self.release_temp_local(source_object_tag);
         self.release_temp_local(source_object_payload);
         self.finish_get_iterator_from_method(
@@ -7987,6 +8056,7 @@ impl<'a> FunctionBuilder<'a> {
             method_payload,
             method_tag,
             locals,
+            error_policy,
             function,
         )
     }
@@ -8003,17 +8073,16 @@ impl<'a> FunctionBuilder<'a> {
         method_payload: u32,
         method_tag: u32,
         locals: SyncIteratorLocals,
+        error_policy: SyncIteratorErrorPolicy,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_propagate_throw_from_locals_if_needed(method_payload, method_tag, function)?;
         self.emit_is_callable_i32(method_tag, method_payload, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "destructuring value is not iterable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            error_policy,
+            SyncIteratorProtocolError::NotIterable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -8054,11 +8123,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(locals.iterator_tag, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "destructuring iterator method must return object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            error_policy,
+            SyncIteratorProtocolError::MethodResultNotObject,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -8083,6 +8150,62 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         Ok(())
+    }
+
+    fn emit_sync_iterator_protocol_type_error(
+        &mut self,
+        policy: SyncIteratorErrorPolicy,
+        error: SyncIteratorProtocolError,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let message = match (policy, error) {
+            (SyncIteratorErrorPolicy::LegacyMainRealm, SyncIteratorProtocolError::NotIterable) => {
+                "destructuring value is not iterable"
+            }
+            (
+                SyncIteratorErrorPolicy::LegacyMainRealm,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => "destructuring iterator method must return object",
+            (
+                SyncIteratorErrorPolicy::LegacyMainRealm,
+                SyncIteratorProtocolError::NextNotCallable,
+            ) => "value is not callable",
+            (
+                SyncIteratorErrorPolicy::LegacyMainRealm,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => "iterator next result must be object",
+            (SyncIteratorErrorPolicy::MathSumPrecise, SyncIteratorProtocolError::NotIterable) => {
+                "Math.sumPrecise input is not iterable"
+            }
+            (
+                SyncIteratorErrorPolicy::MathSumPrecise,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => "Math.sumPrecise iterator method must return an object",
+            (
+                SyncIteratorErrorPolicy::MathSumPrecise,
+                SyncIteratorProtocolError::NextNotCallable,
+            ) => "Math.sumPrecise iterator next method is not callable",
+            (
+                SyncIteratorErrorPolicy::MathSumPrecise,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => "Math.sumPrecise iterator next result must be an object",
+        };
+        match policy {
+            SyncIteratorErrorPolicy::LegacyMainRealm => self.emit_throw_runtime_error(
+                TYPE_ERROR_NAME,
+                message,
+                self.result_local,
+                self.result_tag_local,
+                function,
+            ),
+            SyncIteratorErrorPolicy::MathSumPrecise => self
+                .emit_throw_current_function_realm_type_error(
+                    message,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                ),
+        }
     }
 
     fn compile_array_destructuring_element(
@@ -8319,10 +8442,22 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         locals: SyncIteratorLocals,
         done: u32,
+        error_policy: SyncIteratorErrorPolicy,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(done));
+        self.emit_is_callable_i32(locals.next_tag, locals.next_payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_sync_iterator_protocol_type_error(
+            error_policy,
+            SyncIteratorProtocolError::NextNotCallable,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(locals.next_tag));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -8357,11 +8492,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(locals.result_tag, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            error_policy,
+            SyncIteratorProtocolError::NextResultNotObject,
             function,
         )?;
         self.emit_propagate_current_throw(function);

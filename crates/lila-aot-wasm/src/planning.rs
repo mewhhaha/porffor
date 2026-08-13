@@ -583,6 +583,22 @@ mod tests {
     }
 
     #[test]
+    fn math_sum_precise_roots_sync_iterator_machinery() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::MathSumPrecise);
+
+        for builtin in [
+            StandardBuiltinId::ArrayPrototypeValues,
+            StandardBuiltinId::ArrayIteratorNext,
+            StandardBuiltinId::ArrayIteratorIdentity,
+            StandardBuiltinId::StringPrototypeIterator,
+            StandardBuiltinId::StringIteratorNext,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+        }
+    }
+
+    #[test]
     fn typed_array_constructors_root_array_iterator_machinery() {
         let mut plan = RuntimeBootstrapPlan::default();
         plan.require_standard_builtin(StandardBuiltinId::Uint8ArrayConstructor);
@@ -1502,6 +1518,7 @@ impl RuntimeBootstrapPlan {
                 | StandardBuiltinId::SetConstructor
                 | StandardBuiltinId::ObjectGroupBy
                 | StandardBuiltinId::ObjectFromEntries
+                | StandardBuiltinId::MathSumPrecise
         ) {
             if builtin == StandardBuiltinId::MapConstructor {
                 self.require_standard_builtin(StandardBuiltinId::MapGroupBy);
