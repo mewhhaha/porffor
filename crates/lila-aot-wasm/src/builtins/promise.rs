@@ -4164,6 +4164,8 @@ impl<'a> FunctionBuilder<'a> {
         let saved_result_tag_local = self.reserve_temp_local();
         let saved_completion_local = self.reserve_temp_local();
         let saved_completion_aux_local = self.reserve_temp_local();
+        let saved_throw_error_name_local = self.reserve_temp_local();
+        let saved_throw_error_message_local = self.reserve_temp_local();
         let saved_realm_local = self.reserve_temp_local();
         let job_record_local = self.reserve_temp_local();
         let next_job_local = self.reserve_temp_local();
@@ -4182,6 +4184,14 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(source));
             function.instruction(&Instruction::LocalSet(destination));
         }
+        function.instruction(&Instruction::GlobalGet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::LocalSet(saved_throw_error_name_local));
+        function.instruction(&Instruction::GlobalGet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::LocalSet(saved_throw_error_message_local));
         function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(saved_realm_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -4289,6 +4299,14 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(source));
             function.instruction(&Instruction::LocalSet(destination));
         }
+        function.instruction(&Instruction::LocalGet(saved_throw_error_name_local));
+        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::LocalGet(saved_throw_error_message_local));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
 
         self.release_temp_local(job_kind_local);
         self.release_temp_local(job_realm_local);
@@ -4298,6 +4316,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(next_job_local);
         self.release_temp_local(job_record_local);
         self.release_temp_local(saved_realm_local);
+        self.release_temp_local(saved_throw_error_message_local);
+        self.release_temp_local(saved_throw_error_name_local);
         self.release_temp_local(saved_completion_aux_local);
         self.release_temp_local(saved_completion_local);
         self.release_temp_local(saved_result_tag_local);

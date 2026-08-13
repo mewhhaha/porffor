@@ -399,7 +399,7 @@ impl<'a> FunctionBuilder<'a> {
                 Some((*parameter_index, statements.clone()))
             })
             .collect::<Vec<_>>();
-        if matches!(self.return_abi, ReturnAbi::MultiValue)
+        if matches!(self.return_abi(), ReturnAbi::MultiValue)
             && self.function_flavor == FunctionFlavor::Ordinary
         {
             let arguments_storage = self.allocate_dynamic_binding_storage(LEXICAL_ARGUMENTS_NAME);
@@ -730,7 +730,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) const fn new_target_payload_local(&self) -> Option<u32> {
-        if matches!(self.return_abi, ReturnAbi::MultiValue) {
+        if matches!(self.return_abi(), ReturnAbi::MultiValue) {
             Some(3)
         } else {
             None
@@ -738,7 +738,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) const fn new_target_tag_local(&self) -> Option<u32> {
-        if matches!(self.return_abi, ReturnAbi::MultiValue) {
+        if matches!(self.return_abi(), ReturnAbi::MultiValue) {
             Some(4)
         } else {
             None

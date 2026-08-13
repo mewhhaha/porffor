@@ -137,6 +137,61 @@ pub(crate) enum ReturnAbi {
     MultiValue,
 }
 
+/// The one exit policy owned by an emitted body.
+///
+/// `ReturnAbi` describes the public Wasm signature. This state additionally
+/// records the temporary host-checkpoint target that is live while main-source
+/// statements are emitted. Its private representation prevents an internal
+/// function from acquiring a main checkpoint or a caller from manufacturing a
+/// target without the checked transition methods below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CompletionExit(CompletionExitState);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompletionExitState {
+    MainExport,
+    MainJobCheckpoint(ControlTarget),
+    MultiValue,
+}
+
+impl CompletionExit {
+    fn for_return_abi(return_abi: ReturnAbi) -> Self {
+        Self(match return_abi {
+            ReturnAbi::MainExport => CompletionExitState::MainExport,
+            ReturnAbi::MultiValue => CompletionExitState::MultiValue,
+        })
+    }
+
+    pub(crate) const fn return_abi(&self) -> ReturnAbi {
+        match self.0 {
+            CompletionExitState::MainExport | CompletionExitState::MainJobCheckpoint(_) => {
+                ReturnAbi::MainExport
+            }
+            CompletionExitState::MultiValue => ReturnAbi::MultiValue,
+        }
+    }
+
+    pub(crate) const fn main_job_checkpoint_target(&self) -> Option<ControlTarget> {
+        match self.0 {
+            CompletionExitState::MainJobCheckpoint(target) => Some(target),
+            CompletionExitState::MainExport | CompletionExitState::MultiValue => None,
+        }
+    }
+
+    fn enter_main_job_checkpoint(&mut self, target: ControlTarget) {
+        assert!(matches!(self.0, CompletionExitState::MainExport));
+        self.0 = CompletionExitState::MainJobCheckpoint(target);
+    }
+
+    fn leave_main_job_checkpoint(&mut self, target: ControlTarget) {
+        assert!(matches!(
+            self.0,
+            CompletionExitState::MainJobCheckpoint(active) if active == target
+        ));
+        self.0 = CompletionExitState::MainExport;
+    }
+}
+
 /// Construction role of one emitted function.
 ///
 /// The main role necessarily carries the schema assigned by the module's type
@@ -229,7 +284,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) self_binding_name: Option<String>,
     pub(crate) script_global_bindings: Option<&'a GlobalBindingPlan>,
     pub(crate) uses_heap: bool,
-    pub(crate) return_abi: ReturnAbi,
+    pub(crate) completion_exit: CompletionExit,
     module_state: FunctionModuleState,
     pub(crate) binding_scopes: Vec<BTreeMap<String, BindingStorage>>,
     pub(crate) hoisted_vars: Vec<String>,
@@ -2785,7 +2840,7 @@ impl<'a> FunctionBuilder<'a> {
             self_binding_name,
             script_global_bindings,
             uses_heap,
-            return_abi,
+            completion_exit: CompletionExit::for_return_abi(return_abi),
             module_state,
             hoisted_vars,
             binding_scopes: Vec::new(),
@@ -3076,7 +3131,11 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) const fn is_main(&self) -> bool {
-        matches!(self.return_abi, ReturnAbi::MainExport)
+        matches!(self.return_abi(), ReturnAbi::MainExport)
+    }
+
+    pub(crate) const fn return_abi(&self) -> ReturnAbi {
+        self.completion_exit.return_abi()
     }
 
     pub(crate) fn is_script_global_binding(&self, name: &str) -> bool {
@@ -3313,8 +3372,20 @@ impl<'a> FunctionBuilder<'a> {
                 &mut function,
             )?;
         }
+        let main_job_checkpoint = if self.is_main() && self.uses_heap {
+            let target = self.open_frame(ControlFrameKind::Block, &mut function);
+            self.completion_exit.enter_main_job_checkpoint(target);
+            Some(target)
+        } else {
+            None
+        };
         self.compile_block_contents(self.body, &mut function)?;
-        if matches!(self.return_abi, ReturnAbi::MultiValue)
+        if let Some(target) = main_job_checkpoint {
+            self.completion_exit.leave_main_job_checkpoint(target);
+            self.pop_control(ControlFrameKind::Block);
+            function.instruction(&Instruction::End);
+        }
+        if matches!(self.return_abi(), ReturnAbi::MultiValue)
             && !self
                 .current_function_meta()
                 .is_some_and(|meta| meta.protocol.class_kind() == ClassFunctionKind::Constructor)
@@ -3351,7 +3422,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.pop_scope();
 
-        match self.return_abi {
+        match self.return_abi() {
             ReturnAbi::MainExport => {
                 function.instruction(&Instruction::LocalGet(self.result_tag_local));
                 function.instruction(&Instruction::I32WrapI64);
@@ -4516,7 +4587,7 @@ impl<'a> FunctionBuilder<'a> {
     // private, that call does not compile.
 
     fn init_current_env(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        match self.return_abi {
+        match self.return_abi() {
             ReturnAbi::MainExport => {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(self.current_env_local));

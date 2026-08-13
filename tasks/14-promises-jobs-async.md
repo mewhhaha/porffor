@@ -38,6 +38,18 @@ Both callback lookups select the enqueue-time current realm for a revoked Proxy,
 and the drain maps a null job realm to its saved host-checkpoint realm instead
 of installing zero or leaking the preceding job's realm.
 
+Main Script completion now has one closed exit policy. While source statements
+are emitted, every otherwise-terminal abrupt completion targets a code-sink
+tracked host-checkpoint block instead of returning from the Wasm export. The
+checkpoint drains jobs and then publishes the original Script completion;
+internal functions retain their direct four-word completion return. The drain
+also preserves the thrown error-name/message globals alongside the completion
+tuple, so an error raised by a queued job cannot overwrite the identity or
+message of an already-pending top-level throw. A durable engine regression
+requires the queued job's print side effect and the primary throw identity;
+central compile and that focused runtime contract remain queued behind the live
+current-pin matrix.
+
 This closes the current record/ordering/realm-source boundary; it does not yet
 provide the broader realm/agent-owned host queue contract. Async continuations
 still ride on reaction records, while module and finalization-cleanup jobs
@@ -121,16 +133,13 @@ a fix that reported *handled* rejections would have turned passes into failures:
 Implementation note: the promise record grew from 64 to 72 bytes for the list
 link, and the global registry gained two slots.
 
-Three holes remain in the same story:
+Two holes remain in the same story:
 
 - **Only the oldest unhandled rejection is reported**, because the main export
   carries a single completion value. Hosts normally report every one. Adequate
   for pass/fail scoring, imprecise as a diagnostic. `emit_report_unhandled_rejection`
   already walks the whole list and could print the rest via the host `print`
   import before setting the throw completion.
-- **A top-level throw in a script returns from main before the drain runs**, so
-  pending jobs are abandoned and any rejection they would have produced is never
-  reported. Pre-existing and unrelated to the fix above.
 - The rejection list is process-global rather than per-realm, so cross-realm
   (`$262.createRealm`) promises share one tracker. Untested territory rather
   than a known break - cross-realm is the one feature still failing the probe.

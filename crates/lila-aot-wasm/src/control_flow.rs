@@ -456,6 +456,10 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn emit_return_current_completion(&self, function: &mut Function) {
+        if let Some(target) = self.completion_exit.main_job_checkpoint_target() {
+            self.emit_branch_to_target(target, function);
+            return;
+        }
         for _ in 0..self.environment_depth {
             self.load_i64_to_local_from_offset(
                 self.current_env_local,
@@ -464,7 +468,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        match self.return_abi {
+        match self.return_abi() {
             ReturnAbi::MainExport => {
                 function.instruction(&Instruction::LocalGet(self.result_tag_local));
                 function.instruction(&Instruction::I32WrapI64);

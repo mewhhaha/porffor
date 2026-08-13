@@ -25364,6 +25364,42 @@ try {
     }
 
     #[test]
+    fn wasm_backend_drains_promise_jobs_after_top_level_throw_without_replacing_it() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            Promise.resolve(1).then(function () {
+                print("job");
+                throw new RangeError("secondary");
+            });
+            throw new TypeError("primary");
+        "#;
+        let error = engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("the primary top-level throw must remain observable");
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["job".to_string()],
+            "a top-level throw must not abandon jobs already queued by the script"
+        );
+        assert!(
+            error.message().contains("uncaught throw: TypeError")
+                && error.message().contains("primary"),
+            "the queued rejection must not replace the primary completion: {error:?}"
+        );
+        assert!(
+            !error.message().contains("secondary"),
+            "secondary job diagnostics must not overwrite the primary throw: {error:?}"
+        );
+    }
+
+    #[test]
     fn wasm_backend_async_function_returns_promise_before_its_reaction_runs() {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let source = r#"
