@@ -175,6 +175,26 @@ fn run_wasm_backend_quantifies_only_the_legacy_direct_astral_trail_unit() {
 }
 
 #[test]
+fn run_wasm_backend_enforces_unicode_sets_expression_shape() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_unicode_sets_expression_shape.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_regexp_exec_capture_program_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

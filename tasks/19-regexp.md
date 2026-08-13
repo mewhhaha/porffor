@@ -55,6 +55,23 @@ and IR/Wasm witnesses distinguish that code-unit behavior from the whole-scalar
 case folding, the restricted lookbehind subset, or arbitrary runtime pattern
 compilation.
 
+The `v`-mode class parser now commits to one closed expression shape after its
+first typed operand: union, homogeneous intersection, or homogeneous
+subtraction. A private operator enum owns delimiter and range semantics, and
+distinct tail parsers reject mixed operators, implicit operand unions and
+missing operands with a cited `ClassSetExpression` syntax rule. The focused
+[contract](../docs/rust-rewrite/contracts/regexp-unicode-set-expression-shape.md)
+and IR/Wasm witnesses keep valid chained operations live. A private validated
+`ClassSetCharacter` boundary rejects raw syntax characters and all reserved
+double punctuators while preserving escaped operands such as `[a&&\&]`, and
+enforces the decimal-digit lookahead after `\0`. A validated `\q{…}` stays a
+typed operand through outer closure, range and operator validation plus the
+exact §22.2.1.8 `MayContainStrings` negation early error. The typed capability
+marker then survives the complete Pattern group, named-reference, and
+nullable-group unbounded-quantifier checks; only a globally valid Pattern
+remains an explicit unsupported capability. This does not implement
+class-string matching, properties of strings or full UnicodeSets conformance.
+
 ## Objective
 
 Implement the ECMAScript regular-expression grammar, matching model and observable object protocol for every feature in the pinned suite. Treat the current Rust regex dependency as an implementation component only where its behavior exactly matches ECMAScript; do not expose host-regex semantics as JavaScript semantics.

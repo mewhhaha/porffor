@@ -58,6 +58,23 @@ quantifier only to the trail, as required by the non-Unicode grammar's code-unit
 atom boundary. See the focused
 [legacy direct-astral quantifier contract](contracts/regexp-legacy-direct-astral-quantifier.md).
 
+UnicodeSets class expressions now choose one closed grammar shape after their
+first typed operand: union, a homogeneous intersection chain, or a homogeneous
+subtraction chain. The private operator domain owns both delimiters and range
+semantics, so mixed operators, implicit unions inside operation operands and
+missing operands are syntax errors rather than silently compiled range sets.
+A private validated `ClassSetCharacter` boundary also rejects raw set-syntax
+characters, reserved double punctuators, and `\0` followed by a decimal digit
+while preserving escaped operands. A validated `\q{…}` remains typed while the
+entire enclosing expression, closing bracket, range rules, and exact
+§22.2.1.8 `MayContainStrings` negation early error are checked. Its typed marker
+then survives the complete Pattern parse, including group, named-reference,
+and nullable-group unbounded-quantifier checks; only a globally valid Pattern
+records the still-unimplemented string semantics as a capability gap.
+See the focused
+[class-expression shape contract](contracts/regexp-unicode-set-expression-shape.md).
+Class-string disjunctions and properties of strings remain capability gaps.
+
 ## Decision and rejected alternatives
 
 The selected engine is an extension of the current dedicated bytecode path.

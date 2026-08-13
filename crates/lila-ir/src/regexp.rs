@@ -480,13 +480,18 @@ impl RegExpProgram {
         lowerer.alternatives(&parsed.alternatives)?;
         lowerer.error_offset = pattern.len();
         lowerer.push(RegExpInstruction::accept())?;
-        Ok(Self {
-            flags,
-            capture_count: parsed.capture_count,
-            named_groups: parsed.named_groups,
-            instructions,
-            ranges: parsed.ranges,
-        })
+        match parsed.capability {
+            ParsedPatternCapability::MatcherReady => Ok(Self {
+                flags,
+                capture_count: parsed.capture_count,
+                named_groups: parsed.named_groups,
+                instructions,
+                ranges: parsed.ranges,
+            }),
+            ParsedPatternCapability::RequiresClassStringSemantics(required) => {
+                Err(required.unsupported_error())
+            }
+        }
     }
 
     /// Encodes match instructions followed by the code-point range pool. Flags
@@ -573,6 +578,14 @@ pub(crate) enum SyntaxRule {
     IdentityEscape,
     /// `ClassEscape` / `ClassSetCharacter` inside a character class.
     ClassEscape,
+    /// A raw or escaped character admitted by a `v`-mode set operand.
+    ClassSetCharacter,
+    /// The `\q{…}` delimiter and string-body grammar.
+    ClassStringDisjunction,
+    /// The mutually exclusive `v`-mode class union/intersection/subtraction grammar.
+    ClassSetExpression,
+    /// A negated UnicodeSets class whose contents may contain strings.
+    NegatedClassMayContainStrings,
     /// `\xHH`.
     HexEscapeSequence,
     /// `\uHHHH`.
@@ -603,7 +616,7 @@ impl SyntaxRule {
     /// be derived, so `all_syntax_rules_are_listed_once` checks it is sorted
     /// and duplicate-free — a copy-paste omission then shows up as a failing
     /// test rather than as a silently unaudited rule.
-    pub(crate) const ALL: [SyntaxRule; 24] = [
+    pub(crate) const ALL: [SyntaxRule; 28] = [
         SyntaxRule::UnclosedGroup,
         SyntaxRule::StrayClosingParenthesis,
         SyntaxRule::ModifierFlags,
@@ -619,6 +632,10 @@ impl SyntaxRule {
         SyntaxRule::CharacterEscape,
         SyntaxRule::IdentityEscape,
         SyntaxRule::ClassEscape,
+        SyntaxRule::ClassSetCharacter,
+        SyntaxRule::ClassStringDisjunction,
+        SyntaxRule::ClassSetExpression,
+        SyntaxRule::NegatedClassMayContainStrings,
         SyntaxRule::HexEscapeSequence,
         SyntaxRule::UnicodeEscapeSequence,
         SyntaxRule::CodePointEscape,
@@ -680,6 +697,18 @@ impl SyntaxRule {
             SyntaxRule::ClassEscape => {
                 "22.2.1 ClassEscape[+UnicodeMode] :: `b` | `-` | CharacterClassEscape | CharacterEscape, extended in UnicodeSetsMode by ClassSetCharacter :: `\\` ClassSetReservedPunctuator"
             }
+            SyntaxRule::ClassSetCharacter => {
+                "22.2.1 ClassSetCharacter :: [lookahead not in ClassSetReservedDoublePunctuator] SourceCharacter but not ClassSetSyntaxCharacter | `\\` CharacterEscape[+UnicodeMode] | `\\` ClassSetReservedPunctuator | `\\b`; CharacterEscape :: `0` [lookahead not in DecimalDigit]"
+            }
+            SyntaxRule::ClassStringDisjunction => {
+                "22.2.1 ClassStringDisjunction :: `\\q{` ClassStringDisjunctionContents `}`, where each non-empty ClassString is a sequence of ClassSetCharacter nodes"
+            }
+            SyntaxRule::ClassSetExpression => {
+                "22.2.1 ClassContents[+UnicodeSetsMode] :: ClassSetExpression, where ClassSetExpression is exactly one ClassUnion, ClassIntersection, or ClassSubtraction"
+            }
+            SyntaxRule::NegatedClassMayContainStrings => {
+                "22.2.1.1 CharacterClass and NestedClass early errors: `[^` ClassContents `]` is a Syntax Error if the 22.2.1.8 MayContainStrings result for ClassContents is true"
+            }
             SyntaxRule::HexEscapeSequence => {
                 "22.2.1 CharacterEscape :: HexEscapeSequence :: `x` HexDigit HexDigit"
             }
@@ -702,10 +731,10 @@ impl SyntaxRule {
                 "22.2.1 CharacterClass :: `[` ClassContents `]`"
             }
             SyntaxRule::ClassRangeOrder => {
-                "22.2.1.1 NonemptyClassRanges early error: it is a Syntax Error if the CharacterValue of the first ClassAtom is strictly greater than that of the second"
+                "22.2.1.1 range early errors: the CharacterValue of the first ClassAtom or ClassSetCharacter must not be strictly greater than that of the second"
             }
             SyntaxRule::ClassRangeBound => {
-                "22.2.1.1: it is a Syntax Error if IsCharacterClass of either ClassAtom of a range is true"
+                "22.2.1 ClassSetRange :: ClassSetCharacter `-` ClassSetCharacter; 22.2.1.1 ordinary class ranges reject a bound whose IsCharacterClass is true"
             }
         }
     }
@@ -788,7 +817,7 @@ impl fmt::Display for RegExpCompileError {
 /// half of that a `const` can check; `all_syntax_rules_are_listed_once` checks
 /// ordering and uniqueness, and `every_syntax_rule_has_a_pinned_witness` checks
 /// that each one is demonstrable.
-const _: () = assert!(SyntaxRule::ALL.len() == 24);
+const _: () = assert!(SyntaxRule::ALL.len() == 28);
 
 impl Error for RegExpCompileError {}
 
@@ -797,6 +826,43 @@ struct ParsedPattern {
     capture_count: u32,
     named_groups: Vec<RegExpNamedGroup>,
     ranges: Vec<(u32, u32)>,
+    capability: ParsedPatternCapability,
+}
+
+/// A syntax-valid Pattern either has a complete matcher representation or
+/// retains the first class-string operand whose semantics the matcher lacks.
+/// Keeping this closed prevents a parsed capability gap from becoming an
+/// accidentally emitted program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParsedPatternCapability {
+    MatcherReady,
+    RequiresClassStringSemantics(RequiresClassStringSemantics),
+}
+
+/// The typed capability marker carried from a locally validated `\q{…}`
+/// through the full Pattern parse and early-error pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RequiresClassStringSemantics {
+    first_offset: usize,
+}
+
+impl RequiresClassStringSemantics {
+    const fn earliest(self, other: Self) -> Self {
+        Self {
+            first_offset: if self.first_offset < other.first_offset {
+                self.first_offset
+            } else {
+                other.first_offset
+            },
+        }
+    }
+
+    fn unsupported_error(self) -> RegExpCompileError {
+        RegExpCompileError::unsupported_feature(
+            self.first_offset,
+            "`\\q` string literals are unsupported by this matcher-program grammar",
+        )
+    }
 }
 
 enum ParsedTerm {
@@ -871,6 +937,7 @@ enum ParsedAtom {
         negative: bool,
         body: Vec<Vec<ParsedTerm>>,
     },
+    RequiresClassStringSemantics(RequiresClassStringSemantics),
 }
 
 struct NamedCapture {
@@ -891,6 +958,7 @@ fn parse_pattern(
             capture_count: 0,
             named_groups: Vec::new(),
             ranges: Vec::new(),
+            capability: ParsedPatternCapability::MatcherReady,
         });
     }
 
@@ -915,11 +983,17 @@ fn parse_pattern(
     };
     let alternatives = parser.alternatives(None)?;
     let named_groups = named_groups(&parser.named_captures)?;
+    validate_named_backreferences(&alternatives, &named_groups)?;
+    let capability = match first_required_class_string_semantics(&alternatives) {
+        Some(required) => ParsedPatternCapability::RequiresClassStringSemantics(required),
+        None => ParsedPatternCapability::MatcherReady,
+    };
     Ok(ParsedPattern {
         alternatives,
         capture_count: parser.capture_count,
         named_groups,
         ranges: parser.ranges.into_entries(),
+        capability,
     })
 }
 
@@ -1034,7 +1108,9 @@ impl PatternParser<'_> {
                             let negative = self.bytes[self.offset + 3] == b'!';
                             self.offset += 4;
                             let body = self.alternatives(Some(atom_offset))?;
-                            if !lookbehind_body_supported(&body) {
+                            if first_required_class_string_semantics(&body).is_none()
+                                && !lookbehind_body_supported(&body)
+                            {
                                 return Err(RegExpCompileError::unsupported_feature(
                                     atom_offset,
                                     "lookbehind body uses an unsupported matcher atom",
@@ -1167,7 +1243,12 @@ impl PatternParser<'_> {
             };
         }
         if quantifier.max.is_none()
-            && matches!(&atom, ParsedTermAtom::Ordinary(atom) if atom_nullable(atom))
+            && matches!(
+                &atom,
+                ParsedTermAtom::Ordinary(atom)
+                    if atom_nullable(atom)
+                        && first_required_class_string_semantics_in_atom(atom).is_none()
+            )
         {
             return Err(RegExpCompileError::unsupported_feature(
                 quantifier_offset,
@@ -1430,7 +1511,14 @@ fn parse_instruction_atom(
                 }
             }
             RegExpUnicodeMode::UnicodeSets => {
-                parse_unicode_sets_class(bytes, offset, modifiers, pool)?
+                match parse_unicode_sets_class(bytes, offset, modifiers, pool)? {
+                    UnicodeSetsClassAtom::Instruction(instruction) => instruction,
+                    UnicodeSetsClassAtom::RequiresClassStringSemantics(required) => {
+                        return Ok(ParsedTermAtom::Ordinary(
+                            ParsedAtom::RequiresClassStringSemantics(required),
+                        ));
+                    }
+                }
             }
         },
         b'\\' => parse_escaped_atom(bytes, offset, unicode_mode, modifiers, pool)?,
@@ -1517,6 +1605,10 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
         ParsedAtom::NamedBackreference { .. } => true,
         ParsedAtom::NumberedBackreference { nullable, .. } => *nullable,
         ParsedAtom::Lookbehind { .. } => true,
+        // Parsing must continue through the whole Pattern. Its actual
+        // nullability is a matcher-semantic question and the typed capability
+        // marker prevents this tree from becoming a program.
+        ParsedAtom::RequiresClassStringSemantics(_) => false,
     }
 }
 
@@ -1533,6 +1625,7 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
             ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
                 lookbehind_body_supported(body)
             }
+            ParsedAtom::RequiresClassStringSemantics(_) => true,
             ParsedAtom::NamedBackreference { .. }
             | ParsedAtom::NumberedBackreference { .. }
             | ParsedAtom::Lookbehind { .. } => false,
@@ -1547,6 +1640,73 @@ fn term_nullable(term: &ParsedTerm) -> bool {
         } => quantifier.min == 0 || atom_nullable(atom),
         ParsedTerm::LegacyUtf16Pair { .. } => false,
     }
+}
+
+fn first_required_class_string_semantics(
+    alternatives: &[Vec<ParsedTerm>],
+) -> Option<RequiresClassStringSemantics> {
+    alternatives
+        .iter()
+        .flatten()
+        .filter_map(|term| match term {
+            ParsedTerm::Quantified { atom, .. } => {
+                first_required_class_string_semantics_in_atom(atom)
+            }
+            ParsedTerm::LegacyUtf16Pair { .. } => None,
+        })
+        .reduce(RequiresClassStringSemantics::earliest)
+}
+
+/// Finds the first deferred class-string capability inside one atom subtree.
+/// Parser-side matcher restrictions must consult this before returning an
+/// `UnsupportedFeature`, because the marker owns the capability verdict only
+/// after the rest of the Pattern has passed its early-error checks.
+fn first_required_class_string_semantics_in_atom(
+    atom: &ParsedAtom,
+) -> Option<RequiresClassStringSemantics> {
+    match atom {
+        ParsedAtom::Capture { body, .. }
+        | ParsedAtom::NonCapture { body, .. }
+        | ParsedAtom::Lookbehind { body, .. } => first_required_class_string_semantics(body),
+        ParsedAtom::RequiresClassStringSemantics(required) => Some(*required),
+        ParsedAtom::Instruction(_)
+        | ParsedAtom::NamedBackreference { .. }
+        | ParsedAtom::NumberedBackreference { .. } => None,
+    }
+}
+
+/// Runs the named-backreference early error before any deferred matcher
+/// capability is reported. The lowerer retains the same check as defense in
+/// depth, but syntax ownership lives in this complete Pattern pass.
+fn validate_named_backreferences(
+    alternatives: &[Vec<ParsedTerm>],
+    named_groups: &[RegExpNamedGroup],
+) -> Result<(), RegExpCompileError> {
+    for term in alternatives.iter().flatten() {
+        let ParsedTerm::Quantified { atom, .. } = term else {
+            continue;
+        };
+        match atom {
+            ParsedAtom::Capture { body, .. }
+            | ParsedAtom::NonCapture { body, .. }
+            | ParsedAtom::Lookbehind { body, .. } => {
+                validate_named_backreferences(body, named_groups)?;
+            }
+            ParsedAtom::NamedBackreference { name, offset } => {
+                if !named_groups.iter().any(|group| group.name == *name) {
+                    return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::UnknownGroupName,
+                        *offset,
+                        format!("unknown named backreference `{name}`"),
+                    ));
+                }
+            }
+            ParsedAtom::Instruction(_)
+            | ParsedAtom::NumberedBackreference { .. }
+            | ParsedAtom::RequiresClassStringSemantics(_) => {}
+        }
+    }
+    Ok(())
 }
 
 fn named_groups(captures: &[NamedCapture]) -> Result<Vec<RegExpNamedGroup>, RegExpCompileError> {
@@ -2747,6 +2907,13 @@ fn parse_class_atom(
     }
 }
 
+/// The result of parsing one complete `v`-mode class. A class string remains a
+/// typed parser atom until the complete Pattern has passed early errors.
+enum UnicodeSetsClassAtom {
+    Instruction(RegExpInstruction),
+    RequiresClassStringSemantics(RequiresClassStringSemantics),
+}
+
 /// Parses a `v`-mode `ClassSetExpression`, including nested classes, `--`
 /// difference and `&&` intersection.
 fn parse_unicode_sets_class(
@@ -2754,29 +2921,526 @@ fn parse_unicode_sets_class(
     offset: &mut usize,
     modifiers: Modifiers,
     pool: &mut RegExpRangePool,
-) -> Result<RegExpInstruction, RegExpCompileError> {
+) -> Result<UnicodeSetsClassAtom, RegExpCompileError> {
     let class_offset = *offset;
     let mut cursor = class_offset;
-    let (ranges, negated) = parse_class_set(bytes, &mut cursor)?;
+    let ParsedClassSet { value, negated } = parse_class_set(bytes, &mut cursor)?;
     *offset = cursor;
-    finish_range_set(ranges, negated, modifiers.ignore_case, pool, class_offset)
+    match value.semantics {
+        ClassSetSemantics::CodePoints(ranges) => {
+            finish_range_set(ranges, negated, modifiers.ignore_case, pool, class_offset)
+                .map(UnicodeSetsClassAtom::Instruction)
+        }
+        ClassSetSemantics::RequiresClassStringSemantics(required) => {
+            Ok(UnicodeSetsClassAtom::RequiresClassStringSemantics(required))
+        }
+    }
 }
 
-fn parse_class_set(
-    bytes: &[u8],
-    cursor: &mut usize,
-) -> Result<(Vec<(u32, u32)>, bool), RegExpCompileError> {
+/// The two recursive `ClassSetExpression` operations.
+///
+/// A string previously carried this state and every value other than `"--"`
+/// silently meant intersection. Keeping the domain closed makes a new
+/// operation define both its source token and its range semantics before the
+/// parser compiles again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClassSetOperator {
+    Intersection,
+    Subtraction,
+}
+
+impl ClassSetOperator {
+    fn at(bytes: &[u8], cursor: usize) -> Option<Self> {
+        match bytes.get(cursor..cursor + 2) {
+            Some(b"&&") => Some(Self::Intersection),
+            Some(b"--") => Some(Self::Subtraction),
+            _ => None,
+        }
+    }
+
+    const fn token(self) -> &'static str {
+        match self {
+            Self::Intersection => "&&",
+            Self::Subtraction => "--",
+        }
+    }
+
+    const fn rejects_operand_start(self, byte: u8) -> bool {
+        match self {
+            // `ClassIntersection :: ClassSetOperand && [lookahead != &]
+            // ClassSetOperand`.
+            Self::Intersection => byte == b'&',
+            Self::Subtraction => false,
+        }
+    }
+
+    fn apply(self, left: ClassSetValue, right: ClassSetValue) -> ClassSetValue {
+        let may_contain_strings = match self {
+            Self::Intersection => left.may_contain_strings && right.may_contain_strings,
+            Self::Subtraction => left.may_contain_strings,
+        };
+        let semantics = match (left.semantics, right.semantics) {
+            (ClassSetSemantics::CodePoints(left), ClassSetSemantics::CodePoints(right)) => {
+                let left = normalize_ranges(left);
+                let right = normalize_ranges(right);
+                ClassSetSemantics::CodePoints(match self {
+                    Self::Intersection => intersect_ranges(&left, &right),
+                    Self::Subtraction => subtract_ranges(&left, &right),
+                })
+            }
+            (
+                ClassSetSemantics::CodePoints(_),
+                ClassSetSemantics::RequiresClassStringSemantics(required),
+            )
+            | (
+                ClassSetSemantics::RequiresClassStringSemantics(required),
+                ClassSetSemantics::CodePoints(_),
+            ) => ClassSetSemantics::RequiresClassStringSemantics(required),
+            (
+                ClassSetSemantics::RequiresClassStringSemantics(left),
+                ClassSetSemantics::RequiresClassStringSemantics(right),
+            ) => ClassSetSemantics::RequiresClassStringSemantics(left.earliest(right)),
+        };
+        ClassSetValue {
+            semantics,
+            may_contain_strings,
+        }
+    }
+}
+
+/// One validated `ClassSetCharacter`.
+///
+/// A bare `u32` cannot record that the UnicodeSets-only raw-character and
+/// reserved-double-punctuator restrictions were checked. Keeping that proof in
+/// a private type prevents the union and range parsers from accepting a code
+/// point obtained through the more permissive ordinary-class parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ClassSetCharacter(u32);
+
+/// A fully parsed `ClassStringDisjunction`, including the exact
+/// `MayContainStrings` result needed by negated-class early errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ValidatedClassStringDisjunction {
+    offset: usize,
+    may_contain_strings: bool,
+}
+
+/// The only three cardinality classes relevant to `MayContainStrings` for one
+/// `ClassString`: exactly one character is false; empty or multiple is true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClassStringLength {
+    Empty,
+    One,
+    Multiple,
+}
+
+impl ClassStringLength {
+    const fn push_character(self) -> Self {
+        match self {
+            Self::Empty => Self::One,
+            Self::One | Self::Multiple => Self::Multiple,
+        }
+    }
+
+    const fn may_contain_strings(self) -> bool {
+        match self {
+            Self::Empty | Self::Multiple => true,
+            Self::One => false,
+        }
+    }
+}
+
+/// Matcher semantics retained while the complete enclosing class is parsed.
+/// A class-string operand never becomes fake code-point ranges merely so the
+/// remaining syntax can be checked.
+enum ClassSetSemantics {
+    CodePoints(Vec<(u32, u32)>),
+    RequiresClassStringSemantics(RequiresClassStringSemantics),
+}
+
+struct ClassSetValue {
+    semantics: ClassSetSemantics,
+    may_contain_strings: bool,
+}
+
+impl ClassSetValue {
+    fn code_points(ranges: Vec<(u32, u32)>) -> Self {
+        Self {
+            semantics: ClassSetSemantics::CodePoints(ranges),
+            may_contain_strings: false,
+        }
+    }
+
+    fn class_string(string: ValidatedClassStringDisjunction) -> Self {
+        Self {
+            semantics: ClassSetSemantics::RequiresClassStringSemantics(
+                RequiresClassStringSemantics {
+                    first_offset: string.offset,
+                },
+            ),
+            may_contain_strings: string.may_contain_strings,
+        }
+    }
+
+    fn union(self, right: Self) -> Self {
+        let may_contain_strings = self.may_contain_strings || right.may_contain_strings;
+        let semantics = match (self.semantics, right.semantics) {
+            (ClassSetSemantics::CodePoints(mut left), ClassSetSemantics::CodePoints(right)) => {
+                left.extend(right);
+                ClassSetSemantics::CodePoints(left)
+            }
+            (
+                ClassSetSemantics::CodePoints(_),
+                ClassSetSemantics::RequiresClassStringSemantics(required),
+            )
+            | (
+                ClassSetSemantics::RequiresClassStringSemantics(required),
+                ClassSetSemantics::CodePoints(_),
+            ) => ClassSetSemantics::RequiresClassStringSemantics(required),
+            (
+                ClassSetSemantics::RequiresClassStringSemantics(left),
+                ClassSetSemantics::RequiresClassStringSemantics(right),
+            ) => ClassSetSemantics::RequiresClassStringSemantics(left.earliest(right)),
+        };
+        Self {
+            semantics,
+            may_contain_strings,
+        }
+    }
+
+    fn normalize_code_points(self) -> Self {
+        let semantics = match self.semantics {
+            ClassSetSemantics::CodePoints(ranges) => {
+                ClassSetSemantics::CodePoints(normalize_ranges(ranges))
+            }
+            ClassSetSemantics::RequiresClassStringSemantics(required) => {
+                ClassSetSemantics::RequiresClassStringSemantics(required)
+            }
+        };
+        Self {
+            semantics,
+            may_contain_strings: self.may_contain_strings,
+        }
+    }
+}
+
+/// A syntactically complete bracketed class. Top-level lowering preserves its
+/// negation flag; nested operands materialize the complement only when the
+/// value is still code-point-only.
+struct ParsedClassSet {
+    value: ClassSetValue,
+    negated: bool,
+}
+
+impl ParsedClassSet {
+    fn into_nested_value(self) -> ClassSetValue {
+        debug_assert!(!self.negated || !self.value.may_contain_strings);
+        let semantics = match (self.negated, self.value.semantics) {
+            (false, ClassSetSemantics::CodePoints(ranges)) => ClassSetSemantics::CodePoints(ranges),
+            (false, ClassSetSemantics::RequiresClassStringSemantics(required)) => {
+                ClassSetSemantics::RequiresClassStringSemantics(required)
+            }
+            (true, ClassSetSemantics::CodePoints(ranges)) => {
+                ClassSetSemantics::CodePoints(complement_ranges(&normalize_ranges(ranges)))
+            }
+            (true, ClassSetSemantics::RequiresClassStringSemantics(required)) => {
+                ClassSetSemantics::RequiresClassStringSemantics(required)
+            }
+        };
+        ClassSetValue {
+            semantics,
+            may_contain_strings: self.value.may_contain_strings,
+        }
+    }
+}
+
+/// One `ClassSetOperand`, kept distinct from a `ClassSetRange`.
+///
+/// Only a validated `Character` may become either end of a range. A nested
+/// class or a character-class escape is a complete set operand and cannot
+/// accidentally acquire range syntax merely because both lower to the same
+/// range vector.
+enum ClassSetOperand {
+    Character(ClassSetCharacter),
+    NestedSet(ClassSetValue),
+    ClassString(ValidatedClassStringDisjunction),
+}
+
+impl ClassSetOperand {
+    fn into_value(self) -> ClassSetValue {
+        match self {
+            Self::Character(ClassSetCharacter(code_point)) => {
+                ClassSetValue::code_points(vec![(code_point, code_point)])
+            }
+            Self::NestedSet(value) => value,
+            Self::ClassString(string) => ClassSetValue::class_string(string),
+        }
+    }
+
+    fn into_range_bound(self) -> Option<ClassSetCharacter> {
+        match self {
+            Self::Character(character) => Some(character),
+            Self::NestedSet(_) | Self::ClassString(_) => None,
+        }
+    }
+}
+
+/// The two atomic operand forms handled by the shared escape decoder.
+enum ClassSetAtomicOperand {
+    Character(ClassSetCharacter),
+    CharacterClassEscape(Vec<(u32, u32)>),
+}
+
+impl ClassSetAtomicOperand {
+    fn into_operand(self) -> ClassSetOperand {
+        match self {
+            Self::Character(character) => ClassSetOperand::Character(character),
+            Self::CharacterClassEscape(ranges) => {
+                ClassSetOperand::NestedSet(ClassSetValue::code_points(ranges))
+            }
+        }
+    }
+}
+
+fn parse_class_set(bytes: &[u8], cursor: &mut usize) -> Result<ParsedClassSet, RegExpCompileError> {
     let class_offset = *cursor;
     debug_assert_eq!(bytes.get(class_offset), Some(&b'['));
     *cursor += 1;
     let negated = bytes.get(*cursor) == Some(&b'^');
     *cursor += usize::from(negated);
 
-    let mut accumulated: Option<Vec<(u32, u32)>> = None;
-    let mut operator: Option<&'static str> = None;
-    let mut union: Vec<(u32, u32)> = Vec::new();
+    match bytes.get(*cursor).copied() {
+        None => {
+            return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::UnclosedCharacterClass,
+                class_offset,
+                "regular-expression character class is unclosed",
+            ));
+        }
+        Some(b']') => {
+            *cursor += 1;
+            return Ok(ParsedClassSet {
+                value: ClassSetValue::code_points(Vec::new()),
+                negated,
+            });
+        }
+        Some(_) if ClassSetOperator::at(bytes, *cursor).is_some() => {
+            return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::ClassSetExpression,
+                *cursor,
+                "regular-expression class-set operation is missing its left operand",
+            ));
+        }
+        Some(_) => {}
+    }
+
+    let first_offset = *cursor;
+    let first = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
+    let value = match ClassSetOperator::at(bytes, *cursor) {
+        Some(operator) => {
+            parse_class_set_operation_tail(bytes, cursor, class_offset, operator, first)?
+        }
+        None => parse_class_set_union_tail(bytes, cursor, class_offset, first, first_offset)?,
+    };
+    if negated && value.may_contain_strings {
+        return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::NegatedClassMayContainStrings,
+            class_offset,
+            "negated UnicodeSets character class may not contain strings",
+        ));
+    }
+    Ok(ParsedClassSet { value, negated })
+}
+
+/// Parses exactly one `ClassSetOperand` and validates its UnicodeSets-only
+/// lexical restrictions before returning the typed operand.
+fn parse_unicode_sets_operand(
+    bytes: &[u8],
+    cursor: &mut usize,
+    class_offset: usize,
+) -> Result<ClassSetOperand, RegExpCompileError> {
+    match bytes.get(*cursor).copied() {
+        None => Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnclosedCharacterClass,
+            class_offset,
+            "regular-expression character class is unclosed",
+        )),
+        Some(b']') => Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::ClassSetExpression,
+            *cursor,
+            "regular-expression class-set operation is missing an operand",
+        )),
+        Some(b'[') => {
+            let nested = parse_class_set(bytes, cursor)?;
+            Ok(ClassSetOperand::NestedSet(nested.into_nested_value()))
+        }
+        Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'q') => {
+            validate_class_string_disjunction(bytes, cursor).map(ClassSetOperand::ClassString)
+        }
+        Some(_) => parse_unicode_sets_character_or_class_escape(bytes, cursor)
+            .map(ClassSetAtomicOperand::into_operand),
+    }
+}
+
+/// Validates one `ClassStringDisjunction` without lowering its string
+/// semantics. Only a fully closed, grammar-valid `\q{…}` reaches the explicit
+/// class-string value carried through the complete enclosing expression.
+fn validate_class_string_disjunction(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<ValidatedClassStringDisjunction, RegExpCompileError> {
+    let offset = *cursor;
+    if bytes.get(offset..offset + 3) != Some(br"\q{") {
+        return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::ClassStringDisjunction,
+            offset,
+            "regular-expression class-string disjunction must begin with `\\q{`",
+        ));
+    }
+    *cursor += 3;
+    let mut string_length = ClassStringLength::Empty;
+    let mut may_contain_strings = false;
 
     loop {
+        match bytes.get(*cursor).copied() {
+            None | Some(b']') => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassStringDisjunction,
+                    offset,
+                    "regular-expression class-string disjunction is unclosed",
+                ));
+            }
+            Some(b'}') => {
+                may_contain_strings |= string_length.may_contain_strings();
+                *cursor += 1;
+                return Ok(ValidatedClassStringDisjunction {
+                    offset,
+                    may_contain_strings,
+                });
+            }
+            // `ClassString` may be empty, so leading, trailing and adjacent
+            // disjunction delimiters are all grammatical.
+            Some(b'|') => {
+                may_contain_strings |= string_length.may_contain_strings();
+                string_length = ClassStringLength::Empty;
+                *cursor += 1;
+            }
+            Some(_) => {
+                parse_unicode_sets_class_set_character(bytes, cursor)?;
+                string_length = string_length.push_character();
+            }
+        }
+    }
+}
+
+/// Parses one `ClassSetCharacter`, excluding raw `ClassSetSyntaxCharacter`
+/// and every `ClassSetReservedDoublePunctuator` before delegating escape and
+/// code-point decoding to the shared class-atom parser.
+fn parse_unicode_sets_class_set_character(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<ClassSetCharacter, RegExpCompileError> {
+    let offset = *cursor;
+    match parse_unicode_sets_character_or_class_escape(bytes, cursor)? {
+        ClassSetAtomicOperand::Character(character) => Ok(character),
+        ClassSetAtomicOperand::CharacterClassEscape(_) => Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::ClassSetCharacter,
+            offset,
+            "character-class escape is not a ClassSetCharacter",
+        )),
+    }
+}
+
+/// Parses the atomic alternatives shared by a `ClassSetOperand` and a
+/// `ClassSetCharacter`. Raw characters are validated before the shared
+/// ordinary-class decoder can turn them into an unqualified code point.
+fn parse_unicode_sets_character_or_class_escape(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<ClassSetAtomicOperand, RegExpCompileError> {
+    let offset = *cursor;
+    let Some(&member) = bytes.get(offset) else {
+        return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnclosedCharacterClass,
+            offset,
+            "regular-expression character class is unclosed",
+        ));
+    };
+
+    if member == b'\\'
+        && bytes.get(offset + 1) == Some(&b'0')
+        && matches!(bytes.get(offset + 2), Some(b'0'..=b'9'))
+    {
+        return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::ClassSetCharacter,
+            offset,
+            "`\\0` character escape cannot be followed by a decimal digit",
+        ));
+    }
+
+    if member != b'\\' {
+        if is_class_set_reserved_double_punctuator(bytes, offset) {
+            return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::ClassSetCharacter,
+                offset,
+                "reserved double punctuator is not a UnicodeSets class character",
+            ));
+        }
+        if is_class_set_syntax_character(member) {
+            return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::ClassSetCharacter,
+                offset,
+                "UnicodeSets syntax character must be escaped in a class operand",
+            ));
+        }
+    }
+
+    match parse_class_atom(bytes, cursor, RegExpUnicodeMode::UnicodeSets)? {
+        ClassAtom::CodePoint(code_point) => Ok(ClassSetAtomicOperand::Character(
+            ClassSetCharacter(code_point),
+        )),
+        ClassAtom::Ranges(ranges) => Ok(ClassSetAtomicOperand::CharacterClassEscape(ranges)),
+    }
+}
+
+/// Parses the remainder of a `ClassUnion` after its first operand.
+fn parse_class_set_union_tail(
+    bytes: &[u8],
+    cursor: &mut usize,
+    class_offset: usize,
+    mut operand: ClassSetOperand,
+    mut operand_offset: usize,
+) -> Result<ClassSetValue, RegExpCompileError> {
+    let mut union = ClassSetValue::code_points(Vec::new());
+    loop {
+        if bytes.get(*cursor) == Some(&b'-')
+            && bytes.get(*cursor + 1) != Some(&b']')
+            && bytes.get(*cursor + 1) != Some(&b'-')
+        {
+            *cursor += 1;
+            let end = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
+            let start = operand.into_range_bound();
+            let end = end.into_range_bound();
+            let (Some(ClassSetCharacter(start)), Some(ClassSetCharacter(end))) = (start, end)
+            else {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassRangeBound,
+                    operand_offset,
+                    "regular-expression UnicodeSets range bound is not a ClassSetCharacter",
+                ));
+            };
+            if end < start {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassRangeOrder,
+                    operand_offset,
+                    "regular-expression character class range is reversed",
+                ));
+            }
+            union = union.union(ClassSetValue::code_points(vec![(start, end)]));
+        } else {
+            union = union.union(operand.into_value());
+        }
+
         match bytes.get(*cursor).copied() {
             None => {
                 return Err(RegExpCompileError::invalid_syntax(
@@ -2787,91 +3451,107 @@ fn parse_class_set(
             }
             Some(b']') => {
                 *cursor += 1;
-                break;
+                return Ok(union.normalize_code_points());
             }
-            Some(b'-') if bytes.get(*cursor + 1) == Some(&b'-') => {
-                *cursor += 2;
-                accumulated = Some(match (accumulated, operator) {
-                    (None, _) => normalize_ranges(std::mem::take(&mut union)),
-                    (Some(left), Some("--")) => {
-                        subtract_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
-                    }
-                    (Some(left), _) => {
-                        intersect_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
-                    }
-                });
-                operator = Some("--");
-            }
-            Some(b'&') if bytes.get(*cursor + 1) == Some(&b'&') => {
-                *cursor += 2;
-                accumulated = Some(match (accumulated, operator) {
-                    (None, _) => normalize_ranges(std::mem::take(&mut union)),
-                    (Some(left), Some("--")) => {
-                        subtract_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
-                    }
-                    (Some(left), _) => {
-                        intersect_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
-                    }
-                });
-                operator = Some("&&");
-            }
-            Some(b'[') => {
-                let (nested, nested_negated) = parse_class_set(bytes, cursor)?;
-                let nested = normalize_ranges(nested);
-                union.extend(if nested_negated {
-                    complement_ranges(&nested)
-                } else {
-                    nested
-                });
-            }
-            Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'q') => {
-                return Err(RegExpCompileError::unsupported_feature(
+            Some(_) if ClassSetOperator::at(bytes, *cursor).is_some() => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassSetExpression,
                     *cursor,
-                    "`\\q` string literals are unsupported by this matcher-program grammar",
+                    "regular-expression class union cannot be an operation operand",
                 ));
             }
             Some(_) => {
-                let range_offset = *cursor;
-                let start = parse_class_atom(bytes, cursor, RegExpUnicodeMode::UnicodeSets)?;
-                if bytes.get(*cursor) == Some(&b'-')
-                    && bytes.get(*cursor + 1) != Some(&b']')
-                    && bytes.get(*cursor + 1) != Some(&b'-')
-                {
-                    *cursor += 1;
-                    let end = parse_class_atom(bytes, cursor, RegExpUnicodeMode::UnicodeSets)?;
-                    match (start, end) {
-                        (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
-                            return Err(RegExpCompileError::invalid_syntax(
-                                SyntaxRule::ClassRangeOrder,
-                                range_offset,
-                                "regular-expression character class range is reversed",
-                            ));
-                        }
-                        (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) => {
-                            union.push((start, end));
-                        }
-                        _ => {
-                            return Err(RegExpCompileError::invalid_syntax(
-                                SyntaxRule::ClassRangeBound,
-                                range_offset,
-                                "regular-expression character class range bound is a class escape",
-                            ));
-                        }
-                    }
-                } else {
-                    union.extend(start.into_ranges());
-                }
+                operand_offset = *cursor;
+                operand = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
             }
         }
     }
+}
 
-    let union = normalize_ranges(union);
-    let ranges = match (accumulated, operator) {
-        (None, _) => union,
-        (Some(left), Some("--")) => subtract_ranges(&left, &union),
-        (Some(left), _) => intersect_ranges(&left, &union),
-    };
-    Ok((ranges, negated))
+/// Parses a homogeneous `ClassIntersection` or `ClassSubtraction` tail.
+fn parse_class_set_operation_tail(
+    bytes: &[u8],
+    cursor: &mut usize,
+    class_offset: usize,
+    operator: ClassSetOperator,
+    first: ClassSetOperand,
+) -> Result<ClassSetValue, RegExpCompileError> {
+    let mut value = first.into_value().normalize_code_points();
+    loop {
+        let operator_offset = *cursor;
+        debug_assert_eq!(ClassSetOperator::at(bytes, operator_offset), Some(operator));
+        *cursor += 2;
+
+        match bytes.get(*cursor).copied() {
+            None => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedCharacterClass,
+                    class_offset,
+                    "regular-expression character class is unclosed",
+                ));
+            }
+            Some(b']') => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassSetExpression,
+                    operator_offset,
+                    format!(
+                        "regular-expression class-set `{}` is missing its right operand",
+                        operator.token()
+                    ),
+                ));
+            }
+            Some(byte) if operator.rejects_operand_start(byte) => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassSetExpression,
+                    *cursor,
+                    format!(
+                        "regular-expression class-set `{}` cannot be followed by `{}`",
+                        operator.token(),
+                        char::from(byte)
+                    ),
+                ));
+            }
+            Some(_) if ClassSetOperator::at(bytes, *cursor).is_some() => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassSetExpression,
+                    operator_offset,
+                    format!(
+                        "regular-expression class-set `{}` is missing its right operand",
+                        operator.token()
+                    ),
+                ));
+            }
+            Some(_) => {}
+        }
+
+        let right = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
+        value = operator.apply(value, right.into_value());
+
+        match bytes.get(*cursor).copied() {
+            None => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedCharacterClass,
+                    class_offset,
+                    "regular-expression character class is unclosed",
+                ));
+            }
+            Some(b']') => {
+                *cursor += 1;
+                return Ok(value.normalize_code_points());
+            }
+            Some(_) if ClassSetOperator::at(bytes, *cursor) == Some(operator) => {}
+            Some(_) => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ClassSetExpression,
+                    *cursor,
+                    format!(
+                        "regular-expression class-set `{}` operands must be separated by the same operator",
+                        operator.token()
+                    ),
+                ));
+            }
+        }
+    }
 }
 
 /// `ClassEscape[+UnicodeMode]`'s identity-escape set: `SyntaxCharacter`, plus
@@ -2912,6 +3592,43 @@ fn is_class_set_reserved_punctuator(byte: u8) -> bool {
             | b'`'
             | b'~'
     )
+}
+
+/// `ClassSetSyntaxCharacter :: one of ( ) [ ] { } / - \\ |` (22.2.1).
+const fn is_class_set_syntax_character(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'/' | b'-' | b'\\' | b'|'
+    )
+}
+
+/// The nineteen doubled tokens in `ClassSetReservedDoublePunctuator`.
+fn is_class_set_reserved_double_punctuator(bytes: &[u8], cursor: usize) -> bool {
+    let Some(&punctuator) = bytes.get(cursor) else {
+        return false;
+    };
+    bytes.get(cursor + 1) == Some(&punctuator)
+        && matches!(
+            punctuator,
+            b'&' | b'!'
+                | b'#'
+                | b'$'
+                | b'%'
+                | b'*'
+                | b'+'
+                | b','
+                | b'.'
+                | b':'
+                | b';'
+                | b'<'
+                | b'='
+                | b'>'
+                | b'?'
+                | b'@'
+                | b'^'
+                | b'`'
+                | b'~'
+        )
 }
 
 fn parse_braced_code_point_escape(
@@ -3518,6 +4235,10 @@ impl<'a> ProgramLowerer<'a> {
                     RegExpInstruction::lookbehind_failure(after, *negative);
                 Ok(())
             }
+            // Syntax-only placeholder. `ParsedPatternCapability` prevents the
+            // containing tree from becoming a returned matcher program, but
+            // lowering continues so its remaining early-error checks run.
+            ParsedAtom::RequiresClassStringSemantics(_) => Ok(()),
         }
     }
 
@@ -3642,6 +4363,7 @@ impl<'a> ProgramLowerer<'a> {
                 }
                 self.reverse_alternatives(body)
             }
+            ParsedAtom::RequiresClassStringSemantics(_) => Ok(()),
             _ => Err(RegExpCompileError::unsupported_feature(
                 self.error_offset,
                 "lookbehind body uses an unsupported matcher atom",
@@ -4564,6 +5286,250 @@ mod tests {
 
         let difference = RegExpProgram::compile(r"[[a-f]--[c-d]]", "v").unwrap();
         assert_eq!(difference.ranges, vec![(0x61, 0x62), (0x65, 0x66)]);
+
+        let chained_intersection = RegExpProgram::compile(r"[[a-c]&&[b-d]&&[c-e]]", "v").unwrap();
+        assert_eq!(chained_intersection.ranges, vec![(0x63, 0x63)]);
+
+        let chained_subtraction = RegExpProgram::compile(r"[[a-c]--b--c]", "v").unwrap();
+        assert_eq!(chained_subtraction.ranges, vec![(0x61, 0x61)]);
+    }
+
+    #[test]
+    fn unicode_sets_expression_shape_is_closed() {
+        assert!(RegExpProgram::compile("[]", "v").unwrap().ranges.is_empty());
+        assert_eq!(
+            RegExpProgram::compile("[abc]", "v").unwrap().ranges,
+            vec![(0x61, 0x63)]
+        );
+        assert_eq!(
+            RegExpProgram::compile("[a-c]", "v").unwrap().ranges,
+            vec![(0x61, 0x63)]
+        );
+
+        let invalid = [
+            ("[a&&b--c]", 5),
+            ("[a--b&&c]", 5),
+            ("[ab&&c]", 3),
+            ("[a&&bc]", 5),
+            ("[&&a]", 1),
+            ("[a&&]", 2),
+            ("[--a]", 1),
+            ("[a--]", 2),
+            ("[a&&&b]", 4),
+            ("[a&&&]", 4),
+        ];
+        for (pattern, offset) in invalid {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("invalid ClassSetExpression shape must be rejected");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(
+                error.rule,
+                Some(SyntaxRule::ClassSetExpression),
+                "{pattern}"
+            );
+            assert_eq!(error.offset, offset, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn unicode_sets_operands_validate_class_set_characters() {
+        let empty_intersection = RegExpProgram::compile(r"[a&&\&]", "v").unwrap();
+        assert!(empty_intersection.ranges.is_empty());
+
+        let escaped_intersection = RegExpProgram::compile(r"[\&&&\&]", "v").unwrap();
+        assert_eq!(escaped_intersection.ranges, vec![(0x26, 0x26)]);
+
+        // Every member may occur raw when it is not doubled. Prefixing `a`
+        // keeps `^` from being parsed as the class-negation marker.
+        let reserved_double_members = [
+            b'&', b'!', b'#', b'$', b'%', b'*', b'+', b',', b'.', b':', b';', b'<', b'=', b'>',
+            b'?', b'@', b'^', b'`', b'~',
+        ];
+        assert_eq!(reserved_double_members.len(), 19);
+        for punctuator in reserved_double_members {
+            let pattern = format!("[a{}]", punctuator as char);
+            let program = RegExpProgram::compile(&pattern, "v")
+                .unwrap_or_else(|error| panic!("raw singleton `{pattern}` must compile: {error}"));
+            assert!(
+                ranges_contain(&program.ranges, u32::from(punctuator)),
+                "`{pattern}` must contain `{}`",
+                punctuator as char
+            );
+        }
+
+        for punctuator in reserved_double_members {
+            let pattern = format!("[a{0}{0}]", punctuator as char);
+            let error = RegExpProgram::compile(&pattern, "v")
+                .expect_err("a reserved double punctuator must not become two operands");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(
+                error.rule,
+                Some(if punctuator == b'&' {
+                    SyntaxRule::ClassSetExpression
+                } else {
+                    SyntaxRule::ClassSetCharacter
+                }),
+                "{pattern}"
+            );
+        }
+
+        for (pattern, offset) in [("[a&&-]", 4), ("[a---]", 4), ("[!!]", 1)] {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("raw UnicodeSets syntax must be rejected");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, Some(SyntaxRule::ClassSetCharacter), "{pattern}");
+            assert_eq!(error.offset, offset, "{pattern}");
+        }
+
+        for pattern in ["[a(]", "[a)]", "[a{]", "[a}]", "[a/]", "[a-]", "[a|]"] {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("raw ClassSetSyntaxCharacter must be rejected");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, Some(SyntaxRule::ClassSetCharacter), "{pattern}");
+            assert_eq!(error.offset, 2, "{pattern}");
+        }
+
+        let nul = RegExpProgram::compile(r"[\0a]", "v").unwrap();
+        assert!(ranges_contain(&nul.ranges, 0));
+        assert!(ranges_contain(&nul.ranges, u32::from(b'a')));
+        for pattern in [r"[\00]", r"[\01]", r"[\09]"] {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("`\\0` followed by DecimalDigit is not CharacterEscape");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, Some(SyntaxRule::ClassSetCharacter), "{pattern}");
+            assert_eq!(error.offset, 1, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn unicode_sets_validates_class_strings_before_capability_rejection() {
+        for pattern in [
+            r"[\q{}]",
+            r"[\q{a|b}]",
+            r"[\q{|a||b|}]",
+            r"[\q{\&|\}|\|}]",
+            r"[\q{a|b}&&a]",
+            r"[^\q{a}]",
+            r"[^\q{ab}&&a]",
+            r"[^a--\q{ab}]",
+            r"[\q{\0a}]",
+            r"[\q{a}]b",
+            r"([\q{a}])",
+            r"(?:[\q{a}]|)*",
+        ] {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("legal class strings remain a capability gap");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::UnsupportedFeature,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, None, "{pattern}");
+        }
+
+        for pattern in [r"[\q]", r"[\q{a]", r"[\q{a", r"[\q{a\}]"] {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("malformed class-string delimiters must be syntax errors");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(
+                error.rule,
+                Some(SyntaxRule::ClassStringDisjunction),
+                "{pattern}"
+            );
+            assert_eq!(error.offset, 1, "{pattern}");
+        }
+
+        for (pattern, offset) in [(r"[\q{a!!b}]", 5), (r"[\q{\d}]", 4), (r"[\q{/}]", 4)] {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("malformed class-string contents must be syntax errors");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, Some(SyntaxRule::ClassSetCharacter), "{pattern}");
+            assert_eq!(error.offset, offset, "{pattern}");
+        }
+
+        for pattern in [r"[\q{\00}]", r"[\q{\01}]", r"[\q{\09}]"] {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("class-string characters apply the `\\0` lookahead restriction");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, Some(SyntaxRule::ClassSetCharacter), "{pattern}");
+            assert_eq!(error.offset, 4, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn unicode_sets_class_strings_do_not_bypass_enclosing_class_validation() {
+        let invalid = [
+            (r"[\q{a}", SyntaxRule::UnclosedCharacterClass, 0),
+            (r"[\q{a}&&]", SyntaxRule::ClassSetExpression, 6),
+            (r"[\q{a}-b]", SyntaxRule::ClassRangeBound, 1),
+            (r"[a-\q{b}]", SyntaxRule::ClassRangeBound, 1),
+            (r"[\q{a}!!]", SyntaxRule::ClassSetCharacter, 6),
+            (r"[\q{a}])", SyntaxRule::StrayClosingParenthesis, 7),
+            (r"[\q{a}](", SyntaxRule::UnclosedGroup, 7),
+            (r"[\q{a}]\k<missing>", SyntaxRule::UnknownGroupName, 7),
+            (r"(?:[\q{a}]|)*)", SyntaxRule::StrayClosingParenthesis, 13),
+            (r"(?:[\q{a}]|)*(", SyntaxRule::UnclosedGroup, 13),
+            (
+                r"(?:[\q{a}]|)*\k<missing>",
+                SyntaxRule::UnknownGroupName,
+                13,
+            ),
+            (r"[^\q{ab}]", SyntaxRule::NegatedClassMayContainStrings, 0),
+            (r"[^\q{}]", SyntaxRule::NegatedClassMayContainStrings, 0),
+            (
+                r"[^\q{ab}--a]",
+                SyntaxRule::NegatedClassMayContainStrings,
+                0,
+            ),
+            (
+                r"[^\q{ab}&&\q{cd}]",
+                SyntaxRule::NegatedClassMayContainStrings,
+                0,
+            ),
+        ];
+        for (pattern, rule, offset) in invalid {
+            let error = RegExpProgram::compile(pattern, "v")
+                .expect_err("a class string must not short-circuit enclosing validation");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, Some(rule), "{pattern}");
+            assert_eq!(error.offset, offset, "{pattern}");
+        }
     }
 
     #[test]
@@ -5037,16 +6003,17 @@ mod tests {
     /// `InvalidSyntax`, so a witness pattern that starts being answered by a
     /// different rule fails here rather than being silently absorbed.
     ///
-    /// **This is per-RULE, not per-SITE, and it is not a site map.** 66
-    /// `invalid_syntax` call sites map onto 24 rules and 24 witnesses:
+    /// **This is per-RULE, not per-SITE, and it is not a site map.** 86
+    /// `invalid_syntax` call sites map onto 28 rules and 28 witnesses:
     /// `RegExpIdentifierName` alone has 14 sites sharing one witness,
-    /// `UnclosedCharacterClass` has 9, `CharacterEscape` has 3. A site given the
-    /// WRONG variant is invisible to this test whenever some other site already
-    /// witnesses both rules — which is exactly how `parse_modifier_group_prefix`
-    /// shipped an `UnclosedGroup` citation on a `ModifierFlags` violation. Since
-    /// `Display` puts `citation()` on the product path, that class of error is
-    /// user-visible; a message-versus-citation read of each site is the only
-    /// thing that catches it.
+    /// `UnclosedCharacterClass` has 14, `ClassSetExpression` has 7 and
+    /// `CharacterEscape` has 3. A site given the WRONG variant is invisible to
+    /// this test whenever some other site already witnesses both rules — which
+    /// is exactly how `parse_modifier_group_prefix` shipped an `UnclosedGroup`
+    /// citation on a `ModifierFlags` violation. Since `Display` puts
+    /// `citation()` on the product path, that class of error is user-visible; a
+    /// message-versus-citation read of each site is the only thing that catches
+    /// it.
     #[test]
     fn every_syntax_rule_has_a_pinned_witness() {
         // (rule, pattern, flags). Written as one table rather than one test per
@@ -5074,6 +6041,10 @@ mod tests {
             // under-rejection recorded in
             // `class_verdicts_do_not_depend_on_the_class_representation`.
             (SyntaxRule::ClassEscape, r"[\q\u0041]", "u"),
+            (SyntaxRule::ClassSetCharacter, "[!!]", "v"),
+            (SyntaxRule::ClassStringDisjunction, r"[\q]", "v"),
+            (SyntaxRule::ClassSetExpression, "[a&&b--c]", "v"),
+            (SyntaxRule::NegatedClassMayContainStrings, r"[^\q{}]", "v"),
             (SyntaxRule::HexEscapeSequence, r"\xZZ", "u"),
             (SyntaxRule::UnicodeEscapeSequence, r"\uZZZZ", "u"),
             (SyntaxRule::CodePointEscape, r"\u{}", "u"),
