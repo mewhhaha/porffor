@@ -273,22 +273,47 @@ fallback located by the same lookup used for the eventual write. A private
 `WithEnvironmentReferencePlan` owns a non-empty inner-to-outer chain plus the
 referenced name and `Strictness`.
 
-The plan's only exit consumes it into a fixed PutValue tree: initial resolution
+The plan's `put_value` exit consumes it into a fixed tree: initial resolution
 selects an object before the RHS; the RHS is materialized once in that branch;
 `ObjectEnvironmentRecord.SetMutableBinding` then re-runs `HasProperty` on the
 same object. A missing strict binding throws `ReferenceError` without Set. The
 sloppy path still evaluates and propagates the recheck before checked Set, so a
 Proxy `has` trap remains observable. Lexical/global fallback occurs only after
-every active Object Environment Record initially misses.
+every active Object Environment Record initially misses. The read follow-up
+below adds the plan's separate consuming `get_value` exit.
 
 The with expression is evaluated outside the newly materialized environment;
 the hidden binding is initialized only after entry. Resumable owners requiring
 a captured WithObject environment are rejected explicitly instead of extending
 the suspension ABI in this batch.
 
-The seam is deliberately plain-assignment-only. Nested `with` reads remain
-innermost-only, and compound/logical/update/destructuring writes, Global Object
-Environment Records, generated class/helper contexts, super-write receiver
-repair and resumable captured WithObject environments remain open. Structural
-and Wasm fixture execution gates are deferred to the integration checkpoint
-while the low-RAM matrix owns Cargo.
+The write seam is deliberately plain-assignment-only. Compound/logical/update/
+destructuring writes, Global Object Environment Records, generated class/helper
+contexts, super-write receiver repair and resumable captured WithObject
+environments remain open. Structural and Wasm fixture execution gates are
+deferred to the integration checkpoint while the low-RAM matrix owns Cargo.
+
+## T08 Object Environment Record read follow-up
+
+Direct value-position identifier reads now consume the same ordered Object
+Environment selection as plain writes. `select_preceding` returns either no
+candidate or a typed non-empty `SelectedWithEnvironmentObjects`; the old raw
+innermost-object accessor is gone. Consuming that selection is the only
+external way to build `WithEnvironmentReferencePlan`, whose `get_value` and
+`put_value` exits both spend the plan.
+
+GetValue evaluates initial `HasBinding`/`Symbol.unscopables` inner-to-outer,
+then re-runs `HasProperty` on the selected materialized object before Get.
+Deletion during the unscopables getter therefore returns `undefined` in sloppy
+code and throws `ReferenceError` in a captured strict function, while an abrupt
+recheck prevents Get. Declarative bindings cut off outer objects at the same
+typed current/captured positions used by writes.
+
+The `typeof unresolvableName` shortcut remains valid only when no selected
+Object Environment Record may bind the name. A selected plan instead uses
+`undefined` only as its terminal unresolvable fallback, runs any selected
+GetBindingValue first, then applies `typeof`. This does not close identifier-call
+`WithBaseObject`, compound/logical/update/destructuring/delete operations,
+generated contexts or resumable captured Object Environment Records. Its
+Cargo, Wasm and pinned Test262 gates remain deferred to the integration
+checkpoint.

@@ -151,7 +151,7 @@ impl WithEnvironmentBindingObject {
         }
     }
 
-    pub(crate) fn read(&self) -> TypedExpr {
+    fn read(&self) -> TypedExpr {
         TypedExpr::from_info(
             self.info.clone(),
             ExprIr::Identifier(self.storage_name.clone()),
@@ -174,11 +174,7 @@ impl WithEnvironmentBindingObject {
     /// name allocation. The object operand is not supplied separately: both
     /// HasProperty and the unscopables read come from this validated binding
     /// object, so they cannot silently disagree about the environment queried.
-    pub(crate) fn binding_visible(
-        &self,
-        referenced_name: &str,
-        unscopables_binding: String,
-    ) -> TypedExpr {
+    fn binding_visible(&self, referenced_name: &str, unscopables_binding: String) -> TypedExpr {
         let has_property = self.has_property(referenced_name);
         let unscopables = TypedExpr::from_info(
             dynamic_value_info(),
@@ -280,6 +276,39 @@ impl WithEnvironmentBindingObject {
                 op: LogicalBinaryOp::And,
                 lhs: Box::new(has_property),
                 rhs: Box::new(binding_unblocked),
+            },
+        )
+    }
+
+    /// GetBindingValue on the Object Environment Record selected by
+    /// HasBinding. The second HasProperty is independently observable: the
+    /// unscopables getter can delete the binding, and a Proxy can complete
+    /// abruptly here even after the initial query succeeded.
+    fn get_value(self, referenced_name: &str, strictness: Strictness) -> TypedExpr {
+        let recheck = self.has_property(referenced_name);
+        let read = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::PropertyRead {
+                target: Box::new(self.read()),
+                key: PropertyKeyIr::StaticString(referenced_name.to_string()),
+            },
+        );
+        let missing = match strictness {
+            Strictness::Sloppy => TypedExpr::undefined(),
+            Strictness::Strict => TypedExpr::from_info(
+                dynamic_value_info(),
+                ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                },
+            ),
+        };
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(recheck),
+                then_expr: Box::new(read),
+                else_expr: Box::new(missing),
             },
         )
     }
@@ -519,48 +548,80 @@ impl OrderedWithEnvironmentChain {
         self.current.is_empty() && self.captured.is_empty()
     }
 
-    pub(crate) fn innermost_binding_object(&self) -> Option<&WithEnvironmentBindingObject> {
-        self.current
-            .last()
-            .or_else(|| self.captured.first())
-            .map(|environment| &environment.binding_object)
-    }
-
-    pub(crate) fn objects_preceding(
+    /// Select every Object Environment Record encountered before an already
+    /// located declarative fallback. The returned type is structurally
+    /// non-empty; callers cannot request only the innermost object and thereby
+    /// skip outer resolution or declarative cutoff.
+    pub(crate) fn select_preceding(
         &self,
         fallback: Option<DeclarativeEnvironmentPosition>,
-    ) -> Vec<WithEnvironmentBindingObject> {
-        self.current
+    ) -> Option<SelectedWithEnvironmentObjects> {
+        let mut selected = self
+            .current
             .iter()
             .rev()
             .chain(self.captured.iter())
             .filter(|environment| {
                 fallback.is_none_or(|binding| environment.position.precedes(binding))
             })
-            .map(|environment| environment.binding_object.clone())
-            .collect()
+            .map(|environment| environment.binding_object.clone());
+        let innermost = selected.next()?;
+        Some(SelectedWithEnvironmentObjects {
+            innermost,
+            outer: selected.collect(),
+        })
     }
+}
+
+/// A non-empty Object Environment Record chain which ResolveBinding encounters
+/// before its declarative/global fallback, in inner-to-outer order.
+///
+/// Deliberately neither `Clone` nor `Copy`: consuming this selection is the
+/// only external way to obtain a [`WithEnvironmentReferencePlan`].
+#[derive(Debug)]
+pub(crate) struct SelectedWithEnvironmentObjects {
+    innermost: WithEnvironmentBindingObject,
+    outer: Vec<WithEnvironmentBindingObject>,
 }
 
 /// One dynamically queried Object Environment Record in ResolveBinding.
 #[derive(Debug)]
-pub(crate) struct WithEnvironmentResolution {
+struct WithEnvironmentResolution {
     binding_object: WithEnvironmentBindingObject,
     unscopables_binding: String,
 }
 
 impl WithEnvironmentResolution {
-    pub(crate) fn create(
-        binding_object: WithEnvironmentBindingObject,
-        unscopables_binding: String,
-    ) -> Self {
+    fn create(binding_object: WithEnvironmentBindingObject, unscopables_binding: String) -> Self {
         Self {
             binding_object,
             unscopables_binding,
         }
     }
 
-    fn resolve_or_else(
+    fn get_value_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let with_value = binding_object.get_value(referenced_name, strictness);
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(with_value),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
+    fn put_value_or_else(
         self,
         referenced_name: &str,
         strictness: Strictness,
@@ -584,14 +645,36 @@ impl WithEnvironmentResolution {
     }
 }
 
-/// A non-empty ResolveBinding chain for plain identifier `=` inside `with`.
+impl SelectedWithEnvironmentObjects {
+    /// Consume the selected inner-to-outer objects into the one Reference plan
+    /// used by both GetValue and PutValue. Nested conditionals are assembled
+    /// outermost-first, hence the single explicit reversal here.
+    pub(crate) fn into_reference_plan(
+        self,
+        referenced_name: String,
+        strictness: Strictness,
+        mut allocate_unscopables_binding: impl FnMut() -> String,
+    ) -> WithEnvironmentReferencePlan {
+        let Self { innermost, outer } = self;
+        let innermost =
+            WithEnvironmentResolution::create(innermost, allocate_unscopables_binding());
+        let mut outer = outer
+            .into_iter()
+            .map(|object| WithEnvironmentResolution::create(object, allocate_unscopables_binding()))
+            .collect::<Vec<_>>();
+        outer.reverse();
+        WithEnvironmentReferencePlan::create(innermost, outer, referenced_name, strictness)
+    }
+}
+
+/// A non-empty ResolveBinding chain for an identifier Reference inside `with`.
 ///
 /// The innermost resolution is a required field instead of the first element
 /// of a `Vec`, so an empty Object Environment chain is not representable. The
-/// plan is deliberately neither `Clone` nor `Copy`; [`Self::put_value`]
-/// consumes it, making a second write E0382.
+/// plan is deliberately neither `Clone` nor `Copy`; [`Self::get_value`] and
+/// [`Self::put_value`] both consume it, making a second use E0382.
 #[derive(Debug)]
-#[must_use = "a with-environment Reference must be consumed by PutValue"]
+#[must_use = "a with-environment Reference must be consumed by GetValue or PutValue"]
 pub(crate) struct WithEnvironmentReferencePlan {
     innermost: WithEnvironmentResolution,
     outer: Vec<WithEnvironmentResolution>,
@@ -600,7 +683,7 @@ pub(crate) struct WithEnvironmentReferencePlan {
 }
 
 impl WithEnvironmentReferencePlan {
-    pub(crate) fn create(
+    fn create(
         innermost: WithEnvironmentResolution,
         outer: Vec<WithEnvironmentResolution>,
         referenced_name: String,
@@ -615,6 +698,21 @@ impl WithEnvironmentReferencePlan {
     }
 
     #[must_use]
+    pub(crate) fn get_value(self, fallback: TypedExpr) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.get_value_or_else(&referenced_name, strictness, resolved);
+        }
+        innermost.get_value_or_else(&referenced_name, strictness, resolved)
+    }
+
+    #[must_use]
     pub(crate) fn put_value(self, value: TypedExpr, fallback: TypedExpr) -> TypedExpr {
         let Self {
             innermost,
@@ -624,10 +722,14 @@ impl WithEnvironmentReferencePlan {
         } = self;
         let mut resolved = fallback;
         for environment in outer {
-            resolved =
-                environment.resolve_or_else(&referenced_name, strictness, value.clone(), resolved);
+            resolved = environment.put_value_or_else(
+                &referenced_name,
+                strictness,
+                value.clone(),
+                resolved,
+            );
         }
-        innermost.resolve_or_else(&referenced_name, strictness, value, resolved)
+        innermost.put_value_or_else(&referenced_name, strictness, value, resolved)
     }
 }
 
@@ -1622,6 +1724,36 @@ mod tests {
         ));
     }
 
+    fn assert_selected_get_value(expr: &TypedExpr, object_name: &str, strictness: Strictness) {
+        let ExprIr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } = &expr.expr
+        else {
+            panic!("GetBindingValue must branch on its second HasProperty");
+        };
+        assert_eq!(has_property_target(condition), object_name);
+        let ExprIr::PropertyRead { target, key } = &then_expr.expr else {
+            panic!("a present binding must reach Get");
+        };
+        assert_eq!(identifier_name(target), object_name);
+        assert!(matches!(
+            key,
+            PropertyKeyIr::StaticString(name) if name == "x"
+        ));
+        match strictness {
+            Strictness::Sloppy => assert!(matches!(&else_expr.expr, ExprIr::Undefined)),
+            Strictness::Strict => assert!(matches!(
+                &else_expr.expr,
+                ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                }
+            )),
+        }
+    }
+
     #[test]
     fn with_environment_strict_put_value_resolves_inner_to_outer_then_rechecks_same_object() {
         let lowered = WithEnvironmentReferencePlan::create(
@@ -1722,6 +1854,83 @@ mod tests {
         ));
         assert_eq!(identifier_name(value), WITH_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(*strictness, Strictness::Sloppy);
+    }
+
+    #[test]
+    fn with_environment_get_value_resolves_inner_to_outer_then_rechecks_selected_object() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.inner", "$with.unscopables.inner"),
+            vec![with_environment_resolution(
+                "$with.outer",
+                "$with.unscopables.outer",
+            )],
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .get_value(identifier("fallback", ValueKind::Number));
+
+        let ExprIr::Conditional {
+            condition: inner_condition,
+            then_expr: inner_read,
+            else_expr: outer_branch,
+        } = &lowered.expr
+        else {
+            panic!("innermost Object Environment must be queried first");
+        };
+        assert_eq!(initial_resolution_target(inner_condition), "$with.inner");
+        assert_selected_get_value(inner_read, "$with.inner", Strictness::Strict);
+
+        let ExprIr::Conditional {
+            condition: outer_condition,
+            then_expr: outer_read,
+            else_expr: fallback,
+        } = &outer_branch.expr
+        else {
+            panic!("an inner miss must continue through the outer environment");
+        };
+        assert_eq!(initial_resolution_target(outer_condition), "$with.outer");
+        assert_selected_get_value(outer_read, "$with.outer", Strictness::Strict);
+        assert_eq!(identifier_name(fallback), "fallback");
+
+        let sloppy = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Sloppy,
+        )
+        .get_value(identifier("fallback", ValueKind::Number));
+        let ExprIr::Conditional { then_expr, .. } = &sloppy.expr else {
+            panic!("the Object Environment resolution must guard GetValue");
+        };
+        assert_selected_get_value(then_expr, "$with.object", Strictness::Sloppy);
+    }
+
+    #[test]
+    fn selected_with_objects_are_non_empty_and_stop_at_declarative_fallback() {
+        let object = |storage_name: &str| WithEnvironmentBindingObject {
+            storage_name: storage_name.to_string(),
+            info: ValueInfo::new(ValueKind::Object),
+        };
+        let mut chain = OrderedWithEnvironmentChain::default();
+        chain.enter_current(object("$with.outer"), CurrentScopeDepth(1));
+        chain.enter_current(object("$with.inner"), CurrentScopeDepth(3));
+
+        let selected = chain
+            .select_preceding(Some(DeclarativeEnvironmentPosition::current(
+                CurrentScopeDepth(2),
+            )))
+            .expect("the inner Object Environment must precede the binding");
+        assert_eq!(selected.innermost.storage_name.as_str(), "$with.inner");
+        assert!(selected.outer.is_empty());
+
+        assert!(
+            chain
+                .select_preceding(Some(DeclarativeEnvironmentPosition::current(
+                    CurrentScopeDepth(4),
+                )))
+                .is_none(),
+            "a nearer declarative binding must cut off every Object Environment"
+        );
     }
 
     #[test]

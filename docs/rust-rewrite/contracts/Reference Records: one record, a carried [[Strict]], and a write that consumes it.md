@@ -1320,10 +1320,11 @@ selection and emission cannot silently resolve different bindings.
 while evaluating its initial `Symbol.unscopables` query. A non-empty
 `WithEnvironmentReferencePlan` owns one innermost resolution and zero or more
 outer resolutions, the referenced name and `Strictness`. The plan is neither
-`Clone` nor `Copy`, and its only exit consumes it into PutValue. Thus an empty
+`Clone` nor `Copy`, and its `put_value` exit consumes it. Thus an empty
 environment chain is not constructible, a second write is E0382, a `bool`
-cannot stand in for `[[Strict]]`, and a new strictness state makes its exhaustive
-PutValue match E0004.
+cannot stand in for `[[Strict]]`, and a new strictness state makes its
+exhaustive PutValue match E0004. Section 9 adds the distinct consuming
+`get_value` exit without reopening construction.
 
 The consuming exit builds one fixed tree:
 
@@ -1361,11 +1362,109 @@ shadowing to the observable Proxy order, abrupt-recheck, sloppy-recreation,
 abrupt-RHS, unscopables and nested-object cases.
 
 This follow-up covers only plain identifier `=` through `with` in scripts and
-ordinary source functions. Nested reads still use the existing innermost-only
-path. Compound, logical, update and destructuring writes, Global Object
+ordinary source functions. Direct identifier GetValue is the separate lifecycle
+in §9. Compound, logical, update and destructuring writes, Global Object
 Environment Records, generated class/helper execution contexts, the
 super-write `[[ThisValue]]` gap and deferred computed-key coercion remain
 explicit debt. A resumable owner which would capture a `WithObject` environment
 is rejected explicitly rather than pretending the existing suspension
 activation can re-enter it. The change adds no backend operation, IR variant or
 closure ABI and makes no status-count or full-T08 claim.
+
+---
+
+## 9. T08 Object Environment Record `GetBindingValue` follow-up
+
+### 9.1 The defect
+
+The read path did not share §8's ordered Environment Record selection. It asked
+`OrderedWithEnvironmentChain::innermost_binding_object`, tested that one
+object's `HasBinding`, and sent a miss directly to the non-`with` fallback.
+That has three observable wrong answers from one lifecycle shortcut:
+
+1. a declarative binding introduced inside a `with` body did not cut off the
+   outer Object Environment Record;
+2. an inner Object Environment miss never continued to an outer Object
+   Environment Record; and
+3. the selected object was read with a bare property Get, omitting
+   `ObjectEnvironmentRecord.GetBindingValue`'s second `HasProperty` query.
+
+The third point is not redundant with `HasBinding`. The `@@unscopables` getter
+can delete the property between the two operations, and a Proxy makes both
+queries independently observable or abrupt. `GetBindingValue(N, S)` returns
+`undefined` after a missing recheck when `S` is false and throws
+`ReferenceError` when `S` is true. The strict case is reachable through an
+ordinary strict function created inside sloppy `with` code and carrying the
+Object Environment Record through the existing capture chain.
+
+### 9.2 Closed selection and consuming GetValue
+
+`OrderedWithEnvironmentChain::select_preceding` is the only read/write
+selection exit. It takes the already-located declarative fallback and returns
+`Option<SelectedWithEnvironmentObjects>`. `None` means no Object Environment
+Record precedes that fallback. The selected form has a required `innermost`
+field and an `outer` vector, so an empty chain is not representable. The old
+`innermost_binding_object` accessor is deleted: a caller cannot bypass
+declarative cutoff or outer chaining by requesting one raw object.
+
+`SelectedWithEnvironmentObjects::into_reference_plan` consumes the selection,
+allocates one unscopables temporary per object, and performs the one reversal
+needed to build the nested conditionals in inner-to-outer execution order. It
+is the sole external producer of `WithEnvironmentReferencePlan`; the raw
+binding-object read, `binding_visible`, `WithEnvironmentResolution` constructor
+and plan constructor are private to the Reference module.
+
+The existing non-`Clone`, non-`Copy` plan now has two consuming exits:
+`get_value` and `put_value`. Both use the same selected objects, referenced name
+and carried `Strictness`, so read and write cannot silently disagree about
+which Environment Record chain ResolveBinding traversed. Choosing either exit
+spends the plan; a second GetValue or PutValue is E0382.
+
+The GetValue exit builds this fixed tree:
+
+1. initial `HasBinding` (HasProperty, then `@@unscopables`) is evaluated from
+   the innermost selected object outward;
+2. an initial miss enters only the next outer resolution, and all misses reach
+   the declarative/global/unresolvable fallback;
+3. the selected branch re-runs `HasProperty` on the exact same materialized
+   binding object;
+4. an abrupt recheck propagates without performing Get;
+5. presence performs a property Get with that binding object as receiver;
+6. absence returns `undefined` for `Strictness::Sloppy` and throws
+   `ReferenceError` for `Strictness::Strict`.
+
+The lowerer locates the declarative fallback before selecting Object
+Environment Records, just as the write path does. `WithEnvironmentBindingObject`
+still names only the stable hidden binding created after the `with` expression
+was evaluated, so no part of either query can re-evaluate or substitute the
+source object expression.
+
+### 9.3 Proof and boundary
+
+The structural proof covers a non-empty selection, declarative cutoff,
+inner-to-outer conditional nesting, same-object initial query/recheck/Get,
+strict missing `ReferenceError` and sloppy missing `undefined`. The Wasm fixture
+makes the four-operation Proxy trace (`has`, unscopables Get, recheck `has`,
+value Get), outer fallback, declarative shadowing, deleted-during-unscopables
+strict/sloppy outcomes and abrupt recheck observable. The pinned Test262
+oracles are `get-binding-value-idref-with-proxy-env.js`,
+`has-binding-idref-with-proxy-env.js`, `binding-blocked-by-unscopables.js`, and
+the sloppy/strict-mode
+`get-mutable-binding-binding-deleted-in-get-unscopables*.js` pair.
+Node 24/V8 does not expose that second query, so a host-engine run is not an
+oracle for this edge; the current ECMA-262 algorithm and the pinned Test262
+tests agree on the four-operation sequence above.
+
+The `typeof unresolvableName` fast path is used only when no selected Object
+Environment Record can bind the name. When one can, the plan uses `undefined`
+as its terminal value only for a genuinely unresolvable fallback; any selected
+record still runs GetBindingValue before `typeof` applies to the result. This
+preserves 13.5.3's exemption without bypassing Object Environment resolution or
+turning a selected record's strict missing recheck into `undefined`.
+
+This follow-up claims direct identifier GetValue, including the operand of
+`typeof`. Identifier calls still need `WithBaseObject` receiver preservation.
+Compound/logical/update/destructuring and delete operations, generated
+class/helper contexts and resumable captured Object Environment Records remain
+explicit debt. No IR variant, backend operation, closure ABI, status count or
+complete `language/statements/with` closure is claimed.

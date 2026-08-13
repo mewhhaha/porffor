@@ -28,7 +28,14 @@ resolution chain and a consuming `WithEnvironmentReferencePlan`. Declarative
 records cut off outer objects at their exact position; nested strict functions
 carry surrounding objects through the existing closure capture machinery. The
 selected object re-runs `HasProperty` after the RHS so strict absence is a
-ReferenceError and sloppy Set still observes the recheck. Object-literal
+ReferenceError and sloppy Set still observes the recheck. Direct value-position
+identifier reads now locate their declarative fallback first and consume the
+same typed non-empty Object Environment selection. Resolution continues from
+inner to outer, the selected record performs GetBindingValue's second
+`HasProperty`, and deletion during `@@unscopables` returns `undefined` in
+sloppy code or throws `ReferenceError` in a captured strict function. The raw
+innermost-object/read accessors are private or deleted, so lowering cannot
+bypass declarative cutoff, outer chaining or the recheck. Object-literal
 methods still lack the required home-object context
 and remain explicit unsupported debt. Async-generator property assignment remains an explicit
 activation-ABI gap, as do private and `super` yield-assignment targets. The
@@ -40,13 +47,14 @@ The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central
 feature-enabled CLI compile, and its exact generator-suspension Wasm fixture is
-green. The delete-super and Object Environment Record structural units and Wasm
-fixtures are present, while their Cargo and pinned Test262 execution gates
-remain deferred to the current integration checkpoint. The Object Environment
-seam is intentionally limited to plain assignment in scripts and ordinary
-source functions: nested reads, compound/logical/update/destructuring writes,
-generated class/helper contexts and resumable captured WithObject environments
-remain explicit debt.
+green. The delete-super and Object Environment Record read/write structural
+units and Wasm fixtures are present, while their Cargo and pinned Test262
+execution gates remain deferred to the current integration checkpoint. The
+Object Environment seam is intentionally limited to plain assignment and direct
+identifier GetValue (including `typeof` operands) in scripts and ordinary
+source functions. Identifier-call `WithBaseObject`, compound/logical/update/
+destructuring/delete operations, generated class/helper contexts and resumable
+captured WithObject environments remain explicit debt.
 
 ## Objective
 

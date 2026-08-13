@@ -19,8 +19,8 @@ use crate::ir::reference::{
     reference_base_of_lowered_read, CapturedBindingPosition, CapturedCursorDepth,
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
     DeleteSuperReferencePlan, OrderedWithEnvironmentChain, PositionedWithEnvironment,
-    ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord, WithEnvironmentBindingObject,
-    WithEnvironmentReferencePlan, WithEnvironmentResolution,
+    ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord,
+    SelectedWithEnvironmentObjects, WithEnvironmentBindingObject, WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10540,12 +10540,14 @@ impl<'a> ScriptLowerer<'a> {
         missing_as_reference_error: bool,
     ) -> TypedExpr {
         if allow_with {
-            if let Some(object) = self
+            let fallback = self.locate_identifier_reference(&name);
+            if let Some(objects) = self
                 .with_environment_chain
-                .innermost_binding_object()
-                .cloned()
+                .select_preceding(fallback.declarative_position())
             {
-                return self.lower_with_scoped_identifier_read(name, object);
+                let plan = self.with_environment_reference_plan(name.clone(), objects);
+                let fallback = self.lower_identifier_name_inner(name, false, true);
+                return plan.get_value(fallback);
             }
         }
 
@@ -10679,46 +10681,15 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_with_scoped_identifier_read(
+    fn with_environment_reference_plan(
         &mut self,
         name: String,
-        object: WithEnvironmentBindingObject,
-    ) -> TypedExpr {
-        let binding_visible = self.lower_with_binding_visible(&name, &object);
-        let with_value = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::PropertyRead {
-                target: Box::new(object.read()),
-                key: PropertyKeyIr::StaticString(name.clone()),
-            },
-        );
-        let fallback = self.lower_identifier_name_inner(name, false, true);
-        TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::Conditional {
-                condition: Box::new(binding_visible),
-                then_expr: Box::new(with_value),
-                else_expr: Box::new(fallback),
-            },
-        )
-    }
-
-    fn lower_with_binding_visible(
-        &mut self,
-        name: &str,
-        object: &WithEnvironmentBindingObject,
-    ) -> TypedExpr {
-        object.binding_visible(name, self.alloc_temp_binding_name("with.unscopables."))
+        objects: SelectedWithEnvironmentObjects,
+    ) -> WithEnvironmentReferencePlan {
+        let strictness = self.reference_strictness();
+        objects.into_reference_plan(name, strictness, || {
+            self.alloc_temp_binding_name("with.unscopables.")
+        })
     }
 
     /// Lower `expression`, first evaluating any operand of it that the spec
@@ -23822,8 +23793,8 @@ impl<'a> ScriptLowerer<'a> {
                     if let Some(fallback) = with_fallback {
                         let objects = self
                             .with_environment_chain
-                            .objects_preceding(fallback.declarative_position());
-                        if !objects.is_empty() {
+                            .select_preceding(fallback.declarative_position());
+                        if let Some(objects) = objects {
                             return self.lower_with_scoped_identifier_write(
                                 name, value, objects, fallback,
                             );
@@ -24722,34 +24693,13 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         name: String,
         value: TypedExpr,
-        objects: Vec<WithEnvironmentBindingObject>,
+        objects: SelectedWithEnvironmentObjects,
         fallback: LocatedIdentifierReference,
     ) -> TypedExpr {
-        let mut objects = objects.into_iter();
-        let innermost = objects
-            .next()
-            .expect("a with-scoped write requires an Object Environment Record");
-        let innermost = WithEnvironmentResolution::create(
-            innermost,
-            self.alloc_temp_binding_name("with.unscopables."),
-        );
-        // The plan wraps `outer` from outermost to innermost so the resulting
-        // conditional evaluates inner-to-outer. Selection returns the natural
-        // ResolveBinding order, hence this one explicit reversal.
-        let mut environments = objects
-            .map(|object| {
-                WithEnvironmentResolution::create(
-                    object,
-                    self.alloc_temp_binding_name("with.unscopables."),
-                )
-            })
-            .collect::<Vec<_>>();
-        environments.reverse();
-        let strictness = self.reference_strictness();
+        let plan = self.with_environment_reference_plan(name.clone(), objects);
         let fallback =
             self.lower_located_identifier_assign_value(name.clone(), value.clone(), fallback);
-        WithEnvironmentReferencePlan::create(innermost, environments, name, strictness)
-            .put_value(value, fallback)
+        plan.put_value(value, fallback)
     }
 
     fn lower_pattern_assign(&mut self, pattern: &Pattern, rhs: &Expression) -> TypedExpr {
@@ -26700,19 +26650,37 @@ impl<'a> ScriptLowerer<'a> {
             return self.lower_delete(target);
         }
         if matches!(op, UnaryOp::TypeOf) {
-            if let Expression::Identifier(identifier) = target {
+            if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(target) {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 // `globalThis` is an intrinsic script global binding (see
                 // `script_global_bindings`) rather than a tracked global property, so it
                 // never shows up in `global_property_is_proven_present`. Without this arm
                 // `typeof globalThis` would lower to the unresolved-identifier form and
                 // constant-fold to "undefined".
+                let fallback = self.locate_identifier_reference(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(fallback.declarative_position());
                 let is_bound = name == GLOBAL_THIS_NAME
                     || self.lookup_binding(&name).is_some()
                     || self.global_property_is_proven_present(&name)
                     || self.visible_function_names.contains_key(&name)
                     || (name == "arguments"
                         && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some());
+                if let Some(objects) = selected {
+                    let plan = self.with_environment_reference_plan(name.clone(), objects);
+                    let fallback = if is_bound {
+                        self.lower_identifier_name_inner(name, false, true)
+                    } else {
+                        TypedExpr::undefined()
+                    };
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::String),
+                        ExprIr::TypeOf {
+                            expr: Box::new(plan.get_value(fallback)),
+                        },
+                    );
+                }
                 if !is_bound {
                     return TypedExpr::from_info(
                         ValueInfo::new(ValueKind::String),
