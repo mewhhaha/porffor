@@ -726,6 +726,147 @@ if [ ! -f crates/lila-cli/tests/fixtures/wasm_math_min_max_arity.js ]; then
   fail 'Math extremum variadic fixture must remain present'
 fi
 
+# T10's user-facing own-descriptor predicates. These three builtins have
+# different input sources and observable coercion orders, but consume the same
+# public [[GetOwnProperty]] protocol. Keep those decisions in one closed Rust
+# domain and prevent the deleted Array/arguments/ordinary representation scans
+# from returning in any wrapper.
+own_descriptor_predicate_file="crates/lila-aot-wasm/src/builtins/object.rs"
+require_fixed_string_count \
+  "$own_descriptor_predicate_file" \
+  'enum OwnDescriptorPredicateBuiltin {' \
+  1 \
+  'closed own-descriptor predicate builtin domain'
+require_fixed_string_count \
+  "$own_descriptor_predicate_file" \
+  'fn compile_object_own_descriptor_predicate_builtin(' \
+  1 \
+  'shared own-descriptor predicate compiler'
+require_fixed_string_count \
+  "$own_descriptor_predicate_file" \
+  'compile_object_own_descriptor_predicate_builtin(' \
+  4 \
+  'own-descriptor predicate compiler definition and three wrapper calls'
+
+own_descriptor_predicate_body="$(sed -n \
+  '/^    fn compile_object_own_descriptor_predicate_builtin(/,/^    pub(super) fn compile_object_has_own_builtin(/p' \
+  "$own_descriptor_predicate_file")"
+if [ "$(grep -Fc 'match builtin {' <<<"$own_descriptor_predicate_body" || true)" -ne 3 ]; then
+  fail 'own-descriptor predicate compiler must exhaustively select source, order and projection'
+fi
+if grep -Eq '^[[:space:]]*_ =>|unreachable!\(' <<<"$own_descriptor_predicate_body"; then
+  fail 'own-descriptor predicate compiler must not escape its closed domain with a catch-all'
+fi
+require_own_predicate_body_count() {
+  needle="$1"
+  expected="$2"
+  description="$3"
+  count="$(grep -Fc "$needle" <<<"$own_descriptor_predicate_body" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "own-descriptor predicate compiler must contain $expected $description sites (found $count)"
+  fi
+}
+require_own_predicate_body_count \
+  'StandardBuiltinId::ObjectGetOwnPropertyDescriptor.function_id()' \
+  1 \
+  'canonical Object.getOwnPropertyDescriptor metadata lookup'
+require_own_predicate_body_count 'self.emit_direct_js_call(' 1 'canonical descriptor call'
+require_own_predicate_body_count \
+  'self.emit_object_own_data_field_read(' \
+  1 \
+  'non-observable enumerable projection'
+require_own_predicate_body_count \
+  'self.emit_value_to_current_function_realm_object_locals(' \
+  3 \
+  'ToObject conversion'
+require_own_predicate_body_count \
+  'self.emit_value_to_property_key_locals(' \
+  3 \
+  'ToPropertyKey conversion'
+
+for raw_own_predicate_scan in \
+  'HEAP_' \
+  'PROXY_HANDLER_' \
+  'emit_object_own_property_present' \
+  'emit_known_array_index_from_property_key' \
+  'emit_array_' \
+  'emit_arguments_' \
+  'load_i64_to_local_from_offset'
+do
+  if grep -Fq "$raw_own_predicate_scan" <<<"$own_descriptor_predicate_body"; then
+    fail "own-descriptor predicate compiler must not rebuild representation storage through $raw_own_predicate_scan"
+  fi
+done
+
+own_descriptor_order_body="$(awk '
+  /match builtin \{/ { matches += 1 }
+  matches == 2 { print }
+  matches == 3 { exit }
+' <<<"$own_descriptor_predicate_body")"
+if ! awk '
+  /OwnDescriptorPredicateBuiltin::ObjectHasOwn =>/ && !object_arm { object_arm = NR }
+  /compile_nullish_tagged_i32/ && object_arm && !object_nullish { object_nullish = NR }
+  /emit_value_to_current_function_realm_object_locals/ && object_arm && !object_to_object { object_to_object = NR }
+  /emit_value_to_property_key_locals/ && object_arm && !object_to_key { object_to_key = NR }
+  /OwnDescriptorPredicateBuiltin::PrototypeHasOwnProperty =>/ { hop_arm = NR }
+  /emit_value_to_property_key_locals/ && hop_arm && !hop_to_key { hop_to_key = NR }
+  /compile_nullish_tagged_i32/ && hop_arm && !hop_nullish { hop_nullish = NR }
+  /emit_value_to_current_function_realm_object_locals/ && hop_arm && !hop_to_object { hop_to_object = NR }
+  /OwnDescriptorPredicateBuiltin::PrototypePropertyIsEnumerable =>/ { pie_arm = NR }
+  /emit_value_to_property_key_locals/ && pie_arm && !pie_to_key { pie_to_key = NR }
+  /compile_nullish_tagged_i32/ && pie_arm && !pie_nullish { pie_nullish = NR }
+  /emit_value_to_current_function_realm_object_locals/ && pie_arm && !pie_to_object { pie_to_object = NR }
+  END {
+    exit !(object_arm && object_nullish && object_to_object && object_to_key &&
+      hop_arm && hop_to_key && hop_nullish && hop_to_object &&
+      pie_arm && pie_to_key && pie_nullish && pie_to_object &&
+      object_nullish < object_to_object && object_to_object < object_to_key &&
+      hop_to_key < hop_nullish && hop_nullish < hop_to_object &&
+      pie_to_key < pie_nullish && pie_nullish < pie_to_object)
+  }
+' <<<"$own_descriptor_order_body"; then
+  fail 'own-descriptor predicates must preserve Object.hasOwn object-first and prototype key-first conversion order'
+fi
+
+for own_predicate_wrapper_spec in \
+  'compile_object_has_own_builtin|compile_object_is_builtin|OwnDescriptorPredicateBuiltin::ObjectHasOwn' \
+  'compile_object_prototype_has_own_property_builtin|compile_object_prototype_lookup_builtin|OwnDescriptorPredicateBuiltin::PrototypeHasOwnProperty' \
+  'compile_object_prototype_property_is_enumerable_builtin|compile_object_prototype_is_prototype_of_builtin|OwnDescriptorPredicateBuiltin::PrototypePropertyIsEnumerable'
+do
+  wrapper="${own_predicate_wrapper_spec%%|*}"
+  rest="${own_predicate_wrapper_spec#*|}"
+  next_wrapper="${rest%%|*}"
+  variant="${rest#*|}"
+  wrapper_body="$(sed -n \
+    "/^    pub(super) fn ${wrapper}(/,/^    pub(super) fn ${next_wrapper}(/p" \
+    "$own_descriptor_predicate_file")"
+  if [ "$(grep -Fc 'self.compile_object_own_descriptor_predicate_builtin(' <<<"$wrapper_body" || true)" -ne 1 ] \
+    || [ "$(grep -Fc "$variant" <<<"$wrapper_body" || true)" -ne 1 ] \
+    || [ "$(grep -Fc 'self.' <<<"$wrapper_body" || true)" -ne 1 ]; then
+    fail "$wrapper must be a one-call selection of $variant"
+  fi
+  if grep -Eq 'Instruction::|HEAP_|emit_|reserve_temp_local|StandardBuiltinId::' <<<"$wrapper_body"; then
+    fail "$wrapper must not contain a representation-specific descriptor path"
+  fi
+done
+
+require_fixed_string_count \
+  crates/lila-cli/tests/cli/object.rs \
+  'fn run_wasm_backend_succeeds_for_object_own_descriptor_predicates()' \
+  1 \
+  'exact own-descriptor-predicate CLI regression'
+require_fixed_string_count \
+  crates/lila-cli/tests/cli/object.rs \
+  '"wasm_object_own_descriptor_predicates.js"' \
+  1 \
+  'own-descriptor-predicate fixture wiring'
+if [ ! -f crates/lila-cli/tests/fixtures/wasm_object_own_descriptor_predicates.js ]; then
+  fail 'own-descriptor-predicate fixture must remain present'
+fi
+if [ ! -f docs/rust-rewrite/contracts/own-descriptor-predicates.md ]; then
+  fail 'own-descriptor-predicate contract must remain present'
+fi
+
 # T11's direct [[GetOwnProperty]] observations. One typed authority owns the
 # representation split used by the value-free public descriptor/Has/Delete
 # fact and the richer Proxy-Get/Proxy-Set projections. Array-only or

@@ -78,6 +78,20 @@ valid. Ordinary entries precede virtual fallbacks, preserving a Function
 DataView/intrinsic and generic internal-slot fallbacks ordered behind it. The
 former Object/Function/arguments raw entry scan is gone.
 
+The three user-facing own-descriptor predicates now share one closed compiler
+domain. `Object.hasOwn`, `Object.prototype.hasOwnProperty` and
+`Object.prototype.propertyIsEnumerable` exhaustively select their input source,
+observable conversion order and result projection, then make exactly one call
+through the canonical `Object.getOwnPropertyDescriptor` metadata. The static
+builtin still performs `ToObject` before `ToPropertyKey`; both prototype
+methods still perform `ToPropertyKey` before `ToObject`. Their wrappers no
+longer contain Array, arguments, boxed-String, Proxy or ordinary heap scans, so
+valid integer-indexed TypedArray elements can no longer disappear from only the
+prototype predicates. The enumerable projection reads the materialized
+descriptor's own data field and never invokes the target property getter. The
+bounded contract is recorded in
+`docs/rust-rewrite/contracts/own-descriptor-predicates.md`.
+
 This is direct-target closure only. The fact deliberately marks a nested Proxy
 target as handled without treating its own storage as the target descriptor;
 the recursive Proxy descriptor-record protocol remains T11 work. The complete
@@ -95,8 +109,10 @@ materializations. `cargo check -p lila-ir -p lila-aot-wasm` and the focused
 array descriptor CLI fixture were green at the earlier descriptor checkpoint;
 the HasProperty and Proxy-Set batches have not rerun them. The focused
 Proxy-Set direct-descriptor fixture is written but has not run while the shared
-verification lane owns Cargo and Test262. A complete current-pin Wasm-AOT
-Object/descriptor subtree run has not been performed.
+verification lane owns Cargo and Test262. The focused own-descriptor-predicate
+fixture is also written but has received only static boundary and diff checks;
+its Cargo/runtime test and focused Test262 filters remain deferred. A complete
+current-pin Wasm-AOT Object/descriptor subtree run has not been performed.
 
 ## Objective
 
