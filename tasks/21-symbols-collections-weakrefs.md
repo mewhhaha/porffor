@@ -41,7 +41,7 @@ mutation, deletion/reinsertion and irreversible exhaustion.
 Strong collection iterator receiver validation is now one shared typed seam.
 `StrongCollectionCursor` exhaustively selects the Map/Set iterator brand and
 preserved error message, while the closed
-`StrongCollectionIteratorReceiverError` domain distinguishes a non-object from
+`CollectionReceiverError` domain distinguishes a non-object from
 missing internal slots. The exhaustive receiver-representation domain permits
 an internal-brand load only for the compatible Object-tag layout; Array,
 Function and Arguments objects route directly to missing slots, while live and
@@ -53,6 +53,28 @@ cursor behavior. The semantic and representation law is recorded in
 [`collection-iterator-receiver-validation.md`](../docs/rust-rewrite/contracts/collection-iterator-receiver-validation.md).
 This closes only the strong iterator receiver seam, not every collection error
 path or T21's broader cross-realm acceptance criterion.
+
+Ordinary collection data receiver validation is now the same representation-
+safe mechanism without conflating its semantic domain with iterator cursors.
+The closed `CollectionDataReceiverKind` domain selects Map, WeakMap, Set or
+WeakSet brands and messages, while `CollectionReceiverRequirement` keeps those
+four data-slot requirements distinct from the two strong iterator
+requirements. One exhaustive `CollectionReceiverRepresentation` table owns the
+runtime layout decision for both seams: Object-tag records alone may load the
+ordinary brand offset; Array, Function and Arguments are Objects with no brand
+layout; primitives (including the runtime-only heap BigInt tag) are non-object;
+and compile-time-only Dynamic is unreachable. Constructor brand projections
+and other Map/Set allocation sites also consume the same data-kind authority;
+a source-structure regression pins each brand constant to that sole mapping.
+The eighteen source consumers
+that compile thirty-six ordinary collection builtins can no longer duplicate
+or mismatch tag checks, brand loads, messages or error-realm selection. Live
+and revoked Proxies remain unbranded without target unwrapping or trap
+observation. The exact inventory, semantic law and deferred shared verification
+gates are recorded in
+[`collection-data-receiver-validation.md`](../docs/rust-rewrite/contracts/collection-data-receiver-validation.md).
+This closes only the ordinary collection receiver seam, not the weak-
+reachability blocker or T21's full-tree and cross-realm acceptance criteria.
 
 The sole product Wasmtime policy now records
 `WasmWeakReachabilityCapability::Unavailable` independently of its DRC

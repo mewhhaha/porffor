@@ -48,19 +48,19 @@ collection_wire_domain!(CollectionIteratorCursorState {
     Exhausted = 1,
 });
 
-// Receiver representations determine whether iterator validation may read the
-// ordinary Object brand layout. `Dynamic` is a compile-time kind, never a
-// runtime value tag.
-collection_wire_domain!(StrongCollectionIteratorReceiverRepresentation {
+// Receiver representations determine whether collection or iterator
+// validation may read the ordinary Object brand layout. `Dynamic` is a
+// compile-time kind, never a runtime value tag.
+collection_wire_domain!(CollectionReceiverRepresentation {
     ObjectTagBrandLayout = 0,
     ObjectWithoutBrandLayout = 1,
     NonObject = 2,
     NonRuntime = 3,
 });
 
-macro_rules! strong_collection_iterator_receiver_value_kinds {
+macro_rules! collection_receiver_value_kinds {
     ($($kind:ident => $representation:ident),+ $(,)?) => {
-        impl StrongCollectionIteratorReceiverRepresentation {
+        impl CollectionReceiverRepresentation {
             const VALUE_KINDS: &'static [ValueKind] = &[$(ValueKind::$kind),+];
 
             const fn from_value_kind(kind: ValueKind) -> Self {
@@ -72,7 +72,7 @@ macro_rules! strong_collection_iterator_receiver_value_kinds {
     };
 }
 
-strong_collection_iterator_receiver_value_kinds! {
+collection_receiver_value_kinds! {
     Undefined => NonObject,
     Null => NonObject,
     Boolean => NonObject,
@@ -95,9 +95,79 @@ enum StrongCollectionCursor {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StrongCollectionIteratorReceiverError {
+enum CollectionDataReceiverKind {
+    Map,
+    WeakMap,
+    Set,
+    WeakSet,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CollectionReceiverRequirement {
+    Data(CollectionDataReceiverKind),
+    Iterator(StrongCollectionCursor),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CollectionReceiverError {
     NonObject,
     MissingInternalSlots,
+}
+
+impl CollectionDataReceiverKind {
+    fn brand(self) -> u64 {
+        match self {
+            Self::Map => OBJECT_INTERNAL_BRAND_MAP,
+            Self::WeakMap => OBJECT_INTERNAL_BRAND_WEAK_MAP,
+            Self::Set => OBJECT_INTERNAL_BRAND_SET,
+            Self::WeakSet => OBJECT_INTERNAL_BRAND_WEAK_SET,
+        }
+    }
+
+    fn receiver_error_message(self, error: CollectionReceiverError) -> &'static str {
+        match (self, error) {
+            (Self::Map, CollectionReceiverError::NonObject) => {
+                "Map method receiver is not an object"
+            }
+            (Self::Map, CollectionReceiverError::MissingInternalSlots) => {
+                "Map method receiver does not have [[MapData]]"
+            }
+            (Self::WeakMap, CollectionReceiverError::NonObject) => {
+                "WeakMap method receiver is not an object"
+            }
+            (Self::WeakMap, CollectionReceiverError::MissingInternalSlots) => {
+                "WeakMap method receiver does not have [[WeakMapData]]"
+            }
+            (Self::Set, CollectionReceiverError::NonObject) => {
+                "Set method receiver is not an object"
+            }
+            (Self::Set, CollectionReceiverError::MissingInternalSlots) => {
+                "Set method receiver does not have [[SetData]]"
+            }
+            (Self::WeakSet, CollectionReceiverError::NonObject) => {
+                "WeakSet method receiver is not an object"
+            }
+            (Self::WeakSet, CollectionReceiverError::MissingInternalSlots) => {
+                "WeakSet method receiver does not have [[WeakSetData]]"
+            }
+        }
+    }
+}
+
+impl CollectionReceiverRequirement {
+    fn brand(self) -> u64 {
+        match self {
+            Self::Data(kind) => kind.brand(),
+            Self::Iterator(cursor) => cursor.iterator_brand(),
+        }
+    }
+
+    fn receiver_error_message(self, error: CollectionReceiverError) -> &'static str {
+        match self {
+            Self::Data(kind) => kind.receiver_error_message(error),
+            Self::Iterator(cursor) => cursor.receiver_error_message(error),
+        }
+    }
 }
 
 impl StrongCollectionCursor {
@@ -108,18 +178,18 @@ impl StrongCollectionCursor {
         }
     }
 
-    fn receiver_error_message(self, error: StrongCollectionIteratorReceiverError) -> &'static str {
+    fn receiver_error_message(self, error: CollectionReceiverError) -> &'static str {
         match (self, error) {
-            (Self::Map, StrongCollectionIteratorReceiverError::NonObject) => {
+            (Self::Map, CollectionReceiverError::NonObject) => {
                 "Map Iterator.prototype.next receiver is not an object"
             }
-            (Self::Map, StrongCollectionIteratorReceiverError::MissingInternalSlots) => {
+            (Self::Map, CollectionReceiverError::MissingInternalSlots) => {
                 "Map Iterator.prototype.next receiver does not have [[Map]]"
             }
-            (Self::Set, StrongCollectionIteratorReceiverError::NonObject) => {
+            (Self::Set, CollectionReceiverError::NonObject) => {
                 "Set Iterator.prototype.next receiver is not an object"
             }
-            (Self::Set, StrongCollectionIteratorReceiverError::MissingInternalSlots) => {
+            (Self::Set, CollectionReceiverError::MissingInternalSlots) => {
                 "Set Iterator.prototype.next receiver does not have [[Set]]"
             }
         }
@@ -194,6 +264,13 @@ enum SetCollectionKind {
 }
 
 impl SetCollectionKind {
+    fn receiver_kind(self) -> CollectionDataReceiverKind {
+        match self {
+            Self::Set => CollectionDataReceiverKind::Set,
+            Self::WeakSet => CollectionDataReceiverKind::WeakSet,
+        }
+    }
+
     fn prototype_global_index(self) -> u32 {
         match self {
             Self::Set => SET_PROTOTYPE_GLOBAL_INDEX,
@@ -209,10 +286,7 @@ impl SetCollectionKind {
     }
 
     fn brand(self) -> u64 {
-        match self {
-            Self::Set => OBJECT_INTERNAL_BRAND_SET,
-            Self::WeakSet => OBJECT_INTERNAL_BRAND_WEAK_SET,
-        }
+        self.receiver_kind().brand()
     }
 
     fn record_size(self) -> u64 {
@@ -280,6 +354,13 @@ impl SetCollectionKind {
 }
 
 impl MapCollectionKind {
+    fn receiver_kind(self) -> CollectionDataReceiverKind {
+        match self {
+            Self::Map => CollectionDataReceiverKind::Map,
+            Self::WeakMap => CollectionDataReceiverKind::WeakMap,
+        }
+    }
+
     fn prototype_global_index(self) -> u32 {
         match self {
             Self::Map => MAP_PROTOTYPE_GLOBAL_INDEX,
@@ -309,10 +390,7 @@ impl MapCollectionKind {
     }
 
     fn brand(self) -> u64 {
-        match self {
-            Self::Map => OBJECT_INTERNAL_BRAND_MAP,
-            Self::WeakMap => OBJECT_INTERNAL_BRAND_WEAK_MAP,
-        }
+        self.receiver_kind().brand()
     }
 }
 
@@ -332,10 +410,10 @@ enum SetPredicateOperation {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    fn emit_strong_collection_iterator_record_from_receiver(
+    fn emit_collection_record_from_receiver(
         &mut self,
-        cursor: StrongCollectionCursor,
-        iterator_record_local: u32,
+        requirement: CollectionReceiverRequirement,
+        record_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let receiver_payload_local = self.reserve_temp_local();
@@ -346,20 +424,19 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
 
         function.instruction(&Instruction::I64Const(
-            StrongCollectionIteratorReceiverRepresentation::NonObject.word() as i64,
+            CollectionReceiverRepresentation::NonObject.word() as i64,
         ));
         function.instruction(&Instruction::LocalSet(receiver_representation_local));
-        for kind in StrongCollectionIteratorReceiverRepresentation::VALUE_KINDS
+        for kind in CollectionReceiverRepresentation::VALUE_KINDS
             .iter()
             .copied()
         {
-            let representation =
-                StrongCollectionIteratorReceiverRepresentation::from_value_kind(kind);
+            let representation = CollectionReceiverRepresentation::from_value_kind(kind);
             match representation {
-                StrongCollectionIteratorReceiverRepresentation::NonObject => {}
-                StrongCollectionIteratorReceiverRepresentation::ObjectTagBrandLayout
-                | StrongCollectionIteratorReceiverRepresentation::ObjectWithoutBrandLayout
-                | StrongCollectionIteratorReceiverRepresentation::NonRuntime => {
+                CollectionReceiverRepresentation::NonObject => {}
+                CollectionReceiverRepresentation::ObjectTagBrandLayout
+                | CollectionReceiverRepresentation::ObjectWithoutBrandLayout
+                | CollectionReceiverRepresentation::NonRuntime => {
                     function.instruction(&Instruction::LocalGet(receiver_tag_local));
                     function.instruction(&Instruction::I64Const(kind.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
@@ -372,16 +449,13 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         function.instruction(&Instruction::Block(BlockType::Empty));
-        for representation in StrongCollectionIteratorReceiverRepresentation::ALL
-            .iter()
-            .copied()
-        {
+        for representation in CollectionReceiverRepresentation::ALL.iter().copied() {
             function.instruction(&Instruction::LocalGet(receiver_representation_local));
             function.instruction(&Instruction::I64Const(representation.word() as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             match representation {
-                StrongCollectionIteratorReceiverRepresentation::ObjectTagBrandLayout => {
+                CollectionReceiverRepresentation::ObjectTagBrandLayout => {
                     self.load_i64_to_local_from_offset(
                         receiver_payload_local,
                         HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
@@ -389,20 +463,19 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     );
                     function.instruction(&Instruction::LocalGet(receiver_brand_local));
-                    function.instruction(&Instruction::I64Const(cursor.iterator_brand() as i64));
+                    function.instruction(&Instruction::I64Const(requirement.brand() as i64));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.load_i64_to_local_from_offset(
                         receiver_payload_local,
                         HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-                        iterator_record_local,
+                        record_local,
                         function,
                     );
                     function.instruction(&Instruction::Else);
                     self.emit_throw_current_function_realm_type_error(
-                        cursor.receiver_error_message(
-                            StrongCollectionIteratorReceiverError::MissingInternalSlots,
-                        ),
+                        requirement
+                            .receiver_error_message(CollectionReceiverError::MissingInternalSlots),
                         self.result_local,
                         self.result_tag_local,
                         function,
@@ -410,29 +483,26 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_return_current_completion(function);
                     function.instruction(&Instruction::End);
                 }
-                StrongCollectionIteratorReceiverRepresentation::ObjectWithoutBrandLayout => {
+                CollectionReceiverRepresentation::ObjectWithoutBrandLayout => {
                     self.emit_throw_current_function_realm_type_error(
-                        cursor.receiver_error_message(
-                            StrongCollectionIteratorReceiverError::MissingInternalSlots,
-                        ),
+                        requirement
+                            .receiver_error_message(CollectionReceiverError::MissingInternalSlots),
                         self.result_local,
                         self.result_tag_local,
                         function,
                     )?;
                     self.emit_return_current_completion(function);
                 }
-                StrongCollectionIteratorReceiverRepresentation::NonObject => {
+                CollectionReceiverRepresentation::NonObject => {
                     self.emit_throw_current_function_realm_type_error(
-                        cursor.receiver_error_message(
-                            StrongCollectionIteratorReceiverError::NonObject,
-                        ),
+                        requirement.receiver_error_message(CollectionReceiverError::NonObject),
                         self.result_local,
                         self.result_tag_local,
                         function,
                     )?;
                     self.emit_return_current_completion(function);
                 }
-                StrongCollectionIteratorReceiverRepresentation::NonRuntime => {
+                CollectionReceiverRepresentation::NonRuntime => {
                     function.instruction(&Instruction::Unreachable);
                 }
             }
@@ -447,6 +517,19 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(receiver_tag_local);
         self.release_temp_local(receiver_payload_local);
         Ok(())
+    }
+
+    fn emit_strong_collection_iterator_record_from_receiver(
+        &mut self,
+        cursor: StrongCollectionCursor,
+        iterator_record_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_collection_record_from_receiver(
+            CollectionReceiverRequirement::Iterator(cursor),
+            iterator_record_local,
+            function,
+        )
     }
 
     fn emit_map_record_from_receiver(
@@ -467,62 +550,11 @@ impl<'a> FunctionBuilder<'a> {
         map_record_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
-
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(collection_kind.brand() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+        self.emit_collection_record_from_receiver(
+            CollectionReceiverRequirement::Data(collection_kind.receiver_kind()),
             map_record_local,
             function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            match collection_kind {
-                MapCollectionKind::Map => "Map method receiver does not have [[MapData]]",
-                MapCollectionKind::WeakMap => {
-                    "WeakMap method receiver does not have [[WeakMapData]]"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            match collection_kind {
-                MapCollectionKind::Map => "Map method receiver is not an object",
-                MapCollectionKind::WeakMap => "WeakMap method receiver is not an object",
-            },
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
-        Ok(())
+        )
     }
 
     fn emit_find_map_entry(
@@ -1886,7 +1918,7 @@ impl<'a> FunctionBuilder<'a> {
             self.store_i64_const_at_offset(
                 map_payload_local,
                 HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                OBJECT_INTERNAL_BRAND_MAP,
+                CollectionDataReceiverKind::Map.brand(),
                 function,
             );
             self.store_i64_const_at_offset(
@@ -3774,62 +3806,11 @@ impl<'a> FunctionBuilder<'a> {
         set_record_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
-
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(collection_kind.brand() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+        self.emit_collection_record_from_receiver(
+            CollectionReceiverRequirement::Data(collection_kind.receiver_kind()),
             set_record_local,
             function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            match collection_kind {
-                SetCollectionKind::Set => "Set method receiver does not have [[SetData]]",
-                SetCollectionKind::WeakSet => {
-                    "WeakSet method receiver does not have [[WeakSetData]]"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            match collection_kind {
-                SetCollectionKind::Set => "Set method receiver is not an object",
-                SetCollectionKind::WeakSet => "WeakSet method receiver is not an object",
-            },
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
-        Ok(())
+        )
     }
 
     fn emit_find_set_entry(
@@ -4323,7 +4304,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             set_payload_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_SET,
+            CollectionDataReceiverKind::Set.brand(),
             function,
         );
         self.store_i64_const_at_offset(

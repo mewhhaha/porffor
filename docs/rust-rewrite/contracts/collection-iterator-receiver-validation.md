@@ -55,18 +55,20 @@ create another realm or distinguish the backend layouts.
 methods on it select the required iterator brand and preserve the builtin's
 existing receiver error messages.
 
-`StrongCollectionIteratorReceiverError` is the closed receiver-failure domain:
+`CollectionReceiverError` is the closed receiver-failure domain shared by the
+representation-safe validator:
 `NonObject | MissingInternalSlots`. One receiver-record emitter consumes both
 closed domains and is the only validation path used by the Map and Set iterator
 `next` emitters. It creates failures through the current-function-realm
 `TypeError` helper and loads the boxed iterator record only after the matching
 brand is established.
 
-`StrongCollectionIteratorReceiverRepresentation` exhaustively classifies every
-`ValueKind`: only `Object` uses `ObjectTagBrandLayout`; `Array`, `Function` and
-`Arguments` use `ObjectWithoutBrandLayout`; primitive kinds use `NonObject`;
-and the compile-time-only `Dynamic` kind uses `NonRuntime`. Its closed generated
-dispatch is the receiver-record helper's layout authority. Only the
+`CollectionReceiverRepresentation` exhaustively classifies every `ValueKind`
+for both this iterator seam and the distinct ordinary collection data seam:
+only `Object` uses `ObjectTagBrandLayout`; `Array`, `Function` and `Arguments`
+use `ObjectWithoutBrandLayout`; primitive kinds use `NonObject`; and the
+compile-time-only `Dynamic` kind uses `NonRuntime`. Its closed generated
+dispatch is the shared receiver-record helper's layout authority. Only the
 `ObjectTagBrandLayout` arm may load the ordinary internal brand, while the
 object-without-brand-layout arm routes directly to `MissingInternalSlots`.
 Heap-backed BigInt's extra runtime tag falls through to the primitive
