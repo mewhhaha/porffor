@@ -28932,6 +28932,113 @@ try {
     }
 
     #[test]
+    fn wasm_backend_array_accumulation_observes_iterator_and_direct_fresh_writes() {
+        let source = r#"
+            const values = [10, 20];
+            const marker = {};
+            let events = "";
+            let closeCalls = 0;
+            let setterCalls = 0;
+            let index = 0;
+
+            Array.prototype[Symbol.iterator] = function () {
+                "use strict";
+                events += this === values ? "i" : "w";
+                const receiver = this;
+                return {
+                    next() {
+                        events += "n";
+                        return index < receiver.length
+                            ? { value: receiver[index++], done: false }
+                            : { done: true };
+                    },
+                    return() {
+                        closeCalls++;
+                        return {};
+                    }
+                };
+            };
+            Object.defineProperty(Array.prototype, "0", {
+                configurable: true,
+                set() { setterCalls++; }
+            });
+
+            function before() { events += "b"; return 1; }
+            function after() { events += "a"; return 3; }
+            const result = [before(), , ...values, after()];
+            delete Array.prototype["0"];
+
+            const abrupt = {
+                [Symbol.iterator]() {
+                    return {
+                        next() {
+                            return { get value() { throw marker; }, done: false };
+                        },
+                        return() { closeCalls++; return {}; }
+                    };
+                }
+            };
+            let caught = false;
+            try { [...abrupt]; } catch (error) { caught = error === marker; }
+
+            result.length === 5
+                && result[0] === 1
+                && !(1 in result)
+                && result[2] === 10 && result[3] === 20 && result[4] === 3
+                && events === "binnna"
+                && setterCalls === 0
+                && closeCalls === 0
+                && caught;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("array accumulation protocol should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_generator_array_accumulation_commits_prefix_before_yield() {
+        let source = r#"
+            let events = "";
+            function before() { events += "b"; return 1; }
+            function after() { events += "a"; return 3; }
+            function* stream() { yield [before(), ...yield, after()]; }
+
+            const iterator = stream();
+            const suspended = iterator.next();
+            const prefixWasCommitted = events === "b";
+            const yielded = iterator.next("xy");
+            const value = yielded.value;
+
+            suspended.value === undefined && suspended.done === false
+                && prefixWasCommitted
+                && events === "ba"
+                && yielded.done === false
+                && value.length === 4
+                && value[0] === 1 && value[1] === "x"
+                && value[2] === "y" && value[3] === 3;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("generator array accumulation order should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
     fn wasm_backend_async_generator_object_spreads_resume_in_source_order() {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let source = r#"

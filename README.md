@@ -4310,6 +4310,12 @@ Currently covered areas include:
 - Functions: top-level and block declarations, expressions, arrows, recursion, closures, omitted/default/rest parameters, `arguments`, and common `this` binding cases.
 - Objects: literals, property reads/writes, methods, accessors, prototypes, `Object.create` descriptor maps, `Object.preventExtensions` missing-write enforcement, `Object.getPrototypeOf`, and `instanceof`.
 - Arrays: literals, indexed reads/writes, ordinary named properties, descriptor-backed `for...in` enumeration, `length`, growth, holes/sparse basics, `Array.isArray`, and focused coverage for `concat`, `flat`, `flatMap`, `every`, `some`, `filter`, `find`, `findIndex`, `findLast`, `findLastIndex`, `includes`, `indexOf`, `lastIndexOf`, `map`, `forEach` array-like/primitive receivers, inherited array indexes, and ToLength/callback-order edge cases, `keys`, `entries`, `values`, and species-sensitive paths.
+- Array-literal spread lowers to direct source-ordered ArrayAccumulation: every
+  spread observes `@@iterator`, fresh-array data writes bypass inherited
+  setters, holes and the `2^32 - 1` length boundary are preserved, and staged
+  generator literals commit each evaluated prefix before suspension. There is
+  no dense-array shortcut and ArrayAccumulation deliberately performs no
+  IteratorClose.
 - Exceptions and abrupt completion: `throw`, `try/catch/finally`, `return`/`finally` interactions, and basic native error objects.
 - Constructors/classes: `new`, `new.target`, constructor return objects, bound constructors, class call errors, and some derived/null-heritage behavior.
 - Proxy: focused callable/constructable Proxy dispatch, constructor validation,

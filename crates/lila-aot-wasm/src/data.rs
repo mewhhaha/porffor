@@ -864,6 +864,7 @@ impl StringPool {
             "destructuring iterator method must return object",
             "destructuring iterator next must be callable",
             "destructuring iterator next result must be object",
+            "iterator next result must be object",
             "Cannot destructure undefined or null",
             "return",
             "IteratorClose return method must be callable",
@@ -1736,6 +1737,7 @@ impl StringPool {
             "Array.prototype.filter cannot add property to non-extensible target",
             "Array.prototype.filter cannot define non-configurable target property",
             "Invalid array length",
+            "Array accumulation index exceeds exact backend range",
             "Array.prototype.with index out of range",
             "Array.prototype.toSpliced result exceeds maximum safe length",
             "Array.prototype.concat result exceeds maximum safe length",
@@ -3462,6 +3464,21 @@ impl StringPool {
                     self.collect_expr(element);
                 }
             }
+            ExprIr::ArrayAccumulation(accumulation) => {
+                self.uses_heap = true;
+                for element in accumulation.elements() {
+                    let value = match element {
+                        ArrayAccumulationElementIr::Elision => continue,
+                        ArrayAccumulationElementIr::Value(value) => value,
+                        ArrayAccumulationElementIr::Spread(spread) => &spread.value,
+                    };
+                    collect_finite_string_choices(
+                        value,
+                        &mut self.runtime_regexp_candidate_literals,
+                    );
+                    self.collect_expr(value);
+                }
+            }
             ExprIr::PropertyRead { target, key } => {
                 self.uses_heap = true;
                 self.collect_expr(target);
@@ -4601,6 +4618,19 @@ fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String
         ExprIr::ArrayLiteral(elements) => {
             for element in elements {
                 collect_finite_string_choices(element, choices);
+            }
+        }
+        ExprIr::ArrayAccumulation(accumulation) => {
+            for element in accumulation.elements() {
+                match element {
+                    ArrayAccumulationElementIr::Elision => {}
+                    ArrayAccumulationElementIr::Value(value) => {
+                        collect_finite_string_choices(value, choices)
+                    }
+                    ArrayAccumulationElementIr::Spread(spread) => {
+                        collect_finite_string_choices(&spread.value, choices)
+                    }
+                }
             }
         }
         ExprIr::ObjectLiteral(properties) => {

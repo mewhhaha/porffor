@@ -95,6 +95,21 @@ fn iteration_environment_owns_binding(
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct SyncIteratorLocals {
+    pub(crate) iterator_payload: u32,
+    pub(crate) iterator_tag: u32,
+    pub(crate) next_payload: u32,
+    pub(crate) next_tag: u32,
+    pub(crate) key: u32,
+    pub(crate) result_payload: u32,
+    pub(crate) result_tag: u32,
+    pub(crate) done_payload: u32,
+    pub(crate) done_tag: u32,
+    pub(crate) value_payload: u32,
+    pub(crate) value_tag: u32,
+}
+
+#[derive(Clone, Copy)]
 struct DestructuringIteratorLocals {
     iterator_payload: u32,
     iterator_tag: u32,
@@ -114,6 +129,24 @@ struct DestructuringIteratorLocals {
     close_saved_tag: u32,
     close_saved_completion: u32,
     close_saved_aux: u32,
+}
+
+impl DestructuringIteratorLocals {
+    fn protocol(self) -> SyncIteratorLocals {
+        SyncIteratorLocals {
+            iterator_payload: self.iterator_payload,
+            iterator_tag: self.iterator_tag,
+            next_payload: self.next_payload,
+            next_tag: self.next_tag,
+            key: self.key,
+            result_payload: self.result_payload,
+            result_tag: self.result_tag,
+            done_payload: self.done_payload,
+            done_tag: self.done_tag,
+            value_payload: self.value_payload,
+            value_tag: self.value_tag,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -7661,7 +7694,7 @@ impl<'a> FunctionBuilder<'a> {
             source_tag,
             method_payload,
             method_tag,
-            locals,
+            locals.protocol(),
             function,
         )?;
         function.instruction(&Instruction::I64Const(0));
@@ -7746,15 +7779,52 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Reserves the common GetIterator/IteratorStep/IteratorValue working set.
+    /// The matching release method owns the reverse-order discipline so a new
+    /// iterator consumer cannot silently corrupt the temp-local stack.
+    pub(crate) fn reserve_sync_iterator_locals(&mut self) -> SyncIteratorLocals {
+        SyncIteratorLocals {
+            iterator_payload: self.reserve_temp_local(),
+            iterator_tag: self.reserve_temp_local(),
+            next_payload: self.reserve_temp_local(),
+            next_tag: self.reserve_temp_local(),
+            key: self.reserve_temp_local(),
+            result_payload: self.reserve_temp_local(),
+            result_tag: self.reserve_temp_local(),
+            done_payload: self.reserve_temp_local(),
+            done_tag: self.reserve_temp_local(),
+            value_payload: self.reserve_temp_local(),
+            value_tag: self.reserve_temp_local(),
+        }
+    }
+
+    pub(crate) fn release_sync_iterator_locals(&mut self, locals: SyncIteratorLocals) {
+        for local in [
+            locals.value_tag,
+            locals.value_payload,
+            locals.done_tag,
+            locals.done_payload,
+            locals.result_tag,
+            locals.result_payload,
+            locals.key,
+            locals.next_tag,
+            locals.next_payload,
+            locals.iterator_tag,
+            locals.iterator_payload,
+        ] {
+            self.release_temp_local(local);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
-    fn emit_get_iterator_from_value_locals(
+    pub(crate) fn emit_get_iterator_from_value_locals(
         &mut self,
         value_info: ValueInfo,
         source_payload: u32,
         source_tag: u32,
         method_payload: u32,
         method_tag: u32,
-        locals: DestructuringIteratorLocals,
+        locals: SyncIteratorLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         // The arguments exotic object resolves `@@iterator` through a dedicated
@@ -7865,7 +7935,7 @@ impl<'a> FunctionBuilder<'a> {
         source_tag: u32,
         method_payload: u32,
         method_tag: u32,
-        locals: DestructuringIteratorLocals,
+        locals: SyncIteratorLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_propagate_throw_from_locals_if_needed(method_payload, method_tag, function)?;
@@ -8169,6 +8239,105 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(locals.done));
         }
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Runs one sync IteratorStep/IteratorValue pair without introducing an
+    /// IteratorClose path. This is the exact control shape required by
+    /// ArrayAccumulation: any abrupt completion propagates directly, `done` is
+    /// set for a completed iterator, and `value` is read only on the false arm.
+    pub(crate) fn emit_sync_iterator_step_value(
+        &mut self,
+        locals: SyncIteratorLocals,
+        done: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(done));
+        function.instruction(&Instruction::LocalGet(locals.next_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_function_handle_call(
+            locals.next_payload,
+            locals.next_tag,
+            Some((locals.iterator_payload, Some(locals.iterator_tag))),
+            &[],
+            locals.result_payload,
+            locals.result_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            locals.next_payload,
+            locals.next_tag,
+            locals.iterator_payload,
+            locals.iterator_tag,
+            &[],
+            locals.result_payload,
+            locals.result_tag,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_propagate_throw_from_locals_if_needed(
+            locals.result_payload,
+            locals.result_tag,
+            function,
+        )?;
+        self.emit_is_heap_object_like_tag_i32(locals.result_tag, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "iterator next result must be object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+        function.instruction(&Instruction::LocalSet(locals.key));
+        self.emit_object_read(
+            locals.result_payload,
+            locals.result_tag,
+            locals.result_payload,
+            locals.result_tag,
+            locals.key,
+            locals.done_payload,
+            locals.done_tag,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.compile_truthy_tagged_i32(locals.done_tag, locals.done_payload, function)?;
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(done));
+        function.instruction(&Instruction::LocalGet(done));
+        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+        function.instruction(&Instruction::LocalSet(locals.key));
+        self.emit_object_read(
+            locals.result_payload,
+            locals.result_tag,
+            locals.result_payload,
+            locals.result_tag,
+            locals.key,
+            locals.value_payload,
+            locals.value_tag,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        function.instruction(&Instruction::Else);
+        self.emit_undefined_payload(function);
+        function.instruction(&Instruction::LocalSet(locals.value_payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(locals.value_tag));
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())

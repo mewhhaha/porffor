@@ -13,18 +13,18 @@ carry an `IC` prefix so the two cannot be confused.
 **Read §0 first.** It carries six measured corrections to the area brief, two of
 which change what gets built:
 
-- **C1** — `ExprIr::ArrayLiteral` never contains a spread element; array-literal
-  spread is desugared to `[].concat(…)` / `Array.from(…)` before the node
-  exists. A `protocol` field there would be decoration *and* a false claim. §5
-  designs the replacement (`ArraySpreadStrategy`) and note-routes it.
+- **C1** — historically, `ExprIr::ArrayLiteral` never contained a spread
+  element because lowering erased it through `concat` / `Array.from`. The
+  integrated repair keeps plain `ArrayLiteral` unchanged and gives
+  spread-bearing literals a distinct `ExprIr::ArrayAccumulation`; its spread
+  elements carry the protocol obligation (§15 of the main contract).
 - **C6** — the `EmissionSite::ArrayDestructuring` catalog row is **true**, not a
   lie: `compile_array_destructure_from_value_locals` really emits all four
   obligations, both halves of 7.4.11 step 4 included (§1.6, and the
   `array-elem-iter-nrml-close-skip.js` trace at §9.5). The repair is to *add*
   `ARRAY_DESTRUCTURING_PROTOCOL`, not to delete the row.
 
-The original work was split into three groups; Group A and both Group B seams
-are now encoded, while Group C remains open:
+The original work was split into three groups; all three are now encoded:
 
 - **Group A (§3)** — everything that leaves `cargo xc` green with no edit
   outside `crates/lila-ir`: the `emission_sites!` row list,
@@ -39,12 +39,11 @@ are now encoded, while Group C remains open:
   one-inhabitant `SpreadArgumentProtocol`; its witness credits the real
   argument-vector emitter for acquisition, step and value only, and makes the
   absence of an `IteratorClose` claim explicit (integrated 2026-08-12; §14).
-- **Group C (§5)** — the array-literal spread strategy remains unencoded. The
-  honest closed target is `ArraySpreadStrategy::{ProvenDense,
-  GeneralIterator}`, but the current lowerer has no realm/version proof that
-  can construct `ProvenDense`: a known dense Array must still observe a patched
-  `%Array.prototype%[@@iterator]`. §14 records why an uninhabited fast-path type
-  would be decoration rather than an invariant.
+- **Group C (§5, superseded by §15)** — spread-bearing literals now use typed
+  `ArrayAccumulationIr` with no dense specialization. `Fresh` and
+  `SuspensionOwned` targets share one general iterator emitter; a spread always
+  observes `@@iterator`, and the one-inhabitant `ArraySpreadProtocol` makes the
+  acquisition/step/value discharge mandatory.
 
 §10's prohibitions are the load-bearing part for anyone extending this: P1 (no
 `lila-aot-wasm` edit), P2 (round 1's `pub(crate)` narrowing at
@@ -136,4 +135,35 @@ untouched.
 
 This addendum was dry-written only. No Cargo command or execution test was run;
 the batch integrator owns those gates. Group B1 (`SpreadArgument`) is now
-integrated as described in §14 of the main contract; Group C remains open.
+integrated as described in §14 of the main contract; Group C is integrated as
+described in §15.
+
+## ArrayAccumulation addendum (2026-08-13)
+
+Group C is closed by deleting the shortcut. The lowerer now emits
+`ExprIr::ArrayAccumulation` for every spread-bearing array literal and preserves
+`ExprIr::ArrayLiteral` only for the no-spread case. `ArraySpreadIr` requires
+`ArraySpreadProtocol::ARRAY_ACCUMULATION`; its witness names
+`EmissionSite::ArrayLiteralSpread` for GetIterator, IteratorStep and
+IteratorValue, and records `ArrayAccumulationDoesNotClose` as the fourth-slot
+implementation fact. The AOT backend cannot read the witness.
+
+The target is a closed domain: `Fresh`, or `SuspensionOwned` with separately
+typed array and `ArrayAccumulatorU64NextIndexSlot` carriers. Staged generator
+lowering initializes both before the first element and commits each evaluated
+prefix before the next suspension. The compiler-private index payload is an
+exact raw `u64`, not an ECMAScript Number round-trip; contribution at
+`u64::MAX` is rejected before addition can wrap. This explicitly bounds the
+backend representation and does not claim the spec's unbounded mathematical
+counter. Keeping `nextIndex` independent from `length` is required at the
+array-index boundary: values at indexes below `2^32 - 1` use direct fresh-array
+writes; a value at `2^32 - 1` uses the ordinary named key `"4294967295"` and
+does not grow `length`; an elision there throws `RangeError`. The emitter never
+consults inherited setters and never chooses a dense spread path.
+
+ArrayAccumulation itself has no IteratorClose step. Abrupt completion of
+iterator acquisition, step or value extraction propagates directly, so adding
+a `return()` call here would be an observable spec violation rather than extra
+safety. This patch was dry-written: scoped formatting and static repository
+checks ran, while Cargo, focused runtime tests and pinned
+`language/expressions/array` Test262 remain pending for the central verifier.

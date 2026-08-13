@@ -5,7 +5,7 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, ToPrimitive, Zero};
 
 use crate::{
-    ArithmeticBinaryOp, ArrayPatternProtocol, BindingMode, BitwiseBinaryOp,
+    ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, BindingMode, BitwiseBinaryOp,
     CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
     FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
     IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
@@ -1479,6 +1479,131 @@ pub struct SpreadArgumentIr {
     pub protocol: SpreadArgumentProtocol,
 }
 
+/// One spread operand in 13.2.4.1 ArrayAccumulation.
+///
+/// The one-inhabitant protocol field makes the iterator obligations part of
+/// the IR construction rather than a convention in the backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArraySpreadIr {
+    pub value: Box<TypedExpr>,
+    pub protocol: ArraySpreadProtocol,
+}
+
+/// One source-ordered contribution to a fresh array literal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArrayAccumulationElementIr {
+    Elision,
+    Value(TypedExpr),
+    Spread(ArraySpreadIr),
+}
+
+/// Suspension-owned binding that carries the fresh array itself.
+///
+/// This is deliberately distinct from the logical-index slot: swapping the
+/// two names in staged lowering must be a type error, not a latent runtime bug.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrayAccumulatorArraySlot(String);
+
+impl ArrayAccumulatorArraySlot {
+    pub(crate) fn new(name: String) -> Self {
+        Self(name)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Suspension-owned binding that carries ArrayAccumulation's exact unsigned
+/// 64-bit `nextIndex`, independently of the fresh array's capped `length`.
+///
+/// This compiler-private slot is an opaque integer carrier, not an ECMAScript
+/// Number. The backend rejects the next contribution at `u64::MAX` rather than
+/// wrapping. The bound is far above the observable 2^32-1 array-index seam but
+/// deliberately does not claim the spec's unbounded mathematical integer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrayAccumulatorU64NextIndexSlot(String);
+
+impl ArrayAccumulatorU64NextIndexSlot {
+    pub(crate) fn new(name: String) -> Self {
+        Self(name)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The two non-transposable suspension slots needed by a staged array literal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrayAccumulatorSlots {
+    array: ArrayAccumulatorArraySlot,
+    next_index: ArrayAccumulatorU64NextIndexSlot,
+}
+
+impl ArrayAccumulatorSlots {
+    pub(crate) fn new(
+        array: ArrayAccumulatorArraySlot,
+        next_index: ArrayAccumulatorU64NextIndexSlot,
+    ) -> Self {
+        Self { array, next_index }
+    }
+
+    pub fn array(&self) -> &ArrayAccumulatorArraySlot {
+        &self.array
+    }
+
+    pub fn next_index(&self) -> &ArrayAccumulatorU64NextIndexSlot {
+        &self.next_index
+    }
+}
+
+/// Where an ArrayAccumulation expression gets its fresh-array state.
+///
+/// `Fresh` is a single uninterrupted expression. `SuspensionOwned` names two
+/// bindings initialized before the first element and retained across yield;
+/// only the lowerer can construct those typed slots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArrayAccumulationTargetIr {
+    Fresh,
+    SuspensionOwned(ArrayAccumulatorSlots),
+}
+
+/// 13.2.4.1 ArrayAccumulation, kept distinct from a plain no-spread
+/// `ArrayLiteral` so ordinary literals retain their compact emitter and shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrayAccumulationIr {
+    target: ArrayAccumulationTargetIr,
+    elements: Vec<ArrayAccumulationElementIr>,
+}
+
+impl ArrayAccumulationIr {
+    pub(crate) fn fresh(elements: Vec<ArrayAccumulationElementIr>) -> Self {
+        Self {
+            target: ArrayAccumulationTargetIr::Fresh,
+            elements,
+        }
+    }
+
+    pub(crate) fn suspension_owned(
+        slots: ArrayAccumulatorSlots,
+        elements: Vec<ArrayAccumulationElementIr>,
+    ) -> Self {
+        Self {
+            target: ArrayAccumulationTargetIr::SuspensionOwned(slots),
+            elements,
+        }
+    }
+
+    pub fn target(&self) -> &ArrayAccumulationTargetIr {
+        &self.target
+    }
+
+    pub fn elements(&self) -> &[ArrayAccumulationElementIr] {
+        &self.elements
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprIr {
     Undefined,
@@ -1526,6 +1651,7 @@ pub enum ExprIr {
     Arguments,
     ObjectLiteral(Vec<ObjectPropertyIr>),
     ArrayLiteral(Vec<TypedExpr>),
+    ArrayAccumulation(ArrayAccumulationIr),
     Identifier(String),
     GlobalPropertyRead {
         name: String,
@@ -3333,6 +3459,18 @@ impl IrSummaryCounts {
                 self.arrays += 1;
                 for element in elements {
                     self.visit_expr(element);
+                }
+            }
+            ExprIr::ArrayAccumulation(accumulation) => {
+                self.arrays += 1;
+                for element in accumulation.elements() {
+                    match element {
+                        ArrayAccumulationElementIr::Elision => {}
+                        ArrayAccumulationElementIr::Value(value) => self.visit_expr(value),
+                        ArrayAccumulationElementIr::Spread(spread) => {
+                            self.visit_expr(&spread.value)
+                        }
+                    }
                 }
             }
             ExprIr::TemplateObject(_) => {

@@ -189,6 +189,19 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(element, state);
             }
         }
+        ExprIr::ArrayAccumulation(accumulation) => {
+            for element in accumulation.elements() {
+                match element {
+                    ArrayAccumulationElementIr::Elision => {}
+                    ArrayAccumulationElementIr::Value(value) => {
+                        expr_contains_this_before_super(value, state)
+                    }
+                    ArrayAccumulationElementIr::Spread(spread) => {
+                        expr_contains_this_before_super(&spread.value, state)
+                    }
+                }
+            }
+        }
         ExprIr::ObjectLiteral(properties) => {
             for property in properties {
                 match property {

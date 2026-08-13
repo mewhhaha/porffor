@@ -34,6 +34,9 @@ fn emission_sites_are_backed(site: EmissionSite) {
         EmissionSite::CallArgumentSpread => {
             let _ = FunctionBuilder::emit_call_args_vector;
         }
+        EmissionSite::ArrayLiteralSpread => {
+            let _ = FunctionBuilder::compile_array_accumulation_payload;
+        }
         EmissionSite::GeneratorDelegation => {
             let _ = FunctionBuilder::compile_generator_delegation;
             let _ = FunctionBuilder::compile_async_generator_delegation;

@@ -40,16 +40,29 @@ are unchanged. The central feature-enabled CLI compile and the exact
 `run_wasm_backend_uses_iterators_for_call_argument_spread` contract are green
 in the complete 620-test CLI inventory.
 
-Array-literal spread remains a separate correctness gap. The intended closed
-decision is `ArraySpreadStrategy::{ProvenDense, GeneralIterator}`, but the
-current compiler cannot honestly construct `ProvenDense`: a dense inferred
-array shape says nothing about a patched `%Array.prototype%[@@iterator]`, and
-the available `array_prototype_mutated` fact starts conservative (`true`) and
-has no proven-intact transition. Encoding a never-reachable fast path would not
-make a plausible mistake fail to compile. Until lowering gains a realm/version
-witness (or deletes the shortcut in favor of a direct general iterator
-accumulator), known-Array `[].concat(...)` desugaring remains open and must not
-be described as protocol-equivalent.
+Array-literal spread now uses the direct general iterator accumulator, deleting
+the unprovable shortcut rather than encoding an unreachable `ProvenDense`
+variant. A spread-bearing literal lowers to `ExprIr::ArrayAccumulation`; each
+spread carries the one-inhabitant `ArraySpreadProtocol`, tied at compile time to
+the emitter that performs `GetIterator`, `IteratorStep` and `IteratorValue`.
+Plain no-spread literals retain `ExprIr::ArrayLiteral` and their static shape.
+
+`ArrayAccumulationTargetIr` distinguishes an uninterrupted `Fresh` expression
+from `SuspensionOwned(ArrayAccumulatorSlots)`. The latter contains distinct
+array and `ArrayAccumulatorU64NextIndexSlot` types, is initialized before the
+first element, and flushes every evaluated prefix before a nested generator
+suspension. The compiler-private index carrier stores exact raw `u64` state;
+it is never recovered through an ECMAScript Number, and the emitter rejects a
+contribution at `u64::MAX` rather than wrapping. This is an explicit backend
+bound, not a claim to implement the spec's unbounded mathematical counter. The
+logical index is separate from array `length`: direct fresh
+array writes cover indexes through `4294967294`, index `4294967295` and later
+values become ordinary named data properties without growing `length`, and an
+elision at or beyond that boundary throws `RangeError`. Every spread observes
+`@@iterator`; there is no dense fast path and, matching ArrayAccumulation, no
+`IteratorClose` claim. The implementation is dry-written in this batch;
+Cargo, focused runtime and pinned Test262 gates remain pending for the central
+verifier.
 
 ## Objective
 

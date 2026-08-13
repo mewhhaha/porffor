@@ -3144,6 +3144,26 @@ fn object_destructuring_pattern_any_expression(
     found
 }
 
+fn array_accumulation_expressions(
+    accumulation: &ArrayAccumulationIr,
+) -> impl Iterator<Item = &TypedExpr> {
+    accumulation
+        .elements()
+        .iter()
+        .filter_map(|element| match element {
+            ArrayAccumulationElementIr::Elision => None,
+            ArrayAccumulationElementIr::Value(value) => Some(value),
+            ArrayAccumulationElementIr::Spread(spread) => Some(spread.value.as_ref()),
+        })
+}
+
+fn array_accumulation_has_spread(accumulation: &ArrayAccumulationIr) -> bool {
+    accumulation
+        .elements()
+        .iter()
+        .any(|element| matches!(element, ArrayAccumulationElementIr::Spread(_)))
+}
+
 fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
     match &expr.expr {
         // Module top-level `this` is `undefined`, and neither a namespace
@@ -3160,6 +3180,9 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
             properties.iter().any(object_property_exposes_global_object)
         }
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_exposes_global_object),
+        ExprIr::ArrayAccumulation(accumulation) => {
+            array_accumulation_expressions(accumulation).any(expr_exposes_global_object)
+        }
         ExprIr::AssignIdentifier { value, .. }
         | ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::CompoundAssignIdentifier { value, .. }
@@ -3608,6 +3631,11 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         }
         ExprIr::ArrayLiteral(elements) => {
             for element in elements {
+                collect_expr_global_property_names(element, names);
+            }
+        }
+        ExprIr::ArrayAccumulation(accumulation) => {
+            for element in array_accumulation_expressions(accumulation) {
                 collect_expr_global_property_names(element, names);
             }
         }
@@ -5003,6 +5031,14 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         ExprIr::ArrayLiteral(elements) => elements
             .iter()
             .any(|element| expr_references_function(element, target)),
+        ExprIr::ArrayAccumulation(accumulation) => {
+            (array_accumulation_has_spread(accumulation)
+                && (*target == StandardBuiltinId::ArrayPrototypeValues.function_id()
+                    || *target == StandardBuiltinId::ArrayIteratorNext.function_id()
+                    || *target == StandardBuiltinId::StringConstructor.function_id()))
+                || array_accumulation_expressions(accumulation)
+                    .any(|element| expr_references_function(element, target))
+        }
         ExprIr::AssignIdentifier { value, .. }
         | ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::CompoundAssignIdentifier { value, .. }
@@ -7004,6 +7040,10 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
             | ObjectPropertyIr::Setter { function, .. } => expr_uses_function_table(function),
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_function_table),
+        ExprIr::ArrayAccumulation(accumulation) => {
+            array_accumulation_has_spread(accumulation)
+                || array_accumulation_expressions(accumulation).any(expr_uses_function_table)
+        }
         ExprIr::OptionalPropertyChain { target, chain } => {
             let mut chain_uses_function_table = false;
             let mut has_call = false;
@@ -7212,6 +7252,10 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
             | ObjectPropertyIr::Setter { function, .. } => expr_uses_calls(function),
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_calls),
+        ExprIr::ArrayAccumulation(accumulation) => {
+            array_accumulation_has_spread(accumulation)
+                || array_accumulation_expressions(accumulation).any(expr_uses_calls)
+        }
         ExprIr::OptionalPropertyChain { target, chain } => {
             let mut chain_uses_calls = false;
             let mut has_call = false;
@@ -7896,6 +7940,17 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 .max()
                 .unwrap_or(0);
             child.max(6)
+        }
+        ExprIr::ArrayAccumulation(accumulation) => {
+            let child = array_accumulation_expressions(accumulation)
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0);
+            if array_accumulation_has_spread(accumulation) {
+                child.saturating_add(32).max(256)
+            } else {
+                child.saturating_add(8).max(16)
+            }
         }
         ExprIr::RegExpLiteral { .. } => 7,
         ExprIr::OptionalPropertyChain { target, chain } => {

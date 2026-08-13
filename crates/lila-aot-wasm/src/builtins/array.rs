@@ -484,6 +484,273 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Emits 13.2.4.1 ArrayAccumulation against a compiler-owned fresh array.
+    ///
+    /// There is deliberately no dense-array spread path: every spread reads
+    /// `@@iterator` and runs the sync iterator protocol. Direct fresh-array
+    /// writes implement CreateDataPropertyOrThrow without consulting inherited
+    /// setters. Once the logical index reaches 2^32-1 it becomes an ordinary
+    /// named property and stops advancing `length`; elisions at that boundary
+    /// throw RangeError instead.
+    pub(crate) fn compile_array_accumulation_payload(
+        &mut self,
+        accumulation: &ArrayAccumulationIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let array_local = self.reserve_temp_local();
+        let array_tag_local = self.reserve_temp_local();
+        let next_index_local = self.reserve_temp_local();
+        let index_number_payload_local = self.reserve_temp_local();
+        let next_index_carrier_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+
+        let suspension_slots = match accumulation.target() {
+            ArrayAccumulationTargetIr::Fresh => {
+                self.compile_array_literal_payload(&[], function)?;
+                function.instruction(&Instruction::LocalSet(array_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+                function.instruction(&Instruction::LocalSet(array_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(next_index_local));
+                None
+            }
+            ArrayAccumulationTargetIr::SuspensionOwned(slots) => {
+                let array_storage =
+                    self.lookup_binding(slots.array().as_str()).ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "array accumulator binding `{}` was not allocated",
+                            slots.array().as_str()
+                        ))
+                    })?;
+                let next_index_storage = self
+                    .lookup_binding(slots.next_index().as_str())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "array accumulator index binding `{}` was not allocated",
+                            slots.next_index().as_str()
+                        ))
+                    })?;
+                self.read_binding_to_locals(array_storage, array_local, array_tag_local, function)?;
+                self.read_binding_to_locals(
+                    next_index_storage,
+                    next_index_local,
+                    next_index_carrier_tag_local,
+                    function,
+                )?;
+                Some(next_index_storage)
+            }
+        };
+
+        for element in accumulation.elements() {
+            match element {
+                ArrayAccumulationElementIr::Elision => {
+                    function.instruction(&Instruction::LocalGet(next_index_local));
+                    function.instruction(&Instruction::I64Const(MAX_ARRAY_LENGTH as i64));
+                    function.instruction(&Instruction::I64GeU);
+                    self.open_frame(ControlFrameKind::If, function);
+                    self.emit_throw_runtime_error(
+                        RANGE_ERROR_NAME,
+                        "Invalid array length",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_current_throw(function);
+                    self.pop_control(ControlFrameKind::If);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::LocalGet(next_index_local));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::I64Add);
+                    function.instruction(&Instruction::LocalSet(next_index_local));
+                    self.store_i64_local_at_offset(
+                        array_local,
+                        HEAP_LEN_OFFSET,
+                        next_index_local,
+                        function,
+                    );
+                }
+                ArrayAccumulationElementIr::Value(value) => {
+                    self.compile_expr_to_locals(
+                        value,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    self.emit_array_accumulation_append(
+                        array_local,
+                        next_index_local,
+                        index_number_payload_local,
+                        key_local,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                }
+                ArrayAccumulationElementIr::Spread(spread) => {
+                    let source_payload_local = self.reserve_temp_local();
+                    let source_tag_local = self.reserve_temp_local();
+                    let method_payload_local = self.reserve_temp_local();
+                    let method_tag_local = self.reserve_temp_local();
+                    let iterator_locals = self.reserve_sync_iterator_locals();
+                    let done_local = self.reserve_temp_local();
+
+                    self.compile_expr_to_locals(
+                        &spread.value,
+                        source_payload_local,
+                        source_tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        source_payload_local,
+                        source_tag_local,
+                        function,
+                    )?;
+                    self.emit_get_iterator_from_value_locals(
+                        spread.value.value_info(),
+                        source_payload_local,
+                        source_tag_local,
+                        method_payload_local,
+                        method_tag_local,
+                        iterator_locals,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(done_local));
+
+                    let break_target = self.open_frame(ControlFrameKind::Block, function);
+                    let loop_target = self.open_frame(ControlFrameKind::Loop, function);
+                    self.emit_sync_iterator_step_value(iterator_locals, done_local, function)?;
+                    function.instruction(&Instruction::LocalGet(done_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64Ne);
+                    self.emit_branch_if_to_target(break_target, function);
+                    self.emit_array_accumulation_append(
+                        array_local,
+                        next_index_local,
+                        index_number_payload_local,
+                        key_local,
+                        iterator_locals.value_payload,
+                        iterator_locals.value_tag,
+                        function,
+                    )?;
+                    self.emit_branch_to_target(loop_target, function);
+                    self.pop_control(ControlFrameKind::Loop);
+                    function.instruction(&Instruction::End);
+                    self.pop_control(ControlFrameKind::Block);
+                    function.instruction(&Instruction::End);
+
+                    self.release_temp_local(done_local);
+                    self.release_sync_iterator_locals(iterator_locals);
+                    self.release_temp_local(method_tag_local);
+                    self.release_temp_local(method_payload_local);
+                    self.release_temp_local(source_tag_local);
+                    self.release_temp_local(source_payload_local);
+                }
+            }
+        }
+
+        if let Some(next_index_storage) = suspension_slots {
+            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+            function.instruction(&Instruction::LocalSet(next_index_carrier_tag_local));
+            self.write_binding_from_locals(
+                next_index_storage,
+                next_index_local,
+                next_index_carrier_tag_local,
+                function,
+            );
+        }
+
+        function.instruction(&Instruction::LocalGet(array_local));
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(next_index_carrier_tag_local);
+        self.release_temp_local(index_number_payload_local);
+        self.release_temp_local(next_index_local);
+        self.release_temp_local(array_tag_local);
+        self.release_temp_local(array_local);
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_array_accumulation_append(
+        &mut self,
+        array_local: u32,
+        next_index_local: u32,
+        index_number_payload_local: u32,
+        key_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // The suspension-owned carrier is an exact u64. Refuse the next
+        // contribution at its upper bound instead of allowing Wasm addition to
+        // wrap the logical ArrayAccumulation index to zero.
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::I64Const(u64::MAX as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            RANGE_ERROR_NAME,
+            "Array accumulation index exceeds exact backend range",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::I64Const(MAX_ARRAY_LENGTH as i64));
+        function.instruction(&Instruction::I64LtU);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_array_write(
+            array_local,
+            next_index_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::I64Const(MAX_ARRAY_LENGTH as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I64Const(self.strings.payload("4294967295")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(index_number_payload_local));
+        self.emit_number_to_string_payload(index_number_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_array_define_named_data_property(
+            array_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(next_index_local));
+        Ok(())
+    }
+
     pub(crate) fn emit_array_sparse_present_read(
         &mut self,
         array_local: u32,

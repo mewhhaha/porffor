@@ -1,3 +1,4 @@
+mod array_literal;
 mod builtin_shapes;
 mod dynamic_source;
 mod proxy_traps;
@@ -5517,6 +5518,31 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
+            ExprIr::ArrayAccumulation(accumulation) => {
+                let mut info = None;
+                for element in accumulation.elements() {
+                    let value = match element {
+                        ArrayAccumulationElementIr::Elision => continue,
+                        ArrayAccumulationElementIr::Value(value) => value,
+                        ArrayAccumulationElementIr::Spread(spread) => {
+                            // @@iterator lookup and iterator calls may throw an
+                            // arbitrary language value supplied by user code.
+                            info = self.merge_optional_value_info(
+                                info,
+                                Some(ValueInfo {
+                                    kind: ValueKind::Dynamic,
+                                    possible_kinds: KindSet::all_runtime_tags(),
+                                    heap_shape: None,
+                                    function_targets: BTreeSet::new(),
+                                }),
+                            );
+                            &spread.value
+                        }
+                    };
+                    info = self.merge_optional_value_info(info, self.infer_expr_throw_info(value));
+                }
+                info
+            }
             ExprIr::AssignIdentifier { value, .. }
             | ExprIr::GlobalPropertyWrite { value, .. }
             | ExprIr::CompoundAssignIdentifier { value, .. }
@@ -8796,111 +8822,6 @@ impl<'a> ScriptLowerer<'a> {
         Some((
             statements,
             self.lower_identifier_name(accumulator_name, false),
-        ))
-    }
-
-    fn lower_staged_generator_array_literal(
-        &mut self,
-        array: &ArrayLiteral,
-    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        let mut statements = Vec::new();
-        let mut arguments = Vec::new();
-        let mut current_elements = Vec::new();
-        for element in array.as_ref() {
-            let Some(element) = element else {
-                current_elements.push(TypedExpr::from_info(
-                    ValueInfo::undefined(),
-                    ExprIr::ArrayHole,
-                ));
-                continue;
-            };
-            let Expression::Spread(spread) = element else {
-                if contains(element, ContainsSymbol::YieldExpression) {
-                    return None;
-                }
-                current_elements.push(self.lower_expression(element));
-                continue;
-            };
-            if !current_elements.is_empty() {
-                arguments.push(TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Array,
-                        possible_kinds: KindSet::from_kind(ValueKind::Array),
-                        heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::ArrayLiteral(std::mem::take(&mut current_elements)),
-                ));
-            }
-            let (source_statements, source) =
-                if contains(spread.target(), ContainsSymbol::YieldExpression) {
-                    self.lower_staged_generator_expression(spread.target())?
-                } else {
-                    (Vec::new(), self.lower_expression(spread.target()))
-                };
-            statements.extend(source_statements);
-            let source = if source.kind == ValueKind::Array {
-                source
-            } else {
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Array,
-                        possible_kinds: KindSet::from_kind(ValueKind::Array),
-                        heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::CallIndirect {
-                        callee: Box::new(
-                            self.function_value_expr(StandardBuiltinId::ArrayFrom.function_id()),
-                        ),
-                        this_arg: Some(Box::new(self.function_value_expr(
-                            StandardBuiltinId::ArrayConstructor.function_id(),
-                        ))),
-                        args: vec![source],
-                        static_regexp_compilation: None,
-                    },
-                )
-            };
-            let source_name =
-                self.alloc_suspension_owned_binding("generator.array.spread.", source.value_info());
-            statements.push(StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: source_name.clone(),
-                init: source,
-            });
-            arguments.push(self.lower_identifier_name(source_name, false));
-        }
-        if !current_elements.is_empty() {
-            arguments.push(TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Array,
-                    possible_kinds: KindSet::from_kind(ValueKind::Array),
-                    heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::ArrayLiteral(current_elements),
-            ));
-        }
-        let receiver = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Array,
-                possible_kinds: KindSet::from_kind(ValueKind::Array),
-                heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::ArrayLiteral(Vec::new()),
-        );
-        let result_info = self.array_concat_result_info(&receiver, &arguments);
-        Some((
-            statements,
-            TypedExpr::from_info(
-                result_info,
-                ExprIr::CallMethod {
-                    receiver: Box::new(receiver),
-                    key: PropertyKeyIr::StaticString("concat".to_string()),
-                    args: arguments,
-                },
-            ),
         ))
     }
 
@@ -21229,194 +21150,6 @@ impl<'a> ScriptLowerer<'a> {
             heap_shape: Some(Box::new(HeapShape::Array(shape))),
             function_targets: BTreeSet::new(),
         }
-    }
-
-    fn lower_array_literal(&mut self, array: &ArrayLiteral) -> TypedExpr {
-        if array
-            .as_ref()
-            .iter()
-            .any(|element| matches!(element, Some(Expression::Spread(_))))
-        {
-            let mut args = Vec::new();
-            let mut current = Vec::new();
-            for element in array.as_ref() {
-                let Some(element) = element else {
-                    current.push(TypedExpr::from_info(
-                        ValueInfo::undefined(),
-                        ExprIr::ArrayHole,
-                    ));
-                    continue;
-                };
-                if let Expression::Spread(spread) = element {
-                    if !current.is_empty() {
-                        args.push(TypedExpr::from_info(
-                            ValueInfo {
-                                kind: ValueKind::Array,
-                                possible_kinds: KindSet::from_kind(ValueKind::Array),
-                                heap_shape: Some(Box::new(HeapShape::Array({
-                                    let mut shape = ArrayShape::default();
-                                    shape.elements =
-                                        current.iter().map(TypedExpr::value_info).collect();
-                                    shape
-                                }))),
-                                function_targets: BTreeSet::new(),
-                            },
-                            ExprIr::ArrayLiteral(std::mem::take(&mut current)),
-                        ));
-                    }
-                    let spread_value = self.lower_expression(spread.target());
-                    // 13.2.4.1 ArrayAccumulation for a SpreadElement is
-                    // `GetIterator(spreadObj)` and a real iteration. Desugaring
-                    // it to `Array.prototype.concat` is observationally equal
-                    // only when the operand really *is* an Array, because
-                    // 23.1.3.1 consults IsConcatSpreadable and **appends** a
-                    // non-spreadable operand instead of iterating it.
-                    //
-                    // The predicate is therefore `is_subset_of({Array})` — the
-                    // same one the for-of array walk uses — and not
-                    // `contains(Array)`. `contains` was satisfied by the
-                    // `KindSet::all_runtime_tags()` an un-inferred parameter
-                    // carries, so `function f(x) { return [...x]; }` desugared
-                    // to `[].concat(x)` and, for any non-array iterable `x`,
-                    // produced `[x]` under a completely pristine realm. That is
-                    // not an unproven intactness premise; it is a wrong answer
-                    // for ordinary programs.
-                    //
-                    // Everything that fails this test falls through to the
-                    // `Array.from` desugaring below, which does run the
-                    // iterator protocol (23.1.2.1 steps 4-5). See ledger
-                    // **IC-5** in the IteratorClose contract: the residual gap
-                    // is that a statically-known Array still skips
-                    // `%Array.prototype%[@@iterator]`, which is what
-                    // `ArraySpreadStrategy` is designed to name.
-                    if spread_value
-                        .possible_kinds
-                        .is_subset_of(KindSet::from_kind(ValueKind::Array))
-                    {
-                        args.push(spread_value);
-                        continue;
-                    }
-                    if spread_value.kind == ValueKind::Arguments {
-                        args.push(TypedExpr::from_info(
-                            ValueInfo {
-                                kind: ValueKind::Array,
-                                possible_kinds: KindSet::from_kind(ValueKind::Array),
-                                // `ArrayShape::default()` is an array shape with
-                                // ZERO elements, i.e. the claim `length === 0`.
-                                // It is never a spelling of "an Array whose
-                                // contents are unknown". `arguments.slice()` has
-                                // a statically unknown length, so the only
-                                // honest shape here is `None`: with an empty
-                                // element vector `array_concat_result_info`
-                                // accepts this operand (its proven-layout check
-                                // is vacuous over no elements) and hands the
-                                // spread result a `Some(Array{elements: []})`,
-                                // after which `read_array_shape` types
-                                // `[...args][0]` as `undefined` and
-                                // `static_array_shape_len` reports 0.
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                            ExprIr::CallIndirect {
-                                callee: Box::new(self.function_value_expr(
-                                    StandardBuiltinId::ArrayPrototypeSlice.function_id(),
-                                )),
-                                this_arg: Some(Box::new(spread_value)),
-                                args: Vec::new(),
-                                static_regexp_compilation: None,
-                            },
-                        ));
-                        continue;
-                    }
-                    args.push(TypedExpr::from_info(
-                        ValueInfo {
-                            kind: ValueKind::Array,
-                            possible_kinds: KindSet::from_kind(ValueKind::Array),
-                            // As above: `ArrayShape::default()` asserts "proven
-                            // zero elements", and `Array.from(x)` for an
-                            // arbitrary iterable `x` proves nothing about its
-                            // length. `kind`/`possible_kinds` stay `Array` —
-                            // 23.1.2.1 really does return an Array — but the
-                            // element vector was fabricated, so it goes away.
-                            heap_shape: None,
-                            function_targets: BTreeSet::new(),
-                        },
-                        ExprIr::CallIndirect {
-                            callee: Box::new(
-                                self.function_value_expr(
-                                    StandardBuiltinId::ArrayFrom.function_id(),
-                                ),
-                            ),
-                            this_arg: Some(Box::new(self.function_value_expr(
-                                StandardBuiltinId::ArrayConstructor.function_id(),
-                            ))),
-                            args: vec![spread_value],
-                            static_regexp_compilation: None,
-                        },
-                    ));
-                } else {
-                    current.push(self.lower_expression(element));
-                }
-            }
-            if !current.is_empty() {
-                args.push(TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Array,
-                        possible_kinds: KindSet::from_kind(ValueKind::Array),
-                        heap_shape: Some(Box::new(HeapShape::Array({
-                            let mut shape = ArrayShape::default();
-                            shape.elements = current.iter().map(TypedExpr::value_info).collect();
-                            shape
-                        }))),
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::ArrayLiteral(current),
-                ));
-            }
-            let receiver = TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Array,
-                    possible_kinds: KindSet::from_kind(ValueKind::Array),
-                    heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::ArrayLiteral(Vec::new()),
-            );
-            let result_info = self.array_concat_result_info(&receiver, &args);
-            return TypedExpr::from_info(
-                result_info,
-                ExprIr::CallMethod {
-                    receiver: Box::new(receiver),
-                    key: PropertyKeyIr::StaticString("concat".to_string()),
-                    args,
-                },
-            );
-        }
-        let mut elements = Vec::with_capacity(array.as_ref().len());
-        let mut shape = ArrayShape::default();
-        for element in array.as_ref() {
-            let Some(element) = element else {
-                let lowered = TypedExpr::from_info(ValueInfo::undefined(), ExprIr::ArrayHole);
-                shape.elements.push(lowered.value_info());
-                elements.push(lowered);
-                continue;
-            };
-            if matches!(element, Expression::Spread(_)) {
-                return self.unsupported_expr("array literal spread");
-            }
-            let lowered = self.lower_expression(element);
-            shape.elements.push(lowered.value_info());
-            elements.push(lowered);
-        }
-        TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Array,
-                possible_kinds: KindSet::from_kind(ValueKind::Array),
-                heap_shape: Some(Box::new(HeapShape::Array(shape))),
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::ArrayLiteral(elements),
-        )
     }
 
     fn array_literal_from_lowered(elements: Vec<TypedExpr>) -> TypedExpr {

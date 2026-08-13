@@ -1451,9 +1451,9 @@ const T04: TaskId = TaskId::T04;
 /// `GeneratorDelegation` names both the sync and async `yield*` emitters: they
 /// run the same four protocol obligations, with the async member additionally
 /// implementing `AsyncIteratorClose`.
-/// `CallArgumentSpread` emits acquisition, stepping and value extraction but
-/// deliberately does not appear in the close row: 13.3.8.1 propagates those
-/// abrupt completions without `IteratorClose`.
+/// `CallArgumentSpread` and `ArrayLiteralSpread` emit acquisition, stepping and
+/// value extraction but deliberately do not appear in the close row: their
+/// algorithms propagate those abrupt completions without `IteratorClose`.
 ///
 /// Every entry is checked twice: J10 requires some `IteratorProtocolWitness`
 /// constant to discharge an obligation by emission at it (so no arm is credited
@@ -1465,6 +1465,7 @@ const SYNC_PROTOCOL_SITES: &[EmissionSite] = &[
     EmissionSite::AsyncForOfIterator,
     EmissionSite::ArrayDestructuring,
     EmissionSite::CallArgumentSpread,
+    EmissionSite::ArrayLiteralSpread,
     EmissionSite::GeneratorDelegation,
 ];
 const SYNC_CLOSE_SITES: &[EmissionSite] = &[

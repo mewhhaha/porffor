@@ -104,10 +104,10 @@ pub(crate) use ir::{read_heap_shape_property, summarize_block};
 /// specialization carries. See
 /// `docs/rust-rewrite/contracts/iterator-protocol.md`.
 pub use iterator_obligations::{
-    ArrayPatternProtocol, EmissionSite, GeneratorDelegationProtocol, GetIteratorDischarge,
-    IntactnessPremise, IteratorCloseDischarge, IteratorObligation, IteratorProtocolWitness,
-    IteratorStepDischarge, IteratorValueDischarge, ObligationDischarge, PremiseKind,
-    SpreadArgumentProtocol,
+    ArrayPatternProtocol, ArraySpreadProtocol, EmissionSite, GeneratorDelegationProtocol,
+    GetIteratorDischarge, IntactnessPremise, IteratorCloseDischarge, IteratorObligation,
+    IteratorProtocolWitness, IteratorStepDischarge, IteratorValueDischarge, ObligationDischarge,
+    PremiseKind, SpreadArgumentProtocol,
 };
 pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub use lowering::{
@@ -1406,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn lowers_array_spread_with_concat_result_element_shape() {
+    fn lowers_array_spread_to_typed_accumulation_without_fabricated_shape() {
         let program =
             lower_script("let source = [17, NaN, 'tail']; let copy = [...source]; copy[1];");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
@@ -1420,16 +1420,21 @@ mod tests {
             panic!("expected spread copy declaration");
         };
         assert_eq!(name, "copy");
-        let Some(shape) = copy_init.heap_shape.as_deref() else {
-            panic!("spread concat result must retain its array shape");
+        assert!(copy_init.heap_shape.is_none());
+        let ExprIr::ArrayAccumulation(accumulation) = &copy_init.expr else {
+            panic!(
+                "expected typed ArrayAccumulation, got {:#?}",
+                copy_init.expr
+            );
         };
-        let HeapShape::Array(shape) = shape else {
-            panic!("spread concat result must retain an array shape");
+        assert!(matches!(
+            accumulation.target(),
+            ArrayAccumulationTargetIr::Fresh
+        ));
+        let [ArrayAccumulationElementIr::Spread(spread)] = accumulation.elements() else {
+            panic!("expected exactly one spread element");
         };
-        assert_eq!(shape.elements.len(), 3);
-        assert_eq!(shape.elements[0].kind, ValueKind::Number);
-        assert_eq!(shape.elements[1].kind, ValueKind::Number);
-        assert_eq!(shape.elements[2].kind, ValueKind::String);
+        assert_eq!(spread.protocol, ArraySpreadProtocol::ARRAY_ACCUMULATION);
 
         let StatementIr::Expression(read) = &script.body.statements[2] else {
             panic!("expected spread copy element read");
@@ -1438,7 +1443,7 @@ mod tests {
     }
 
     #[test]
-    fn lowers_array_spread_with_unshaped_concat_input_as_dynamic_elements() {
+    fn lowers_array_spread_with_unshaped_source_as_dynamic_elements() {
         let program =
             lower_script("let source = [].concat({ length: 1 }); let copy = [...source]; copy[0];");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
@@ -1454,7 +1459,7 @@ mod tests {
         assert_eq!(name, "copy");
         assert!(
             copy_init.heap_shape.is_none(),
-            "an unshaped concat input must not become an empty array shape"
+            "an unshaped spread input must not become an empty array shape"
         );
 
         let StatementIr::Expression(read) = &script.body.statements[2] else {
@@ -1465,13 +1470,9 @@ mod tests {
 
     #[test]
     fn array_spread_of_unshaped_source_does_not_index_pushes_from_zero() {
-        // Anti-vacuity for the fix above: dropping the fabricated
-        // `ArrayShape::default()` must be observable through
-        // `static_array_shape_len`, not only through `heap_shape.is_none()`.
-        // With the empty shape present, `ArrayPrototypePush` computed its
-        // destination index as `base_len + arg_offset` with `base_len == 0`
-        // and recorded `9` at index 0 of a copy whose real index 0 is the
-        // `{ length: 1 }` operand concat appended.
+        // Anti-vacuity: an ArrayAccumulation containing a spread never claims
+        // a static base length for a later push, even when the operand was
+        // produced by an actual concat call.
         let program = lower_script(
             "let source = [].concat({ length: 1 }); let copy = [...source]; copy.push(9); copy[0];",
         );
@@ -1506,11 +1507,9 @@ mod tests {
 
     #[test]
     fn array_spread_of_unknown_iterable_does_not_claim_empty_array_shape() {
-        // The `Array.from` arm of the array-literal spread desugaring. `x` is
-        // an un-inferred parameter, so it is not a proven Array and the spread
-        // lowers to `[].concat(Array.from(Array, x))`. `Array.from` of an
-        // arbitrary iterable has a statically unknown length; claiming
-        // `ArrayShape::default()` for it claimed `length === 0`.
+        // `x` is an un-inferred parameter and may be any iterable. The typed
+        // ArrayAccumulation keeps its result unshaped rather than fabricating
+        // a zero-length ArrayShape.
         let program = lower_script("function f(x) { return [...x]; }");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
@@ -1527,7 +1526,7 @@ mod tests {
         };
         assert!(
             expr.heap_shape.is_none(),
-            "Array.from of an unknown iterable must not carry an element vector"
+            "array spread of an unknown iterable must not carry an element vector"
         );
     }
 
@@ -6929,20 +6928,21 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name.starts_with("$generator.array.spread.")));
+            .any(|binding| binding.name.starts_with("$generator.array.accumulator.")));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name.starts_with("$generator.array.next_index.")));
         assert!(matches!(
             function.body.statements.as_slice(),
             [StatementIr::LexicalBlock(statements)]
                 if statements.iter().filter(|statement| matches!(statement, StatementIr::GeneratorYield { .. })).count() == 2
                     && statements.iter().any(|statement| matches!(
                         statement,
-                        StatementIr::Lexical {
-                            init: TypedExpr {
-                                expr: ExprIr::CallIndirect { .. },
-                                ..
-                            },
+                        StatementIr::Expression(TypedExpr {
+                            expr: ExprIr::ArrayAccumulation(_),
                             ..
-                        }
+                        })
                     ))
         ));
     }

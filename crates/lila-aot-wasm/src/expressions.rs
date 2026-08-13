@@ -272,6 +272,9 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::ArrayLiteral(elements) => {
                 self.compile_array_literal_payload(elements, function)?;
             }
+            ExprIr::ArrayAccumulation(accumulation) => {
+                self.compile_array_accumulation_payload(accumulation, function)?;
+            }
             ExprIr::Identifier(name) => {
                 if name == LEXICAL_THIS_NAME {
                     self.compile_this_payload(function)?;

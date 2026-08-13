@@ -891,6 +891,7 @@ result.visible + result[symbol] + result[0] + result[1] + calls.length;
     #[test]
     fn async_generator_yield_spread_modules_validate() {
         for source in [
+            "let source = { [Symbol.iterator]: function () { return this; }, next: function () { return { done: true }; } }; [0, ...source, 1];",
             "async function* stream() { yield [...yield]; } stream().next();",
             "async function* stream() { yield [...yield yield]; } stream().next();",
             "async function* stream() { yield { ...yield, y: 1, ...yield yield }; } stream().next();",

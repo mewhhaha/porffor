@@ -159,6 +159,11 @@ emission_sites! {
     /// spread emits acquisition, stepping and value extraction, but no close:
     /// 13.3.8.1 propagates its iterator-operation abrupt completions directly.
     CallArgumentSpread => "emit_call_args_vector",
+    /// `FunctionBuilder::compile_array_accumulation_payload`
+    /// (`builtins/array.rs`). ArrayAccumulation always performs the sync
+    /// iterator protocol for a spread element. Its algorithm propagates an
+    /// abrupt iterator operation directly and does not invoke IteratorClose.
+    ArrayLiteralSpread => "compile_array_accumulation_payload",
     /// `FunctionBuilder::{compile_generator_delegation,
     /// compile_async_generator_delegation}` (`generator_delegation.rs`). The
     /// lowerer cannot know which member runs because the backend selects the
@@ -247,6 +252,13 @@ pub enum IntactnessPremise {
     /// This is an implementation fact about `emit_call_args_vector`'s control
     /// flow, not a property of the operand or realm.
     SpreadCloseOwedOnlyAfterAcquisition,
+    /// ArrayAccumulation's SpreadElement algorithm does not perform
+    /// IteratorClose. Abrupt completion of GetIterator, IteratorStep or
+    /// IteratorValue propagates directly from the accumulation loop.
+    ///
+    /// This is an implementation fact about
+    /// `compile_array_accumulation_payload`, not a premise about the operand.
+    ArrayAccumulationDoesNotClose,
 }
 
 impl IntactnessPremise {
@@ -260,6 +272,7 @@ impl IntactnessPremise {
             Self::NoIteratorObjectExists => "NoIteratorObjectExists",
             Self::NoIterationLowered => "NoIterationLowered",
             Self::SpreadCloseOwedOnlyAfterAcquisition => "SpreadCloseOwedOnlyAfterAcquisition",
+            Self::ArrayAccumulationDoesNotClose => "ArrayAccumulationDoesNotClose",
         }
     }
 
@@ -271,9 +284,9 @@ impl IntactnessPremise {
             | Self::ArrayLengthStableDuringBody
             | Self::ArrayHasNoHolesOrIndexAccessors
             | Self::StringIteratorIntact => PremiseKind::ProgramProperty,
-            Self::StringWalkIsCodePoint | Self::SpreadCloseOwedOnlyAfterAcquisition => {
-                PremiseKind::ImplementationFact
-            }
+            Self::StringWalkIsCodePoint
+            | Self::SpreadCloseOwedOnlyAfterAcquisition
+            | Self::ArrayAccumulationDoesNotClose => PremiseKind::ImplementationFact,
             Self::NoIteratorObjectExists | Self::NoIterationLowered => PremiseKind::Vacuous,
         }
     }
@@ -502,8 +515,8 @@ macro_rules! iterator_witnesses {
         /// Generated from the same rows as the constants themselves, so it
         /// cannot be partial. Written over *names* rather than over values
         /// because [`IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE`]
-        /// **is** [`IteratorProtocolWitness::ARRAY_INDEX_WALK`] — nine names,
-        /// eight distinct values — so a value-distinctness check would be
+        /// **is** [`IteratorProtocolWitness::ARRAY_INDEX_WALK`] — ten names,
+        /// nine distinct values — so a value-distinctness check would be
         /// vacuous.
         ///
         /// `pub(crate)`, like every other reader of a witness's contents: a
@@ -601,6 +614,23 @@ iterator_witnesses! {
         IteratorCloseDischarge::assumed(IntactnessPremise::SpreadCloseOwedOnlyAfterAcquisition),
     ),
 
+    /// `ExprIr::ArrayAccumulation` — 13.2.4.1 ArrayAccumulation for a
+    /// SpreadElement.
+    ///
+    /// `compile_array_accumulation_payload` performs the real GetIterator,
+    /// IteratorStep and IteratorValue operations for every spread. The
+    /// ArrayAccumulation algorithm has no IteratorClose step, so the fourth
+    /// slot names that implementation fact rather than claiming an emission.
+    ///
+    /// Reachable at the IR field only through
+    /// [`ArraySpreadProtocol::ARRAY_ACCUMULATION`].
+    ARRAY_LITERAL_SPREAD_PROTOCOL => IteratorProtocolWitness::new(
+        GetIteratorDischarge::emitted(EmissionSite::ArrayLiteralSpread),
+        IteratorStepDischarge::emitted(EmissionSite::ArrayLiteralSpread),
+        IteratorValueDischarge::emitted(EmissionSite::ArrayLiteralSpread),
+        IteratorCloseDischarge::assumed(IntactnessPremise::ArrayAccumulationDoesNotClose),
+    ),
+
     /// `StatementIr::GeneratorYield` in its `yield*` form (14.4.14).
     ///
     /// Both the sync and async generator-delegation emitters perform the
@@ -688,6 +718,25 @@ impl SpreadArgumentProtocol {
     /// The only inhabitant: 13.3.8.1 consumes a real sync iterator, while its
     /// abrupt paths do not invoke `IteratorClose`.
     pub const ARGUMENT_LIST: Self = Self(IteratorProtocolWitness::CALL_ARGUMENT_SPREAD_PROTOCOL);
+
+    pub(crate) const fn witness(self) -> IteratorProtocolWitness {
+        self.0
+    }
+}
+
+/// The protocol witness carried by a spread element in ArrayAccumulation.
+///
+/// This wrapper has one inhabitant and a private constructor. A new array
+/// spread therefore cannot omit the protocol discharge or substitute the
+/// witness belonging to argument-list spread or destructuring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArraySpreadProtocol(IteratorProtocolWitness);
+
+impl ArraySpreadProtocol {
+    /// The only inhabitant: 13.2.4.1 performs the real sync iterator protocol
+    /// and deliberately has no IteratorClose step.
+    pub const ARRAY_ACCUMULATION: Self =
+        Self(IteratorProtocolWitness::ARRAY_LITERAL_SPREAD_PROTOCOL);
 
     pub(crate) const fn witness(self) -> IteratorProtocolWitness {
         self.0
@@ -838,6 +887,34 @@ const _: () = {
         );
         i += 1;
     }
+};
+
+// Array-literal spread emits acquisition, stepping and value extraction, but
+// ArrayAccumulation deliberately has no IteratorClose operation. Ask through
+// the one-inhabitant wrapper so a transposed witness field cannot compile while
+// leaving the underlying constant intact.
+const _: () = {
+    let witness = ArraySpreadProtocol::ARRAY_ACCUMULATION.witness();
+    assert!(
+        emits(
+            witness,
+            IteratorObligation::GetIterator,
+            EmissionSite::ArrayLiteralSpread,
+        ) && emits(
+            witness,
+            IteratorObligation::IteratorStep,
+            EmissionSite::ArrayLiteralSpread,
+        ) && emits(
+            witness,
+            IteratorObligation::IteratorValue,
+            EmissionSite::ArrayLiteralSpread,
+        ) && assumes(
+            witness,
+            IteratorObligation::IteratorClose,
+            IntactnessPremise::ArrayAccumulationDoesNotClose,
+        ),
+        "ArraySpreadProtocol::ARRAY_ACCUMULATION must emit acquisition/step/value and must not claim a close"
+    );
 };
 
 // (K2) The array-destructuring constant says what its doc comment says, in the

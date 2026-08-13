@@ -160,6 +160,16 @@ check_no_inline_legacy_includes "$ir_lib"
 ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
 require_file "$ir_builtin_shapes"
 require_module_decl "$ir_lowering" "builtin_shapes"
+# T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
+# the ordinary and staged-generator walkers together in their child module so
+# the 32k-line orchestration boundary does not become the edit point again.
+ir_array_literal_lowering="crates/lila-ir/src/lowering/array_literal.rs"
+require_file "$ir_array_literal_lowering"
+require_module_decl "$ir_lowering" "array_literal"
+require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_array_literal(' 1 'ordinary array-literal lowerer'
+require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generator_array_literal(' 1 'staged array-literal lowerer'
+require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
+require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
 # Measured immediately after extraction: 31,979 raw lines. This deliberately
 # leaves only 21 lines of headroom; new builtin shape metadata belongs in the

@@ -3,8 +3,9 @@
 Witness coverage for the uncovered IR constructs, plus a consumer for the
 catalog's unread `abrupt` column.
 
-Status: **normative for the encoder**. Group A, generator-delegation slice B2
-and call-spread slice B1 are encoded; Group C remains open. The
+Status: **normative for the encoder**. Group A, generator-delegation slice B2,
+call-spread slice B1 and the direct ArrayAccumulation replacement for Group C
+are encoded. The
 original counts below were obtained by reading the tree at
 `claude/test-driven-rust-opus-pp6giw`; §13 records the 2026-08-12 B2 integration
 and supersedes the earlier statements that no part of Group B had landed.
@@ -1295,7 +1296,7 @@ lands rather than beside it.
 
 ---
 
-## 5. Group C — array-literal spread: the design, and why no field is added
+## 5. Group C — original array-literal spread design (superseded by §15)
 
 C1 established that `ExprIr::ArrayLiteral` never carries a spread. The
 obligation of 13.2.4.1 is nevertheless real, and it is discharged by a
@@ -1344,8 +1345,8 @@ Reasons, in order:
    allowance (§8 R3, two lines), and a walk restructure collides with batch 5's
    recursion-depth lane.
 
-Ledger **IC-5** records the obligation; the lane note carries the design and the
-two insertion points so the next lane in `lowering.rs` can take it.
+Ledger **IC-5** records the historical obligation. Section 15 supersedes this
+shortcut design with the integrated direct ArrayAccumulation seam.
 
 ---
 
@@ -1360,7 +1361,7 @@ what cannot be a type, and why.
 | **IC-2** | A `StatementEmissionRow`'s `calls` column lists every operation the row's spec definition invokes. | The column is transcribed from spec text by hand. Nothing in the crate can read ECMA-262. | Bounded rather than checked: every entry is a real `SpecOperationIr` variant (type-checked), and under-listing only *weakens* J13 — it can never forge a containment. Over-listing makes the check stricter. |
 | **IC-3** | The lowering path carries no `bool` standing for "is this a delegation". | `lower_linear_generator_yield{,_value}` keep a `delegate: bool` parameter; the conversion to `YieldForm` happens once at the IR construction. Removing the parameter means twelve duplicated `if`s and buys no new compile error. | Nothing. The mistake M2 names — building the IR variant delegating without a witness — is `E0063`/`E0308` regardless. |
 | **IC-4** | `ALL_WITNESSES` lists every witness constant. | ~~Stable Rust has no way to enumerate a type's associated constants; the constants are four-argument expressions, not rows a macro can expand twice.~~ **That reason was wrong.** A `macro_rules!` row carries expression fragments perfectly well. | **CLOSED by a type.** `iterator_witnesses!` expands one row list into both the `pub const`s and `ALL_WITNESSES`, exactly as `emission_sites!` does for the sites; an alias row (`ARRAY_INDEX_WALK_RESUMABLE => Self::ARRAY_INDEX_WALK`) even removes the aliasing wart. K3's length check is **retired** — it is the shape that cannot detect its own omission — and K1 is now total rather than conditional on a hand-maintained census. |
-| **IC-5** | An array-literal SpreadElement states which desugaring discharged 13.2.4.1, and on what premise. | There is no IR node: the spread is desugared to `[].concat(…)` / `Array.from(…)` before any node exists (C1). The obligation would have to be attached to the lowering *decision*, which is a `lowering.rs` restructure this area is not allowed to make (§5). | **Was "documentation"; that understated it — the first branch's premise was not unproven, it was *falsified by ordinary programs*.** The guard was `spread_value.possible_kinds.contains(ValueKind::Array)`, and an un-inferred function parameter carries `KindSet::all_runtime_tags()`, which sets `ARRAY_BIT`. So `function f(x) { return [...x]; }` desugared to `[].concat(x)`, and for any non-array iterable `x`, 23.1.3.1 with IsConcatSpreadable false **appended the object instead of iterating it** — wrong under a pristine realm, with no tampering at all. Fixed this round: the guard is now `possible_kinds.is_subset_of({Array})`, the same predicate the for-of array walk uses, so `ConcatArrayLike` is reachable only where the premise can hold and everything else falls through to `Array.from`, which runs the real protocol. The **residual** IC-5 is what it always should have been: a statically-known `Array` still skips `%Array.prototype%[@@iterator]`. `ArraySpreadStrategy` (§5) is the design that names that; until it lands the residual is documentation. |
+| **IC-5** | An array-literal SpreadElement states how it discharged 13.2.4.1. | Historically there was no IR node: lowering erased spread through `concat` / `Array.from` (C1). | **Closed in §15.** Spread-bearing literals now create `ArrayAccumulationIr`; every `ArraySpreadIr` requires the one-inhabitant `ArraySpreadProtocol`, and the backend emits the general iterator protocol with no dense shortcut. |
 | **IC-7** | The `ForOf*` `protocol` fields hold the *right* witness, not merely *a* witness. | The three fields legitimately admit three different constants, and `lowering.rs` selects between them with an `if`/`else` chain — the shape a copy-paste gets wrong. A one-inhabitant newtype (A3's `ArrayPatternProtocol`) cannot apply. Closing it means moving the choice into a function that takes the `KindSet` and returns a `ForOfProtocol`, which is a `lowering.rs` restructure. | Nothing at the field. `ForOfLoweringIr::into_statement_and_kind` now *reads* the witness on the way out and `debug_assert`s the two conditions that are checkable — an `Empty` statement must carry `NO_ITERATION`, and a real `ForOf*` statement must not — which also replaces the unread `protocol()` accessor. |
 | **IC-8** | `StatementEmissionRow` / `TrackedGapRow` are not part of the public API. | They are `pub` and re-exported from `lib.rs`, and narrowing them to `pub(crate)` is a wider change than a blind round should make. `into_entry` is `pub(crate)`, which closes the forge-a-catalog-entry hole; the structs themselves remain visible. | Nothing yet. `AbruptDiscipline`'s re-export survives only because `StatementEmissionRow::discipline` names it. |
 | **IC-6** | `lila-aot-wasm` acquisition sites that no `lila-ir` construct reaches are witnessed. | Some acquisitions have no IR construct at all — the ~15 builtin consumers of `IfAbruptCloseIterator` (§1.7) are emitted from `StandardBuiltinId` arms, not from user-program IR. A witness on an acquisition that the user's program does not spell has nothing to attach to. | Nothing, and deliberately not the same thing as a gap: the builtins' close discipline is pinned by the five CLI fixtures in §2.6 and by Test262. Named here so the next reader does not mistake `EmissionSite`'s small variant set for a claim that only that many arms run the protocol. |
@@ -1783,9 +1784,9 @@ reads more into the result than is there.
 10. **non-claim** Nothing here proves an emitter body implements the discipline
     its row declares (IC-1), nor that a `calls` column is complete (IC-2).
 11. **non-claim** `SpreadArgument`, `GeneratorYield`'s `YieldForm` and the
-    array-literal spread strategy are **not** landed. They are specified in §4
-    and §5 and carried in the lane note. Until they land, three acquisition
-    sites still state no discharge, and the ledger says so.
+    array-literal spread strategy were **not** landed by Group A. Sections 13,
+    14 and 15 supersede this historical non-claim with the three integrated
+    typed seams.
 12. Emitted bytes are unchanged **by Group A**. Every Group A change is a
     compile-time addition: a new field on a struct the emitter only borrows, new
     `const` items, and two macros that re-declare existing items.
@@ -1847,7 +1848,7 @@ Two results are worth more than the pass/fail:
   all four still resolve. That is the const assert earning `EmissionSite::name`
   its place as an input rather than as an unread renderer.
 
-### 12.3 Group B and C: still not landed, and the reason has changed
+### 12.3 Historical integration record for Groups B and C
 
 The round-3 blocker in §2.6 — the incomplete `SpreadLoopExitsOnlyWhenDone` read —
 was discharged by the round-4 rewrite to `SpreadCloseOwedOnlyAfterAcquisition`.
@@ -1872,7 +1873,7 @@ is blocked on analysis.
 
 This section supersedes §4 B2, mistake-table row M2, checklist non-claim 11 and
 §12.3 wherever they say `YieldForm` is not encoded. B1 (`SpreadArgument`) is
-superseded by §14; Group C remains open.
+superseded by §14; Group C is superseded by §15.
 
 The encoded seam is narrower and stronger than B2's first code sketch:
 
@@ -1962,13 +1963,48 @@ proves the realm intact. Selecting `ProvenDense` from `ValueKind::Array` or a
 dense `HeapShape` would therefore certify a false premise. Declaring the enum
 while making that variant unreachable would instead be speculative decoration.
 
-Group C remains open until either (a) a realm/version witness makes the intact
-premise constructible, or (b) array-literal spread deletes the shortcut and
-uses a direct/general iterator accumulator. This integration does not broaden
-or bless the existing known-Array `concat` desugaring.
+At the time of the §14 integration, Group C remained open until either (a) a
+realm/version witness made the intact premise constructible, or (b)
+array-literal spread deleted the shortcut and used a direct/general iterator
+accumulator. Section 15 records the subsequent choice of (b).
 
 The change was dry-written only. No Cargo command or execution test ran in this
 lane. The cheapest compile gate is
 `cargo check -p lila-ir -p lila-aot-wasm`; the focused semantic gate is the
 pinned `language/expressions/call` spread subtree followed by the existing T15
 CLI iterator regression.
+
+## 15. ArrayAccumulation integration (2026-08-13)
+
+Group C chose option (b): the array-literal shortcut is deleted rather than
+certified. Plain no-spread literals retain shaped `ExprIr::ArrayLiteral`;
+spread-bearing literals lower to `ExprIr::ArrayAccumulation`. Every spread is
+an `ArraySpreadIr` carrying the one-inhabitant
+`ArraySpreadProtocol::ARRAY_ACCUMULATION`. Its witness credits
+`EmissionSite::ArrayLiteralSpread` for GetIterator, IteratorStep and
+IteratorValue, and its fourth slot names the implementation fact
+`ArrayAccumulationDoesNotClose`. The backend cannot inspect the witness.
+
+`ArrayAccumulationTargetIr::{Fresh, SuspensionOwned}` separates uninterrupted
+evaluation from staged generator evaluation. `SuspensionOwned` requires
+distinct `ArrayAccumulatorArraySlot` and
+`ArrayAccumulatorU64NextIndexSlot` values, initialized before the first
+element. Prefix elements are committed before a following suspension, and the
+final expression returns the same fresh array.
+
+The hidden next-index carrier stores an exact raw `u64`; it is never persisted
+through an ECMAScript Number, and a contribution at `u64::MAX` throws before
+addition can wrap. That is an explicit backend representation limit, not a
+claim that an unbounded mathematical integer fits in the carrier. Property-key
+creation still follows the specification's `ToString(𝔽(nextIndex))`:
+the raw counter is converted to Number at that operation, including above
+2^53. The array-index seam remains exact: indexes below `2^32 - 1` use direct
+fresh-array storage, `2^32 - 1` becomes the ordinary named key
+`"4294967295"` without changing `length`, and an elision there throws
+RangeError.
+
+There is no dense spread path and no inherited-setter lookup. There is also no
+IteratorClose path: ArrayAccumulation propagates acquisition, step and value
+abrupt completions directly. No Cargo or Test262 command ran in this dry-write;
+the central verifier owns the compile, focused runtime and pinned
+`language/expressions/array` gates.
