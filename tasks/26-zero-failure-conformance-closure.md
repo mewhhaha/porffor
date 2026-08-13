@@ -129,7 +129,11 @@ All completed runs must reconcile manifest totals and produce the same semantic 
 After all checks pass:
 
 - publish status only through `lila test262 publish-status` or `scripts/publish-real-status-low-ram.sh`;
-- commit generated JSON/text snapshots and the generated README status block together as required by repository policy;
+- commit the generated README status block with both exact canonical publisher
+  outputs, `test262/snapshots/published-status-wasm-aot.json` and
+  `test262/snapshots/published-status-wasm-aot.txt`; node, aggregate, focused,
+  fake-suite and `spec-exec` artifacts do not authorize that block, and neither
+  does only one half of the canonical pair;
 - include exact counts, pins, date and refresh commands;
 - archive a closure report listing matrix nodes, duration, slowest cases, artifact hashes and integrity-audit result;
 - tag the baseline/release only after CI verifies the committed snapshot matches a fresh aggregate;

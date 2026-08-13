@@ -36,6 +36,14 @@ a separately designed schema migration makes those fields mandatory, record
 `git rev-parse HEAD` and `sha256sum "$LILA_BIN"` alongside the publication log;
 do not add optional metadata that older writers can silently omit.
 
+The generated README status block has a separate repository provenance gate.
+Only a co-change to the publisher's exact canonical output pair,
+`test262/snapshots/published-status-wasm-aot.json` and
+`test262/snapshots/published-status-wasm-aot.txt`, authorizes that block to
+change. Node checkpoints and aggregate snapshots are inputs to verification,
+not proof that the publisher produced the README text; focused, fake-suite and
+`spec-exec` artifacts are likewise never publication authority.
+
 This task is not complete because the
 README still reports that the current pinned Wasm-AOT aggregate has not been
 fully republished, and there is no checked-in current-pin generated Wasm-AOT
@@ -85,6 +93,9 @@ The current README explicitly says the last complete real-suite publication is s
 - Resuming must not duplicate or drop cases.
 - `passed == total` is the only green aggregate. Unsupported cases remain in the denominator.
 - Fake-suite data may be included as a separate section but must never be merged into real-suite totals.
+- A generated README status change must carry both exact canonical Wasm-AOT
+  status artifacts. Neither matrix evidence nor one half of that output pair
+  is sufficient provenance.
 
 ## Acceptance criteria
 
@@ -92,7 +103,9 @@ The current README explicitly says the last complete real-suite publication is s
 - Running the generator twice over the same snapshot produces byte-identical backlog output.
 - Every failure is assigned to exactly one task ID or the explicit unclassified closure bucket.
 - The comparison command catches an intentionally injected regression and pin mismatch.
-- README status is updated only through the normal publisher after the complete matrix is verified.
+- README status is updated only through the normal publisher after the complete
+  matrix is verified, with both canonical Wasm-AOT status artifacts committed
+  beside the generated block.
 
 ## Required tests
 
