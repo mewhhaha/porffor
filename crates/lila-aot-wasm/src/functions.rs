@@ -635,6 +635,7 @@ pub(crate) enum OrdinaryDefaultPrototype {
     Boolean,
     Date,
     Iterator,
+    RegExp,
 }
 
 impl OrdinaryDefaultPrototype {
@@ -647,6 +648,7 @@ impl OrdinaryDefaultPrototype {
             Self::Boolean => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
             Self::Date => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
             Self::Iterator => HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
+            Self::RegExp => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
         }
     }
 }
@@ -3237,6 +3239,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
             StandardBuiltinId::IteratorConstructor,
+            StandardBuiltinId::RegExpConstructor,
         ]
         .into_iter()
         .chain(

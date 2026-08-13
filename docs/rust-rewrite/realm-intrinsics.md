@@ -130,15 +130,26 @@ global Array prototype and never infers the Array tag by comparing payload
 identity with that global.
 
 The same required-slot rule now covers the ordinary-object defaults selected
-by the shared construct path: `%Object.prototype%`, `%String.prototype%`,
-`%Number.prototype%` and `%Boolean.prototype%`. A closed slot enum contains
-exactly those four ordinary representations; `%Array.prototype%` remains in
-its separate typed path. Loading a populated ordinary slot produces a
-non-copyable witness that construction must consume to install both the
-prototype payload and its Object tag. A null realm record, intrinsic table or
-slot traps as an internal invariant failure. There is no entry-global input to
-this operation, so incomplete realm bootstrap cannot silently manufacture
-cross-realm prototype identity.
+by construction: `%Object.prototype%`, the seven message-bearing Error-family
+prototypes, `%String.prototype%`, `%Number.prototype%`,
+`%Boolean.prototype%`, `%Date.prototype%`, `%Iterator.prototype%`, and
+`%RegExp.prototype%`. A closed slot enum contains those ordinary
+representations; `%Array.prototype%` remains in its separate typed path.
+Loading a populated ordinary slot produces a non-copyable witness that
+construction must consume to install both the prototype payload and its Object
+tag. A null realm record, intrinsic table or slot traps as an internal
+invariant failure. There is no entry-global input to this operation, so
+incomplete realm bootstrap cannot silently manufacture cross-realm prototype
+identity.
+
+RegExp additionally consumes a closed active-standard-builtin identity. A call
+with undefined `NewTarget` normalizes to the entry global or the self-backed
+created-realm RegExp constructor before the required prototype operation.
+RegExp is classified as direct-returning, so its body owns the sole observable
+prototype Get and tagged allocation instead of running after the generic
+construct path has already repeated both operations. The complete boundary is
+recorded in
+`contracts/regexp-constructor-realm-prototype.md`.
 
 ## Remaining work
 
@@ -146,8 +157,8 @@ The registry currently covers the checked-in 23-intrinsic foundation, not the
 complete ECMAScript intrinsic set. T06 remains open for independently allocated
 intrinsic objects, full global/environment bootstrap, complete defining-realm
 coverage, realm-correct error creation, teardown, host hooks, and the
-cross-realm acceptance matrix. The Array-prototype seam does not make the
-registry the bootstrap source, make `%Function.prototype%` callable, repair
-other intrinsic families or unrelated partial-bootstrap prototype loaders, or
-complete error, hook and teardown semantics. T03 shortcut materializations must
-be removed as those general semantics land.
+cross-realm acceptance matrix. The Array and bounded constructor seams do not
+make the registry the bootstrap source, make `%Function.prototype%` callable,
+repair every intrinsic family or unrelated partial-bootstrap prototype loader,
+or complete error, hook and teardown semantics. T03 shortcut materializations
+must be removed as those general semantics land.

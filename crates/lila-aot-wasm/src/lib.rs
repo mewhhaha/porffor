@@ -302,13 +302,6 @@ mod tests {
                 "the construct path must select {variant} through the closed domain once"
             );
         }
-        assert_eq!(
-            domain
-                .lines()
-                .filter(|line| line.trim_end().ends_with(','))
-                .count(),
-            6
-        );
         assert!(
             !domain.contains("Array"),
             "Array must retain its separate exotic-prototype typestate"
@@ -358,6 +351,55 @@ mod tests {
         assert!(install.contains("prototype: ResolvedRealmOrdinaryPrototypeLocal"));
         assert_eq!(install.matches("prototype.0").count(), 2);
         assert_eq!(install.matches("ValueKind::Object.tag() as i64").count(), 1);
+    }
+
+    #[test]
+    fn ordinary_default_prototype_structural_count_tracks_message_error_and_regexp() {
+        let source = include_str!("functions.rs");
+        let domain = source
+            .split_once("enum OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype domain should exist")
+            .1
+            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
+            .expect("ordinary default-prototype domain should be bounded")
+            .0;
+        let offsets = source
+            .split_once("impl OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype offset map should exist")
+            .1
+            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
+            .expect("ordinary default-prototype offset map should be bounded")
+            .0;
+
+        assert_eq!(
+            domain
+                .matches("MessageError(ErrorMessageConstructorKind),")
+                .count(),
+            1,
+            "the structural count must retain the shared message-Error variant"
+        );
+        assert_eq!(
+            offsets
+                .matches("Self::MessageError(kind) => kind.prototype_slot().offset()")
+                .count(),
+            1,
+            "the message-Error variant must retain its typed prototype-slot map"
+        );
+        assert_eq!(domain.matches("    RegExp,").count(), 1);
+        assert_eq!(
+            offsets
+                .matches("Self::RegExp => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET")
+                .count(),
+            1
+        );
+        assert_eq!(
+            domain
+                .lines()
+                .filter(|line| line.trim_end().ends_with(','))
+                .count(),
+            8,
+            "the closed domain count must move with MessageError and RegExp"
+        );
     }
 
     #[test]
@@ -468,7 +510,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            1
+            2
         );
         assert_eq!(
             mapping
@@ -481,7 +523,7 @@ mod tests {
             .split_once("fn emit_active_standard_builtin_function_payload(")
             .expect("active standard-builtin emitter should exist")
             .1
-            .split_once("fn compile_typed_array_prototype_reverse_builtin(")
+            .split_once("fn emit_normalize_undefined_new_target_to_active_standard_builtin(")
             .expect("active standard-builtin emitter should be bounded")
             .0;
         for (operation, count) in [
@@ -584,6 +626,197 @@ mod tests {
                 .count(),
             1,
             "a direct-returning constructor must leave the generic construct block"
+        );
+    }
+
+    #[test]
+    fn regexp_constructor_realm_prototype_is_active_required_tagged_direct_and_published() {
+        let functions = include_str!("functions.rs");
+        let standard = include_str!("builtins/standard.rs");
+        let bootstrap = include_str!("builtins/bootstrap.rs");
+        let host = include_str!("builtins/host.rs");
+
+        let ordinary_domain = functions
+            .split_once("enum OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype domain should exist")
+            .1
+            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
+            .expect("ordinary default-prototype domain should be bounded")
+            .0;
+        let ordinary_offsets = functions
+            .split_once("impl OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype offset map should exist")
+            .1
+            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
+            .expect("ordinary default-prototype offset map should be bounded")
+            .0;
+        assert_eq!(ordinary_domain.matches("    RegExp,").count(), 1);
+        assert_eq!(
+            ordinary_offsets
+                .matches("Self::RegExp => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET")
+                .count(),
+            1
+        );
+
+        let active_domain = standard
+            .split_once("enum ActiveStandardBuiltinFunction {")
+            .expect("active standard-builtin domain should exist")
+            .1
+            .split_once("}\n\nimpl ActiveStandardBuiltinFunction")
+            .expect("active standard-builtin domain should be bounded")
+            .0;
+        let active_mapping = standard
+            .split_once("impl ActiveStandardBuiltinFunction {")
+            .expect("active standard-builtin global map should exist")
+            .1
+            .split_once("enum ArrayBufferSliceKind")
+            .expect("active standard-builtin global map should be bounded")
+            .0;
+        assert_eq!(active_domain.matches("    RegExpConstructor,").count(), 1);
+        assert_eq!(
+            active_mapping
+                .matches("Self::RegExpConstructor => REGEXP_CONSTRUCTOR_GLOBAL_INDEX")
+                .count(),
+            1
+        );
+
+        let normalization = standard
+            .split_once("fn emit_normalize_undefined_new_target_to_active_standard_builtin(")
+            .expect("active new-target normalization should exist")
+            .1
+            .split_once("fn compile_typed_array_prototype_reverse_builtin(")
+            .expect("active new-target normalization should be bounded")
+            .0;
+        for operation in [
+            "active: ActiveStandardBuiltinFunction",
+            "ValueKind::Undefined.tag() as i64",
+            "self.emit_active_standard_builtin_function_payload(active, function)",
+            "Instruction::LocalSet(new_target_payload_local)",
+            "ValueKind::Function.tag() as i64",
+            "Instruction::LocalSet(new_target_tag_local)",
+        ] {
+            assert_eq!(
+                normalization.matches(operation).count(),
+                1,
+                "active new-target normalization must retain one {operation}"
+            );
+        }
+        let undefined_test = normalization
+            .find("ValueKind::Undefined.tag() as i64")
+            .unwrap();
+        let active_selection = normalization
+            .find("self.emit_active_standard_builtin_function_payload(active, function)")
+            .unwrap();
+        let function_tag = normalization
+            .find("ValueKind::Function.tag() as i64")
+            .unwrap();
+        assert!(undefined_test < active_selection && active_selection < function_tag);
+
+        let constructor = standard
+            .split_once("StandardBuiltinId::RegExpConstructor => {")
+            .expect("RegExp constructor builtin should exist")
+            .1
+            .split_once("StandardBuiltinId::JsonParse =>")
+            .expect("RegExp constructor builtin should be bounded")
+            .0;
+        let active_normalization = "self.emit_normalize_undefined_new_target_to_active_standard_builtin(\n                    ActiveStandardBuiltinFunction::RegExpConstructor,\n                    function,\n                );";
+        for (operation, count) in [
+            (active_normalization, 1),
+            ("emit_new_target_prototype_to_locals(", 1),
+            (
+                "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(",
+                1,
+            ),
+            ("OrdinaryDefaultPrototype::RegExp", 1),
+            ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
+            ("OBJECT_INTERNAL_BRAND_REGEXP", 1),
+        ] {
+            assert_eq!(
+                constructor.matches(operation).count(),
+                count,
+                "RegExp construction must retain exactly {count} {operation} occurrence(s)"
+            );
+        }
+        let prototype_resolution = constructor
+            .find("emit_new_target_prototype_to_locals(")
+            .unwrap();
+        let tagged_allocation = "emit_alloc_plain_object_with_prototype_and_tag(\n                    Some(prototype_payload_local),\n                    Some(prototype_tag_local),\n                    None";
+        assert_eq!(constructor.matches(tagged_allocation).count(), 1);
+        assert!(
+            constructor.find(active_normalization).unwrap() < prototype_resolution
+                && prototype_resolution < constructor.find(tagged_allocation).unwrap()
+        );
+        for forbidden in [
+            "emit_error_new_target_prototype_to_local(",
+            "NewTargetPrototypeFallback::CurrentGlobal",
+            "emit_alloc_plain_object_with_prototype(",
+        ] {
+            assert!(
+                !constructor.contains(forbidden),
+                "RegExp construction must not retain {forbidden}"
+            );
+        }
+        let temp_reservation = "let prototype_payload_local = self.reserve_temp_local();\n                let prototype_tag_local = self.reserve_temp_local();";
+        let temp_release = "self.release_temp_local(prototype_tag_local);\n                self.release_temp_local(prototype_payload_local);";
+        assert_eq!(constructor.matches(temp_reservation).count(), 1);
+        assert_eq!(constructor.matches(temp_release).count(), 1);
+
+        let entry_identity = "self.init_builtin_constructor_object(\n                StandardBuiltinId::RegExpConstructor,\n                REGEXP_PROTOTYPE_GLOBAL_INDEX";
+        assert_eq!(bootstrap.matches(entry_identity).count(), 1);
+        assert_eq!(
+            bootstrap
+                .matches("Instruction::GlobalSet(REGEXP_PROTOTYPE_GLOBAL_INDEX)")
+                .count(),
+            1
+        );
+        assert_eq!(
+            bootstrap
+                .matches("NonArrayRealmIntrinsicSlot::RegExpPrototype")
+                .count(),
+            1
+        );
+        assert_eq!(
+            host.matches("NonArrayRealmIntrinsicSlot::RegExpPrototype")
+                .count(),
+            1
+        );
+        let created_identity = "self.store_i64_local_at_offset(\n            regexp_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            regexp_constructor_local";
+        assert_eq!(host.matches(created_identity).count(), 1);
+
+        let construct = functions
+            .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
+            .expect("shared construct path should exist")
+            .1
+            .split_once("pub(crate) fn copy_function_realm_typed_array_prototypes(")
+            .expect("shared construct path should be bounded")
+            .0;
+        let direct_returning_domain = construct
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct_returning_domain
+                .matches("StandardBuiltinId::RegExpConstructor,")
+                .count(),
+            1,
+            "RegExp must route to its body before generic construction"
+        );
+        let direct_dispatch = construct
+            .find("for table_index in direct_returning_constructor_table_indices {")
+            .expect("direct-returning constructor dispatch should exist");
+        let generic_prototype_get = construct
+            .find("function.instruction(&Instruction::I64Const(self.strings.payload(\"prototype\")));")
+            .expect("generic construct path should read NewTarget.prototype");
+        let generic_preallocation = construct
+            .find("self.emit_alloc_plain_object_with_prototype_and_tag(")
+            .expect("generic construct path should allocate its receiver");
+        assert!(
+            direct_dispatch < generic_prototype_get
+                && generic_prototype_get < generic_preallocation,
+            "RegExp's direct-returning body must run before generic prototype Get and allocation"
         );
     }
 

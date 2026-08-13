@@ -47,17 +47,19 @@ enum IteratorHelperPrototypeOperation {
 ///
 /// Created-realm copies share one emitted body with the entry-realm builtin,
 /// so the body cannot identify the active object by its entry global alone.
-/// Keeping the entry-global mapping behind this closed domain makes adding a
-/// second such builtin an exhaustive-match decision.
+/// Keeping the entry-global mapping behind this closed domain makes adding
+/// another such builtin an exhaustive-match decision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActiveStandardBuiltinFunction {
     IteratorConstructor,
+    RegExpConstructor,
 }
 
 impl ActiveStandardBuiltinFunction {
     const fn entry_global_index(self) -> u32 {
         match self {
             Self::IteratorConstructor => ITERATOR_CONSTRUCTOR_GLOBAL_INDEX,
+            Self::RegExpConstructor => REGEXP_CONSTRUCTOR_GLOBAL_INDEX,
         }
     }
 }
@@ -165,6 +167,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalGet(active.entry_global_index()));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::End);
+    }
+
+    /// Replace only an undefined `NewTarget` with the active standard-builtin
+    /// function, preserving every explicit new target unchanged.
+    fn emit_normalize_undefined_new_target_to_active_standard_builtin(
+        &self,
+        active: ActiveStandardBuiltinFunction,
+        function: &mut Function,
+    ) {
+        let new_target_payload_local = self.new_target_payload_local().unwrap();
+        let new_target_tag_local = self.new_target_tag_local().unwrap();
+
+        function.instruction(&Instruction::LocalGet(new_target_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_active_standard_builtin_function_payload(active, function);
+        function.instruction(&Instruction::LocalSet(new_target_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(new_target_tag_local));
         function.instruction(&Instruction::End);
     }
 
@@ -32270,20 +32293,33 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::RegExpConstructor => {
                 let object_local = self.reserve_temp_local();
-                let prototype_local = self.reserve_temp_local();
+                let prototype_payload_local = self.reserve_temp_local();
+                let prototype_tag_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let value_payload_local = self.reserve_temp_local();
                 let value_tag_local = self.reserve_temp_local();
                 let flags_payload_local = self.reserve_temp_local();
                 let flags_tag_local = self.reserve_temp_local();
 
-                self.emit_error_new_target_prototype_to_local(
+                self.emit_normalize_undefined_new_target_to_active_standard_builtin(
+                    ActiveStandardBuiltinFunction::RegExpConstructor,
+                    function,
+                );
+                self.emit_new_target_prototype_to_locals(
                     REGEXP_PROTOTYPE_GLOBAL_INDEX,
-                    None,
-                    prototype_local,
+                    NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                        OrdinaryDefaultPrototype::RegExp,
+                    ),
+                    prototype_payload_local,
+                    prototype_tag_local,
                     function,
                 )?;
-                self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
+                self.emit_alloc_plain_object_with_prototype_and_tag(
+                    Some(prototype_payload_local),
+                    Some(prototype_tag_local),
+                    None,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalSet(object_local));
                 self.store_i64_const_at_offset(
                     object_local,
@@ -32370,7 +32406,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(value_tag_local);
                 self.release_temp_local(value_payload_local);
                 self.release_temp_local(key_local);
-                self.release_temp_local(prototype_local);
+                self.release_temp_local(prototype_tag_local);
+                self.release_temp_local(prototype_payload_local);
                 self.release_temp_local(object_local);
             }
             StandardBuiltinId::JsonParse => self.emit_json_builtin(JsonBuiltin::Parse, function)?,

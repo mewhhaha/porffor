@@ -354,6 +354,30 @@ fn run_wasm_backend_succeeds_for_call_form_regexp_program_fixture() {
     assert!(stdout.contains("boolean(true)"));
 }
 
+/// RegExp call form normalizes an undefined `NewTarget` to the exact active
+/// constructor. Explicit construction performs one observable `prototype` Get
+/// and resolves a primitive result through the new-target function's realm.
+#[test]
+fn run_wasm_backend_uses_active_regexp_constructor_and_new_target_realm() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_constructor_realm_prototype.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262)"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_regexp_exec_borrowed_identity_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

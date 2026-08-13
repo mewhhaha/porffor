@@ -6710,6 +6710,12 @@ impl<'a> FunctionBuilder<'a> {
             regexp_constructor_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            regexp_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            regexp_constructor_local,
+            function,
+        );
         self.emit_set_function_prototype_data(
             regexp_constructor_local,
             regexp_prototype_local,

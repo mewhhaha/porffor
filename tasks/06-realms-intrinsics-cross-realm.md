@@ -59,6 +59,17 @@ realm bootstrap state traps instead of selecting an entry-realm global. Date
 reuses the same required fallback policy after its arity-specific value
 calculation rather than the shared direct-constructor dispatcher.
 
+RegExp construction now extends that closed ordinary-default domain with its
+already-published realm slot. Calling a created realm's borrowed RegExp
+constructor normalizes undefined `NewTarget` to the self-backed active function;
+explicit new targets retain their own identity. The RegExp body then owns one
+observable prototype Get, required `GetFunctionRealm` fallback and tagged
+allocation, while direct-return classification prevents the generic construct
+path from repeating the Get or preallocating a discarded receiver. The
+source-free focused contract is
+`docs/rust-rewrite/contracts/regexp-constructor-realm-prototype.md`; the pinned
+realm case remains coupled to unsupported dynamic Function source generation.
+
 This remains metadata foundation rather than full realm bootstrap. Intrinsic
 objects are not yet independently allocated from these templates across the
 complete ECMAScript set, the registry is not yet shared with `lila-ir`, and the
@@ -70,8 +81,8 @@ realm acceptance matrix. Complete intrinsic allocation, host-capability
 scoping, teardown, borrowed builtins and realm-correct errors therefore remain
 active work. The typed Function-prototype context preserves identity but does
 not make `%Function.prototype%` callable or add it to the Wasm realm-intrinsic
-record. The Array seam does not repair the other intrinsic families or
-unrelated partial-bootstrap prototype loaders.
+record. The bounded constructor seams do not repair every intrinsic family or
+unrelated partial-bootstrap prototype loader.
 
 ## Objective
 

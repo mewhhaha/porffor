@@ -18,6 +18,19 @@ typed resource policy and complete zero-timeout RegExp/String-regexp trees are
 not yet present. The README explicitly records broader syntax combinations as
 unsupported, and focused Test262 rewrites remain.
 
+RegExp call and construction now have a bounded realm-correct allocation seam.
+An undefined `NewTarget` becomes the exact entry- or created-realm active
+RegExp constructor, explicit new targets receive one observable `prototype`
+Get, primitive results fall back through the new target's required realm slot,
+and tagged custom prototypes survive the sole result allocation. Direct
+construct dispatch makes the RegExp body the owner of that Get and allocation.
+The focused
+[contract](../docs/rust-rewrite/contracts/regexp-constructor-realm-prototype.md)
+and source-free cross-realm witness do not depend on dynamic Function source
+generation. This does not implement `IsRegExp`/same-constructor early return,
+cloning, flags override, general runtime pattern compilation or broader RegExp
+protocol closure.
+
 The emitted matcher now has a closed result-status ABI. All 45 result writers
 must choose normal completion, corrupt-program failure or resource exhaustion;
 the ordered-choice capacity guard is the sole current resource producer. The

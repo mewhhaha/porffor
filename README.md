@@ -3058,6 +3058,14 @@ Recent focused progress through `2026-07-27`:
   `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
   `./target/debug/lila test262 run built-ins/RegExp/Symbol.species --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- RegExp call and construction now use the exact realm-local active constructor
+  when `NewTarget` is undefined. Explicit new targets perform one observable
+  `prototype` Get, primitive prototypes fall back to the new target's realm
+  `%RegExp.prototype%`, and Object-, Function- and Array-valued prototypes keep
+  their representation through the sole tagged allocation. RegExp routes
+  directly to that owning body before generic construction. The focused
+  source-free fixture avoids the pinned realm case's separate dynamic Function
+  dependency; this is not a complete RegExp or Test262 status claim.
 - `String.prototype.concat` is now a real generic Wasm-AOT standard builtin:
   it applies `ToString` to the receiver and every argument in order, supports
   arbitrary argument counts, and preserves defining-realm TypeErrors for
