@@ -1172,9 +1172,9 @@ impl SpecOperationIr {
 pub enum RowSource {
     /// [`SpecOperationIr::catalog_entry`] — the row *is* the variant.
     DerivedFromOperation,
-    /// [`StatementEmissionRow::into_entry`].
+    /// The crate-private `StatementEmissionRow::into_entry` constructor.
     StatementEmissionTable,
-    /// [`TrackedGapRow::into_entry`].
+    /// The crate-private `TrackedGapRow::into_entry` constructor.
     TrackedGapTable,
 }
 
@@ -1197,8 +1197,8 @@ pub enum RowSource {
 ///
 /// The private `source` field closes both halves of that hole: the struct is
 /// unconstructible outside this module, so the only producers are
-/// [`SpecOperationIr::catalog_entry`], [`StatementEmissionRow::into_entry`] and
-/// [`TrackedGapRow::into_entry`]; and the derived constructor takes `name` from
+/// [`SpecOperationIr::catalog_entry`], `StatementEmissionRow::into_entry` and
+/// `TrackedGapRow::into_entry`; and the derived constructor takes `name` from
 /// the evidence rather than from a free field, so evidence and name cannot
 /// disagree (const assert J6 checks that for every assembled row).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1253,7 +1253,7 @@ impl SpecOperationCatalogEntry {
 /// boundary is ledger **L2**, restated as **IC-1** in the iterator-close
 /// contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AbruptDiscipline {
+pub(crate) enum AbruptDiscipline {
     /// The operation has no abrupt completion at all; `abrupt` must be empty.
     NoAbruptExit,
     /// Abrupt completions leave through the shared current-completion channel
@@ -1344,8 +1344,11 @@ const _: () = {
 /// `sites` is a slice, not a single site, because an operation of 7.4 is
 /// emitted by every arm that runs the protocol. Const assert J7 rejects an
 /// empty slice, so "statement-emitted, by nothing" has no spelling.
+///
+/// Crate-private on purpose: downstream consumers inspect the assembled
+/// [`SPEC_OPERATION_CATALOG`], not the hand-written evidence rows that feed it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StatementEmissionRow {
+pub(crate) struct StatementEmissionRow {
     pub name: &'static str,
     pub family: SpecOperationFamily,
     pub normal_result: NormalResult,
@@ -1402,8 +1405,9 @@ impl StatementEmissionRow {
 
 /// A row for an operation we have *not* implemented. By construction it cannot
 /// carry `SharedWasmEmitter` or `StatementEmission`: there is no field for one.
+/// The raw row is crate-private; the assembled catalog is the public surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TrackedGapRow {
+pub(crate) struct TrackedGapRow {
     pub name: &'static str,
     pub family: SpecOperationFamily,
     pub normal_result: NormalResult,
@@ -1479,7 +1483,7 @@ const ASYNC_CLOSE_SITES: &[EmissionSite] = &[
     EmissionSite::GeneratorDelegation,
 ];
 
-pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
+pub(crate) const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
     StatementEmissionRow {
         name: "GetIterator",
         family: SpecOperationFamily::Iterator,
@@ -1567,7 +1571,7 @@ pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
 /// the nine whose model type was deleted along with the false row, because a
 /// type with no call site is a claim and this area exists because claims were
 /// being read as implementations.
-pub const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[
+pub(crate) const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[
     TrackedGapRow {
         name: "Type",
         family: SpecOperationFamily::TypeQuery,

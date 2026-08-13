@@ -72,7 +72,7 @@ false negative.
 | `operations.rs` | `AbruptDiscipline`, the `discipline` and `calls` columns on `StatementEmissionRow` and their five row values, const asserts **J10/J11/J12/J13**, the `SYNC_PROTOCOL_SITES` citation repair |
 | `ir.rs` | `ArrayDestructuringPatternIr::protocol` — required, no `Default` |
 | `lowering.rs` | the two construction sites `lower_array_binding_pattern` and `lower_array_assignment_pattern` name `ARRAY_DESTRUCTURING_PROTOCOL`. Nothing else. |
-| `lib.rs` | `AbruptDiscipline` added inside the pre-existing `pub use operations::{…}` block (round 4 adds `ArrayPatternProtocol` to the `iterator_obligations` block). No new `mod` line. |
+| `lib.rs` | `ArrayPatternProtocol` remains in the public iterator-obligation surface. The IC-8 follow-up removes the crate-internal `AbruptDiscipline`, raw row types and raw row tables from the public operations re-export. |
 
 Two deletions, because a runtime check that survives beside the compile-time
 check it duplicates is evidence the compile-time one is decoration:
@@ -110,6 +110,7 @@ amended in place; this is the index.
 | `SpreadLoopExitsOnlyWhenDone` was false at two lines | bug | The §9.11 read is complete. Two abrupt exits (`Get(iterator,"next")` and the not-callable TypeError) leave a non-done iterator; the conclusion survives because both are *inside* GetIterator. Renamed `SpreadCloseOwedOnlyAfterAcquisition` with the reason that is true. |
 | IC-5 called a falsified premise "documentation" | bug | `lower_array_literal`'s spread guard narrows from `possible_kinds.contains(Array)` to `is_subset_of({Array})`. `function f(x) { return [...x]; }` was lowering to `[].concat(x)` and appending a non-array iterable instead of iterating it — wrong under a pristine realm. **This is the one emitted-byte change in the batch.** |
 | `into_entry` was `pub` on an all-`pub`-fields struct | polish | Both `into_entry`s are `pub(crate)`; the FORGED-row hole the doc comment claimed to close is now actually closed. Narrowing the structs themselves is **IC-8**. |
+| Raw operation evidence survived as public API | polish | **IC-8 closed (2026-08-13):** `AbruptDiscipline`, `StatementEmissionRow`, `TrackedGapRow`, `STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` are crate-private and absent from `lib.rs`. Downstream consumers see the privately assembled catalog and its accessors only. |
 | `AbruptDiscipline::name` had zero callers | polish | A `const` distinctness assertion over `AbruptDiscipline::ALL`, K4's treatment applied to this area's own type. |
 | `ForOfLoweringIr::protocol()` had zero callers | polish | Deleted; `into_statement_and_kind` reads the witness and `debug_assert`s two real conditions instead. |
 | The `CloseOnAbruptExitWithStep4Precedence` doc over-claimed | polish | Reworded to name the two helpers and the two completion classes without asserting every site exercises the break/return branch — `compile_array_destructure_from_value_locals` does not. |

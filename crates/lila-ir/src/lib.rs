@@ -127,15 +127,14 @@ pub use modules::{
 };
 pub use operations::{
     completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
-    AbruptCapability, AbruptDiscipline, ArithmeticBinaryOp, BigIntBitwiseOp, BindingMode,
-    BitwiseBinaryOp, CompletionAbiSlot, CompletionAbruptKind, CompletionKindIr, CompletionRecordIr,
-    DoneSlot, EcmaLanguageType, EmitterEvidence, EqualityBinaryOp, IteratorRecordIr, IteratorSlot,
+    AbruptCapability, ArithmeticBinaryOp, BigIntBitwiseOp, BindingMode, BitwiseBinaryOp,
+    CompletionAbiSlot, CompletionAbruptKind, CompletionKindIr, CompletionRecordIr, DoneSlot,
+    EcmaLanguageType, EmitterEvidence, EqualityBinaryOp, IteratorRecordIr, IteratorSlot,
     LogicalBinaryOp, NextMethodSlot, NormalResult, NumericUpdateOp, OperationDescriptor,
     OperationDomain, OperationLoweringStatus, RelationalBinaryOp, RowSource,
-    SpecOperationCatalogEntry, SpecOperationFamily, SpecOperationIr, StatementEmissionRow,
-    ToPrimitiveHint, TrackedGapReason, TrackedGapRow, UnaryBitwiseOp, UnaryNumericOp,
-    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
-    STATEMENT_EMISSION_ROWS, TRACKED_GAP_ROWS,
+    SpecOperationCatalogEntry, SpecOperationFamily, SpecOperationIr, ToPrimitiveHint,
+    TrackedGapReason, UnaryBitwiseOp, UnaryNumericOp, UpdateReturnMode, COMPLETION_ABI_SLOTS,
+    SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
 };
 pub use regexp::{
     RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpNamedGroup,

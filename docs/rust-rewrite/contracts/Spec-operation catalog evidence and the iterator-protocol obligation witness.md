@@ -1529,3 +1529,20 @@ golden diff that this pass is not permitted to spend. It stays open exactly as
 is uncalled *by design* — being uncalled is the whole mechanism, since its only
 job is to make an `EmissionSite` variant name a real function or fail to
 resolve. Recorded here so the allow is a decision rather than a leftover.
+
+## 15. Raw catalog-input visibility closure (2026-08-13)
+
+The assembled catalog is the API; its hand-written inputs are not.
+`AbruptDiscipline`, `StatementEmissionRow`, `TrackedGapRow`,
+`STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` are now crate-private and are
+absent from `lila-ir`'s public re-export block. The public
+`SPEC_OPERATION_CATALOG`, `SpecOperationCatalogEntry`, `RowSource`,
+`OperationLoweringStatus`, `TrackedGapReason`, and the catalog lookup functions
+remain unchanged.
+
+The durable boundary is Rust visibility: another crate attempting to import a
+raw row or table gets `E0603`, while `operations.rs` remains the sole assembly
+site. This closes the callerless-public-surface residue without changing the 46
+catalog rows, any lowering decision or emitted Wasm. No Cargo or Test262 command
+ran in this follow-up; the central verifier owns `cargo check -p lila-ir` and
+the rustdoc gate.

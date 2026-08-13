@@ -994,20 +994,20 @@ there; `ArrayPatternProtocol` must, because it is the type of a `pub` struct
 field (see A3), while its `witness()` accessor stays `pub(crate)` so P2 is
 unaffected.
 
-Inside the existing `pub use operations::{…}` block: **nothing new**.
-`AbruptDiscipline`'s re-export has zero consumers outside `operations.rs` — the
-same "survival by `pub`" shape §1.1 diagnoses for `CompletionAbruptKind`, where
-the only mention outside the module was the `pub use` line. It is retained only
-because `StatementEmissionRow`'s `pub discipline` field names it and that struct
-is re-exported; the honest cleanup is to narrow `StatementEmissionRow` and
-`TrackedGapRow` themselves to `pub(crate)`, which is a wider change than this
-round should make blind. Recorded as ledger **IC-7**.
+Inside the existing `pub use operations::{…}` block, the original round added
+`AbruptDiscipline`. The bounded IC-8 follow-up removes it together with
+`StatementEmissionRow`, `TrackedGapRow`, `STATEMENT_EMISSION_ROWS` and
+`TRACKED_GAP_ROWS`. All five are crate-private implementation details of the
+catalog assembly; the public `SPEC_OPERATION_CATALOG`, entry type and accessors
+remain. A downstream import of a raw evidence row is now `E0603`, so the
+hand-written input tables cannot become a second catalog API.
 
 `StatementEmissionRow::into_entry` and `TrackedGapRow::into_entry` are
-`pub(crate)`, **not** `pub`. Every field of `SpecOperationCatalogEntry` is
-private so that the only producers are this module's three constructors; a `pub`
-`into_entry` on a struct whose own fields are all `pub` gives that back, since
-any consumer crate can write
+`pub(crate)`, **not** `pub`; the row types and their two input tables are now
+crate-private as well. Every field of `SpecOperationCatalogEntry` is private so
+that the only producers are this module's three constructors; a `pub`
+`into_entry` on a struct whose own fields are all `pub` would give that back,
+since any consumer crate could write
 
 ```rust
 StatementEmissionRow { name: "ArraySpeciesCreate", abrupt: &[], discipline: NoAbruptExit,
@@ -1363,7 +1363,7 @@ what cannot be a type, and why.
 | **IC-4** | `ALL_WITNESSES` lists every witness constant. | ~~Stable Rust has no way to enumerate a type's associated constants; the constants are four-argument expressions, not rows a macro can expand twice.~~ **That reason was wrong.** A `macro_rules!` row carries expression fragments perfectly well. | **CLOSED by a type.** `iterator_witnesses!` expands one row list into both the `pub const`s and `ALL_WITNESSES`, exactly as `emission_sites!` does for the sites; an alias row (`ARRAY_INDEX_WALK_RESUMABLE => Self::ARRAY_INDEX_WALK`) even removes the aliasing wart. K3's length check is **retired** — it is the shape that cannot detect its own omission — and K1 is now total rather than conditional on a hand-maintained census. |
 | **IC-5** | An array-literal SpreadElement states how it discharged 13.2.4.1. | Historically there was no IR node: lowering erased spread through `concat` / `Array.from` (C1). | **Closed in §15.** Spread-bearing literals now create `ArrayAccumulationIr`; every `ArraySpreadIr` requires the one-inhabitant `ArraySpreadProtocol`, and the backend emits the general iterator protocol with no dense shortcut. |
 | **IC-7** | The `ForOf*` `protocol` fields hold the *right* witness, not merely *a* witness. | The three fields legitimately admit three different constants, and `lowering.rs` selects between them with an `if`/`else` chain — the shape a copy-paste gets wrong. A one-inhabitant newtype (A3's `ArrayPatternProtocol`) cannot apply. Closing it means moving the choice into a function that takes the `KindSet` and returns a `ForOfProtocol`, which is a `lowering.rs` restructure. | Nothing at the field. `ForOfLoweringIr::into_statement_and_kind` now *reads* the witness on the way out and `debug_assert`s the two conditions that are checkable — an `Empty` statement must carry `NO_ITERATION`, and a real `ForOf*` statement must not — which also replaces the unread `protocol()` accessor. |
-| **IC-8** | `StatementEmissionRow` / `TrackedGapRow` are not part of the public API. | They are `pub` and re-exported from `lib.rs`, and narrowing them to `pub(crate)` is a wider change than a blind round should make. `into_entry` is `pub(crate)`, which closes the forge-a-catalog-entry hole; the structs themselves remain visible. | Nothing yet. `AbruptDiscipline`'s re-export survives only because `StatementEmissionRow::discipline` names it. |
+| **IC-8** | Raw operation evidence is not part of the public API. | **CLOSED (2026-08-13).** `AbruptDiscipline`, `StatementEmissionRow`, `TrackedGapRow`, `STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` are `pub(crate)` and removed from `lib.rs`; no Rust consumer existed outside `operations.rs`. | The visibility boundary is the check: downstream imports are `E0603`. Consumers use the privately assembled `SPEC_OPERATION_CATALOG`, `spec_operation_catalog` and `find_spec_operation`; catalog contents and runtime behavior are unchanged. |
 | **IC-6** | `lila-aot-wasm` acquisition sites that no `lila-ir` construct reaches are witnessed. | Some acquisitions have no IR construct at all — the ~15 builtin consumers of `IfAbruptCloseIterator` (§1.7) are emitted from `StandardBuiltinId` arms, not from user-program IR. A witness on an acquisition that the user's program does not spell has nothing to attach to. | Nothing, and deliberately not the same thing as a gap: the builtins' close discipline is pinned by the five CLI fixtures in §2.6 and by Test262. Named here so the next reader does not mistake `EmissionSite`'s small variant set for a claim that only that many arms run the protocol. |
 
 ---
@@ -2008,3 +2008,16 @@ IteratorClose path: ArrayAccumulation propagates acquisition, step and value
 abrupt completions directly. No Cargo or Test262 command ran in this dry-write;
 the central verifier owns the compile, focused runtime and pinned
 `language/expressions/array` gates.
+
+## 16. IC-8 public-surface closure (2026-08-13)
+
+The raw catalog inputs are no longer public API. `AbruptDiscipline`,
+`StatementEmissionRow`, `TrackedGapRow`, `STATEMENT_EMISSION_ROWS` and
+`TRACKED_GAP_ROWS` are crate-private, and `lila-ir` no longer re-exports them.
+The public assembled catalog, its entry and status types, and its lookup
+functions are unchanged.
+
+This closes the "survival by `pub`" residue without changing a row, count or
+emitter: downstream code can inspect the catalog but cannot couple itself to
+the hand-written assembly tables. No Cargo or Test262 command ran in this
+visibility-only follow-up; its compile and rustdoc gates remain central.
