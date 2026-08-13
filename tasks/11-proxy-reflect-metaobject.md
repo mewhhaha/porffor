@@ -98,10 +98,10 @@ verification.
 
 Proxy `[[Set]]` truthy-result validation now joins those direct-target
 consumers through a richer projection of the same descriptor authority. One
-closed Rust result domain selects either the value-free fact or a complete
-Proxy-Set record containing distinct fact, data-value and setter locals; both
-views consume the same exhaustive object-representation loop. Target, property
-key and incoming value are typed call-site roles. Array, arguments,
+closed Rust result domain contains the value-free fact and a complete Proxy-Set
+record with distinct fact, data-value and setter locals; every projection
+consumes the same exhaustive object-representation loop. Target, property key
+and incoming value are typed call-site roles. Array, arguments,
 boxed-String, Function-special and ordinary values are read from descriptor
 storage without invoking getters, and mapped arguments data observes the
 current parameter value. Missing setters normalize to tagged `undefined`; a
@@ -118,7 +118,35 @@ integer-indexed no-false-positive cases and both assignment and Reflect entry
 points. It is written but has not run while the shared verification lane owns
 Cargo and Test262. This is only the post-trap, direct-target migration: Set
 trap lookup/fallback and recursive nested-Proxy target `[[GetOwnProperty]]`
-remain T11 work, and Proxy `[[Get]]` still has its older value-bearing scan.
+remain T11 work.
+
+Proxy `[[Get]]` post-trap validation now consumes a second richer projection of
+that same direct descriptor authority. The closed projection domain has
+distinct Proxy-Get and Proxy-Set records, and a closed getter/setter endpoint
+enum makes using the wrong accessor role an exhaustive-match type error. The
+Get invariant accepts typed target, property-key and normal trap-result roles.
+A trap call initially yields a distinct pending result; the only transition to
+the normal-only type emits abrupt-completion routing first, so a trap's thrown
+value cannot be replaced by a later frozen-target TypeError.
+
+The shared storage-only walk observes Array dense/sparse and named entries,
+Array length, mapped and accessor arguments indices, arguments special
+`length`/`callee`, boxed-String virtual values, ordinary entries and
+Function/DataView special values without invoking a stored getter. Missing
+getters normalize both raw zero and tagged `undefined`. The invariant then
+requires `SameValue` for a present non-configurable, non-writable data
+descriptor and requires an undefined trap result for a present
+non-configurable accessor with no getter. The former Object/Function-only raw
+entry scan is deleted.
+
+The exact Wasm-AOT fixture covers direct and Reflect Get, all of those direct
+representations, callable-Proxy and missing getters without invocation,
+`SameValue` edge cases, configurable/integer-indexed/absent false-positive
+guards, and preservation of the original thrown trap. It is written but has
+not run while the shared verification lane owns Cargo and Test262. This remains
+only a direct-target post-trap migration: Get trap lookup/fallback, recursive
+nested-Proxy target `[[GetOwnProperty]]`, module namespaces and complete
+Proxy/Reflect Get closure remain T11 work.
 
 The retained Proxy slots now also have one typed read authority. The reader
 accepts the same `ProxySlotLocals` record as the writer, maps each heap word into

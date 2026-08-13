@@ -520,9 +520,10 @@ require_fixed_string_count crates/lila-aot-wasm/src/operations.rs "$uint32_call"
 
 # T11's direct [[GetOwnProperty]] observations. One typed authority owns the
 # representation split used by the value-free public descriptor/Has/Delete
-# fact and the richer Proxy-Set projection. Array-only or ordinary-entry mirrors
-# would let a new exotic silently escape one consumer again, so keep the closed
-# branch order, projection domain and reviewed call sites exact.
+# fact and the richer Proxy-Get/Proxy-Set projections. Array-only or
+# ordinary-entry mirrors would let a new exotic silently escape one consumer
+# again, so keep the closed branch order, projection domain and reviewed call
+# sites exact.
 own_descriptor_fact='emit_direct_own_descriptor_fact('
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
@@ -541,22 +542,84 @@ require_fixed_string_count \
   'enum DirectOwnDescriptorProjectionLocals {' \
   1 \
   'closed direct-own-descriptor projection domain'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'pub(crate) struct PropertyKeyLocals(TaggedLocals);' 1 'typed Proxy-Set property key role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'pub(crate) struct PropertyKeyLocals(TaggedLocals);' 1 'typed Proxy-Get/Set property key role'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'pub(crate) struct ProxySetValueLocals(TaggedLocals);' 1 'typed Proxy-Set incoming value role'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorDataValueLocals(TaggedLocals);' 1 'typed descriptor data-value role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct PendingProxyGetTrapResultLocals(TaggedLocals);' 1 'pending Proxy-Get trap-result role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct NormalProxyGetTrapResultLocals(TaggedLocals);' 1 'normal Proxy-Get trap-result role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorDataValueLocals(TaggedLocals);' 1 'typed Proxy-Get/Set descriptor data-value role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorGetterLocals(TaggedLocals);' 1 'typed descriptor getter role'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorSetterLocals(TaggedLocals);' 1 'typed descriptor setter role'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct ProxyGetDescriptorLocals {' 1 'complete Proxy-Get descriptor projection'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'enum DescriptorAccessorProjectionLocals {' 1 'closed getter/setter endpoint projection'
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
   'fn emit_direct_own_descriptor(' \
   1 \
   'direct-own-descriptor representation authority'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor(' 3 'direct-own-descriptor definition/fact/Proxy Set call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor(' 4 'direct-own-descriptor definition/fact/Proxy Get/Proxy Set call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor_for_proxy_get(' 2 'typed Proxy-Get descriptor wrapper definition/call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor_for_proxy_set(' 2 'typed Proxy-Set descriptor wrapper definition/call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_proxy_get_invariant_check(' 2 'Proxy-Get invariant definition/object-read call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_proxy_set_invariant_check(' 2 'Proxy-Set invariant definition/object-write call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/reflect.rs 'emit_proxy_set_invariant_check(' 1 'Reflect.set typed Proxy-Set invariant call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'DirectOwnDescriptorProjectionLocals::ProxyGet(' 1 'complete Proxy-Get descriptor projection construction'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'DirectOwnDescriptorProjectionLocals::ProxySet(' 1 'complete Proxy-Set descriptor projection construction'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_normal_proxy_get_trap_result(' 2 'pending-to-normal Proxy-Get result transition definition/call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'PendingProxyGetTrapResultLocals::new(' 1 'pending Proxy-Get result construction'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'NormalProxyGetTrapResultLocals(' 2 'normal Proxy-Get type declaration/guarded construction'
+require_fixed_string_count crates/lila-cli/tests/cli/object.rs 'fn run_wasm_backend_succeeds_for_proxy_get_direct_descriptor_invariants()' 1 'exact Proxy-Get direct-descriptor CLI regression'
+require_fixed_string_count crates/lila-cli/tests/cli/object.rs '"wasm_proxy_get_direct_descriptor_invariants.js"' 1 'Proxy-Get direct-descriptor fixture wiring'
+if [ ! -f crates/lila-cli/tests/fixtures/wasm_proxy_get_direct_descriptor_invariants.js ]; then
+  fail 'Proxy [[Get]] direct-descriptor invariant fixture must remain present'
+fi
 if grep -RFl --include='*.rs' 'emit_proxy_array_target_own_descriptor_flags' crates/lila-aot-wasm/src >/dev/null; then
   fail 'Array-only Proxy own-descriptor mirrors must not bypass the typed authority'
+fi
+
+normal_proxy_get_transition="$(sed -n \
+  '/^    fn emit_normal_proxy_get_trap_result(/,/^    fn emit_proxy_get_descriptor_same_value_i32(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+if ! grep -Fq 'pending: PendingProxyGetTrapResultLocals' <<<"$normal_proxy_get_transition" \
+  || ! grep -Fq 'self.emit_return_current_completion_if_throw(function);' <<<"$normal_proxy_get_transition" \
+  || ! grep -Fq 'NormalProxyGetTrapResultLocals(pending.0)' <<<"$normal_proxy_get_transition"; then
+  fail 'only the abrupt-routing transition may construct a normal Proxy [[Get]] trap result'
+fi
+
+proxy_get_invariant_body="$(sed -n \
+  '/^    fn emit_proxy_get_invariant_check(/,/^    pub(crate) fn reserve_own_descriptor_fact_locals(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+for raw_proxy_get_scan in \
+  'emit_is_object_entry_backed_tag_i32' \
+  'HEAP_PTR_OFFSET' \
+  'HEAP_LEN_OFFSET' \
+  'HEAP_OBJECT_ENTRY_SIZE' \
+  'HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET' \
+  'HEAP_OBJECT_DATA_' \
+  'HEAP_OBJECT_GETTER_'
+do
+  if grep -Fq "$raw_proxy_get_scan" <<<"$proxy_get_invariant_body"; then
+    fail "Proxy [[Get]] invariant must not rebuild descriptor storage through $raw_proxy_get_scan"
+  fi
+done
+if ! grep -Fq 'target: ProxyTargetLocals' <<<"$proxy_get_invariant_body" \
+  || ! grep -Fq 'key: PropertyKeyLocals' <<<"$proxy_get_invariant_body" \
+  || ! grep -Fq 'trap_result: NormalProxyGetTrapResultLocals' <<<"$proxy_get_invariant_body"; then
+  fail 'Proxy [[Get]] invariant must accept only typed target/key/normal-result roles'
+fi
+if ! grep -Fq 'emit_direct_own_descriptor_for_proxy_get(' <<<"$proxy_get_invariant_body"; then
+  fail 'Proxy [[Get]] invariant must consume the typed direct-own-descriptor projection'
+fi
+if ! grep -Fq 'descriptor.getter.emit_undefined_i32(' <<<"$proxy_get_invariant_body"; then
+  fail 'Proxy [[Get]] accessor invariant must normalize raw-zero and tagged-undefined getters'
+fi
+
+descriptor_getter_predicate="$(sed -n \
+  '/^impl DescriptorGetterLocals {/,/^}/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+if ! grep -Fq 'Instruction::I64Eqz' <<<"$descriptor_getter_predicate" \
+  || ! grep -Fq 'ValueKind::Undefined.tag()' <<<"$descriptor_getter_predicate" \
+  || ! grep -Fq 'Instruction::I32Or' <<<"$descriptor_getter_predicate"; then
+  fail 'descriptor getter absence must accept both raw zero and tagged undefined'
 fi
 
 proxy_set_invariant_body="$(sed -n \
@@ -587,13 +650,31 @@ direct_own_descriptor_body="$(sed -n \
   crates/lila-aot-wasm/src/objects.rs)"
 for observable_descriptor_read in \
   'emit_object_read(' \
+  'emit_object_read_ordinary(' \
   'emit_array_index_get(' \
-  'emit_function_handle_call('
+  'emit_array_sparse_present_get(' \
+  'emit_arguments_callee_read(' \
+  'emit_arguments_length_read(' \
+  'emit_function_handle_call(' \
+  'emit_function_or_proxy_call_leave_throw_completion('
 do
   if grep -Fq "$observable_descriptor_read" <<<"$direct_own_descriptor_body"; then
     fail "direct own-descriptor observation must not invoke getters through $observable_descriptor_read"
   fi
 done
+if ! grep -Fq 'DescriptorAccessorProjectionLocals::Getter(' <<<"$direct_own_descriptor_body" \
+  || ! grep -Fq 'HEAP_ARGUMENTS_LENGTH_GETTER_PAYLOAD_OFFSET' <<<"$direct_own_descriptor_body" \
+  || ! grep -Fq 'HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET' <<<"$direct_own_descriptor_body"; then
+  fail 'direct own-descriptor observation must project getter storage for every accessor representation'
+fi
+
+entry_descriptor_projection_body="$(sed -n \
+  '/^    fn emit_own_descriptor_from_entries(/,/^    pub(crate) fn emit_direct_own_descriptor_fact(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+if ! grep -Fq 'HEAP_OBJECT_GETTER_PAYLOAD_OFFSET' <<<"$entry_descriptor_projection_body" \
+  || ! grep -Fq 'HEAP_OBJECT_GETTER_TAG_OFFSET' <<<"$entry_descriptor_projection_body"; then
+  fail 'ordinary descriptor entry projection must retain the stored getter without invoking it'
+fi
 
 ordinary_direct_descriptor_body="$(sed -n \
   '/ObjectInternalMethodBranch::Ordinary => {/,/self.release_temp_local(function_like_local)/p' \
