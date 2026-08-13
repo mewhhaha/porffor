@@ -5555,17 +5555,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_proxy_own_keys_trap_result(
-            arg_payload_local,
-            arg_tag_local,
+            TaggedLocals::new(arg_payload_local, arg_tag_local),
             proxy_handled_local,
-            proxy_target_payload_local,
-            proxy_target_tag_local,
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            proxy_trap_payload_local,
-            proxy_trap_tag_local,
-            proxy_trap_result_payload_local,
-            proxy_trap_result_tag_local,
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local),
+                ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local),
+            ),
+            TaggedLocals::new(proxy_trap_payload_local, proxy_trap_tag_local),
+            TaggedLocals::new(proxy_trap_result_payload_local, proxy_trap_result_tag_local),
             key_payload_local,
             function,
         )?;
@@ -6986,17 +6983,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_proxy_own_keys_trap_result(
-            arg_payload_local,
-            arg_tag_local,
+            TaggedLocals::new(arg_payload_local, arg_tag_local),
             proxy_handled_local,
-            proxy_target_payload_local,
-            proxy_target_tag_local,
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            proxy_trap_payload_local,
-            proxy_trap_tag_local,
-            proxy_trap_result_payload_local,
-            proxy_trap_result_tag_local,
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local),
+                ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local),
+            ),
+            TaggedLocals::new(proxy_trap_payload_local, proxy_trap_tag_local),
+            TaggedLocals::new(proxy_trap_result_payload_local, proxy_trap_result_tag_local),
             key_payload_local,
             function,
         )?;
@@ -7438,17 +7432,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_proxy_own_keys_trap_result(
-            arg_payload_local,
-            arg_tag_local,
+            TaggedLocals::new(arg_payload_local, arg_tag_local),
             proxy_handled_local,
-            proxy_target_payload_local,
-            proxy_target_tag_local,
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            proxy_trap_payload_local,
-            proxy_trap_tag_local,
-            proxy_trap_result_payload_local,
-            proxy_trap_result_tag_local,
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local),
+                ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local),
+            ),
+            TaggedLocals::new(proxy_trap_payload_local, proxy_trap_tag_local),
+            TaggedLocals::new(proxy_trap_result_payload_local, proxy_trap_result_tag_local),
             key_payload_local,
             function,
         )?;

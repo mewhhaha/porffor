@@ -194,6 +194,25 @@ trap on a Proxy handler's own handler and an abrupt accessor lookup. It has not
 run while the release matrix owns runtime verification. Other Proxy methods
 that still reconstruct an Object handler remain separate migrations.
 
+Proxy `[[OwnPropertyKeys]]` handler acquisition now consumes the typed live-slot
+reader as well. The shared emitter accepts `TaggedLocals` for the traversal
+object, prospective trap and trap result plus one `ProxySlotLocals` record whose
+target and handler roles are distinct types. Its one live-slot read uses the
+current Function Realm revocation route. The four Object/Reflect consumers
+therefore preserve Function, Array, arguments and Proxy handler tags through
+Proxy-aware `GetMethod` and Call, route an abrupt lookup before `IsCallable`,
+and use the exact handler as `this`. Nullish traps still re-enter traversal with
+the complete tagged target, and the existing result-list and target-key
+invariant validators remain the only post-trap consumers.
+
+The focused source-free Wasm-AOT regression is written across
+`Object.getOwnPropertyNames`, `Object.getOwnPropertySymbols`, `Object.keys` and
+`Reflect.ownKeys`. It covers the four handler representations, exact getter and
+trap receivers, a callable Proxy trap, an abrupt lookup sentinel, nested-Proxy
+target fallback and created-realm revoked/non-callable errors. Its structure
+and runtime checkpoints have not run on this tree; they remain part of the
+verification handoff rather than a conformance claim.
+
 This is deliberately not the recursive Proxy descriptor-record protocol.
 When `[[ProxyTarget]]` is itself a Proxy, `[[GetOwnProperty]]` must run that
 Proxy's `GetMethod`, call and full `IsCompatiblePropertyDescriptor` validation;

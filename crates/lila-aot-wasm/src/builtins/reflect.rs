@@ -1,5 +1,8 @@
 use super::super::*;
-use crate::objects::{PropertyKeyLocals, ProxySetValueLocals, ProxyTargetLocals};
+use crate::objects::{
+    PropertyKeyLocals, ProxyHandlerLocals, ProxySetValueLocals, ProxySlotLocals, ProxyTargetLocals,
+    TaggedLocals,
+};
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_proxy_define_property_trap_invariants(
@@ -2243,17 +2246,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_proxy_own_keys_trap_result(
-            target_payload_local,
-            target_tag_local,
+            TaggedLocals::new(target_payload_local, target_tag_local),
             proxy_handled_local,
-            proxy_target_payload_local,
-            proxy_target_tag_local,
-            handler_payload_local,
-            handler_tag_local,
-            trap_payload_local,
-            trap_tag_local,
-            trap_result_payload_local,
-            trap_result_tag_local,
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local),
+                ProxyHandlerLocals::new(handler_payload_local, handler_tag_local),
+            ),
+            TaggedLocals::new(trap_payload_local, trap_tag_local),
+            TaggedLocals::new(trap_result_payload_local, trap_result_tag_local),
             key_payload_local,
             function,
         )?;

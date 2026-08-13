@@ -417,6 +417,22 @@ fn run_wasm_backend_succeeds_for_supported_proxy_own_keys_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_proxy_own_keys_handler_protocol() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_proxy_own_keys_handler_protocol.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_proxy_has_nested_null_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

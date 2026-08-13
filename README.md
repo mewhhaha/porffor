@@ -2922,7 +2922,14 @@ Recent focused progress through `2026-07-27`:
   String exotic indices/`length` plus symbols. The local
   `wasm_proxy_own_keys.js` fixture covers trap call parameters, result ordering,
   enumerable filtering, duplicate/type errors, symbol keys, `Reflect.ownKeys`,
-  and nested target forwarding.
+  and nested target forwarding. The shared handler-acquisition emitter now
+  consumes one typed live-slot record across all four Object/Reflect entry
+  points, preserving the exact Function, Array, arguments or Proxy handler tag
+  through Proxy-aware `GetMethod` and Call. Lookup abrupt completion precedes
+  callability classification, nullish traps retain the complete nested target,
+  and revoked/non-callable errors use the called builtin's Function Realm. A
+  focused structure regression and source-free fixture record this capability;
+  their Cargo/runtime checkpoints remain deferred on this tree.
   Exact real Test262
   `built-ins/Proxy/ownKeys/call-parameters-object-keys.js`,
   `call-parameters-object-getownpropertynames.js`,

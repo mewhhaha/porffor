@@ -12871,20 +12871,25 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_proxy_own_keys_trap_result(
         &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
+        object: TaggedLocals,
         handled_local: u32,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        handler_payload_local: u32,
-        handler_tag_local: u32,
-        trap_payload_local: u32,
-        trap_tag_local: u32,
-        trap_result_payload_local: u32,
-        trap_result_tag_local: u32,
+        slots: ProxySlotLocals,
+        trap: TaggedLocals,
+        trap_result: TaggedLocals,
         key_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let object_payload_local = object.payload;
+        let object_tag_local = object.tag;
+        let target_payload_local = slots.target.0.payload;
+        let target_tag_local = slots.target.0.tag;
+        let handler_payload_local = slots.handler.0.payload;
+        let handler_tag_local = slots.handler.0.tag;
+        let trap_payload_local = trap.payload;
+        let trap_tag_local = trap.tag;
+        let trap_result_payload_local = trap_result.payload;
+        let trap_result_tag_local = trap_result.tag;
+
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -12904,37 +12909,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy handler is null",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_load_live_proxy_slots(
+            object_payload_local,
+            slots,
+            ProxyRevocationRoute::CurrentFunctionRealm,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            target_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            target_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(handler_tag_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("ownKeys")));
         function.instruction(&Instruction::LocalSet(key_payload_local));
-        self.emit_object_read(
+        self.emit_object_read_without_throw_propagation(
             handler_payload_local,
             handler_tag_local,
             handler_payload_local,
@@ -12944,6 +12927,7 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
+        self.emit_return_current_completion_if_throw(function);
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_function_or_proxy_call_with_throw_propagation(
@@ -12974,8 +12958,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(object_tag_local));
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy ownKeys trap is not callable",
             self.result_local,
             self.result_tag_local,
