@@ -1,9 +1,12 @@
 # `[[HasProperty]]` dispatch contract
 
 This note defines the bounded T10 internal-method seam implemented by the Wasm
-AOT backend. It is deliberately about one internal method. It does not claim
-that `[[GetOwnProperty]]`, `[[Get]]`, `[[Set]]`, `[[Delete]]` or
-`[[OwnPropertyKeys]]` already share the same representation.
+AOT backend. It is deliberately centered on one complete internal method. It
+does not claim that `[[Get]]`, `[[Set]]`, `[[Delete]]` or
+`[[OwnPropertyKeys]]` share the same full dispatch. The direct-target
+`[[GetOwnProperty]]` fact and `[[IsExtensible]]` pieces described below are
+also consumed by bounded Proxy `[[Delete]]` post-trap validation; that does not
+migrate the delete trap lookup or fallback path.
 
 ## One product entry
 
@@ -88,20 +91,23 @@ object-or-null result check and exact-prototype check for non-extensible targets
 this bounded migration changes only how its live slots and handler method are
 obtained.
 
-The false-result invariant uses a separate value-free direct-own-descriptor
-fact over the same closed representation order. Array, arguments,
-integer-indexed, boxed-String, Function-special and ordinary own properties are
-therefore checked without allocating a public descriptor object, and a present
-configurable property reaches the shared `[[IsExtensible]]` operation only
-after the descriptor test.
+The Proxy `has` false-result and `deleteProperty` true-result invariants use a
+separate value-free direct-own-descriptor fact over the same closed
+representation order. Array, arguments, integer-indexed, boxed-String,
+Function-special and ordinary own properties are therefore checked without
+allocating a public descriptor object. Both consumers first accept an absent
+property, then reject a present non-configurable descriptor, and only then send
+a present configurable descriptor through the shared `[[IsExtensible]]`
+operation.
 
 This remains a bounded consumer migration. The direct fact is not the recursive
 Proxy descriptor-record protocol: when `[[ProxyTarget]]` is itself a Proxy, the
 eventual implementation must perform that target's `GetMethod`, call,
 descriptor conversion and complete compatibility validation without allocating
-through the public builtin. Other Proxy internal methods, module-namespace
-descriptor behavior, and broader nested exotic-handler `[[Get]]` closure remain
-T11 work.
+through the public builtin. The `has` and `deleteProperty` invariant consumers
+therefore make no nested-Proxy-target closure claim. Other Proxy internal
+methods, module-namespace descriptor behavior, and broader nested
+exotic-handler `[[Get]]` closure remain T11 work.
 
 ## Verification boundary
 
@@ -120,16 +126,19 @@ cargo test -p lila-aot-wasm tests::operations_emits_has_property_spec_operation 
 cargo test -p lila-aot-wasm tests::typedarray_has_property_module_validates -- --exact
 cargo test -p lila-engine tests::wasm_backend_has_property_dispatches_every_live_exotic_branch -- --exact
 cargo test -p lila-engine tests::wasm_backend_proxy_descriptor_and_extensibility_preserve_handler_tags -- --exact
+cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_delete_property_fixture -- --exact
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_get_prototype_of_fixture -- --exact
 ./target/debug/lila test262 run built-ins/Proxy/has --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Proxy/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Reflect/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Reflect/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/TypedArrayConstructors/internals/HasProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
-The Proxy Array invariant above is intentionally documented rather than added
-as a failing repository test. Closure ultimately requires the complete pinned
+The direct-target Proxy Array invariants are covered by the focused delete and
+descriptor regressions above. Closure still requires the complete pinned
 Proxy/Reflect, Object and TypedArray trees; these focused filters are only the
 cheapest regression gates for this seam.

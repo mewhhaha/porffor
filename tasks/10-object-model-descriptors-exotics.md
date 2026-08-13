@@ -36,8 +36,9 @@ the three named attribute masks, and cannot accidentally receive a complete
 stored descriptor word at that boundary.
 
 Wasm-AOT `[[HasProperty]]` now has one full crate-visible entry seam and a
-private dispatcher over a closed, runtime-consumed `HasPropertyBranch` order:
-Proxy, integer-indexed TypedArray, Array, arguments, boxed String and Ordinary.
+private dispatcher over the closed, runtime-consumed
+`ObjectInternalMethodBranch` order: Proxy, integer-indexed TypedArray, Array,
+arguments, boxed String and Ordinary.
 The match is exhaustive, so adding a declared representation without emitting
 its branch is a compile error. Function's `prototype` internal slot is part of
 the Ordinary branch and is checked on every prototype step. Array builtins no
@@ -50,11 +51,21 @@ targets and prototype reclassification. This HasProperty batch has received
 only formatting, diff and boundary checks while the shared conformance matrix
 runs; its focused Cargo/runtime commands remain pending.
 
-This seam does not close Proxy false-result invariants. The current checker
-still reads only ordinary Object/Function property storage rather than complete
-typed `[[GetOwnProperty]]` and `[[IsExtensible]]` dispatch. In particular it can
-miss an Array target's non-configurable `length`; T11 retains that blocker
-rather than adding a one-off Array mirror.
+The bounded Proxy invariant consumers now share a typed direct-target
+`[[GetOwnProperty]]` fact and the existing `[[IsExtensible]]` operation. The
+fact keeps presence separate from the descriptor word, so an all-false
+descriptor cannot masquerade as absence, and exhaustively covers the same
+integer-indexed, Array, arguments, boxed-String, Function-special and ordinary
+representation order as `[[HasProperty]]`. A false `has` result and a true
+`deleteProperty` result both accept absence, reject a non-configurable property,
+and check extensibility only for a present configurable property. The former
+raw Array/ordinary delete scan and direct `HEAP_CAP_OFFSET` test are gone.
+
+This is direct-target closure only. The fact deliberately marks a nested Proxy
+target as handled without treating its own storage as the target descriptor;
+the recursive Proxy descriptor-record protocol remains T11 work. The complete
+`[[Delete]]` dispatch, trap lookup and fallback path also remain separate from
+the full `[[HasProperty]]` dispatcher.
 
 This is still a foundation, not task closure. Array application and index
 paths, arguments descriptors, several builtin/exotic emitters and lowering

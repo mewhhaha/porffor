@@ -51,9 +51,9 @@ remain separate T11 migrations over the same stored slot. The exact Wasm-AOT
 regression for Function, Array, arguments and nested-Proxy handlers, tagged
 handler `this`, and an abrupt lookup getter is written but has not run.
 
-The post-trap false-result batch now has one direct-target contract. A private,
-closed object-representation order is shared by `[[HasProperty]]` and a
-value-free own-descriptor fact emitter. The fact is two distinct Wasm locals,
+The post-trap boolean-result batch now has one direct-target contract. A
+private, closed object-representation order is shared by `[[HasProperty]]` and
+a value-free own-descriptor fact emitter. The fact is two distinct Wasm locals,
 `present` and `descriptor`: zero is a legal descriptor word for a present data
 property whose three attributes are false, so it may never double as the
 absence sentinel. Its fields are private and consumers can ask only the named
@@ -67,11 +67,14 @@ match. In particular, Array `length` is an unconditional present,
 non-configurable descriptor; arguments `length` carries an explicit own-property
 bit while it is live, including the all-false data-descriptor state; and an
 invalid canonical integer-index is handled as absent rather than falling
-through to ordinary storage. Both the public descriptor builtin's Proxy target
-checks and the `has` false-result check consume this fact. Only after a present,
-configurable descriptor does `has` call the shared typed `[[IsExtensible]]`
-emitter, preserving the ECMA-262 order and the distinct Array/arguments
-extensibility slots. The former Array-only target mirror is deleted.
+through to ordinary storage. The public descriptor builtin's Proxy target
+checks, the `has` false-result check and the `deleteProperty` true-result check
+all consume this fact. The two boolean-trap invariants accept an absent
+descriptor, reject a present non-configurable descriptor, and only then call
+the shared typed `[[IsExtensible]]` emitter for a present configurable
+descriptor. This preserves ECMA-262 order and the distinct Array/arguments
+extensibility slots. The former Array-only `has` mirror and the raw
+Array/ordinary delete scans are deleted.
 
 The exact Wasm-AOT regression is written for Array `length`, both ordinary and
 non-configurable Array indices, a configurable named property on a
@@ -80,6 +83,18 @@ boxed-String indices, a fixed typed-array index, ordinary arguments indices,
 arguments `length` (including delete-and-recreate), both public descriptor-trap
 result forms and the absent/non-extensible ordering case. It has not run while
 the release matrix owns runtime verification.
+
+The existing Proxy `deleteProperty` fixture now applies the same post-trap
+contract directly to Array named and symbol properties, a configurable property
+on a non-extensible Array, boxed-String virtual properties, Function
+`prototype`, arguments all-false and non-configurable descriptors, and an
+absent property on a non-extensible target. Trap-false and descriptor-absent
+paths remain early exits, while only a present configurable property consults
+the shared extensibility operation. This is a post-trap migration only: the
+delete trap lookup/fallback path still has its older bounded handler dispatch,
+and the direct descriptor fact does not recursively validate a nested Proxy
+target. The expanded fixture has not run while the release matrix owns runtime
+verification.
 
 The retained Proxy slots now also have one typed read authority. The reader
 accepts the same `ProxySlotLocals` record as the writer, maps each heap word into

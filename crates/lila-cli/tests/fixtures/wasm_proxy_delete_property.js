@@ -116,4 +116,100 @@ var revoked = Proxy.revocable({}, {});
 revoked.revoke();
 if (!throwsTypeError(function() { delete revoked.proxy.foo; })) failures |= 2097152;
 
+var arrayNamed = [];
+Object.defineProperty(arrayNamed, "named", {
+  value: 1,
+  configurable: false,
+});
+var arrayNamedProxy = new Proxy(arrayNamed, {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (!throwsTypeError(function() {
+  Reflect.deleteProperty(arrayNamedProxy, "named");
+})) failures |= 4194304;
+
+var arraySymbol = Symbol("array delete invariant");
+var arrayWithSymbol = [];
+Object.defineProperty(arrayWithSymbol, arraySymbol, {
+  value: 1,
+  configurable: false,
+});
+var arraySymbolProxy = new Proxy(arrayWithSymbol, {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (!throwsTypeError(function() {
+  Reflect.deleteProperty(arraySymbolProxy, arraySymbol);
+})) failures |= 8388608;
+
+var nonExtensibleArray = [];
+nonExtensibleArray.configurable = 1;
+Object.preventExtensions(nonExtensibleArray);
+var nonExtensibleArrayProxy = new Proxy(nonExtensibleArray, {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (!throwsTypeError(function() {
+  Reflect.deleteProperty(nonExtensibleArrayProxy, "configurable");
+})) failures |= 16777216;
+
+var boxedStringProxy = new Proxy(new String("xy"), {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (!throwsTypeError(function() {
+  Reflect.deleteProperty(boxedStringProxy, "0");
+})) failures |= 33554432;
+
+function PrototypeTarget() {}
+var prototypeProxy = new Proxy(PrototypeTarget, {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (!throwsTypeError(function() {
+  Reflect.deleteProperty(prototypeProxy, "prototype");
+})) failures |= 67108864;
+
+var allFalseArguments = (function() { return arguments; })(1);
+Object.defineProperty(allFalseArguments, "length", {
+  value: 1,
+  writable: false,
+  enumerable: false,
+  configurable: false,
+});
+var allFalseArgumentsProxy = new Proxy(allFalseArguments, {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (!throwsTypeError(function() {
+  Reflect.deleteProperty(allFalseArgumentsProxy, "length");
+})) failures |= 134217728;
+
+var fixedArguments = (function() { return arguments; })(1);
+Object.defineProperty(fixedArguments, "0", { configurable: false });
+var fixedArgumentsProxy = new Proxy(fixedArguments, {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (!throwsTypeError(function() {
+  Reflect.deleteProperty(fixedArgumentsProxy, "0");
+})) failures |= 268435456;
+
+var absentTarget = [];
+Object.preventExtensions(absentTarget);
+var absentProxy = new Proxy(absentTarget, {
+  deleteProperty: function() {
+    return true;
+  },
+});
+if (Reflect.deleteProperty(absentProxy, "missing") !== true) failures |= 536870912;
+
 failures === 0;
