@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::operations::PrimitiveToStringAbruptRoute;
+use crate::operations::{PrimitiveToStringAbruptRoute, ToLengthAbruptRoute};
 use crate::runtime_helpers::{
     RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,
 };
@@ -16295,15 +16295,11 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_to_length_i64_from_value_locals_without_throw_return(
+        self.emit_to_length_i64_from_value_locals_with_abrupt_route(
             last_index_tag_local,
             last_index_payload_local,
             last_index_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
+            ToLengthAbruptRoute::ActiveHandler,
             function,
         )?;
 
@@ -17653,15 +17649,11 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_to_length_i64_from_value_locals_without_throw_return(
+        self.emit_to_length_i64_from_value_locals_with_abrupt_route(
             last_index_tag_local,
             last_index_payload_local,
             last_index_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
+            ToLengthAbruptRoute::ActiveHandler,
             function,
         )?;
 

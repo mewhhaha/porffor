@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::operations::ToLengthAbruptRoute;
 
 const ARRAY_FROM_ASYNC_STATE_SIZE: u64 = 184;
 const ARRAY_FROM_ASYNC_CAPABILITY_OFFSET: u64 = 0;
@@ -346,16 +347,15 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
-        self.emit_to_length_i64_from_value_locals_without_throw_return(
+        self.emit_to_length_i64_from_value_locals_with_abrupt_route(
             length_tag_local,
             length_payload_local,
             length_local,
-            function,
-        )?;
-        self.emit_array_from_async_reject_current_throw_and_return_promise(
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
+            ToLengthAbruptRoute::RejectArrayFromAsyncAndReturnPromise {
+                capability_record_local,
+                promise_payload_local,
+                promise_tag_local,
+            },
             function,
         )?;
 
@@ -2256,7 +2256,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_array_from_async_reject_current_throw_and_return_promise(
+    pub(crate) fn emit_array_from_async_reject_current_throw_and_return_promise(
         &mut self,
         capability_record_local: u32,
         promise_payload_local: u32,

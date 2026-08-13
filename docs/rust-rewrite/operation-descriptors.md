@@ -53,7 +53,7 @@ returning to their caller.
 
 ## Migrated abrupt routes
 
-Four bounded slices now use typed routing:
+Five bounded slices now use typed routing:
 
 1. `GetMethod` invokes `GetV` through a wrapper that routes the tagged thrown
    value to the active in-function handler.
@@ -95,6 +95,21 @@ Four bounded slices now use typed routing:
    With a required route, all three cases use the active handler and a new call
    site cannot silently inherit function-return behavior.
 
+5. The three exceptional `ToLength` consumers require a closed
+   `ToLengthAbruptRoute`. The two RegExp execution paths route a conversion
+   throw to the active in-function handler. Array.fromAsync's array-like path
+   carries the promise capability and result locals needed to reject and return
+   its already-created promise. The match is exhaustive, the former
+   `_without_throw_return` twin is deleted, and all three routes run immediately
+   after ToNumber and before the infallible numeric normalization. Consequently
+   an exceptional caller cannot receive a length and merely hope a following
+   statement notices the pending throw.
+
+   This is intentionally not a route migration of the ordinary `ToLength`
+   wrapper. Its 56 callers retain their existing current-function policy. That
+   larger surface also crosses the still-open full-ToNumber helper boundary and
+   would not become safer merely by spelling the same implicit policy 56 times.
+
 The complete primitive-to-string route inventory is deliberately small and
 explicit: shared ToString, ToPropertyKey, `String(value)`, array-element
 stringification and the String matching fallback use the active handler;
@@ -118,10 +133,11 @@ work and continue to use their existing local routing sequences.
 - Property internal-method dispatch and proxy correctness still depend on T10
   and T11.
 - Feature-local primitive-to-number and full value-to-string conversions remain
-  open migration work. The object/function ToPrimitive and primitive-ToString
-  seams themselves are closed: raw completion ownership cannot cross either
-  boundary, and every internal composite must consume its pending token or
-  choose an abrupt route.
+  open migration work. Full ToNumber and the ordinary 56-caller ToLength wrapper
+  also remain open. The object/function ToPrimitive, primitive-ToString and
+  three-consumer exceptional-ToLength seams themselves are closed: raw
+  completion ownership cannot cross those boundaries, and every internal
+  composite must consume its pending token or choose an abrupt route.
 
 The cheapest meaningful integration checkpoint is:
 
@@ -133,5 +149,7 @@ That should be followed by the focused `operations_` tests already required by
 T04 plus
 `wasm_backend_temporal_month_code_preserves_toprimitive_throw_identity` and the
 existing Object.fromEntries/Object.groupBy iterator-close regressions, plus
-`run_wasm_backend_routes_primitive_to_string_throws_to_the_active_handler`.
-This wave was dry-written and intentionally does not claim any command has run.
+`run_wasm_backend_routes_primitive_to_string_throws_to_the_active_handler` and
+`run_wasm_backend_routes_exceptional_to_length_throws_to_their_owners`.
+No Cargo or Test262 command is claimed for this wave; the source-only gates do
+not substitute for those deferred checks.

@@ -45,6 +45,19 @@ reaches an enclosing catch just like a value thrown by the hook, instead of
 unconditionally returning the whole function. Object.fromEntries and
 Object.groupBy retain their iterator-close-before-return discipline.
 
+The exceptional `ToLength` seam now has a similarly closed, deliberately
+bounded owner set. The two RegExp execution paths must propagate a conversion
+throw to the active in-function handler, while Array.fromAsync's array-like path
+must reject and return its already-created promise. Those three consumers call
+one routed emitter with an exhaustive `ToLengthAbruptRoute`; the former
+`_without_throw_return` twin and the three caller-side completion checks are
+gone. A throw is routed immediately after `ToNumber`, before the infallible
+numeric normalization step, so a new exceptional caller cannot accidentally
+continue matching, mutate state, or escape a promise-returning algorithm without
+naming its completion owner. The ordinary `ToLength` wrapper and its 56 callers
+retain their existing current-function policy and remain outside this bounded
+migration.
+
 This migration also fixes the Temporal month-code coercion path: a user value
 thrown by `toString` now escapes unchanged instead of being overwritten by the
 later non-String TypeError check. Existing coercion and iterator-close order is

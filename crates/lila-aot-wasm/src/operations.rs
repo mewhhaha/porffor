@@ -17,6 +17,7 @@ struct MayThrowOperation(SpecOperationIr);
 
 impl MayThrowOperation {
     const GET_V: Self = Self::new(SpecOperationIr::GetV);
+    const TO_LENGTH: Self = Self::new(SpecOperationIr::ToLength);
     const TO_NUMBER: Self = Self::new(SpecOperationIr::ToNumber);
     const TO_PRIMITIVE: Self = Self::new(SpecOperationIr::ToPrimitive(ToPrimitiveHint::Default));
 
@@ -77,6 +78,27 @@ pub(crate) enum PrimitiveToStringAbruptRoute {
     ReturnCurrentFunction,
     /// Close the named iterator while preserving the TypeError, then return.
     IteratorCloseAndReturn(IteratorCloseOnThrowLocals),
+}
+
+/// Where a throw from one of the exceptional `ToLength` consumers must go.
+///
+/// The ordinary `ToLength` wrapper retains its existing policy. This route is
+/// required only at the three sites that previously called the raw
+/// `_without_throw_return` twin and then manually inspected the completion.
+/// Adding another exceptional policy must update the exhaustive match in
+/// `finish_to_length_operation`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ToLengthAbruptRoute {
+    /// Route the thrown value to the active in-function handler, or return it
+    /// when there is no handler.
+    ActiveHandler,
+    /// Reject Array.fromAsync's already-created capability with the thrown
+    /// value and return its promise as a normal completion.
+    RejectArrayFromAsyncAndReturnPromise {
+        capability_record_local: u32,
+        promise_payload_local: u32,
+        promise_tag_local: u32,
+    },
 }
 
 /// The realm that owns TypeErrors created inside a conversion composite.
@@ -603,6 +625,31 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 Ok(())
             }
+        }
+    }
+
+    fn finish_to_length_operation(
+        &mut self,
+        _operation: MayThrowOperation,
+        route: ToLengthAbruptRoute,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match route {
+            ToLengthAbruptRoute::ActiveHandler => self.emit_propagate_throw_from_locals_if_needed(
+                self.result_local,
+                self.result_tag_local,
+                function,
+            ),
+            ToLengthAbruptRoute::RejectArrayFromAsyncAndReturnPromise {
+                capability_record_local,
+                promise_payload_local,
+                promise_tag_local,
+            } => self.emit_array_from_async_reject_current_throw_and_return_promise(
+                capability_record_local,
+                promise_payload_local,
+                promise_tag_local,
+                function,
+            ),
         }
     }
 
@@ -4937,6 +4984,87 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::LocalSet(output_local));
         Ok(())
+    }
+
+    /// Apply `ToLength` with the ordinary callers' existing completion policy.
+    ///
+    /// The exceptional RegExp and Array.fromAsync consumers use the routed
+    /// wrapper below. Keeping this wrapper separate avoids pretending that the
+    /// still-open 56-caller ordinary/full-ToNumber surface has been migrated.
+    pub(crate) fn emit_to_length_i64_from_value_locals(
+        &mut self,
+        tag_local: u32,
+        payload_local: u32,
+        dest_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_value_to_number_payload(tag_local, payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        self.emit_return_current_completion_if_throw(function);
+
+        self.emit_to_length_i64_from_number_payload_local(payload_local, dest_local, function);
+        Ok(())
+    }
+
+    /// Apply `ToLength` for a consumer whose abrupt continuation is not the
+    /// ordinary wrapper's policy.
+    ///
+    /// The raw ToNumber result must be removed from the Wasm stack first. Its
+    /// placeholder NaN is stored in `payload_local`, then the required route
+    /// consumes any throw before the infallible numeric normalization runs.
+    pub(crate) fn emit_to_length_i64_from_value_locals_with_abrupt_route(
+        &mut self,
+        tag_local: u32,
+        payload_local: u32,
+        dest_local: u32,
+        abrupt_route: ToLengthAbruptRoute,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_value_to_number_payload_without_throw_return(tag_local, payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        self.finish_to_length_operation(MayThrowOperation::TO_LENGTH, abrupt_route, function)?;
+
+        self.emit_to_length_i64_from_number_payload_local(payload_local, dest_local, function);
+        Ok(())
+    }
+
+    fn emit_to_length_i64_from_number_payload_local(
+        &mut self,
+        payload_local: u32,
+        dest_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Le);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(dest_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(
+            MAX_SAFE_INTEGER as f64,
+        )));
+        function.instruction(&Instruction::F64Gt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(MAX_SAFE_INTEGER as i64));
+        function.instruction(&Instruction::LocalSet(dest_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::I64TruncF64U);
+        function.instruction(&Instruction::LocalSet(dest_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_to_index_i64_from_value_locals(

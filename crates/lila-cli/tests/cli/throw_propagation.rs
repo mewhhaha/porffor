@@ -46,6 +46,85 @@ fn run_wasm_backend_routes_primitive_to_string_throws_to_the_active_handler() {
     );
 }
 
+/// Exceptional ToLength consumers have two observable abrupt owners. RegExp
+/// execution must reach the active catch before matching or writing lastIndex;
+/// Array.fromAsync must return its promise synchronously and reject it before
+/// reading an array-like element. Returning a Symbol from valueOf exercises the
+/// primitive ToNumber throw rather than the already-covered user-hook throw.
+#[test]
+fn run_wasm_backend_routes_exceptional_to_length_throws_to_their_owners() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_to_length_abrupt_routes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("backend_used: WasmAot"),
+        "the fixture must actually run on the Wasm-AOT backend: {stdout}"
+    );
+    assert!(
+        stdout.contains("string(ok)"),
+        "both RegExp ToLength throws must reach their enclosing catches: {stdout}"
+    );
+    assert!(
+        stdout.contains("to-length-routes:ok"),
+        "Array.fromAsync must reject its returned promise before reading index 0: {stdout}"
+    );
+    assert!(
+        !stdout.contains("unexpected-fulfillment"),
+        "Array.fromAsync must not fulfill after ToLength throws: {stdout}"
+    );
+}
+
+/// Keep both RegExp implementations on the same closed abrupt route. The
+/// runtime fixture above reaches the simple fallback through an AOT program
+/// table miss; this source gate also prevents either emitter from silently
+/// returning the raw ToLength completion if their dispatch changes later.
+#[test]
+fn regexp_exec_exceptional_to_length_routes_cover_both_emitters() {
+    let source = include_str!("../../../lila-aot-wasm/src/builtins/string.rs");
+    let program = source
+        .split_once("    fn emit_regexp_exec_program_from_locals(")
+        .expect("compiled-program RegExp emitter should exist")
+        .1
+        .split_once("    fn emit_regexp_exec_simple_from_locals(")
+        .expect("compiled-program RegExp emitter should have a bounded body")
+        .0;
+    let simple = source
+        .split_once("    fn emit_regexp_exec_simple_from_locals(")
+        .expect("simple-fallback RegExp emitter should exist")
+        .1
+        .split_once("    pub(crate) fn emit_array_to_string_locals(")
+        .expect("simple-fallback RegExp emitter should have a bounded body")
+        .0;
+
+    for (name, emitter) in [("compiled-program", program), ("simple-fallback", simple)] {
+        assert_eq!(
+            emitter
+                .matches("emit_to_length_i64_from_value_locals_with_abrupt_route(")
+                .count(),
+            1,
+            "the {name} RegExp emitter must use the exceptional ToLength route exactly once"
+        );
+        assert_eq!(
+            emitter
+                .matches("ToLengthAbruptRoute::ActiveHandler")
+                .count(),
+            1,
+            "the {name} RegExp emitter must route abrupt ToLength through its active handler"
+        );
+    }
+}
+
 /// The loop case: the throw must reach the `catch`, not the loop's back edge.
 ///
 /// The `iteration` count is the assertion that matters. Before the label-depth
