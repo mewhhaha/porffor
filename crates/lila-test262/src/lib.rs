@@ -693,6 +693,36 @@ impl MatrixNodeKind {
             MatrixNodeKind::ChunkLeaf => "chunk-leaf",
         }
     }
+
+    fn from_snapshot_str(value: &str) -> Result<Self, String> {
+        match value {
+            "filter-leaf" => Ok(Self::FilterLeaf),
+            "chunk-leaf" => Ok(Self::ChunkLeaf),
+            _ => Err(format!(
+                "unknown snapshot matrix node kind `{value}` (expected `filter-leaf` or `chunk-leaf`)"
+            )),
+        }
+    }
+}
+
+fn serialize_snapshot_matrix_node_kind<S>(
+    node_kind: &MatrixNodeKind,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(node_kind.as_str())
+}
+
+fn deserialize_snapshot_matrix_node_kind<'de, D>(
+    deserializer: D,
+) -> Result<MatrixNodeKind, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    MatrixNodeKind::from_snapshot_str(&value).map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1210,7 +1240,11 @@ struct SnapshotFailureRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnapshotAggregateEntry {
     node_id: String,
-    node_kind: String,
+    #[serde(
+        serialize_with = "serialize_snapshot_matrix_node_kind",
+        deserialize_with = "deserialize_snapshot_matrix_node_kind"
+    )]
+    node_kind: MatrixNodeKind,
     filter: String,
     matrix_path: Vec<String>,
     total: usize,
@@ -21714,7 +21748,7 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
             .iter()
             .map(|entry| SnapshotAggregateEntry {
                 node_id: entry.node_id.clone(),
-                node_kind: entry.node_kind.as_str().to_string(),
+                node_kind: entry.node_kind,
                 filter: entry.filter.clone(),
                 matrix_path: entry.matrix_path.clone(),
                 total: entry.total,
@@ -21774,10 +21808,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
             )?;
             Ok(TopLevelRunSummary {
                 node_id: entry.node_id,
-                node_kind: match entry.node_kind.as_str() {
-                    "chunk-leaf" => MatrixNodeKind::ChunkLeaf,
-                    _ => MatrixNodeKind::FilterLeaf,
-                },
+                node_kind: entry.node_kind,
                 filter: entry.filter,
                 matrix_path: entry.matrix_path,
                 total: entry.total,
@@ -35834,6 +35865,67 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn snapshot_matrix_node_kind_codec_is_closed_and_byte_stable() {
+        let snapshot_entry = |node_kind| SnapshotAggregateEntry {
+            node_id: "language".to_string(),
+            node_kind,
+            filter: "language".to_string(),
+            matrix_path: vec!["language".to_string()],
+            total: 0,
+            passed: 0,
+            failed: 0,
+            counts_per_kind: BTreeMap::new(),
+            counts_per_outcome: Some(BTreeMap::new()),
+            counts_per_origin: BTreeMap::new(),
+            manifest_hash: 1,
+        };
+
+        for node_kind in [MatrixNodeKind::FilterLeaf, MatrixNodeKind::ChunkLeaf] {
+            let value = serde_json::to_value(snapshot_entry(node_kind))
+                .expect("snapshot aggregate entry should serialize");
+            assert_eq!(
+                value["node_kind"],
+                serde_json::json!(node_kind.as_str()),
+                "snapshot wire spelling must remain kebab-case"
+            );
+            let decoded = serde_json::from_value::<SnapshotAggregateEntry>(value)
+                .expect("canonical snapshot node kind should deserialize");
+            assert_eq!(decoded.node_kind, node_kind);
+
+            let matrix_value = serde_json::to_value(RunMatrixNode {
+                node_id: "language".to_string(),
+                node_kind,
+                filter: "language".to_string(),
+                matrix_path: vec!["language".to_string()],
+                total_cases: 0,
+                case_paths: Vec::new(),
+            })
+            .expect("run matrix node should serialize");
+            let expected_cache_spelling = match node_kind {
+                MatrixNodeKind::FilterLeaf => "FilterLeaf",
+                MatrixNodeKind::ChunkLeaf => "ChunkLeaf",
+            };
+            assert_eq!(
+                matrix_value["node_kind"],
+                serde_json::json!(expected_cache_spelling),
+                "run-matrix cache spelling must remain PascalCase"
+            );
+        }
+
+        for invalid in ["FilterLeaf", "ChunkLeaf", "filter_leaf", "future-node-kind"] {
+            let mut value = serde_json::to_value(snapshot_entry(MatrixNodeKind::FilterLeaf))
+                .expect("snapshot aggregate entry should serialize");
+            value["node_kind"] = serde_json::json!(invalid);
+            let error = serde_json::from_value::<SnapshotAggregateEntry>(value)
+                .expect_err("noncanonical snapshot node kind must be rejected");
+            assert!(
+                error.to_string().contains(invalid),
+                "expected {invalid:?} in {error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn matrix_node_selector_accepts_exact_id_and_unique_filter() {
         let nodes = vec![
             RunMatrixNode {
@@ -36375,7 +36467,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn verified_aggregate_rejects_unknown_taxonomy_values_and_zero_count_keys() {
+    fn verified_aggregate_rejects_unknown_closed_wire_values_and_zero_count_keys() {
         let config = tiny_failing_suite_config("verified-taxonomy-evidence");
         let run_config = RunConfig {
             snapshot_name: "verified-taxonomy-evidence".to_string(),
@@ -36401,7 +36493,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 &run_config.snapshot_name,
                 ExecutionBackend::SpecExec,
             )
-            .expect_err("an unknown taxonomy spelling must reject the evidence");
+            .expect_err("an unknown closed artifact spelling must reject the evidence");
             assert!(err.contains(label), "expected {label:?} in {err:?}");
         };
 
@@ -36437,6 +36529,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .insert("future-origin".to_string(), serde_json::json!(0));
         write_snapshot_value_for_test(&aggregate_path, &tampered);
         assert_rejected("future-origin");
+
+        let mut tampered = original_aggregate.clone();
+        tampered["aggregate_entries"][0]["node_kind"] = serde_json::json!("future-node-kind");
+        write_snapshot_value_for_test(&aggregate_path, &tampered);
+        assert_rejected("future-node-kind");
 
         write_snapshot_value_for_test(&aggregate_path, &original_aggregate);
         load_verified_aggregate_summary(
@@ -38839,6 +38936,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             Some(u64::from(SNAPSHOT_VERSION))
         );
         assert_eq!(value["producer"], ArtifactProducer::CURRENT.as_str());
+        assert_eq!(value["aggregate_entries"][0]["node_kind"], "filter-leaf");
 
         // These are the lexical orders emitted by the former
         // `BTreeMap<String, _>` representation. Typed maps must retain them so

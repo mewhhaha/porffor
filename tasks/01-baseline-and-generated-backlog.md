@@ -37,6 +37,13 @@ outcomes: missing failure outcomes and outcome counts are derived from its
 recorded evidence. Versions 5 and 6 require a recognized outcome on every
 failure and an outcome-count map on every snapshot and aggregate entry.
 
+Aggregate-entry matrix-node kinds cross the snapshot boundary through the same
+closed `MatrixNodeKind` domain used by verification. The snapshot codec accepts
+only the established `filter-leaf` and `chunk-leaf` spellings; an unknown label
+is rejected before it can be compared with the current matrix. This leaves the
+version-6 snapshot bytes unchanged and deliberately does not change the run
+matrix cache's existing `FilterLeaf` and `ChunkLeaf` serde spellings.
+
 One provenance field remains deliberately outside the current snapshot schema:
 snapshots record the Lila producer/schema, backend, pins, matrix strategy and
 manifest hashes, but not the compiler source commit or executable digest. Until
