@@ -27,6 +27,34 @@ enum ToLocaleStringReceiverKind {
     TypedArray,
 }
 
+impl ToLocaleStringReceiverKind {
+    const fn method_name(self) -> &'static str {
+        match self {
+            Self::ArrayLike => "Array.prototype.toLocaleString",
+            Self::TypedArray => "TypedArray.prototype.toLocaleString",
+        }
+    }
+
+    const fn element_method_not_callable_message(self) -> &'static str {
+        match self {
+            Self::ArrayLike => "Array.prototype.toLocaleString element method is not callable",
+            Self::TypedArray => {
+                "TypedArray.prototype.toLocaleString element method is not callable"
+            }
+        }
+    }
+}
+
+/// Element method and receiver locals that have passed ECMAScript `IsCallable`.
+///
+/// This token is deliberately private and non-`Copy`. Its sole consumer takes
+/// ownership before emitting Proxy-aware `Call` with the paired receiver.
+#[must_use = "a validated toLocaleString invocation must be consumed by Call"]
+struct ValidatedToLocaleStringInvocationLocals {
+    method: TaggedLocals,
+    receiver: TaggedLocals,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArrayCallbackReceiverKind {
     ArrayLike,
@@ -24508,15 +24536,54 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_to_locale_string_builtin(ToLocaleStringReceiverKind::TypedArray, function)
     }
 
+    fn emit_validate_to_locale_string_invocation(
+        &mut self,
+        receiver_kind: ToLocaleStringReceiverKind,
+        method: TaggedLocals,
+        receiver: TaggedLocals,
+        function: &mut Function,
+    ) -> Result<ValidatedToLocaleStringInvocationLocals, EmitError> {
+        self.emit_is_callable_i32(method.tag, method.payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            receiver_kind.element_method_not_callable_message(),
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        Ok(ValidatedToLocaleStringInvocationLocals { method, receiver })
+    }
+
+    fn emit_call_validated_to_locale_string_invocation(
+        &mut self,
+        invocation: ValidatedToLocaleStringInvocationLocals,
+        result: TaggedLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ValidatedToLocaleStringInvocationLocals { method, receiver } = invocation;
+
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            method.payload,
+            method.tag,
+            receiver.payload,
+            receiver.tag,
+            &[],
+            result.payload,
+            result.tag,
+            function,
+        )
+    }
+
     fn compile_to_locale_string_builtin(
         &mut self,
         receiver_kind: ToLocaleStringReceiverKind,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let method_name = match receiver_kind {
-            ToLocaleStringReceiverKind::ArrayLike => "Array.prototype.toLocaleString",
-            ToLocaleStringReceiverKind::TypedArray => "TypedArray.prototype.toLocaleString",
-        };
+        let method_name = receiver_kind.method_name();
         let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
             EmitError::unsupported(format!(
                 "unsupported in lila wasm-aot first slice: missing {method_name} receiver"
@@ -24838,33 +24905,15 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
-        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match receiver_kind {
-                ToLocaleStringReceiverKind::ArrayLike => {
-                    "Array.prototype.toLocaleString element method is not callable"
-                }
-                ToLocaleStringReceiverKind::TypedArray => {
-                    "TypedArray.prototype.toLocaleString element method is not callable"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        let invocation = self.emit_validate_to_locale_string_invocation(
+            receiver_kind,
+            TaggedLocals::new(method_payload_local, method_tag_local),
+            TaggedLocals::new(original_element_payload_local, original_element_tag_local),
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            original_element_payload_local,
-            original_element_tag_local,
-            &[],
-            element_payload_local,
-            element_tag_local,
+        self.emit_call_validated_to_locale_string_invocation(
+            invocation,
+            TaggedLocals::new(element_payload_local, element_tag_local),
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);

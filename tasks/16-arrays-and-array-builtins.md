@@ -39,6 +39,16 @@ before callability validation for both entry families. The exact boundary and
 its nonclaims are recorded in
 `docs/rust-rewrite/contracts/array-find-via-predicate.md`.
 
+The distinct Array and TypedArray `toLocaleString` entry points now share one
+element-invocation boundary. A private, non-`Copy` validation token pairs the
+general-`IsCallable`-validated method with the exact original element receiver,
+and its sole ownership-consuming call path is Proxy-aware and passes no
+arguments. A non-callable element method now throws in the active built-in's
+current-function realm, including when a created realm's Array or TypedArray
+method is borrowed. The exact boundary, static evidence and baseline
+nonclaims are recorded in
+`docs/rust-rewrite/contracts/array-to-locale-string-invocation.md`.
+
 The shared `at` emitter also receives a closed receiver policy rather than a
 raw validation boolean. Generic `Array.prototype.at` and the validated
 `%TypedArray%.prototype.at` path are the only inhabitants, so adding another
@@ -66,6 +76,13 @@ and BigInt breadth that these invariant migrations do not settle, so none can
 be honestly deleted on their strength alone. The `@@isConcatSpreadable` seam
 also does not claim complete descriptor attributes, deletion/redefinition,
 inherited setters, Proxy traps or Array-record compaction.
+
+The in-flight current-pin Array prototype baseline still has two primitive
+`toLocaleString` failures. They are not closed by the Array-owned invocation
+token: the inherited `Object.prototype.toLocaleString` path currently uses a
+temporary primitive box as the getter and call receiver. That shared Object
+`Invoke` defect remains T10 work, so this seam carries no baseline-delta or
+full-subtree-green claim.
 
 ## Objective
 

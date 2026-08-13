@@ -1289,6 +1289,26 @@ fn run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_array_to_locale_string_invocation_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_array_to_locale_string_invocation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_matches_array_to_string_conversion_matrix() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
