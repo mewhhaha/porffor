@@ -76,6 +76,22 @@ gates are recorded in
 This closes only the ordinary collection receiver seam, not the weak-
 reachability blocker or T21's full-tree and cross-realm acceptance criteria.
 
+Collection-created algorithm TypeErrors now have one closed realm-aware
+authority. Separate Map/WeakMap and Set/WeakSet constructor-stage domains make
+their distinct legal failures exhaustive (including the Map-only iterator
+entry check), while the existing strong-collection domain selects the two
+`forEach` callback checks. All fifteen source sites create errors from the
+active builtin function's Realm through one typed emitter; no bounded source
+site calls the entry-realm runtime-error helper directly. Created-realm Map and
+Set constructors are self-backed and carry their Realm's TypeError prototype,
+so they cannot lose that identity through missing function metadata. WeakMap
+and WeakSet remain structurally covered but lack created-realm intrinsics, so
+their cross-realm runtime evidence is explicitly deferred. The exact realm,
+ordering, source inventory and focused cross-realm evidence are recorded in
+[`collection-algorithm-error-realms.md`](../docs/rust-rewrite/contracts/collection-algorithm-error-realms.md).
+This closes only those algorithm-created TypeErrors, not successful
+cross-realm construction, iterator closing, weak reachability or T21.
+
 The sole product Wasmtime policy now records
 `WasmWeakReachabilityCapability::Unavailable` independently of its DRC
 collector choice. Every product engine therefore carries the missing

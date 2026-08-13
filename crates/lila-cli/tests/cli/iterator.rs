@@ -658,6 +658,26 @@ fn run_wasm_backend_succeeds_for_collection_data_receiver_realm_fixture() {
     assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
 
+#[test]
+fn run_wasm_backend_uses_builtin_realm_for_collection_algorithm_errors() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_collection_algorithm_error_realms.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
 /// `GetPrototypeFromConstructor` chooses `%Iterator.prototype%` from the
 /// new-target function's realm when its observable `prototype` value is a
 /// primitive. The fixture repeats the pinned six-value primitive matrix,

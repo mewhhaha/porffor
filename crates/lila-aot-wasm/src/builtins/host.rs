@@ -6660,6 +6660,18 @@ impl<'a> FunctionBuilder<'a> {
             map_constructor_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            map_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            map_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            map_constructor_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
         self.emit_set_function_prototype_data(
             map_constructor_local,
             map_prototype_local,
@@ -6696,6 +6708,18 @@ impl<'a> FunctionBuilder<'a> {
             set_constructor_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            set_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            set_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            set_constructor_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
         self.emit_set_function_prototype_data(
             set_constructor_local,
             set_prototype_local,

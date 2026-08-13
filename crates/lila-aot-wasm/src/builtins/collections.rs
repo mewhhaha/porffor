@@ -171,6 +171,13 @@ impl CollectionReceiverRequirement {
 }
 
 impl StrongCollectionCursor {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Map => "Map",
+            Self::Set => "Set",
+        }
+    }
+
     fn iterator_brand(self) -> u64 {
         match self {
             Self::Map => OBJECT_INTERNAL_BRAND_MAP_ITERATOR,
@@ -263,7 +270,94 @@ enum SetCollectionKind {
     WeakSet,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MapConstructorTypeError {
+    RequiresNew,
+    SetterNotCallable,
+    IteratorMethodNotCallable,
+    IteratorMethodResultNotObject,
+    IteratorNextNotCallable,
+    IteratorNextResultNotObject,
+    IteratorValueNotObject,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SetConstructorTypeError {
+    RequiresNew,
+    AdderNotCallable,
+    IteratorMethodNotCallable,
+    IteratorMethodResultNotObject,
+    IteratorNextNotCallable,
+    IteratorNextResultNotObject,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CollectionAlgorithmTypeError {
+    MapConstructor(MapCollectionKind, MapConstructorTypeError),
+    SetConstructor(SetCollectionKind, SetConstructorTypeError),
+    ForEachCallback(StrongCollectionCursor),
+}
+
+impl CollectionAlgorithmTypeError {
+    fn message(self) -> String {
+        match self {
+            Self::MapConstructor(collection, error) => {
+                format!(
+                    "{} constructor {}",
+                    collection.name(),
+                    error.message_suffix()
+                )
+            }
+            Self::SetConstructor(collection, error) => {
+                format!(
+                    "{} constructor {}",
+                    collection.name(),
+                    error.message_suffix()
+                )
+            }
+            Self::ForEachCallback(collection) => format!(
+                "{}.prototype.forEach callback must be callable",
+                collection.name()
+            ),
+        }
+    }
+}
+
+impl MapConstructorTypeError {
+    fn message_suffix(self) -> &'static str {
+        match self {
+            Self::RequiresNew => "requires new",
+            Self::SetterNotCallable => "set method is not callable",
+            Self::IteratorMethodNotCallable => "iterator method is not callable",
+            Self::IteratorMethodResultNotObject => "iterator method must return an object",
+            Self::IteratorNextNotCallable => "iterator next method is not callable",
+            Self::IteratorNextResultNotObject => "iterator next result must be an object",
+            Self::IteratorValueNotObject => "iterator value must be an object",
+        }
+    }
+}
+
+impl SetConstructorTypeError {
+    fn message_suffix(self) -> &'static str {
+        match self {
+            Self::RequiresNew => "requires new",
+            Self::AdderNotCallable => "add method is not callable",
+            Self::IteratorMethodNotCallable => "iterator method is not callable",
+            Self::IteratorMethodResultNotObject => "iterator method must return an object",
+            Self::IteratorNextNotCallable => "iterator next method is not callable",
+            Self::IteratorNextResultNotObject => "iterator next result must be an object",
+        }
+    }
+}
+
 impl SetCollectionKind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Set => "Set",
+            Self::WeakSet => "WeakSet",
+        }
+    }
+
     fn receiver_kind(self) -> CollectionDataReceiverKind {
         match self {
             Self::Set => CollectionDataReceiverKind::Set,
@@ -354,6 +448,13 @@ impl SetCollectionKind {
 }
 
 impl MapCollectionKind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Map => "Map",
+            Self::WeakMap => "WeakMap",
+        }
+    }
+
     fn receiver_kind(self) -> CollectionDataReceiverKind {
         match self {
             Self::Map => CollectionDataReceiverKind::Map,
@@ -817,6 +918,20 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_collection_algorithm_type_error(
+        &mut self,
+        error: CollectionAlgorithmTypeError,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let message = error.message();
+        self.emit_throw_current_function_realm_type_error(
+            &message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )
+    }
+
     pub(crate) fn emit_map_constructor(
         &mut self,
         function: &mut Function,
@@ -883,14 +998,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                MapCollectionKind::Map => "Map constructor requires new",
-                MapCollectionKind::WeakMap => "WeakMap constructor requires new",
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::MapConstructor(
+                collection_kind,
+                MapConstructorTypeError::RequiresNew,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -987,14 +1099,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(setter_tag_local, setter_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                MapCollectionKind::Map => "Map constructor set method is not callable",
-                MapCollectionKind::WeakMap => "WeakMap constructor set method is not callable",
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::MapConstructor(
+                collection_kind,
+                MapConstructorTypeError::SetterNotCallable,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -1029,14 +1138,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                MapCollectionKind::Map => "Map constructor iterator method is not callable",
-                MapCollectionKind::WeakMap => "WeakMap constructor iterator method is not callable",
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::MapConstructor(
+                collection_kind,
+                MapConstructorTypeError::IteratorMethodNotCallable,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -1055,16 +1161,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                MapCollectionKind::Map => "Map constructor iterator method must return an object",
-                MapCollectionKind::WeakMap => {
-                    "WeakMap constructor iterator method must return an object"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::MapConstructor(
+                collection_kind,
+                MapConstructorTypeError::IteratorMethodResultNotObject,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -1086,16 +1187,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                MapCollectionKind::Map => "Map constructor iterator next method is not callable",
-                MapCollectionKind::WeakMap => {
-                    "WeakMap constructor iterator next method is not callable"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::MapConstructor(
+                collection_kind,
+                MapConstructorTypeError::IteratorNextNotCallable,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -1130,16 +1226,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                MapCollectionKind::Map => "Map constructor iterator next result must be an object",
-                MapCollectionKind::WeakMap => {
-                    "WeakMap constructor iterator next result must be an object"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::MapConstructor(
+                collection_kind,
+                MapConstructorTypeError::IteratorNextResultNotObject,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -1177,16 +1268,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(entry_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                MapCollectionKind::Map => "Map constructor iterator value must be an object",
-                MapCollectionKind::WeakMap => {
-                    "WeakMap constructor iterator value must be an object"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::MapConstructor(
+                collection_kind,
+                MapConstructorTypeError::IteratorValueNotObject,
+            ),
             function,
         )?;
         self.emit_iterator_close_preserving_current_throw(iterator_close, function)?;
@@ -3022,11 +3108,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(callback_tag_local, callback_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Map.prototype.forEach callback must be callable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::ForEachCallback(StrongCollectionCursor::Map),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -4480,14 +4563,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                SetCollectionKind::Set => "Set constructor requires new",
-                SetCollectionKind::WeakSet => "WeakSet constructor requires new",
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::SetConstructor(
+                collection_kind,
+                SetConstructorTypeError::RequiresNew,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -4594,14 +4674,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(adder_tag_local, adder_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                SetCollectionKind::Set => "Set constructor add method is not callable",
-                SetCollectionKind::WeakSet => "WeakSet constructor add method is not callable",
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::SetConstructor(
+                collection_kind,
+                SetConstructorTypeError::AdderNotCallable,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -4636,14 +4713,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                SetCollectionKind::Set => "Set constructor iterator method is not callable",
-                SetCollectionKind::WeakSet => "WeakSet constructor iterator method is not callable",
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::SetConstructor(
+                collection_kind,
+                SetConstructorTypeError::IteratorMethodNotCallable,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -4662,16 +4736,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                SetCollectionKind::Set => "Set constructor iterator method must return an object",
-                SetCollectionKind::WeakSet => {
-                    "WeakSet constructor iterator method must return an object"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::SetConstructor(
+                collection_kind,
+                SetConstructorTypeError::IteratorMethodResultNotObject,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -4693,16 +4762,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                SetCollectionKind::Set => "Set constructor iterator next method is not callable",
-                SetCollectionKind::WeakSet => {
-                    "WeakSet constructor iterator next method is not callable"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::SetConstructor(
+                collection_kind,
+                SetConstructorTypeError::IteratorNextNotCallable,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -4724,16 +4788,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            match collection_kind {
-                SetCollectionKind::Set => "Set constructor iterator next result must be an object",
-                SetCollectionKind::WeakSet => {
-                    "WeakSet constructor iterator next result must be an object"
-                }
-            },
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::SetConstructor(
+                collection_kind,
+                SetConstructorTypeError::IteratorNextResultNotObject,
+            ),
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -6293,11 +6352,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(callback_tag_local, callback_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Set.prototype.forEach callback must be callable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_collection_algorithm_type_error(
+            CollectionAlgorithmTypeError::ForEachCallback(StrongCollectionCursor::Set),
             function,
         )?;
         self.emit_return_current_completion(function);
