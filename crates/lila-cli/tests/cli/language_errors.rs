@@ -8,7 +8,7 @@
 //! refuted runner knobs, and why the split has to be by module file rather than
 //! by libtest filter.
 //!
-//! 31 tests, all heavy. Its chunk is `run_chunk language_errors
+//! 33 tests, all heavy. Its chunk is `run_chunk language_errors
 //! language_errors::` in `scripts/rung1c-chunks.sh`, and it needs BOTH that line
 //! and `mod language_errors;` in `main.rs`: a module with a chunk but no `mod`
 //! line is not compiled, its filter selects nothing, libtest exits 0 on
@@ -232,6 +232,28 @@ fn run_wasm_backend_uses_new_target_realm_for_error_prototype() {
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_error_constructor_realm_prototype.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_uses_new_target_realms_for_native_error_prototypes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_native_error_constructor_realm_prototypes.js",
+        ))
         .output()
         .expect("run command should run");
 

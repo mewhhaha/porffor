@@ -93,7 +93,29 @@ installation; the immutable active intrinsic's common Get transition is
 source-pinned. See
 `docs/rust-rewrite/contracts/error-constructor-realm-prototype.md`.  This is a
 static implementation checkpoint: focused runtime and current-pin verification
-are deferred, and the adjacent native-error-family fallbacks remain open.
+are deferred. At that checkpoint the adjacent native-error-family fallbacks
+remained open; the next bounded seam addresses the six §20.5.5 families.
+
+The six §20.5.5 NativeError constructors now retain their exact family through
+the same construction boundary. A macro-backed, seven-kind
+`ErrorMessageConstructorKind` is the single authority for `Error` plus
+EvalError, RangeError, ReferenceError, SyntaxError, TypeError and URIError; each
+row owns the builtin identity, active entry constructor, prototype global and
+realm slot. The shared message/options/cause algorithm is emitted into every
+typed body instead of erasing the family by wrapper-calling `Error`. The
+construct dispatcher derives all seven direct-return entries from the closed
+domain, so the typed body owns the sole observable `NewTarget.prototype` Get
+and allocation. Primitive results select the matching required intrinsic only
+after `GetFunctionRealm`; tagged Object, Function, Array and Arguments results
+remain intact. Entry and created realms publish all seven slots, and created
+constructors are self-backed for call-without-`new` active identity. The older
+2026-08-13 Wasm artifact reported exactly these six failures in an otherwise
+88/94 NativeErrors leaf; it selected the seam but is not current-SHA evidence.
+The durable fixture and structural gate are recorded in
+`docs/rust-rewrite/contracts/native-error-constructor-realm-prototypes.md`.
+This remains a static-only checkpoint: focused runtime, the complete
+NativeErrors leaf and current-pin verification are deferred, and
+AggregateError/SuppressedError construction is unchanged.
 
 Annex B `unescape` now materializes its result through one private UTF-16
 output coordinator. Previously, each `%uXXXX` was encoded independently, so a

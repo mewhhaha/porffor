@@ -620,7 +620,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 360;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 400;",
             "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
             "name: \"%Date.prototype%\"",
             "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
@@ -660,7 +660,7 @@ mod tests {
             .expect("required resolved-realm policy arm should exist")
             .1
             .split_once(
-                "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(intrinsic) => {",
+                "NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) => {",
             )
             .expect("required resolved-realm policy arm should be bounded")
             .0;
@@ -772,13 +772,87 @@ mod tests {
     }
 
     #[test]
-    fn error_constructor_realm_prototype_is_required_tagged_and_published() {
+    fn error_message_constructors_are_realm_typed_direct_and_tagged() {
         let heap = include_str!("heap.rs");
         let functions = include_str!("functions.rs");
         let errors = include_str!("builtins/errors.rs");
         let error_constructor = include_str!("builtins/errors/constructor.rs");
         let bootstrap = include_str!("builtins/bootstrap.rs");
         let host = include_str!("builtins/host.rs");
+
+        let kind_rows = functions
+            .split_once("error_message_constructor_kinds! {")
+            .expect("shared-message Error constructor rows should exist")
+            .1
+            .split_once("/// The fallback selected after")
+            .expect("shared-message Error constructor rows should be bounded")
+            .0;
+        for (kind, constructor, constructor_global, prototype_global, slot) in [
+            (
+                "Error",
+                "ErrorConstructor",
+                "ERROR_CONSTRUCTOR_GLOBAL_INDEX",
+                "ERROR_PROTOTYPE_GLOBAL_INDEX",
+                "ErrorPrototype",
+            ),
+            (
+                "EvalError",
+                "EvalErrorConstructor",
+                "EVAL_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
+                "EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX",
+                "EvalErrorPrototype",
+            ),
+            (
+                "RangeError",
+                "RangeErrorConstructor",
+                "RANGE_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
+                "RANGE_ERROR_PROTOTYPE_GLOBAL_INDEX",
+                "RangeErrorPrototype",
+            ),
+            (
+                "ReferenceError",
+                "ReferenceErrorConstructor",
+                "REFERENCE_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
+                "REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX",
+                "ReferenceErrorPrototype",
+            ),
+            (
+                "SyntaxError",
+                "SyntaxErrorConstructor",
+                "SYNTAX_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
+                "SYNTAX_ERROR_PROTOTYPE_GLOBAL_INDEX",
+                "SyntaxErrorPrototype",
+            ),
+            (
+                "TypeError",
+                "TypeErrorConstructor",
+                "TYPE_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
+                "TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX",
+                "TypeErrorPrototype",
+            ),
+            (
+                "URIError",
+                "URIErrorConstructor",
+                "URI_ERROR_CONSTRUCTOR_GLOBAL_INDEX",
+                "URI_ERROR_PROTOTYPE_GLOBAL_INDEX",
+                "URIErrorPrototype",
+            ),
+        ] {
+            let row_start = format!("    {kind} => {{");
+            let row = kind_rows
+                .split_once(row_start.as_str())
+                .unwrap_or_else(|| panic!("{kind} row should exist"))
+                .1
+                .split_once("    };")
+                .unwrap_or_else(|| panic!("{kind} row should be bounded"))
+                .0;
+            for value in [constructor, constructor_global, prototype_global, slot] {
+                assert!(row.contains(value), "{kind} row must own {value}");
+            }
+        }
+        assert!(functions.contains("pub(crate) const ALL: [Self; 7]"));
+        assert!(functions.contains("#[repr(usize)]"));
+        assert!(functions.contains("pub(crate) const fn index(self) -> usize"));
 
         let domain = functions
             .split_once("enum OrdinaryDefaultPrototype {")
@@ -794,23 +868,39 @@ mod tests {
             .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
             .expect("ordinary default-prototype offset map should be bounded")
             .0;
-        assert_eq!(domain.matches("    Error,").count(), 1);
+        assert_eq!(
+            domain
+                .matches("MessageError(ErrorMessageConstructorKind),")
+                .count(),
+            1
+        );
         assert_eq!(
             offsets
-                .matches("Self::Error => HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET")
+                .matches("Self::MessageError(kind) => kind.prototype_slot().offset()")
                 .count(),
             1
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 360;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 400;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;",
             "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET: u64 = 360;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RANGE_ERROR_PROTOTYPE_OFFSET: u64 = 368;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_REFERENCE_ERROR_PROTOTYPE_OFFSET: u64 = 376;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET: u64 = 384;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET: u64 = 392;",
             "name: \"%Error.prototype%\"",
-            "offset: HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET",
+            "name: \"%TypeError.prototype%\"",
+            "name: \"%EvalError.prototype%\"",
+            "name: \"%RangeError.prototype%\"",
+            "name: \"%ReferenceError.prototype%\"",
+            "name: \"%SyntaxError.prototype%\"",
+            "name: \"%URIError.prototype%\"",
         ] {
             assert!(
                 heap.contains(required),
-                "Error realm layout must contain {required}"
+                "Error-family realm layout must contain {required}"
             );
         }
 
@@ -826,23 +916,29 @@ mod tests {
         assert!(!witness.contains("derive(Clone"));
         assert!(!witness.contains("derive(Copy"));
         assert!(error_constructor.contains(
-            "#[must_use = \"the resolved Error prototype must be used for allocation and released\"]"
+            "#[must_use = \"the resolved Error-family prototype must be used for allocation and released\"]"
         ));
 
-        let constructor = errors
-            .split_once("NativeErrorKind::Error => {")
-            .expect("Error constructor body should exist")
+        let constructor = error_constructor
+            .split_once("fn emit_error_message_constructor(")
+            .expect("shared Error message constructor body should exist")
             .1
-            .split_once("            },\n            ErrorBuiltin::PrototypeToString")
-            .expect("Error constructor body should be bounded")
+            .split_once("pub(super) fn emit_alloc_error_instance_from_locals(")
+            .expect("shared Error message constructor body should be bounded")
             .0;
         assert_eq!(
             constructor
-                .matches("emit_error_constructor_prototype(function)")
+                .matches("emit_error_constructor_prototype(kind, function)")
                 .count(),
             1
         );
         assert_eq!(constructor.matches("&prototype").count(), 2);
+        assert_eq!(
+            constructor
+                .matches("emit_install_error_cause_from_arg")
+                .count(),
+            2
+        );
         assert_eq!(
             constructor
                 .matches("release_error_constructor_prototype(prototype)")
@@ -860,8 +956,8 @@ mod tests {
             .0;
         for required in [
             "emit_new_target_prototype_to_locals(",
-            "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(",
-            "OrdinaryDefaultPrototype::Error",
+            "kind.prototype_global_index()",
+            "NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind)",
         ] {
             assert_eq!(producer.matches(required).count(), 1, "{required}");
         }
@@ -877,8 +973,8 @@ mod tests {
             .0;
         assert_eq!(shared_resolution.matches("emit_object_read(").count(), 1);
         let active_selection = shared_resolution
-            .find("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(_) =>")
-            .expect("active Error fallback arm should exist");
+            .find("NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) =>")
+            .expect("active Error-family fallback arm should exist");
         let guarded_get = shared_resolution
             .find("LocalGet(should_get_prototype_local)")
             .expect("the common prototype Get should be guarded");
@@ -886,8 +982,27 @@ mod tests {
             .find("emit_object_read(")
             .expect("the common prototype Get should exist");
         assert!(active_selection < guarded_get && guarded_get < common_get);
-        assert!(shared_resolution.contains("StandardBuiltinId::ErrorConstructor"));
+        assert!(shared_resolution.contains("kind.constructor_global_index()"));
+        let active_arm = shared_resolution[active_selection..]
+            .split_once("            _ => {")
+            .expect("active Error-family selection should end before the generic arm")
+            .0;
+        assert_eq!(
+            active_arm
+                .matches("LocalGet(self.current_env_local)")
+                .count(),
+            2
+        );
+        assert_eq!(
+            active_arm
+                .matches("kind.constructor_global_index()")
+                .count(),
+            1
+        );
+        assert!(shared_resolution.contains("OrdinaryDefaultPrototype::MessageError(kind)"));
         assert!(shared_resolution.contains("LocalSet(should_get_prototype_local)"));
+        assert!(!errors.contains("emit_native_error_constructor_wrapper"));
+        assert!(!errors.contains("Instruction::Call(error_wasm_index)"));
 
         let allocator = error_constructor
             .split_once("fn emit_alloc_error_instance_from_locals(")
@@ -910,24 +1025,84 @@ mod tests {
             .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
             .expect("direct-returning constructor domain should exist")
             .1
-            .split_once("]\n        .into_iter()")
+            .split_once(".filter_map(|builtin|")
             .expect("direct-returning constructor domain should be bounded")
             .0;
-        assert_eq!(
-            direct
-                .matches("StandardBuiltinId::ErrorConstructor")
-                .count(),
-            1,
-            "Error must bypass generic preallocation and its observable prototype Get"
-        );
+        assert!(direct.contains("ErrorMessageConstructorKind::ALL"));
+        assert!(direct.contains(".map(ErrorMessageConstructorKind::constructor)"));
 
-        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            ERROR_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::ErrorPrototype";
-        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
-        let created_publication = "emit_store_non_array_realm_intrinsic(\n            realm_record_local,\n            NonArrayRealmIntrinsicSlot::ErrorPrototype,\n            error_prototype_local";
-        assert_eq!(host.matches(created_publication).count(), 1);
+        let realm_publication = functions
+            .split_once("pub(crate) fn emit_store_realm_message_error_prototype(")
+            .expect("typed created-realm Error prototype publisher should exist")
+            .1
+            .split_once("pub(crate) fn emit_store_current_realm_message_error_prototype(")
+            .expect("typed created-realm Error prototype publisher should be bounded")
+            .0;
+        assert!(realm_publication.contains("kind.prototype_slot()"));
+        assert!(realm_publication.contains("prototype_local"));
+        let entry_publication = functions
+            .split_once("pub(crate) fn emit_store_current_realm_message_error_prototype(")
+            .expect("typed entry-realm Error prototype publisher should exist")
+            .1
+            .split_once("pub(crate) fn emit_store_non_array_realm_intrinsic(")
+            .expect("typed entry-realm Error prototype publisher should be bounded")
+            .0;
+        assert!(entry_publication.contains("kind.prototype_global_index()"));
+        assert!(entry_publication.contains("kind.prototype_slot()"));
+
+        for kind in [
+            "Error",
+            "EvalError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+            "TypeError",
+            "URIError",
+        ] {
+            let kind_path = format!("ErrorMessageConstructorKind::{kind}");
+            assert_eq!(
+                bootstrap.matches(kind_path.as_str()).count(),
+                1,
+                "entry bootstrap must publish {kind} exactly once"
+            );
+        }
+        let created_publication = host
+            .split_once("for (kind, prototype_local) in [")
+            .expect("created-realm Error prototype publication should exist")
+            .1
+            .split_once("self.emit_store_realm_array_iterator_prototype(")
+            .expect("created-realm Error prototype publication should be bounded")
+            .0;
+        for kind in [
+            "Error",
+            "EvalError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+            "TypeError",
+            "URIError",
+        ] {
+            let kind_path = format!("ErrorMessageConstructorKind::{kind}");
+            assert_eq!(
+                created_publication.matches(kind_path.as_str()).count(),
+                1,
+                "created realm must publish {kind} exactly once"
+            );
+        }
+        assert_eq!(
+            created_publication
+                .matches("emit_store_realm_message_error_prototype(")
+                .count(),
+            1
+        );
+        assert!(host.contains("let error_constructor_metas = ErrorMessageConstructorKind::ALL"));
+        assert!(
+            host.contains("ErrorMessageConstructorKind::ALL.map(|_| self.reserve_temp_local())")
+        );
+        assert!(!host.contains("error_constructor_locals[0]"));
         let created_constructors = host
             .split_once("for index in 0..error_constructor_metas.len() {")
-            .expect("created-realm Error constructor loop should exist")
+            .expect("created-realm Error-family constructor loop should exist")
             .1
             .split_once("let error_is_error_payload_local")
             .expect("created-realm Error constructor loop should be bounded")
@@ -937,8 +1112,16 @@ mod tests {
                 .matches("HEAP_FUNCTION_ENV_HANDLE_OFFSET")
                 .count(),
             1,
-            "every created-realm Error constructor must carry its active function identity"
+            "every created-realm Error-family constructor must carry its active function identity"
         );
+        let normalized_created_constructors = created_constructors
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(normalized_created_constructors.contains(
+            "constructor_local, HEAP_FUNCTION_ENV_HANDLE_OFFSET, constructor_local, function,"
+        ));
+        assert!(created_constructors.contains("emit_function_value_payload_in_realm("));
     }
 
     #[test]

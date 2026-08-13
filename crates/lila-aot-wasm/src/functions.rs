@@ -1,5 +1,5 @@
 use super::*;
-use lila_ir::{ClassMethodKindIr, StaticRegExpCompilation};
+use lila_ir::{ClassMethodKindIr, NativeErrorKind, StaticRegExpCompilation};
 
 /// A Wasm local proven to contain an allocated realm record.
 ///
@@ -62,6 +62,11 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     ThrowTypeError,
     TypeErrorPrototype,
     ErrorPrototype,
+    EvalErrorPrototype,
+    RangeErrorPrototype,
+    ReferenceErrorPrototype,
+    SyntaxErrorPrototype,
+    URIErrorPrototype,
     GeneratorFunctionConstructor,
     AsyncFunctionConstructor,
     AsyncGeneratorFunctionConstructor,
@@ -105,6 +110,133 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     BigUint64ArrayPrototype,
 }
 
+macro_rules! error_message_constructor_kinds {
+    (
+        $(
+            $variant:ident => {
+                native: $native:ident,
+                constructor: $constructor:ident,
+                constructor_global: $constructor_global:ident,
+                prototype_global: $prototype_global:ident,
+                prototype_slot: $prototype_slot:ident;
+            };
+        )+
+    ) => {
+        /// The seven Error-family constructors whose specification body is the
+        /// shared `(message, options)` algorithm.
+        ///
+        /// AggregateError and SuppressedError are deliberately absent: their
+        /// distinct argument processing remains owned by their dedicated
+        /// constructor paths. Every identity needed by construction comes from
+        /// this one row authority, so an active function cannot be paired with
+        /// another Error family's default prototype.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[repr(usize)]
+        pub(crate) enum ErrorMessageConstructorKind {
+            $($variant,)+
+        }
+
+        impl ErrorMessageConstructorKind {
+            pub(crate) const ALL: [Self; 7] = [$(Self::$variant,)+];
+
+            pub(crate) const fn index(self) -> usize {
+                self as usize
+            }
+
+            pub(crate) const fn from_native_error_kind(
+                kind: NativeErrorKind,
+            ) -> Option<Self> {
+                match kind {
+                    $(NativeErrorKind::$native => Some(Self::$variant),)+
+                    NativeErrorKind::AggregateError | NativeErrorKind::SuppressedError => None,
+                }
+            }
+
+            pub(crate) const fn native_error_kind(self) -> NativeErrorKind {
+                match self {
+                    $(Self::$variant => NativeErrorKind::$native,)+
+                }
+            }
+
+            pub(crate) const fn constructor(self) -> StandardBuiltinId {
+                match self {
+                    $(Self::$variant => StandardBuiltinId::$constructor,)+
+                }
+            }
+
+            pub(crate) const fn constructor_global_index(self) -> u32 {
+                match self {
+                    $(Self::$variant => $constructor_global,)+
+                }
+            }
+
+            pub(crate) const fn prototype_global_index(self) -> u32 {
+                match self {
+                    $(Self::$variant => $prototype_global,)+
+                }
+            }
+
+            const fn prototype_slot(self) -> NonArrayRealmIntrinsicSlot {
+                match self {
+                    $(Self::$variant => NonArrayRealmIntrinsicSlot::$prototype_slot,)+
+                }
+            }
+        }
+    };
+}
+
+error_message_constructor_kinds! {
+    Error => {
+        native: Error,
+        constructor: ErrorConstructor,
+        constructor_global: ERROR_CONSTRUCTOR_GLOBAL_INDEX,
+        prototype_global: ERROR_PROTOTYPE_GLOBAL_INDEX,
+        prototype_slot: ErrorPrototype;
+    };
+    EvalError => {
+        native: EvalError,
+        constructor: EvalErrorConstructor,
+        constructor_global: EVAL_ERROR_CONSTRUCTOR_GLOBAL_INDEX,
+        prototype_global: EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        prototype_slot: EvalErrorPrototype;
+    };
+    RangeError => {
+        native: RangeError,
+        constructor: RangeErrorConstructor,
+        constructor_global: RANGE_ERROR_CONSTRUCTOR_GLOBAL_INDEX,
+        prototype_global: RANGE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        prototype_slot: RangeErrorPrototype;
+    };
+    ReferenceError => {
+        native: ReferenceError,
+        constructor: ReferenceErrorConstructor,
+        constructor_global: REFERENCE_ERROR_CONSTRUCTOR_GLOBAL_INDEX,
+        prototype_global: REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        prototype_slot: ReferenceErrorPrototype;
+    };
+    SyntaxError => {
+        native: SyntaxError,
+        constructor: SyntaxErrorConstructor,
+        constructor_global: SYNTAX_ERROR_CONSTRUCTOR_GLOBAL_INDEX,
+        prototype_global: SYNTAX_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        prototype_slot: SyntaxErrorPrototype;
+    };
+    TypeError => {
+        native: TypeError,
+        constructor: TypeErrorConstructor,
+        constructor_global: TYPE_ERROR_CONSTRUCTOR_GLOBAL_INDEX,
+        prototype_global: TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        prototype_slot: TypeErrorPrototype;
+    };
+    URIError => {
+        native: URIError,
+        constructor: URIErrorConstructor,
+        constructor_global: URI_ERROR_CONSTRUCTOR_GLOBAL_INDEX,
+        prototype_global: URI_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        prototype_slot: URIErrorPrototype;
+    };
+}
+
 /// The fallback selected after `Get(NewTarget, "prototype")` produces a
 /// primitive. The variants keep entry-global, function-snapshot, optional
 /// realm-slot, required resolved-realm, and undefined-NewTarget active-function
@@ -115,7 +247,7 @@ pub(crate) enum NewTargetPrototypeFallback {
     FunctionSnapshot(u64),
     RealmIntrinsic(u64),
     RequiredResolvedRealmOrdinary(OrdinaryDefaultPrototype),
-    RequiredResolvedRealmOrdinaryActive(OrdinaryDefaultPrototype),
+    RequiredResolvedRealmMessageErrorActive(ErrorMessageConstructorKind),
 }
 
 impl NonArrayRealmIntrinsicSlot {
@@ -124,6 +256,11 @@ impl NonArrayRealmIntrinsicSlot {
             Self::ThrowTypeError => HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
             Self::TypeErrorPrototype => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
             Self::ErrorPrototype => HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET,
+            Self::EvalErrorPrototype => HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET,
+            Self::RangeErrorPrototype => HEAP_REALM_INTRINSICS_RANGE_ERROR_PROTOTYPE_OFFSET,
+            Self::ReferenceErrorPrototype => HEAP_REALM_INTRINSICS_REFERENCE_ERROR_PROTOTYPE_OFFSET,
+            Self::SyntaxErrorPrototype => HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET,
+            Self::URIErrorPrototype => HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET,
             Self::GeneratorFunctionConstructor => {
                 HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET
             }
@@ -354,7 +491,7 @@ mod realm_function_materialization_tests {
             "ordinary created-realm functions must not need a default prototype repair"
         );
         for inheritance in [
-            "HEAP_PROTOTYPE_OFFSET, error_constructor_locals[0], function,",
+            "HEAP_PROTOTYPE_OFFSET, error_constructor_locals[ErrorMessageConstructorKind::Error.index()], function,",
             "HEAP_PROTOTYPE_OFFSET, typed_array_constructor_local, function,",
         ] {
             assert!(
@@ -492,7 +629,7 @@ impl ResolvedFunctionRealmLocal {
 #[derive(Clone, Copy)]
 pub(crate) enum OrdinaryDefaultPrototype {
     Object,
-    Error,
+    MessageError(ErrorMessageConstructorKind),
     String,
     Number,
     Boolean,
@@ -504,7 +641,7 @@ impl OrdinaryDefaultPrototype {
     const fn offset(self) -> u64 {
         match self {
             Self::Object => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-            Self::Error => HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET,
+            Self::MessageError(kind) => kind.prototype_slot().offset(),
             Self::String => HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
             Self::Number => HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
             Self::Boolean => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
@@ -3100,9 +3237,13 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
             StandardBuiltinId::IteratorConstructor,
-            StandardBuiltinId::ErrorConstructor,
         ]
         .into_iter()
+        .chain(
+            ErrorMessageConstructorKind::ALL
+                .into_iter()
+                .map(ErrorMessageConstructorKind::constructor),
+        )
         .filter_map(|builtin| {
             self.functions
                 .get(&builtin.function_id())
@@ -4610,10 +4751,40 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
+        self.emit_store_realm_message_error_prototype(
+            realm_local,
+            ErrorMessageConstructorKind::TypeError,
+            prototype_local,
+            function,
+        );
+    }
+
+    /// Publish one of the seven shared-message Error prototypes without
+    /// allowing a caller to pair its constructor family with another family's
+    /// realm-intrinsic offset.
+    pub(crate) fn emit_store_realm_message_error_prototype(
+        &mut self,
+        realm_local: u32,
+        kind: ErrorMessageConstructorKind,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
         self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            NonArrayRealmIntrinsicSlot::TypeErrorPrototype,
+            kind.prototype_slot(),
             prototype_local,
+            function,
+        );
+    }
+
+    pub(crate) fn emit_store_current_realm_message_error_prototype(
+        &mut self,
+        kind: ErrorMessageConstructorKind,
+        function: &mut Function,
+    ) {
+        self.emit_store_current_realm_global_intrinsic(
+            kind.prototype_global_index(),
+            kind.prototype_slot(),
             function,
         );
     }

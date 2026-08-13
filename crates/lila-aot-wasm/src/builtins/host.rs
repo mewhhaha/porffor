@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::functions::NonArrayRealmIntrinsicSlot;
+use crate::functions::{ErrorMessageConstructorKind, NonArrayRealmIntrinsicSlot};
 use lila_runtime::AgentHostOperation;
 
 fn created_realm_string_prototype_method_aliases(name: &str) -> &'static [&'static str] {
@@ -3713,85 +3713,23 @@ impl<'a> FunctionBuilder<'a> {
         let regexp_prototype_symbol_method_metas = regexp_prototype_symbol_method_metas
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
-        let error_constructor_metas = [
-            (
-                ERROR_NAME,
-                self.functions
-                    .get(&StandardBuiltinId::ErrorConstructor.function_id())
+        let error_constructor_metas = ErrorMessageConstructorKind::ALL
+            .into_iter()
+            .map(|kind| {
+                let builtin = kind.constructor();
+                let meta = self
+                    .functions
+                    .get(&builtin.function_id())
                     .cloned()
                     .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Error`",
-                        )
-                    })?,
-            ),
-            (
-                EVAL_ERROR_NAME,
-                self.functions
-                    .get(&StandardBuiltinId::EvalErrorConstructor.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `EvalError`",
-                        )
-                    })?,
-            ),
-            (
-                RANGE_ERROR_NAME,
-                self.functions
-                    .get(&StandardBuiltinId::RangeErrorConstructor.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `RangeError`",
-                        )
-                    })?,
-            ),
-            (
-                REFERENCE_ERROR_NAME,
-                self.functions
-                    .get(&StandardBuiltinId::ReferenceErrorConstructor.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `ReferenceError`",
-                        )
-                    })?,
-            ),
-            (
-                SYNTAX_ERROR_NAME,
-                self.functions
-                    .get(&StandardBuiltinId::SyntaxErrorConstructor.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `SyntaxError`",
-                        )
-                    })?,
-            ),
-            (
-                TYPE_ERROR_NAME,
-                self.functions
-                    .get(&StandardBuiltinId::TypeErrorConstructor.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypeError`",
-                        )
-                    })?,
-            ),
-            (
-                URI_ERROR_NAME,
-                self.functions
-                    .get(&StandardBuiltinId::URIErrorConstructor.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `URIError`",
-                        )
-                    })?,
-            ),
-        ];
+                        EmitError::unsupported(format!(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                            builtin.debug_name()
+                        ))
+                    })?;
+                Ok::<_, EmitError>((kind, meta))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let error_prototype_to_string_meta = self
             .functions
             .get(&StandardBuiltinId::ErrorPrototypeToString.function_id())
@@ -3913,10 +3851,8 @@ impl<'a> FunctionBuilder<'a> {
         let set_constructor_local = self.reserve_temp_local();
         let regexp_constructor_local = self.reserve_temp_local();
         let date_constructor_local = self.reserve_temp_local();
-        let mut error_constructor_locals = Vec::new();
-        for _ in &error_constructor_metas {
-            error_constructor_locals.push(self.reserve_temp_local());
-        }
+        let error_constructor_locals =
+            ErrorMessageConstructorKind::ALL.map(|_| self.reserve_temp_local());
         let mut typed_array_prototype_locals = Vec::new();
         let mut typed_array_constructor_locals = Vec::new();
         for (builtin, _) in typed_array_constructor_bytes_per_element_entries() {
@@ -4109,12 +4045,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(typed_array_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(error_prototype_local));
-        self.emit_store_non_array_realm_intrinsic(
-            realm_record_local,
-            NonArrayRealmIntrinsicSlot::ErrorPrototype,
-            error_prototype_local,
-            function,
-        );
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(eval_error_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
@@ -4129,11 +4059,40 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(aggregate_error_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(type_error_prototype_local));
-        self.emit_store_realm_type_error_prototype(
-            realm_record_local,
-            type_error_prototype_local,
-            function,
-        );
+        for (kind, prototype_local) in [
+            (ErrorMessageConstructorKind::Error, error_prototype_local),
+            (
+                ErrorMessageConstructorKind::EvalError,
+                eval_error_prototype_local,
+            ),
+            (
+                ErrorMessageConstructorKind::RangeError,
+                range_error_prototype_local,
+            ),
+            (
+                ErrorMessageConstructorKind::ReferenceError,
+                reference_error_prototype_local,
+            ),
+            (
+                ErrorMessageConstructorKind::SyntaxError,
+                syntax_error_prototype_local,
+            ),
+            (
+                ErrorMessageConstructorKind::TypeError,
+                type_error_prototype_local,
+            ),
+            (
+                ErrorMessageConstructorKind::URIError,
+                uri_error_prototype_local,
+            ),
+        ] {
+            self.emit_store_realm_message_error_prototype(
+                realm_record_local,
+                kind,
+                prototype_local,
+                function,
+            );
+        }
         self.emit_store_realm_array_iterator_prototype(
             realm_record_local,
             array_iterator_prototype_local,
@@ -6842,7 +6801,7 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         for index in 0..error_constructor_metas.len() {
-            let (_, meta) = &error_constructor_metas[index];
+            let (kind, meta) = &error_constructor_metas[index];
             let constructor_local = error_constructor_locals[index];
             self.emit_function_value_payload_in_realm(
                 meta,
@@ -6856,11 +6815,11 @@ impl<'a> FunctionBuilder<'a> {
                 constructor_local,
                 function,
             );
-            if meta.name != ERROR_NAME {
+            if *kind != ErrorMessageConstructorKind::Error {
                 self.store_i64_local_at_offset(
                     constructor_local,
                     HEAP_PROTOTYPE_OFFSET,
-                    error_constructor_locals[0],
+                    error_constructor_locals[ErrorMessageConstructorKind::Error.index()],
                     function,
                 );
                 self.store_i64_const_at_offset(
@@ -6924,74 +6883,26 @@ impl<'a> FunctionBuilder<'a> {
                 uri_error_prototype_local,
                 function,
             );
-            if meta.name == ERROR_NAME {
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    error_prototype_local,
-                    true,
-                    function,
-                )?;
-            } else if meta.name == EVAL_ERROR_NAME {
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    eval_error_prototype_local,
-                    true,
-                    function,
-                )?;
-            } else if meta.name == RANGE_ERROR_NAME {
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    range_error_prototype_local,
-                    true,
-                    function,
-                )?;
-            } else if meta.name == REFERENCE_ERROR_NAME {
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    reference_error_prototype_local,
-                    true,
-                    function,
-                )?;
-            } else if meta.name == SYNTAX_ERROR_NAME {
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    syntax_error_prototype_local,
-                    true,
-                    function,
-                )?;
-            } else if meta.name == TYPE_ERROR_NAME {
-                self.store_i64_local_at_offset(
-                    constructor_local,
-                    HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-                    type_error_prototype_local,
-                    function,
-                );
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    type_error_prototype_local,
-                    true,
-                    function,
-                )?;
-            } else if meta.name == URI_ERROR_NAME {
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    uri_error_prototype_local,
-                    true,
-                    function,
-                )?;
-            } else {
-                self.emit_set_function_prototype_data(
-                    constructor_local,
-                    error_prototype_local,
-                    false,
-                    function,
-                )?;
-            }
+            let prototype_local = match kind {
+                ErrorMessageConstructorKind::Error => error_prototype_local,
+                ErrorMessageConstructorKind::EvalError => eval_error_prototype_local,
+                ErrorMessageConstructorKind::RangeError => range_error_prototype_local,
+                ErrorMessageConstructorKind::ReferenceError => reference_error_prototype_local,
+                ErrorMessageConstructorKind::SyntaxError => syntax_error_prototype_local,
+                ErrorMessageConstructorKind::TypeError => type_error_prototype_local,
+                ErrorMessageConstructorKind::URIError => uri_error_prototype_local,
+            };
+            self.emit_set_function_prototype_data(
+                constructor_local,
+                prototype_local,
+                true,
+                function,
+            )?;
         }
         self.store_i64_local_at_offset(
             aggregate_error_constructor_local,
             HEAP_PROTOTYPE_OFFSET,
-            error_constructor_locals[0],
+            error_constructor_locals[ErrorMessageConstructorKind::Error.index()],
             function,
         );
         self.store_i64_const_at_offset(
@@ -7003,7 +6914,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_local_at_offset(
             suppressed_error_constructor_local,
             HEAP_PROTOTYPE_OFFSET,
-            error_constructor_locals[0],
+            error_constructor_locals[ErrorMessageConstructorKind::Error.index()],
             function,
         );
         self.store_i64_const_at_offset(
@@ -7023,7 +6934,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         self.emit_object_define_local_data(
-            error_constructor_locals[0],
+            error_constructor_locals[ErrorMessageConstructorKind::Error.index()],
             "isError",
             error_is_error_payload_local,
             tag_local,
@@ -7326,13 +7237,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         for index in 0..error_constructor_metas.len() {
-            let (name, _) = &error_constructor_metas[index];
-            if *name == AGGREGATE_ERROR_NAME || *name == SUPPRESSED_ERROR_NAME {
-                continue;
-            }
+            let (kind, _) = &error_constructor_metas[index];
             self.emit_object_define_local_data(
                 global_local,
-                name,
+                kind.native_error_kind().as_str(),
                 error_constructor_locals[index],
                 tag_local,
                 function,

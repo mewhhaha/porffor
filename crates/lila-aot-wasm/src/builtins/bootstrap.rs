@@ -1,5 +1,7 @@
 use super::super::*;
-use crate::functions::{FunctionPrototypeMaterialization, NonArrayRealmIntrinsicSlot};
+use crate::functions::{
+    ErrorMessageConstructorKind, FunctionPrototypeMaterialization, NonArrayRealmIntrinsicSlot,
+};
 use lila_ir::StandardBuiltinInstaller;
 
 impl<'a> FunctionBuilder<'a> {
@@ -2960,9 +2962,8 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(ERROR_PROTOTYPE_GLOBAL_INDEX));
-        self.emit_store_current_realm_global_intrinsic(
-            ERROR_PROTOTYPE_GLOBAL_INDEX,
-            NonArrayRealmIntrinsicSlot::ErrorPrototype,
+        self.emit_store_current_realm_message_error_prototype(
+            ErrorMessageConstructorKind::Error,
             function,
         );
         let native_error_prototype_local = self.reserve_temp_local();
@@ -2992,11 +2993,8 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_object_define_string_data(native_error_prototype_local, "message", "", function)?;
-        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_store_realm_type_error_prototype(
-            self.scratch_local,
-            native_error_prototype_local,
+        self.emit_store_current_realm_message_error_prototype(
+            ErrorMessageConstructorKind::TypeError,
             function,
         );
         self.release_temp_local(native_error_prototype_local);
@@ -3008,6 +3006,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_message_error_prototype(
+            ErrorMessageConstructorKind::ReferenceError,
+            function,
+        );
         function.instruction(&Instruction::GlobalGet(
             REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
@@ -3027,6 +3029,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_message_error_prototype(
+            ErrorMessageConstructorKind::EvalError,
+            function,
+        );
         let native_error_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(native_error_prototype_local));
@@ -3086,6 +3092,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(RANGE_ERROR_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_message_error_prototype(
+            ErrorMessageConstructorKind::RangeError,
+            function,
+        );
         let native_error_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(RANGE_ERROR_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(native_error_prototype_local));
@@ -3103,6 +3113,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(SYNTAX_ERROR_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_message_error_prototype(
+            ErrorMessageConstructorKind::SyntaxError,
+            function,
+        );
         let native_error_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(SYNTAX_ERROR_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(native_error_prototype_local));
@@ -3120,6 +3134,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(URI_ERROR_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_message_error_prototype(
+            ErrorMessageConstructorKind::URIError,
+            function,
+        );
         let native_error_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(URI_ERROR_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(native_error_prototype_local));

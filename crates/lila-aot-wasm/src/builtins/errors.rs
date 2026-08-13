@@ -1,5 +1,8 @@
 use super::super::*;
-use crate::functions::{FunctionRealmRevokedRoute, NewTargetPrototypeFallback};
+use crate::functions::{
+    ErrorMessageConstructorKind, FunctionRealmRevokedRoute, NewTargetPrototypeFallback,
+    OrdinaryDefaultPrototype,
+};
 use lila_ir::NativeErrorKind;
 
 mod constructor;
@@ -29,78 +32,6 @@ impl PreparedErrorNameLocal {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    fn emit_native_error_constructor_wrapper(
-        &mut self,
-        error_kind: NativeErrorKind,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        // Native error subclasses direct-call the shared `Error` body, so its
-        // real body must be emitted — see `FunctionMetaRegistry`.
-        self.functions
-            .record_standard_builtin(StandardBuiltinId::ErrorConstructor);
-        let error_wasm_index = self
-            .functions
-            .get(&StandardBuiltinId::ErrorConstructor.function_id())
-            .map(|meta| meta.wasm_index)
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Error`",
-                )
-            })?;
-        let builtin = error_kind.constructor();
-        let constructor_global_index = standard_builtin_constructor_global_index(builtin)
-            .ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing constructor global for `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(constructor_global_index));
-        function.instruction(&Instruction::LocalSet(new_target_payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(new_target_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(new_target_tag_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalGet(
-            self.this_payload_local
-                .expect("native error wrapper must use function ABI"),
-        ));
-        function.instruction(&Instruction::LocalGet(
-            self.this_tag_local
-                .expect("native error wrapper must use function ABI"),
-        ));
-        function.instruction(&Instruction::LocalGet(new_target_payload_local));
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::LocalGet(self.argv_param_local()));
-        function.instruction(&Instruction::Call(error_wasm_index));
-        self.store_call_results(self.result_local, self.result_tag_local, function);
-
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
-        Ok(())
-    }
-
     pub(super) fn emit_error_builtin(
         &mut self,
         builtin: ErrorBuiltin,
@@ -289,49 +220,16 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(error_arg_payload_local);
                     return Ok(());
                 }
-                NativeErrorKind::EvalError
+                NativeErrorKind::Error
+                | NativeErrorKind::EvalError
                 | NativeErrorKind::RangeError
                 | NativeErrorKind::ReferenceError
                 | NativeErrorKind::SyntaxError
                 | NativeErrorKind::TypeError
                 | NativeErrorKind::URIError => {
-                    self.emit_native_error_constructor_wrapper(error_kind, function)?;
-                    return Ok(());
-                }
-                NativeErrorKind::Error => {
-                    let arg_payload_local = self.reserve_temp_local();
-                    let arg_tag_local = self.reserve_temp_local();
-                    let message_payload_local = self.reserve_temp_local();
-                    self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                    let prototype = self.emit_error_constructor_prototype(function)?;
-                    function.instruction(&Instruction::LocalGet(arg_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_alloc_error_instance_from_locals(
-                        &prototype,
-                        None,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_install_error_cause_from_arg(self.result_local, 1, function)?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
-                    function.instruction(&Instruction::LocalSet(message_payload_local));
-                    self.emit_alloc_error_instance_from_locals(
-                        &prototype,
-                        Some(message_payload_local),
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_install_error_cause_from_arg(self.result_local, 1, function)?;
-                    function.instruction(&Instruction::End);
-                    self.release_error_constructor_prototype(prototype);
-                    self.release_temp_local(message_payload_local);
-                    self.release_temp_local(arg_tag_local);
-                    self.release_temp_local(arg_payload_local);
+                    let kind = ErrorMessageConstructorKind::from_native_error_kind(error_kind)
+                        .expect("the shared Error message arm excludes distinct constructors");
+                    self.emit_error_message_constructor(kind, function)?;
                 }
             },
             ErrorBuiltin::PrototypeToString => {
@@ -793,14 +691,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         match fallback {
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(_) => {
+            NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) => {
                 function.instruction(&Instruction::LocalGet(self.current_env_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::GlobalGet(
-                    standard_builtin_constructor_global_index(StandardBuiltinId::ErrorConstructor)
-                        .expect("Error constructor global must exist"),
-                ));
+                function.instruction(&Instruction::GlobalGet(kind.constructor_global_index()));
                 function.instruction(&Instruction::LocalSet(new_target_payload_local));
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::LocalGet(self.current_env_local));
@@ -868,11 +763,11 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(intrinsic) => {
+            NewTargetPrototypeFallback::RequiredResolvedRealmMessageErrorActive(kind) => {
                 self.emit_required_new_target_realm_ordinary_prototype(
                     new_target_payload_local,
                     new_target_tag_local,
-                    intrinsic,
+                    OrdinaryDefaultPrototype::MessageError(kind),
                     prototype_payload_local,
                     prototype_tag_local,
                     function,
