@@ -277,6 +277,26 @@ fn run_wasm_backend_succeeds_for_supported_bigint_minimal_validation_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_keeps_bigint_prototype_result_policies_distinct() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_bigint_prototype_result_policy.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(123"));
+}
+
+#[test]
 fn run_wasm_backend_observes_bigint_wrapper_ordinary_to_primitive_hooks() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

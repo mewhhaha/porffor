@@ -284,14 +284,76 @@ require_fixed_string_count \
 check_raw_line_budget "$wasm_function_builtins" 450
 
 wasm_bigint_builtins="crates/lila-aot-wasm/src/builtins/bigint.rs"
+wasm_numeric_operations="crates/lila-aot-wasm/src/operations.rs"
+wasm_emit="crates/lila-aot-wasm/src/emit.rs"
+wasm_host_builtins="crates/lila-aot-wasm/src/builtins/host.rs"
 check_no_inline_legacy_includes "$wasm_bigint_builtins"
 if ! grep -q '^pub(super) enum BigIntBuiltin' "$wasm_bigint_builtins" \
-  || ! grep -q '^        match builtin {' "$wasm_bigint_builtins"; then
-  fail "$wasm_bigint_builtins must dispatch through the closed BigIntBuiltin domain"
+  || ! grep -q '^pub(super) enum BigIntPrototypeResultPolicy' "$wasm_bigint_builtins" \
+  || ! grep -q '^struct PreparedBigIntRadixLocal' "$wasm_bigint_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_bigint_builtins" \
+  || ! grep -q '^                match result_policy {' "$wasm_bigint_builtins"; then
+  fail "$wasm_bigint_builtins must dispatch through the closed BigInt builtin/result/radix domains"
 fi
-# Measured immediately after extraction: 708 raw lines. The narrow margin is
-# for maintenance of this family, not adjacent builtin implementations.
-check_raw_line_budget "$wasm_bigint_builtins" 750
+require_fixed_string_count \
+  "$wasm_bigint_builtins" \
+  'fn emit_prepare_bigint_radix(' \
+  1 \
+  'shared prepared-radix stage'
+
+if ! grep -q '^pub(crate) enum NumericErrorRealmSource' "$wasm_emit" \
+  || ! grep -q '^    numeric_error_realm_source: NumericErrorRealmSource,$' "$wasm_emit" \
+  || ! grep -q '^    pub(crate) const fn numeric_error_realm_source' "$wasm_emit" \
+  || ! grep -Fq 'RuntimeHelperId::ValueToNumber | RuntimeHelperId::ValueToNumeric' "$wasm_emit" \
+  || ! grep -Fq 'self.numeric_error_realm_source = NumericErrorRealmSource::for_runtime_helper(helper);' "$wasm_emit"; then
+  fail "$wasm_emit must carry the closed standard-builtin/numeric-helper/global-fallback Realm source"
+fi
+require_fixed_string_count \
+  "$wasm_emit" \
+  '            NumericErrorRealmSource::GlobalFallback,' \
+  4 \
+  'main/user/host/runtime-helper fallback constructor'
+main_numeric_realm_source="$(
+  sed -n '/^    fn new_main(/,/^    fn new_function(/p' "$wasm_emit"
+)"
+main_fallback_count="$(
+  printf '%s\n' "$main_numeric_realm_source" \
+    | grep -Fc 'NumericErrorRealmSource::GlobalFallback' \
+    || true
+)"
+if [ "$main_fallback_count" -ne 1 ] \
+  || printf '%s\n' "$main_numeric_realm_source" \
+    | grep -Eq 'NumericErrorRealmSource::(StandardBuiltinEnvironment|NumericConversionHelperArgument)'; then
+  fail "$wasm_emit new_main must select exactly one GlobalFallback numeric-error Realm source"
+fi
+require_fixed_string_count \
+  "$wasm_emit" \
+  '            NumericErrorRealmSource::StandardBuiltinEnvironment,' \
+  1 \
+  'trusted standard-builtin constructor'
+require_fixed_string_count \
+  "$wasm_numeric_operations" \
+  'self.emit_outlined_numeric_realm_argument(function);' \
+  2 \
+  'realm-aware ToNumber/ToNumeric helper ABI consumer'
+
+bigint_prototype_realm_slots="$(
+  sed -n \
+    '/for (name, meta) in &bigint_prototype_method_metas {/,/self.release_temp_local(method_payload_local);/p' \
+    "$wasm_host_builtins"
+)"
+for slot in \
+  HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET \
+  HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET; do
+  slot_count="$(printf '%s\n' "$bigint_prototype_realm_slots" | grep -Fc "$slot" || true)"
+  if [ "$slot_count" -ne 1 ]; then
+    fail "$wasm_host_builtins BigInt prototype-method loop must store exactly one $slot (found $slot_count)"
+  fi
+done
+
+# Measured after T20's closed result/radix policy: 882 raw lines. The 38-line
+# margin is for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_bigint_builtins" 920
 
 wasm_global_numeric_builtins="crates/lila-aot-wasm/src/builtins/global_numeric.rs"
 check_no_inline_legacy_includes "$wasm_global_numeric_builtins"

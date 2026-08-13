@@ -314,6 +314,52 @@ enum UnaryNumericKind {
     BigInt,
 }
 
+/// Which realm environment an outlined numeric-conversion helper may receive.
+///
+/// Standard builtins use a self-backed realm record as their environment, and
+/// the two numeric helper bodies receive that record-or-zero through param 6.
+/// Other bodies can carry a lexical environment with a different layout, so
+/// forwarding every nonzero environment would let error construction read
+/// realm-prototype offsets from unrelated storage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OutlinedNumericRealmArgument {
+    TrustedCurrentEnvironment,
+    MainRealmFallback,
+}
+
+/// Whether an inlined numeric conversion may interpret `current_env_local` as
+/// realm metadata. The outlined numeric helpers receive either a self-backed
+/// builtin realm record or zero through their typed ABI projection; ordinary
+/// user functions instead carry lexical environments and must use the
+/// main-Realm constructors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NumericConversionErrorRealm {
+    TrustedCurrentEnvironment,
+    MainRealmFallback,
+}
+
+fn outlined_numeric_realm_argument(
+    source: NumericErrorRealmSource,
+) -> OutlinedNumericRealmArgument {
+    match source {
+        NumericErrorRealmSource::GlobalFallback => OutlinedNumericRealmArgument::MainRealmFallback,
+        NumericErrorRealmSource::StandardBuiltinEnvironment
+        | NumericErrorRealmSource::NumericConversionHelperArgument => {
+            OutlinedNumericRealmArgument::TrustedCurrentEnvironment
+        }
+    }
+}
+
+fn numeric_conversion_error_realm(source: NumericErrorRealmSource) -> NumericConversionErrorRealm {
+    match source {
+        NumericErrorRealmSource::GlobalFallback => NumericConversionErrorRealm::MainRealmFallback,
+        NumericErrorRealmSource::StandardBuiltinEnvironment
+        | NumericErrorRealmSource::NumericConversionHelperArgument => {
+            NumericConversionErrorRealm::TrustedCurrentEnvironment
+        }
+    }
+}
+
 fn spec_operation_property_key_operand(key: &TypedExpr) -> PropertyKeyIr {
     match &key.expr {
         ExprIr::String(value) if key.kind == ValueKind::String => {
@@ -324,6 +370,45 @@ fn spec_operation_property_key_operand(key: &TypedExpr) -> PropertyKeyIr {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    /// Emit helper ABI parameter 6 for outlined `ToNumeric`/`ToNumber` calls.
+    /// Keeping both consumers behind this one projection prevents their realm
+    /// policy from drifting while their helper bodies share the same ABI.
+    fn emit_outlined_numeric_realm_argument(&self, function: &mut Function) {
+        match outlined_numeric_realm_argument(self.numeric_error_realm_source()) {
+            OutlinedNumericRealmArgument::TrustedCurrentEnvironment => {
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+            }
+            OutlinedNumericRealmArgument::MainRealmFallback => {
+                function.instruction(&Instruction::I64Const(0));
+            }
+        }
+    }
+
+    fn emit_numeric_conversion_type_error(
+        &mut self,
+        message: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match numeric_conversion_error_realm(self.numeric_error_realm_source()) {
+            NumericConversionErrorRealm::TrustedCurrentEnvironment => self
+                .emit_throw_current_function_realm_type_error(
+                    message,
+                    payload_local,
+                    tag_local,
+                    function,
+                ),
+            NumericConversionErrorRealm::MainRealmFallback => self.emit_throw_runtime_error(
+                TYPE_ERROR_NAME,
+                message,
+                payload_local,
+                tag_local,
+                function,
+            ),
+        }
+    }
+
     fn finish_may_throw_operation(
         &mut self,
         _operation: MayThrowOperation,
@@ -2964,11 +3049,14 @@ impl<'a> FunctionBuilder<'a> {
     /// hence through this seam, so a zero here would drop an environment that
     /// path demonstrably carries today.
     ///
-    /// The zero-passing seams (`emit_value_to_number_payload`,
-    /// `emit_value_to_string_payload`, `IndexedElementRead`) are not a
-    /// counter-precedent to follow: they drop the caller's environment for the
-    /// same reason, which is a pre-existing defect of this same class rather
-    /// than a decision. Do not "harmonise" this seam down to theirs.
+    /// The remaining zero-passing seams (`emit_value_to_string_payload`,
+    /// `IndexedElementRead`) are not a counter-precedent to follow: they drop
+    /// the caller's environment for the same reason, which is a pre-existing
+    /// defect of this same class rather than a decision.
+    /// `emit_value_to_number_payload` now forwards the narrower safe domain of
+    /// self-backed standard-builtin Realm environments needed by its
+    /// helper-created TypeErrors. Do not "harmonise" this seam down to the
+    /// remaining zero-passing callers.
     /// `compile_value_to_primitive_helper` reads the parameter back.
     fn emit_value_to_primitive_via_helper_if_outlined(
         &mut self,
@@ -4145,7 +4233,7 @@ impl<'a> FunctionBuilder<'a> {
                 for _ in 0..4 {
                     function.instruction(&Instruction::I64Const(0));
                 }
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                self.emit_outlined_numeric_realm_argument(function);
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(payload_local, tag_local, function);
                 self.emit_propagate_throw_from_locals_if_needed(
@@ -4750,7 +4838,11 @@ impl<'a> FunctionBuilder<'a> {
         // ToPrimitive throw inside the helper is surfaced through the completion
         // slots and re-raised here with a completion return — the same discipline
         // the inline composite's own throw sites use (`emit_return_current_
-        // completion`), which is valid at any block depth.
+        // completion`), which is valid at any block depth. Parameter 6 carries
+        // a standard builtin's self-backed Realm environment so helper-created
+        // BigInt/Symbol TypeErrors have the same realm policy as inline
+        // conversion; non-standard callers pass zero because their lexical
+        // environment has a different layout.
         if self.outline_value_to_number {
             if let Some(helper) = self.value_to_number_helper_function_index() {
                 let result_payload_local = self.reserve_temp_local();
@@ -4766,9 +4858,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::LocalGet(payload_local));
                 function.instruction(&Instruction::LocalGet(tag_local));
-                for _ in 0..5 {
+                for _ in 0..4 {
                     function.instruction(&Instruction::I64Const(0));
                 }
+                self.emit_outlined_numeric_realm_argument(function);
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(result_payload_local, result_tag_local, function);
                 function.instruction(&Instruction::End);
@@ -4975,8 +5068,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_is_bigint_tag_i32(tag_local, function);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_numeric_conversion_type_error(
             "Cannot convert BigInt to number",
             self.result_local,
             self.result_tag_local,
@@ -4991,8 +5083,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_numeric_conversion_type_error(
             "Cannot convert Symbol to number",
             self.result_local,
             self.result_tag_local,
@@ -8495,61 +8586,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_bigint_to_string_with_radix_result(
-        &mut self,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let radix_payload_local = self.reserve_temp_local();
-        let radix_tag_local = self.reserve_temp_local();
-        let radix_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, radix_payload_local, radix_tag_local, function);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::LocalGet(radix_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_number_payload(radix_tag_local, radix_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(radix_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(36));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
-            "BigInt.prototype.toString radix out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_bigint_to_radix_string_payload(payload_local, radix_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(radix_local);
-        self.release_temp_local(radix_tag_local);
-        self.release_temp_local(radix_payload_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_bigint_to_radix_string_payload(
         &mut self,
         payload_local: u32,
@@ -8854,60 +8890,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(limb_count_local);
         self.release_temp_local(limbs_local);
         self.release_temp_local(sign_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_heap_bigint_to_string_with_radix_result(
-        &mut self,
-        payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let radix_payload_local = self.reserve_temp_local();
-        let radix_tag_local = self.reserve_temp_local();
-        let radix_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, radix_payload_local, radix_tag_local, function);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::LocalGet(radix_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_number_payload(radix_tag_local, radix_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(radix_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(36));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "BigInt.prototype.toString radix out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_heap_bigint_to_radix_string_payload(payload_local, radix_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(radix_local);
-        self.release_temp_local(radix_tag_local);
-        self.release_temp_local(radix_payload_local);
         Ok(())
     }
 
@@ -11690,5 +11672,52 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(lhs_limbs_local);
         self.release_temp_local(rhs_sign_local);
         self.release_temp_local(lhs_sign_local);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numeric_realm_projections_keep_ordinary_lexical_environments_out() {
+        let trusted_helpers = RuntimeHelperId::ALL
+            .iter()
+            .copied()
+            .filter(|helper| {
+                NumericErrorRealmSource::for_runtime_helper(*helper)
+                    == NumericErrorRealmSource::NumericConversionHelperArgument
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            trusted_helpers,
+            vec![
+                RuntimeHelperId::ValueToNumber,
+                RuntimeHelperId::ValueToNumeric
+            ]
+        );
+
+        for source in [
+            NumericErrorRealmSource::StandardBuiltinEnvironment,
+            NumericErrorRealmSource::NumericConversionHelperArgument,
+        ] {
+            assert_eq!(
+                outlined_numeric_realm_argument(source),
+                OutlinedNumericRealmArgument::TrustedCurrentEnvironment
+            );
+            assert_eq!(
+                numeric_conversion_error_realm(source),
+                NumericConversionErrorRealm::TrustedCurrentEnvironment
+            );
+        }
+
+        assert_eq!(
+            outlined_numeric_realm_argument(NumericErrorRealmSource::GlobalFallback),
+            OutlinedNumericRealmArgument::MainRealmFallback
+        );
+        assert_eq!(
+            numeric_conversion_error_realm(NumericErrorRealmSource::GlobalFallback),
+            NumericConversionErrorRealm::MainRealmFallback
+        );
     }
 }

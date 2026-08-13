@@ -213,6 +213,71 @@ impl FunctionModuleState {
     }
 }
 
+/// What `current_env_local` is allowed to mean when numeric conversion creates
+/// an error object.
+///
+/// Main bodies, user/host functions and ordinary runtime helpers can carry a
+/// lexical environment (or no environment) and therefore must use the global
+/// error-constructor fallback. Standard builtins receive a self-backed Realm
+/// record. Only the two numeric-conversion helpers receive the corresponding
+/// trusted Realm-or-zero value through helper ABI parameter 6.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumericErrorRealmSource {
+    GlobalFallback,
+    StandardBuiltinEnvironment,
+    NumericConversionHelperArgument,
+}
+
+impl NumericErrorRealmSource {
+    /// The closed body-domain transition performed when a runtime helper starts.
+    /// A new helper is a compile error here until it explicitly chooses whether
+    /// its environment is trusted numeric-conversion Realm state.
+    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
+        match helper {
+            RuntimeHelperId::ValueToNumber | RuntimeHelperId::ValueToNumeric => {
+                Self::NumericConversionHelperArgument
+            }
+            RuntimeHelperId::HeapAlloc
+            | RuntimeHelperId::ObjectAppendDataProperty
+            | RuntimeHelperId::ObjectAppendAccessorProperty
+            | RuntimeHelperId::FunctionObjectAlloc
+            | RuntimeHelperId::PlainObjectAlloc
+            | RuntimeHelperId::ArrayAlloc
+            | RuntimeHelperId::ObjectRead
+            | RuntimeHelperId::ObjectWrite
+            | RuntimeHelperId::ObjectDefineData
+            | RuntimeHelperId::ProxyCall
+            | RuntimeHelperId::ProxyConstruct
+            | RuntimeHelperId::StringEquality
+            | RuntimeHelperId::NumberToString
+            | RuntimeHelperId::StringToNumber
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ObjectGetPrototypeOf
+            | RuntimeHelperId::ObjectIsExtensible
+            | RuntimeHelperId::ObjectReadProxy
+            | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::FunctionCall
+            | RuntimeHelperId::DynamicPropertyRead
+            | RuntimeHelperId::OrdinarySetDataOnReceiver
+            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
+            | RuntimeHelperId::ArrayWrite
+            | RuntimeHelperId::OrdinarySet
+            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
+            | RuntimeHelperId::DecimalToBinary64
+            | RuntimeHelperId::BigIntArithmetic
+            | RuntimeHelperId::TemporalCalendarIsoDateProbe
+            | RuntimeHelperId::TemporalCalendarIdentifier
+            | RuntimeHelperId::IndexedElementRead
+            | RuntimeHelperId::IndexedElementWrite
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString
+            | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OrdinarySetDataOnReceiverEmission {
     Inline,
@@ -286,6 +351,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) uses_heap: bool,
     pub(crate) completion_exit: CompletionExit,
     module_state: FunctionModuleState,
+    numeric_error_realm_source: NumericErrorRealmSource,
     pub(crate) binding_scopes: Vec<BTreeMap<String, BindingStorage>>,
     pub(crate) hoisted_vars: Vec<String>,
     pub(crate) next_binding_local: u32,
@@ -2573,6 +2639,10 @@ fn emit_script_with_forced_builtins(
 }
 
 impl<'a> FunctionBuilder<'a> {
+    pub(crate) const fn numeric_error_realm_source(&self) -> NumericErrorRealmSource {
+        self.numeric_error_realm_source
+    }
+
     pub(crate) fn template_object_global_index(&self, site_id: u64) -> u32 {
         let site_offset = self
             .strings
@@ -2612,6 +2682,7 @@ impl<'a> FunctionBuilder<'a> {
             Some(&script.global_bindings),
             uses_heap,
             FunctionModuleState::Main(module_schema),
+            NumericErrorRealmSource::GlobalFallback,
             false,
             runtime_bootstrap_plan,
             heap_alloc_function_index,
@@ -2652,6 +2723,7 @@ impl<'a> FunctionBuilder<'a> {
             Some(global_bindings),
             uses_heap,
             FunctionModuleState::Internal,
+            NumericErrorRealmSource::GlobalFallback,
             function.is_derived_constructor,
             runtime_bootstrap_plan,
             heap_alloc_function_index,
@@ -2691,6 +2763,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             uses_heap,
             FunctionModuleState::Internal,
+            NumericErrorRealmSource::GlobalFallback,
             false,
             RuntimeBootstrapPlan::default(),
             heap_alloc_function_index,
@@ -2730,6 +2803,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             uses_heap,
             FunctionModuleState::Internal,
+            NumericErrorRealmSource::GlobalFallback,
             false,
             runtime_bootstrap_plan,
             heap_alloc_function_index,
@@ -2770,6 +2844,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             uses_heap,
             FunctionModuleState::Internal,
+            NumericErrorRealmSource::StandardBuiltinEnvironment,
             false,
             runtime_bootstrap_plan,
             heap_alloc_function_index,
@@ -2798,6 +2873,7 @@ impl<'a> FunctionBuilder<'a> {
         script_global_bindings: Option<&'a GlobalBindingPlan>,
         uses_heap: bool,
         module_state: FunctionModuleState,
+        numeric_error_realm_source: NumericErrorRealmSource,
         is_derived_constructor: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
         heap_alloc_function_index: Option<u32>,
@@ -2857,6 +2933,7 @@ impl<'a> FunctionBuilder<'a> {
             uses_heap,
             completion_exit: CompletionExit::for_return_abi(return_abi),
             module_state,
+            numeric_error_realm_source,
             hoisted_vars,
             binding_scopes: Vec::new(),
             next_binding_local: param_local_count,
@@ -3801,6 +3878,7 @@ impl<'a> FunctionBuilder<'a> {
     /// which counts the construction sites; do not restate it as an
     /// enforcement claim anywhere else.
     pub(crate) fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {
+        self.numeric_error_realm_source = NumericErrorRealmSource::for_runtime_helper(helper);
         match helper {
             RuntimeHelperId::ObjectRead => self.outline_object_read = false,
             RuntimeHelperId::ObjectWrite => self.outline_object_write = false,
@@ -4360,13 +4438,19 @@ impl<'a> FunctionBuilder<'a> {
     /// string parse — several KB per inline copy across ~130 builtin sites).
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag. Params 2-6 are unused. Results are the standard four-i64
+    /// 1=value tag, and 6=a standard builtin's self-backed realm environment
+    /// (zero for non-standard callers). Params 2-5 are unused. This lets
+    /// ToNumber-created BigInt/Symbol TypeErrors use the builtin's defining
+    /// Realm without interpreting an ordinary lexical environment as realm
+    /// metadata. Results are the standard four-i64
     /// tuple: on normal completion the number payload (f64 bits) is in the
     /// first slot with a Number tag; a BigInt/Symbol/ToPrimitive throw is
     /// surfaced through the completion slots.
     fn compile_value_to_number_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ValueToNumber);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_number_payload(1, 0, &mut function)?;
@@ -4405,8 +4489,9 @@ impl<'a> FunctionBuilder<'a> {
     /// Compiles the shared dynamic ToNumeric helper.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params 0 and 1 contain
-    /// the input payload and tag, and param 6 contains the calling function's
-    /// realm environment. The standard four-i64 result tuple preserves the
+    /// the input payload and tag. Param 6 contains a standard builtin's
+    /// self-backed realm environment, or zero for a non-standard caller;
+    /// params 2-5 are unused. The standard four-i64 result tuple preserves the
     /// resulting Number-or-BigInt tag and any abrupt completion produced by
     /// ToPrimitive.
     fn compile_value_to_numeric_helper(&mut self) -> Result<Function, EmitError> {

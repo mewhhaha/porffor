@@ -21,7 +21,25 @@ the operand is evaluated once and crosses one ToNumeric boundary, the Number
 arm consumes the shared exact modulo-2^32 emitter, and the BigInt arm applies
 the existing arbitrary-precision XOR representation to `-1n`. Literal folding
 uses the same mathematical identity without narrowing. Remaining
-conversion/builtin integrations are still open. The Number side now has one
+conversion/builtin integrations are still open. The BigInt prototype result
+boundary now carries a closed exact-value, radix-string or locale-fallback
+policy from each existing builtin producer. After shared receiver extraction,
+marker-typed helpers make locale calls ineligible for the radix reader:
+`toLocaleString` uses the permitted decimal core fallback and leaves its two
+reserved arguments unused, while `toString` retains radix coercion/error order
+and `valueOf` retains the exact representation. One prepared-radix witness
+owns coercion and range validation before immediate-versus-heap formatting,
+and a closed builder body-domain lets only standard builtins and the
+`ValueToNumber`/`ValueToNumeric` helpers interpret their environment as
+Realm-or-zero state. Main, user, host and every other helper body use the
+global error fallback, while created-Realm BigInt prototype methods carry both
+their TypeError and RangeError prototype slots. BigInt/Symbol `TypeError`s and
+radix `RangeError`s therefore use the same defining-realm policy for immediate
+and heap representations without exposing lexical environments. The focused
+[result-policy contract](../docs/rust-rewrite/contracts/bigint-prototype-result-policy.md)
+and registered CLI fixture cover immediate, heap and boxed values. This batch
+has run only static gates for the seam; it does not implement or claim
+`Intl.NumberFormat` or locale-aware ECMA-402 output. The Number side now has one
 backend authority for exact modulo-2^32 conversion across unary and binary
 bitwise operators, Array length conversion, String split limits,
 `String.fromCharCode`'s `ToUint16` projection, `Math.imul`, `Math.clz32`, every
