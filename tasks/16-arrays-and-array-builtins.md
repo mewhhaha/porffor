@@ -77,11 +77,12 @@ be honestly deleted on their strength alone. The `@@isConcatSpreadable` seam
 also does not claim complete descriptor attributes, deletion/redefinition,
 inherited setters, Proxy traps or Array-record compaction.
 
-The in-flight current-pin Array prototype baseline still has two primitive
-`toLocaleString` failures. They are not closed by the Array-owned invocation
-token: the inherited `Object.prototype.toLocaleString` path currently uses a
-temporary primitive box as the getter and call receiver. That shared Object
-`Invoke` defect remains T10 work, so this seam carries no baseline-delta or
+The available current-pin Array prototype baseline predates the T10
+`Object.prototype.toLocaleString` repair and still records two primitive
+`toLocaleString` failures caused by its former boxed getter and call receiver.
+The Object path now statically preserves the original primitive through GetV
+and Proxy-aware Call. Focused runtime and pinned Test262 execution remain
+deferred, so neither seam carries a current-SHA baseline-delta or
 full-subtree-green claim.
 
 ## Objective

@@ -22,9 +22,9 @@
 //! `run_wasm_backend_succeeds_for_reflect_set_core_fixture` sits with the
 //! `spec_*` abstract-operation fixtures because `Reflect.set` is exactly the
 //! `Set` abstract operation, beside `spec_get_v` and `spec_has_property_order`;
-//! and `run_wasm_backend_succeeds_for_to_locale_string_boxed_receivers_fixture`
-//! is a boxing/coercion test. Neither belongs with bindings and scoping, which
-//! is what `language.rs` keeps.
+//! and `run_wasm_backend_succeeds_for_object_to_locale_string_invoke_fixture`
+//! is a GetV/Invoke test. Neither belongs with bindings and scoping, which is
+//! what `language.rs` keeps.
 //!
 //! Do NOT rename this module to anything ending in `language` — the overlap rule
 //! keys on `"{other}::".ends_with("{chunk}::")`, and a stem that is a `::`-suffix
@@ -437,12 +437,12 @@ fn run_wasm_backend_truncates_bigints_at_arbitrary_widths() {
 }
 
 #[test]
-fn run_wasm_backend_succeeds_for_to_locale_string_boxed_receivers_fixture() {
+fn run_wasm_backend_succeeds_for_object_to_locale_string_invoke_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
-        .arg(fixture_path("wasm_to_locale_string_boxed_receivers.js"))
+        .arg(fixture_path("wasm_object_to_locale_string_invoke.js"))
         .output()
         .expect("run command should run");
 

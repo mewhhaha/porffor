@@ -92,6 +92,18 @@ descriptor's own data field and never invokes the target property getter. The
 bounded contract is recorded in
 `docs/rust-rewrite/contracts/own-descriptor-predicates.md`.
 
+`Object.prototype.toLocaleString` now has one typed `Invoke` path. A private
+receiver-role value keeps the exact original receiver distinct from the
+current-function-Realm object used only for GetV lookup. General `IsCallable`
+validation consumes those roles and produces a private non-`Copy` invocation
+token; its sole ownership-consuming call is Proxy-aware and passes the exact
+original receiver with no arguments. Nullish and non-callable failures use the
+running built-in's Realm. The durable source and CLI regressions cover strict
+primitive getter and method receivers, callable Proxy `apply`, the downstream
+Array path, and created-realm TypeErrors. Runtime and pinned Test262 execution
+remain deferred; the boundary and nonclaims are recorded in
+`docs/rust-rewrite/contracts/object-to-locale-string-invoke.md`.
+
 This is direct-target closure only. The fact deliberately marks a nested Proxy
 target as handled without treating its own storage as the target descriptor;
 the recursive Proxy descriptor-record protocol remains T11 work. The complete
@@ -111,8 +123,10 @@ the HasProperty and Proxy-Set batches have not rerun them. The focused
 Proxy-Set direct-descriptor fixture is written but has not run while the shared
 verification lane owns Cargo and Test262. The focused own-descriptor-predicate
 fixture is also written but has received only static boundary and diff checks;
-its Cargo/runtime test and focused Test262 filters remain deferred. A complete
-current-pin Wasm-AOT Object/descriptor subtree run has not been performed.
+its Cargo/runtime test and focused Test262 filters remain deferred. The
+`Object.prototype.toLocaleString` Invoke regressions likewise have only static
+verification. A complete current-pin Wasm-AOT Object/descriptor subtree run
+has not been performed.
 
 ## Objective
 

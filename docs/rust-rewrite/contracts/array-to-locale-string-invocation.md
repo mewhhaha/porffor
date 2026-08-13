@@ -61,16 +61,16 @@ call that precedes validation.
 
 ## Baseline disclosure and nonclaims
 
-This is a statically identified realm defect, not a current-pin failure-count
-closure. The in-flight `built-ins/Array/prototype` baseline has two remaining
-`toLocaleString` failures for primitive elements. Those failures arise in the
-shared `Object.prototype.toLocaleString`/`Invoke` path, which boxes the lookup
-target and then incorrectly uses that box as the getter and call receiver.
-That shared Object semantic remains owned by T10 and is deliberately outside
-this Array-only seam.
+The available `built-ins/Array/prototype` baseline predates the T10
+`Object.prototype.toLocaleString` repair. It has two remaining
+`toLocaleString` failures for primitive elements because the old Object path
+used its boxed lookup target as the getter and call receiver. T10 now
+statically preserves the original primitive through GetV and Proxy-aware Call;
+focused runtime and pinned Test262 execution remain deferred, so this carries
+no current-SHA baseline-delta or full-subtree-green claim.
 
-This change does not complete primitive `GetV` receiver preservation, ECMA-402
-locale formatting, Array exotic descriptors, species or constructor realms.
+This change does not complete compiler-wide `GetV`, ECMA-402 locale formatting,
+Array exotic descriptors, species or constructor realms.
 It removes no Test262 materializer, changes no published conformance count, and
 does not claim the Array, Array prototype or TypedArray trees are green.
 Runtime verification remains deferred to the coordinated batch checkpoint.
