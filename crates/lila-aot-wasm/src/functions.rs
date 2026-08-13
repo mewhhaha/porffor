@@ -64,6 +64,7 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     WeakRefPrototype,
     FinalizationRegistryPrototype,
     RegExpPrototype,
+    DatePrototype,
     Float64ArrayPrototype,
     Float32ArrayPrototype,
     Int32ArrayPrototype,
@@ -75,6 +76,17 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     Uint8ClampedArrayPrototype,
     BigInt64ArrayPrototype,
     BigUint64ArrayPrototype,
+}
+
+/// The fallback selected after `Get(NewTarget, "prototype")` produces a
+/// primitive. The variants keep entry-global, function-snapshot, optional
+/// realm-slot and required resolved-realm semantics distinct at each caller.
+#[derive(Clone, Copy)]
+pub(crate) enum NewTargetPrototypeFallback {
+    CurrentGlobal,
+    FunctionSnapshot(u64),
+    RealmIntrinsic(u64),
+    RequiredResolvedRealmOrdinary(OrdinaryDefaultPrototype),
 }
 
 impl NonArrayRealmIntrinsicSlot {
@@ -125,6 +137,7 @@ impl NonArrayRealmIntrinsicSlot {
                 HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET
             }
             Self::RegExpPrototype => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
+            Self::DatePrototype => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
             Self::Float64ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
             Self::Float32ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
             Self::Int32ArrayPrototype => HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET,
@@ -208,18 +221,19 @@ impl ResolvedFunctionRealmLocal {
 }
 
 /// The ordinary-object intrinsic prototypes selected by
-/// `GetPrototypeFromConstructor` in the shared construct path.
+/// `GetPrototypeFromConstructor` in constructor fallback paths.
 ///
 /// `%Array.prototype%` is deliberately absent because it has an Array layout
 /// and a distinct representation tag. Keeping this domain closed prevents a
 /// caller from pairing an arbitrary realm-intrinsic offset with an entry-realm
 /// fallback.
 #[derive(Clone, Copy)]
-enum OrdinaryDefaultPrototype {
+pub(crate) enum OrdinaryDefaultPrototype {
     Object,
     String,
     Number,
     Boolean,
+    Date,
 }
 
 impl OrdinaryDefaultPrototype {
@@ -229,6 +243,7 @@ impl OrdinaryDefaultPrototype {
             Self::String => HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
             Self::Number => HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
             Self::Boolean => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+            Self::Date => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
         }
     }
 }
@@ -4402,6 +4417,23 @@ impl<'a> FunctionBuilder<'a> {
         );
     }
 
+    /// Publish the Date prototype allocated for a created realm through the
+    /// closed non-Array intrinsic domain. Requiring a realm witness prevents a
+    /// scratch payload from being mistaken for a realm record at this site.
+    pub(crate) fn emit_store_realm_date_prototype(
+        &mut self,
+        realm: RealmRecordLocal,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_store_non_array_realm_intrinsic(
+            realm.index(),
+            NonArrayRealmIntrinsicSlot::DatePrototype,
+            prototype_local,
+            function,
+        );
+    }
+
     pub(crate) fn emit_load_realm_intrinsic_prototype_or_global(
         &mut self,
         realm_local: u32,
@@ -4516,6 +4548,42 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(intrinsics_local);
         ResolvedRealmOrdinaryPrototypeLocal(prototype_local)
+    }
+
+    /// Resolve and install one required ordinary default prototype from the
+    /// original new target's function realm. Keeping the opaque realm result,
+    /// required slot load and tagged witness consumption together prevents a
+    /// fallback policy from exposing a realm before revoked/invalid outcomes
+    /// are routed or from substituting an entry-realm global.
+    pub(crate) fn emit_required_new_target_realm_ordinary_prototype(
+        &mut self,
+        new_target_payload_local: u32,
+        new_target_tag_local: u32,
+        intrinsic: OrdinaryDefaultPrototype,
+        prototype_payload_local: u32,
+        prototype_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let realm_result =
+            self.emit_get_function_realm(new_target_payload_local, new_target_tag_local, function);
+        let realm = self.emit_route_function_realm_result(
+            realm_result,
+            FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn {
+                payload_local: self.result_local,
+                tag_local: self.result_tag_local,
+            },
+            function,
+        )?;
+        let prototype =
+            self.emit_load_required_resolved_realm_ordinary_prototype(realm, intrinsic, function);
+        self.emit_install_resolved_realm_ordinary_prototype(
+            prototype,
+            prototype_payload_local,
+            prototype_tag_local,
+            function,
+        );
+        self.release_resolved_function_realm_local(realm);
+        Ok(())
     }
 
     /// Consume a required ordinary-object prototype and install its payload

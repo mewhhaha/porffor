@@ -4604,6 +4604,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(date_prototype_local));
+        self.emit_store_realm_date_prototype(realm_record, date_prototype_local, function);
         for (name, meta) in &date_prototype_method_metas {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(

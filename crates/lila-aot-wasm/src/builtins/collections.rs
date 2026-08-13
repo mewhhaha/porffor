@@ -1,5 +1,5 @@
 use super::super::*;
-use super::errors::NewTargetPrototypeFallback;
+use crate::functions::NewTargetPrototypeFallback;
 use crate::operations::PrimitiveToStringAbruptRoute;
 
 macro_rules! collection_wire_domain {

@@ -2923,7 +2923,7 @@ impl<'a> FunctionBuilder<'a> {
         // (`Function constructor dynamic code generation`) and cannot pass on
         // this backend; the constructor therefore falls back to the current
         // realm's global (`NewTargetPrototypeFallback::CurrentGlobal`) and the
-        // 344-byte realm-intrinsics record does not move.
+        // realm-intrinsics record does not gain an AsyncDisposableStack slot.
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3158,6 +3158,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(DATE_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            DATE_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::DatePrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),

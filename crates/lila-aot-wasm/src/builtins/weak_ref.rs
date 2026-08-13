@@ -1,5 +1,5 @@
 use super::super::*;
-use super::errors::NewTargetPrototypeFallback;
+use crate::functions::NewTargetPrototypeFallback;
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_weak_ref_constructor(

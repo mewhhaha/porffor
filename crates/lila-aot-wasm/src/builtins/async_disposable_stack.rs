@@ -34,7 +34,7 @@
 //! happened.
 
 use super::super::*;
-use super::errors::NewTargetPrototypeFallback;
+use crate::functions::NewTargetPrototypeFallback;
 
 /// The disposal walk's parked state, hung off both settlement callbacks'
 /// `[[Environment]]` slot. It is *not* the `AsyncDisposableStack` record: the
@@ -90,7 +90,7 @@ impl<'a> FunctionBuilder<'a> {
         // `proto-from-ctor-realm.js`, which needs the cross-realm `Function`
         // constructor and is a declared policy case on this backend. Choosing
         // the global keeps `%AsyncDisposableStack.prototype%` out of the
-        // 344-byte realm-intrinsics record.
+        // realm-intrinsics record.
         self.emit_new_target_prototype_to_locals(
             ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
             NewTargetPrototypeFallback::CurrentGlobal,

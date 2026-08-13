@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::functions::FunctionRealmRevokedRoute;
+use crate::functions::{FunctionRealmRevokedRoute, NewTargetPrototypeFallback};
 use lila_ir::NativeErrorKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,13 +15,6 @@ fn native_error_kind(name: &str) -> Result<NativeErrorKind, EmitError> {
             "internal wasm-aot error emitter received unknown native error name `{name}`"
         ))
     })
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum NewTargetPrototypeFallback {
-    CurrentGlobal,
-    FunctionSnapshot(u64),
-    RealmIntrinsic(u64),
 }
 
 #[must_use = "the prepared Error name must be consumed before reading message"]
@@ -872,6 +865,16 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_payload_local,
                     function,
                 );
+            }
+            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic) => {
+                self.emit_required_new_target_realm_ordinary_prototype(
+                    new_target_payload_local,
+                    new_target_tag_local,
+                    intrinsic,
+                    prototype_payload_local,
+                    prototype_tag_local,
+                    function,
+                )?;
             }
             NewTargetPrototypeFallback::RealmIntrinsic(offset) => {
                 let prototype_realm_result = self.emit_get_function_realm(

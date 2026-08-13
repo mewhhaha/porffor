@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::functions::{NewTargetPrototypeFallback, OrdinaryDefaultPrototype};
 
 #[derive(Clone, Copy)]
 enum DateLocalStringFormat {
@@ -30,6 +31,29 @@ enum DateTimeValueSource {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    /// Resolve the prototype used by all Date construction arities.
+    ///
+    /// An object-valued `NewTarget.prototype` is used directly with its
+    /// representation tag. A primitive value must select `%Date.prototype%`
+    /// from `GetFunctionRealm(NewTarget)`; the typed policy traps missing realm
+    /// bootstrap state and cannot fall back to the entry-realm global.
+    pub(crate) fn emit_date_constructor_prototype_to_locals(
+        &mut self,
+        prototype_payload_local: u32,
+        prototype_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_new_target_prototype_to_locals(
+            DATE_PROTOTYPE_GLOBAL_INDEX,
+            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                OrdinaryDefaultPrototype::Date,
+            ),
+            prototype_payload_local,
+            prototype_tag_local,
+            function,
+        )
+    }
+
     fn emit_date_time_value_from_source(
         &mut self,
         source: DateTimeValueSource,

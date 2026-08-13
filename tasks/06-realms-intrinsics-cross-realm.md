@@ -45,11 +45,13 @@ automatic plain prototype, and its links use the Array-aware descriptor path
 and the exact ECMAScript attributes. Resolved-realm Array default-prototype
 fallback requires the resolved realm's populated Array slot and preserves the
 Array tag, with no entry-global substitution or payload identity heuristic.
-The four ordinary-object defaults selected by the same construct path now use
-a separate closed slot domain and a non-copyable loaded-prototype witness.
-Object, String, Number and Boolean construction require their resolved realm's
-populated intrinsic slot and consume the witness together with its Object tag;
-missing realm bootstrap state traps instead of selecting an entry-realm global.
+The ordinary-object defaults selected by construction now use a separate closed
+slot domain and a non-copyable loaded-prototype witness. Object, String, Number,
+Boolean and Date construction require their resolved realm's populated
+intrinsic slot and consume the witness together with its Object tag; missing
+realm bootstrap state traps instead of selecting an entry-realm global. Date
+reuses the same required fallback policy after its arity-specific value
+calculation rather than the shared direct-constructor dispatcher.
 
 This remains metadata foundation rather than full realm bootstrap. Intrinsic
 objects are not yet independently allocated from these templates across the

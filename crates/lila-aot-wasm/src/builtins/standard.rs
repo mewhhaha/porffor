@@ -25392,6 +25392,7 @@ impl<'a> FunctionBuilder<'a> {
                 let ms_payload_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 let prototype_payload_local = self.reserve_temp_local();
+                let prototype_tag_local = self.reserve_temp_local();
                 let date_value_key_local = self.reserve_temp_local();
                 let date_value_payload_local = self.reserve_temp_local();
                 let date_value_tag_local = self.reserve_temp_local();
@@ -25557,14 +25558,18 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
-                self.emit_error_new_target_prototype_to_local(
-                    DATE_PROTOTYPE_GLOBAL_INDEX,
-                    None,
+                // Every arity computes its final time value before the
+                // observable Get(NewTarget, "prototype"). Keep that ordering
+                // explicit: coercion and the zero-argument host clock can run
+                // user/host code before prototype selection.
+                self.emit_date_constructor_prototype_to_locals(
                     prototype_payload_local,
+                    prototype_tag_local,
                     function,
                 )?;
-                self.emit_alloc_plain_object_with_prototype(
+                self.emit_alloc_plain_object_with_prototype_and_tag(
                     Some(prototype_payload_local),
+                    Some(prototype_tag_local),
                     None,
                     function,
                 )?;
@@ -25593,6 +25598,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(date_value_tag_local);
                 self.release_temp_local(date_value_payload_local);
                 self.release_temp_local(date_value_key_local);
+                self.release_temp_local(prototype_tag_local);
                 self.release_temp_local(prototype_payload_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(ms_payload_local);

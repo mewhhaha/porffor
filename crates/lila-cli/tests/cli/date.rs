@@ -428,6 +428,36 @@ fn run_wasm_backend_copies_date_values_without_observing_coercion_hooks() {
     assert!(stdout.contains("number(262"));
 }
 
+/// `GetPrototypeFromConstructor` chooses `%Date.prototype%` from the
+/// new-target function's realm when its observable `prototype` value is a
+/// primitive. The three rows pin the zero-, one- and multiple-argument Date
+/// algorithms; the fixture also borrows `getTime` to keep Date allocation and
+/// branding in the contract, preserves Object/Function/Array custom-prototype
+/// tags, and pins argument coercion before the single observable proxy
+/// `prototype` read plus the revoked-proxy TypeError route.
+#[test]
+fn run_wasm_backend_uses_new_target_realm_for_date_prototype() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_date_constructor_cross_realm_newtarget.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+}
+
 /// `class S extends Intl.DateTimeFormat {}` — a subclass with no explicit
 /// constructor — must produce an ordinary object, and its own methods must be
 /// called.

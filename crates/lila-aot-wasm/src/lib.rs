@@ -307,7 +307,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            4
+            5
         );
         assert!(
             !domain.contains("Array"),
@@ -358,6 +358,188 @@ mod tests {
         assert!(install.contains("prototype: ResolvedRealmOrdinaryPrototypeLocal"));
         assert_eq!(install.matches("prototype.0").count(), 2);
         assert_eq!(install.matches("ValueKind::Object.tag() as i64").count(), 1);
+    }
+
+    #[test]
+    fn date_constructor_realm_prototype_is_required_and_published() {
+        let heap = include_str!("heap.rs");
+        let functions = include_str!("functions.rs");
+        let errors = include_str!("builtins/errors.rs");
+        let date = include_str!("builtins/date.rs");
+        let standard = include_str!("builtins/standard.rs");
+        let bootstrap = include_str!("builtins/bootstrap.rs");
+        let host = include_str!("builtins/host.rs");
+
+        let domain = functions
+            .split_once("enum OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype domain should exist")
+            .1
+            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
+            .expect("ordinary default-prototype domain should be bounded")
+            .0;
+        let offsets = functions
+            .split_once("impl OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype offset map should exist")
+            .1
+            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
+            .expect("ordinary default-prototype offset map should be bounded")
+            .0;
+        assert_eq!(domain.matches("    Date,").count(), 1);
+        assert_eq!(
+            offsets
+                .matches("Self::Date => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET")
+                .count(),
+            1
+        );
+
+        for required in [
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 352;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
+            "name: \"%Date.prototype%\"",
+            "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
+        ] {
+            assert!(
+                heap.contains(required),
+                "Date realm layout must contain {required}"
+            );
+        }
+
+        let generic_new_target = errors
+            .split_once("pub(crate) fn emit_new_target_prototype_to_locals(")
+            .expect("generic new-target prototype operation should exist")
+            .1
+            .split_once("pub(crate) fn emit_aggregate_error_new_target_prototype_to_local(")
+            .expect("generic new-target prototype operation should be bounded")
+            .0;
+        assert_eq!(
+            generic_new_target.matches("self.emit_object_read(").count(),
+            1
+        );
+        assert_eq!(
+            generic_new_target
+                .matches("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic)")
+                .count(),
+            1
+        );
+        assert!(
+            generic_new_target.find("self.emit_object_read(").unwrap()
+                < generic_new_target
+                    .find("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic)")
+                    .unwrap(),
+            "the observable prototype Get must precede function-realm fallback"
+        );
+        let required_arm = generic_new_target
+            .split_once("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic) => {")
+            .expect("required resolved-realm policy arm should exist")
+            .1
+            .split_once("NewTargetPrototypeFallback::RealmIntrinsic(offset) => {")
+            .expect("required resolved-realm policy arm should be bounded")
+            .0;
+        assert_eq!(
+            required_arm
+                .matches("emit_required_new_target_realm_ordinary_prototype(")
+                .count(),
+            1
+        );
+        assert!(!required_arm.contains("GlobalGet"));
+        assert!(!required_arm.contains("GLOBAL_INDEX"));
+
+        let required_helper = functions
+            .split_once("pub(crate) fn emit_required_new_target_realm_ordinary_prototype(")
+            .expect("required new-target realm helper should exist")
+            .1
+            .split_once("/// Consume a required ordinary-object prototype")
+            .expect("required new-target realm helper should be bounded")
+            .0;
+        for call in [
+            "emit_get_function_realm(",
+            "FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn",
+            "emit_load_required_resolved_realm_ordinary_prototype(",
+            "emit_install_resolved_realm_ordinary_prototype(",
+            "release_resolved_function_realm_local(",
+        ] {
+            assert_eq!(
+                required_helper.matches(call).count(),
+                1,
+                "required Date fallback must use {call} exactly once"
+            );
+        }
+        assert!(!required_helper.contains("GlobalGet"));
+        assert!(!required_helper.contains("GLOBAL_INDEX"));
+
+        let date_wrapper = date
+            .split_once("pub(crate) fn emit_date_constructor_prototype_to_locals(")
+            .expect("Date constructor prototype wrapper should exist")
+            .1
+            .split_once("fn emit_date_time_value_from_source(")
+            .expect("Date constructor prototype wrapper should be bounded")
+            .0;
+        assert_eq!(
+            date_wrapper
+                .matches("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            date_wrapper
+                .matches("OrdinaryDefaultPrototype::Date")
+                .count(),
+            1
+        );
+        assert!(date_wrapper.contains("prototype_tag_local: u32"));
+        assert!(!date_wrapper.contains("reserve_temp_local"));
+        assert!(!date_wrapper.contains("NewTargetPrototypeFallback::CurrentGlobal"));
+
+        let constructor = standard
+            .split_once("StandardBuiltinId::DateConstructor => {")
+            .expect("Date constructor builtin should exist")
+            .1
+            .split_once(
+                "StandardBuiltinId::DatePrototypeGetTime | StandardBuiltinId::DatePrototypeValueOf",
+            )
+            .expect("Date constructor builtin should be bounded")
+            .0;
+        for (operation, count) in [
+            ("emit_date_constructor_prototype_to_locals(", 1),
+            ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
+            ("OBJECT_INTERNAL_BRAND_DATE", 1),
+            ("ValueKind::Object.tag() as i64", 2),
+        ] {
+            assert_eq!(
+                constructor.matches(operation).count(),
+                count,
+                "Date construction must retain exactly {count} {operation} occurrence(s)"
+            );
+        }
+        let prototype_resolution = constructor
+            .find("emit_date_constructor_prototype_to_locals(")
+            .unwrap();
+        for (computation, count) in [
+            ("emit_date_current_time_payload(", 1),
+            ("emit_tagged_to_primitive_locals(", 2),
+            ("emit_value_to_number_payload(", 2),
+            ("emit_date_parse_string(", 1),
+            ("emit_date_make_day(", 1),
+            ("emit_date_time_clip(", 2),
+        ] {
+            assert_eq!(constructor.matches(computation).count(), count);
+            assert!(
+                constructor.rfind(computation).unwrap() < prototype_resolution,
+                "every Date {computation} emission must precede the observable prototype Get"
+            );
+        }
+        let tagged_allocation = "emit_alloc_plain_object_with_prototype_and_tag(\n                    Some(prototype_payload_local),\n                    Some(prototype_tag_local),\n                    None";
+        assert_eq!(constructor.matches(tagged_allocation).count(), 1);
+        assert!(prototype_resolution < constructor.find(tagged_allocation).unwrap());
+        assert!(!constructor.contains("emit_error_new_target_prototype_to_local("));
+
+        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            DATE_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::DatePrototype";
+        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
+        assert_eq!(
+            host.matches("self.emit_store_realm_date_prototype(")
+                .count(),
+            1
+        );
     }
 
     #[test]

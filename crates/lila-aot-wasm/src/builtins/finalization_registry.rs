@@ -1,5 +1,5 @@
 use super::super::*;
-use super::errors::NewTargetPrototypeFallback;
+use crate::functions::NewTargetPrototypeFallback;
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_finalization_registry_constructor(

@@ -55,6 +55,22 @@ keeps `PlainTime.from("T11:30[u-ca=unknown]")` valid while making
 `withCalendar("T11:30[u-ca=notacal]")` throw instead of silently defaulting to
 `iso8601`. Complete calendar coverage and the full Temporal tree remain open.
 
+Date construction now has a closed, required realm-prototype fallback. The
+realm-intrinsics record owns `%Date.prototype%`, entry and created realms both
+publish that slot, and all zero-, one- and multiple-argument Date construction
+select it through the same typed `GetFunctionRealm` policy when
+`NewTarget.prototype` is primitive. Missing resolved-realm bootstrap state
+traps rather than falling back to the entry global, while object-valued custom
+prototypes and the existing branded Date allocation remain on the same
+specification path. The prototype read occurs after zero-argument clock acquisition or argument
+coercion, and object-valued Object, Function and Array prototypes retain their
+payload tag through Date allocation. This targets the three exact
+`built-ins/Date/proto-from-ctor-realm-{zero,one,two}.js`
+failures from the 2026-08-13 current-pin Wasm-AOT baseline; focused current-SHA
+execution remains deferred until that low-RAM matrix releases Cargo/Test262.
+The invariant and deferred gates are recorded in
+`docs/rust-rewrite/contracts/date-constructor-realm-prototype.md`.
+
 ## Objective
 
 Implement exact Date semantics and the complete Temporal API for the pinned revisions using deterministic clock, calendar and time-zone interfaces. Reuse vendored `temporal_rs` where appropriate, but preserve JavaScript-observable coercion, property access, branding, realm and descriptor behavior in Lila's own runtime/compiler layers.
