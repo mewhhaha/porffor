@@ -53,6 +53,28 @@ every mirrored Set then resynchronizes the frame cache from the authoritative
 global property, including properties hardened after instantiation.
 See `docs/rust-rewrite/contracts/global-binding-plan.md`.
 
+`Error.prototype.toString` now has one object-representation admission and two
+typed observable phases. The shared object-like predicate admits Object,
+Function, Array and Arguments values, after which both `name` and `message`
+use the same proxy-aware `[[Get]]` path. A private, `must_use`
+`PreparedErrorNameLocal` is the only input accepted by the message/result
+phase, so `Get(name)`, name defaulting and `ToString(name)` must be emitted
+before `Get(message)`. This closes the prior Array/Arguments omission and the
+prior early observation of `message`; name conversion mutation and abrupt
+completion, all backend object representations, Proxy trap order, and
+defining-realm TypeErrors from the ToPrimitive/ToString composite have a
+focused durable witness. The shared operation layer exposes dedicated
+current-function-realm conversion wrappers to this builtin. An opaque,
+`must_use` primitive token carries their closed realm policy between
+ToPrimitive and primitive ToString, while helper ABI parameter 2 forwards the
+same two-word policy when ToPrimitive is outlined and parameter 6 forwards the
+Realm environment. The existing main-realm wrappers remain separately fixed
+policy surfaces, so T24 cannot silently select the wrong realm for a Symbol or
+invalid conversion hook. See
+`docs/rust-rewrite/contracts/error-prototype-tostring-phases.md`. This is a
+bounded semantic closure only; the focused runtime and current-pin Error gates
+remain deferred to the centralized verification pass.
+
 Error/global/Annex B metadata and legacy behavior still appears in other
 exact-path materializations, dynamic-source cases remain visible exclusions,
 and the full assigned trees lack current complete Wasm-AOT closure.

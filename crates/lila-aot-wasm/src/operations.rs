@@ -79,6 +79,52 @@ pub(crate) enum PrimitiveToStringAbruptRoute {
     IteratorCloseAndReturn(IteratorCloseOnThrowLocals),
 }
 
+/// The realm that owns TypeErrors created inside a conversion composite.
+///
+/// This is also the closed ABI domain forwarded through parameter 2 of the
+/// outlined ToPrimitive helpers. The explicit encoding keeps the helper
+/// boundary independent of Rust enum discriminants.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConversionErrorRealm {
+    MainRealm,
+    CurrentFunctionRealm,
+}
+
+impl ConversionErrorRealm {
+    const fn abi_word(self) -> i64 {
+        match self {
+            Self::MainRealm => 0,
+            Self::CurrentFunctionRealm => 1,
+        }
+    }
+}
+
+/// Where the conversion-error realm is obtained while emitting one body.
+///
+/// Product wrappers always fix a concrete policy. Only an outlined
+/// ToPrimitive helper decodes the already-validated policy from its ABI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConversionErrorRealmSource {
+    Fixed(ConversionErrorRealm),
+    RuntimeHelperArgument,
+}
+
+/// A current-function-realm ToPrimitive result prepared for primitive
+/// ToString.
+///
+/// The fields and realm policy stay private to this module. The only producer
+/// fixes `CurrentFunctionRealm`, and the only consumer reuses that stored
+/// policy for primitive ToString before releasing the locals. A builtin cannot
+/// split the composite and accidentally select the existing main-Realm
+/// primitive-string wrapper.
+#[derive(Debug)]
+#[must_use = "a current-function-realm primitive must be consumed by its matching ToString wrapper"]
+pub(crate) struct CurrentFunctionRealmPrimitiveLocals {
+    payload_local: u32,
+    tag_local: u32,
+    error_realm: ConversionErrorRealm,
+}
+
 /// A tagged `ToPrimitive` result whose possible throw still needs an owner.
 ///
 /// The fields are private and every exit consumes the token. The raw emission
@@ -370,6 +416,84 @@ fn spec_operation_property_key_operand(key: &TypedExpr) -> PropertyKeyIr {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    fn emit_conversion_error_realm_argument(
+        &self,
+        error_realm: ConversionErrorRealmSource,
+        function: &mut Function,
+    ) {
+        match error_realm {
+            ConversionErrorRealmSource::Fixed(error_realm) => {
+                function.instruction(&Instruction::I64Const(error_realm.abi_word()));
+            }
+            ConversionErrorRealmSource::RuntimeHelperArgument => {
+                function.instruction(&Instruction::LocalGet(2));
+            }
+        }
+    }
+
+    fn emit_conversion_type_error(
+        &mut self,
+        error_realm: ConversionErrorRealmSource,
+        message: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match error_realm {
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm) => self
+                .emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    message,
+                    payload_local,
+                    tag_local,
+                    function,
+                ),
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm) => self
+                .emit_throw_current_function_realm_type_error(
+                    message,
+                    payload_local,
+                    tag_local,
+                    function,
+                ),
+            ConversionErrorRealmSource::RuntimeHelperArgument => {
+                function.instruction(&Instruction::LocalGet(2));
+                function.instruction(&Instruction::I64Const(
+                    ConversionErrorRealm::MainRealm.abi_word(),
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    message,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(2));
+                function.instruction(&Instruction::I64Const(
+                    ConversionErrorRealm::CurrentFunctionRealm.abi_word(),
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    message,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                // Parameter 2 is emitted only from the closed Rust enum above.
+                // Trap rather than silently choosing a Realm if an invalid
+                // helper ABI caller is ever introduced.
+                function.instruction(&Instruction::Unreachable);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                Ok(())
+            }
+        }
+    }
+
     /// Emit helper ABI parameter 6 for outlined `ToNumeric`/`ToNumber` calls.
     /// Keeping both consumers behind this one projection prevents their realm
     /// policy from drifting while their helper bodies share the same ABI.
@@ -3035,7 +3159,8 @@ impl<'a> FunctionBuilder<'a> {
     /// a throw: the thrown value in the output locals *and* in
     /// `result_local`/`result_tag_local`, with `completion_local == THROW`.
     ///
-    /// Param 6 forwards [`Self::current_env_local`], and the two conflicting
+    /// Param 2 forwards the closed [`ConversionErrorRealm`] ABI word. Param 6
+    /// forwards [`Self::current_env_local`], and the two conflicting
     /// in-tree precedents are reconciled as follows rather than picked between.
     /// Inline, this composite always ran inside the *caller's* body, so it saw
     /// the caller's `current_env_local`. Outlining it into a helper that leaves
@@ -3065,6 +3190,7 @@ impl<'a> FunctionBuilder<'a> {
         input_tag_local: u32,
         payload_local: u32,
         tag_local: u32,
+        error_realm: ConversionErrorRealmSource,
         function: &mut Function,
     ) -> bool {
         if !self.outline_value_to_primitive {
@@ -3077,7 +3203,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(input_payload_local));
         function.instruction(&Instruction::LocalGet(input_tag_local));
-        for _ in 0..4 {
+        self.emit_conversion_error_realm_argument(error_realm, function);
+        for _ in 0..3 {
             function.instruction(&Instruction::I64Const(0));
         }
         function.instruction(&Instruction::LocalGet(self.current_env_local));
@@ -3108,9 +3235,69 @@ impl<'a> FunctionBuilder<'a> {
             input_tag_local,
             payload_local,
             tag_local,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
             function,
         )?
         .route(self, route, function)
+    }
+
+    pub(crate) fn emit_tagged_to_primitive_locals_in_current_function_realm(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input_payload_local: u32,
+        input_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<CurrentFunctionRealmPrimitiveLocals, EmitError> {
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        let error_realm = ConversionErrorRealm::CurrentFunctionRealm;
+
+        self.emit_tagged_to_primitive_locals_pending(
+            hint,
+            input_payload_local,
+            input_tag_local,
+            payload_local,
+            tag_local,
+            ConversionErrorRealmSource::Fixed(error_realm),
+            function,
+        )?
+        .route(
+            self,
+            ToPrimitiveAbruptRoute::ReturnCurrentFunction,
+            function,
+        )?;
+
+        Ok(CurrentFunctionRealmPrimitiveLocals {
+            payload_local,
+            tag_local,
+            error_realm,
+        })
+    }
+
+    pub(crate) fn emit_current_function_realm_primitive_to_string_local(
+        &mut self,
+        primitive: CurrentFunctionRealmPrimitiveLocals,
+        string_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let CurrentFunctionRealmPrimitiveLocals {
+            payload_local,
+            tag_local,
+            error_realm,
+        } = primitive;
+
+        self.emit_primitive_to_string_payload_with_error_realm(
+            payload_local,
+            tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
+            ConversionErrorRealmSource::Fixed(error_realm),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(string_payload_local));
+
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        Ok(())
     }
 
     fn emit_tagged_to_primitive_locals_pending(
@@ -3120,6 +3307,7 @@ impl<'a> FunctionBuilder<'a> {
         input_tag_local: u32,
         payload_local: u32,
         tag_local: u32,
+        error_realm: ConversionErrorRealmSource,
         function: &mut Function,
     ) -> Result<PendingToPrimitiveCompletion, EmitError> {
         let operation = MayThrowOperation::TO_PRIMITIVE;
@@ -3129,6 +3317,7 @@ impl<'a> FunctionBuilder<'a> {
             input_tag_local,
             payload_local,
             tag_local,
+            error_realm,
             function,
         ) {
             return Ok(PendingToPrimitiveCompletion::new(
@@ -3147,6 +3336,7 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Object,
             payload_local,
             tag_local,
+            error_realm,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3181,6 +3371,7 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Function,
             payload_local,
             tag_local,
+            error_realm,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3220,6 +3411,7 @@ impl<'a> FunctionBuilder<'a> {
             input_tag_local,
             payload_local,
             tag_local,
+            ConversionErrorRealmSource::RuntimeHelperArgument,
             function,
         )?;
         pending.emit_runtime_helper_result_tuple(self, function);
@@ -3242,6 +3434,7 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             payload_local,
             tag_local,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
             function,
         )?
         .route(self, route, function)
@@ -3253,6 +3446,7 @@ impl<'a> FunctionBuilder<'a> {
         object_local: u32,
         payload_local: u32,
         tag_local: u32,
+        error_realm: ConversionErrorRealmSource,
         function: &mut Function,
     ) -> Result<PendingToPrimitiveCompletion, EmitError> {
         let operation = MayThrowOperation::TO_PRIMITIVE;
@@ -3262,6 +3456,7 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Object,
             payload_local,
             tag_local,
+            error_realm,
             function,
         )?;
         Ok(PendingToPrimitiveCompletion::new(
@@ -3293,6 +3488,7 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             payload_local,
             tag_local,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
             function,
         )?
         .route(self, route, function)
@@ -3304,6 +3500,7 @@ impl<'a> FunctionBuilder<'a> {
         object_local: u32,
         payload_local: u32,
         tag_local: u32,
+        error_realm: ConversionErrorRealmSource,
         function: &mut Function,
     ) -> Result<PendingToPrimitiveCompletion, EmitError> {
         let operation = MayThrowOperation::TO_PRIMITIVE;
@@ -3313,6 +3510,7 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Function,
             payload_local,
             tag_local,
+            error_realm,
             function,
         )?;
         Ok(PendingToPrimitiveCompletion::new(
@@ -3329,6 +3527,7 @@ impl<'a> FunctionBuilder<'a> {
         object_tag_kind: ValueKind,
         payload_local: u32,
         tag_local: u32,
+        error_realm: ConversionErrorRealmSource,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let hook_names: &[&str] = match hint {
@@ -3487,8 +3686,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(primitive_result_local));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_conversion_type_error(
+                    error_realm,
                     "Cannot convert object to primitive value",
                     payload_local,
                     tag_local,
@@ -3508,8 +3707,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_conversion_type_error(
+                    error_realm,
                     "Cannot convert object to primitive value",
                     payload_local,
                     tag_local,
@@ -3616,8 +3815,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(primitive_result_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_conversion_type_error(
+            error_realm,
             "Cannot convert object to primitive value",
             payload_local,
             tag_local,
@@ -4887,6 +5086,7 @@ impl<'a> FunctionBuilder<'a> {
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
             function,
         )?;
         pending.emit_number_payload(self, function)?;
@@ -4957,6 +5157,7 @@ impl<'a> FunctionBuilder<'a> {
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
             function,
         )?;
         pending.emit_number_payload_without_return(self, function)?;
@@ -5128,6 +5329,7 @@ impl<'a> FunctionBuilder<'a> {
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
             function,
         )?;
         // A ToPrimitive throw here leaves completion=THROW with the error in
@@ -8379,6 +8581,7 @@ impl<'a> FunctionBuilder<'a> {
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
             function,
         )?;
         // A ToPrimitive throw here leaves completion=THROW with the error
@@ -8439,6 +8642,23 @@ impl<'a> FunctionBuilder<'a> {
         abrupt_route: PrimitiveToStringAbruptRoute,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_primitive_to_string_payload_with_error_realm(
+            payload_local,
+            tag_local,
+            abrupt_route,
+            ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),
+            function,
+        )
+    }
+
+    fn emit_primitive_to_string_payload_with_error_realm(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        abrupt_route: PrimitiveToStringAbruptRoute,
+        error_realm: ConversionErrorRealmSource,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -8483,8 +8703,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_conversion_type_error(
+            error_realm,
             "Cannot convert a Symbol value to a string",
             self.result_local,
             self.result_tag_local,

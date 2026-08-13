@@ -194,6 +194,176 @@ mod tests {
     }
 
     #[test]
+    fn error_prototype_to_string_has_typed_ordered_observable_phases() {
+        let source = include_str!("builtins/errors.rs");
+        let operations = include_str!("operations.rs");
+        let body = source
+            .split_once("fn emit_error_prototype_to_string(")
+            .expect("Error.prototype.toString emitter should exist")
+            .1
+            .split_once("fn emit_error_to_string_prepare_name(")
+            .expect("Error.prototype.toString body should end at its name phase")
+            .0;
+        let prepare_name = source
+            .split_once("fn emit_error_to_string_prepare_name(")
+            .expect("Error.prototype.toString name phase should exist")
+            .1
+            .split_once("fn emit_error_to_string_message_and_result(")
+            .expect("the name phase should end at the message phase")
+            .0;
+        let message_and_result = source
+            .split_once("fn emit_error_to_string_message_and_result(")
+            .expect("Error.prototype.toString message phase should exist")
+            .1
+            .split_once("fn emit_error_to_string_value_to_string_local(")
+            .expect("the message phase should have a bounded body")
+            .0;
+        let value_to_string = source
+            .split_once("fn emit_error_to_string_value_to_string_local(")
+            .expect("Error.prototype.toString conversion boundary should exist")
+            .1
+            .split_once("pub(crate) fn emit_alloc_error_instance_from_locals(")
+            .expect("the conversion boundary should have a bounded body")
+            .0;
+
+        assert_eq!(
+            body.matches("emit_is_heap_object_like_tag_i32(receiver_tag_local, function)")
+                .count(),
+            1,
+            "receiver admission must use the shared object-representation authority once"
+        );
+        for representation in ["Object", "Function", "Array", "Arguments"] {
+            assert!(
+                !body.contains(&format!("ValueKind::{representation}")),
+                "the builtin body must not maintain a second {representation} admission list"
+            );
+        }
+        let prepare_call = body
+            .find("emit_error_to_string_prepare_name(")
+            .expect("the builtin must prepare name");
+        let message_call = body
+            .find("emit_error_to_string_message_and_result(")
+            .expect("the builtin must consume name in its message phase");
+        assert!(
+            prepare_call < message_call,
+            "message lookup must be emitted only after name preparation"
+        );
+
+        assert!(
+            source.contains(
+                "#[must_use = \"the prepared Error name must be consumed before reading message\"]\nstruct PreparedErrorNameLocal"
+            ),
+            "the cross-phase name state must be private and must-use"
+        );
+        assert!(
+            prepare_name.contains("Result<PreparedErrorNameLocal, EmitError>"),
+            "the name phase must return typed prepared state"
+        );
+        assert_eq!(prepare_name.matches("self.emit_object_read(").count(), 1);
+        assert!(
+            prepare_name
+                .find("self.emit_object_read(")
+                .expect("name phase must Get name")
+                < prepare_name
+                    .find("self.emit_error_to_string_value_to_string_local(")
+                    .expect("name phase must ToString name"),
+            "name Get must precede name ToString"
+        );
+        assert_eq!(
+            prepare_name
+                .matches("self.emit_error_to_string_value_to_string_local(")
+                .count(),
+            1,
+            "name conversion must cross the routed ToString boundary once"
+        );
+        assert!(
+            message_and_result.contains("prepared_name: PreparedErrorNameLocal"),
+            "the message phase must require prepared name state"
+        );
+        assert_eq!(
+            message_and_result
+                .matches("prepared_name.into_local()")
+                .count(),
+            1
+        );
+        assert_eq!(
+            message_and_result.matches("self.emit_object_read(").count(),
+            1
+        );
+        assert_eq!(
+            message_and_result
+                .matches("self.emit_error_to_string_value_to_string_local(")
+                .count(),
+            1,
+            "message conversion must cross the routed ToString boundary once"
+        );
+        assert_eq!(
+            value_to_string
+                .matches("emit_tagged_to_primitive_locals_in_current_function_realm(")
+                .count(),
+            1,
+            "ToPrimitive must use the fixed current-function-realm wrapper"
+        );
+        assert_eq!(
+            value_to_string
+                .matches("emit_current_function_realm_primitive_to_string_local(")
+                .count(),
+            1,
+            "primitive ToString must consume the matching current-realm token"
+        );
+        assert!(
+            !value_to_string.contains("self.emit_tagged_to_primitive_locals("),
+            "the builtin must not select the existing main-Realm ToPrimitive wrapper"
+        );
+        assert!(
+            !value_to_string.contains("self.emit_primitive_to_string_payload("),
+            "the builtin must not select the existing main-Realm primitive ToString wrapper"
+        );
+
+        let current_primitive = operations
+            .split_once("pub(crate) fn emit_tagged_to_primitive_locals_in_current_function_realm(")
+            .expect("the fixed current-realm ToPrimitive wrapper should exist")
+            .1
+            .split_once("pub(crate) fn emit_current_function_realm_primitive_to_string_local(")
+            .expect("the current-realm ToPrimitive wrapper should have a bounded body")
+            .0;
+        let current_string = operations
+            .split_once("pub(crate) fn emit_current_function_realm_primitive_to_string_local(")
+            .expect("the fixed current-realm primitive ToString wrapper should exist")
+            .1
+            .split_once("fn emit_tagged_to_primitive_locals_pending(")
+            .expect("the current-realm primitive ToString wrapper should have a bounded body")
+            .0;
+        assert!(current_primitive
+            .contains("let error_realm = ConversionErrorRealm::CurrentFunctionRealm;"));
+        assert!(current_primitive.contains("ConversionErrorRealmSource::Fixed(error_realm)"));
+        assert!(current_primitive.contains("error_realm,"));
+        assert!(current_string.contains("error_realm,"));
+        assert!(current_string.contains("ConversionErrorRealmSource::Fixed(error_realm)"));
+        assert!(current_string.contains("emit_primitive_to_string_payload_with_error_realm("));
+
+        let helper_call = operations
+            .split_once("fn emit_value_to_primitive_via_helper_if_outlined(")
+            .expect("the outlined ToPrimitive boundary should exist")
+            .1
+            .split_once("pub(crate) fn emit_tagged_to_primitive_locals(")
+            .expect("the outlined ToPrimitive boundary should have a bounded body")
+            .0;
+        assert!(helper_call.contains("self.emit_conversion_error_realm_argument(error_realm"));
+        assert!(helper_call.contains("for _ in 0..3"));
+        assert!(helper_call.contains("LocalGet(self.current_env_local)"));
+        assert!(
+            operations.contains("ConversionErrorRealmSource::RuntimeHelperArgument"),
+            "the outlined helper body must decode the forwarded closed realm word"
+        );
+        assert!(
+            operations.contains("ConversionErrorRealm::MainRealm.abi_word()")
+                && operations.contains("ConversionErrorRealm::CurrentFunctionRealm.abi_word()"),
+            "the helper decoder must cover both conversion-error realm words"
+        );
+    }
+
+    #[test]
     fn operations_emits_to_boolean_spec_operation() {
         let source = parse("Boolean(globalThis.flag);", ParseOptions::script())
             .expect("script should parse");

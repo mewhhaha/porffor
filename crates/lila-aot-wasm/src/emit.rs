@@ -4522,8 +4522,9 @@ impl<'a> FunctionBuilder<'a> {
     /// Test262 case observed the wrong coercion order.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag, 6=calling function's realm environment. Params 2-5 are
-    /// unused. Results are the standard four-i64
+    /// 1=value tag, 2=the closed conversion-error Realm ABI word, and
+    /// 6=calling function's realm environment. Params 3-5 are unused. Results
+    /// are the standard four-i64
     /// tuple: on normal completion the primitive `(payload, tag)` is in the
     /// first two slots; a `@@toPrimitive`/`valueOf`/`toString` throw is
     /// surfaced through the completion slots with the thrown value in the first

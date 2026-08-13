@@ -8,7 +8,7 @@
 //! refuted runner knobs, and why the split has to be by module file rather than
 //! by libtest filter.
 //!
-//! 30 tests, all heavy. Its chunk is `run_chunk language_errors
+//! 31 tests, all heavy. Its chunk is `run_chunk language_errors
 //! language_errors::` in `scripts/rung1c-chunks.sh`, and it needs BOTH that line
 //! and `mod language_errors;` in `main.rs`: a module with a chunk but no `mod`
 //! line is not compiled, its filter selects nothing, libtest exits 0 on
@@ -169,6 +169,26 @@ fn run_wasm_backend_succeeds_for_error_tostring_toprimitive_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("string(message,name)"));
+}
+
+#[test]
+fn run_wasm_backend_orders_error_tostring_and_reads_every_object_representation() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_error_tostring_order_and_receivers.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
 
 #[test]
