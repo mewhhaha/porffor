@@ -27,8 +27,10 @@ pieces:
 
 - `crates/lila-aot-wasm/src/builtins/intl.rs` implements structural locale-tag
   validation/casing, `Intl.getCanonicalLocales`, and part of `Intl.Locale`.
-  `getCanonicalLocales` now applies the pinned provider's CLDR alias data;
-  `Intl.Locale` does not yet share that result and still ignores its options.
+  `getCanonicalLocales` now performs the required array-like `HasProperty` /
+  conditional `Get` / coercion sequence directly against the original source
+  before applying the pinned provider's CLDR alias data. `Intl.Locale` does not
+  yet share that result and still ignores its options.
 - `crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs` implements much of
   DateTimeFormat's observable option ordering and its formatter/parts/range
   shapes, but its data surface is `en-US`, `gregory`/`iso8601`, `latn`, and
@@ -48,13 +50,28 @@ an unattached vocabulary.
 One operation is now connected end to end. `lila-intl` directly pins
 `icu_locale = 2.0.0` and `icu_locale_data = 2.0.0` and builds a deterministic
 Locale-only `LocaleCanonicalizer::new_extended()` provider. The engine shares
-that kernel across Wasm stores, and `Intl.getCanonicalLocales` calls it after
-observable input processing and structural validation but before list
-deduplication. The concrete `lila_host.intl_call` ABI is
+that kernel across Wasm stores. `Intl.getCanonicalLocales` snapshots only the
+array-like length: every index then performs HasProperty, conditionally reads
+and coerces the element, structurally validates it, calls the provider, and
+deduplicates before advancing. The original object remains live throughout, so
+an earlier coercion can change a later element without changing the fixed
+length. Primitive wrappers, null-rejection errors and the returned Array use
+the called builtin's defining Realm. User-thrown Proxy `has` errors propagate
+unchanged; correct defining-Realm provenance for errors created by the shared
+Proxy internal-method machinery remains outside this slice. The concrete
+`lila_host.intl_call` ABI is
 `(op: i64, request_span: i64, result_span: i64) -> i64`: spans are distinct
 typed offset/length and offset/capacity words, while the result is the closed
 domain `Written(u32) | Rejected`. Unknown operation wires and every other
 negative result are faults rather than catch-all cases.
+
+The defining-Realm ToObject and result-Array routes are structurally wired but
+do not yet have a cross-Realm runtime witness: created realms currently omit
+the `Intl` namespace, so there is no foreign `Intl.getCanonicalLocales` product
+entrypoint to call. Installing Intl during created-realm bootstrap remains a
+T06/T23 dependency; runtime identity evidence for foreign Number wrappers,
+null TypeErrors and `%Array.prototype%` is deferred until that entrypoint
+exists.
 
 This is not two-operation support. `CanonicalizeTimeZone` stays in the closed
 catalogue but is explicitly unbound, and `Intl.Locale` is not connected because

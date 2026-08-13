@@ -138,6 +138,32 @@ fn run_wasm_backend_succeeds_for_date_locale_strings_fixture() {
     assert!(stdout.contains("number(262"));
 }
 
+/// Pins the observable ECMA-402 `CanonicalizeLocaleList` array-like walk:
+/// length is captured once, and every index performs HasProperty before its
+/// conditional Get, coercion, provider canonicalization and deduplication.
+#[test]
+fn run_wasm_backend_succeeds_for_intl_canonical_locale_list_observation_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_intl_canonical_locale_list_observation.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_date_to_iso_string_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

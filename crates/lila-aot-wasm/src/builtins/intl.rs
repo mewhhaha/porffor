@@ -36,6 +36,29 @@ use lila_intl::{IntlHostCallOutcome, IntlHostOp, MAX_INTL_IDENTIFIER_BYTES};
 /// extension sequence. Real singleton bytes are ASCII, so 0x100 sorts last.
 const INTL_PRIVATE_USE_SORT_KEY: i64 = 0x100;
 
+/// The original array-like value and its one observed length. Keeping these
+/// together prevents the per-index walk from accidentally consuming a copied
+/// element buffer or losing the source tag needed by object internal methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CanonicalLocaleListArrayLikeLocals {
+    source: TaggedLocals,
+    length: u32,
+}
+
+impl CanonicalLocaleListArrayLikeLocals {
+    const fn new(source: TaggedLocals, length: u32) -> Self {
+        Self { source, length }
+    }
+
+    const fn source(self) -> TaggedLocals {
+        self.source
+    }
+
+    const fn length(self) -> u32 {
+        self.length
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
     fn intl_call_import_function_index(&self) -> Result<u32, EmitError> {
         self.functions
@@ -1604,11 +1627,17 @@ impl<'a> FunctionBuilder<'a> {
         let single_payload_local = self.reserve_temp_local();
         let has_single_local = self.reserve_temp_local();
         let source_payload_local = self.reserve_temp_local();
+        let source_tag_local = self.reserve_temp_local();
         let source_len_local = self.reserve_temp_local();
+        let source_key_local = self.reserve_temp_local();
+        let source_length_payload_local = self.reserve_temp_local();
+        let source_length_tag_local = self.reserve_temp_local();
         let result_payload_local = self.reserve_temp_local();
         let result_buffer_local = self.reserve_temp_local();
         let result_len_local = self.reserve_temp_local();
         let index_local = self.reserve_temp_local();
+        let index_number_payload_local = self.reserve_temp_local();
+        let property_present_local = self.reserve_temp_local();
         let inner_index_local = self.reserve_temp_local();
         let element_payload_local = self.reserve_temp_local();
         let element_tag_local = self.reserve_temp_local();
@@ -1625,12 +1654,26 @@ impl<'a> FunctionBuilder<'a> {
         let duplicate_local = self.reserve_temp_local();
         let entry_local = self.reserve_temp_local();
         let existing_local = self.reserve_temp_local();
+        let function_realm_local = self.reserve_temp_local();
+        let result_prototype_payload_local = self.reserve_temp_local();
+        let result_prototype_tag_local = self.reserve_temp_local();
+        let array_like = CanonicalLocaleListArrayLikeLocals::new(
+            TaggedLocals::new(source_payload_local, source_tag_local),
+            source_len_local,
+        );
+        let result_prototype =
+            TaggedLocals::new(result_prototype_payload_local, result_prototype_tag_local);
 
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_intl_set_const(has_single_local, 0, function);
         self.emit_intl_set_const(single_payload_local, 0, function);
-        self.emit_intl_set_const(source_len_local, 0, function);
-        self.emit_intl_set_const(source_payload_local, 0, function);
+        self.emit_intl_set_const(array_like.length(), 0, function);
+        self.emit_intl_set_const(array_like.source().payload, 0, function);
+        self.emit_intl_set_const(
+            array_like.source().tag,
+            ValueKind::Undefined.tag() as i64,
+            function,
+        );
 
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
@@ -1674,47 +1717,93 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         // `undefined` is the empty list and a String or an `Intl.Locale` is a
-        // one-element list. Everything else goes through `ToObject` plus a
-        // `length` walk (9.2.1 step 3 onwards): objects are walked as
-        // array-likes, `null` throws the `ToObject` TypeError, and the
-        // remaining primitives box into wrappers with no `length`, which is an
-        // empty list rather than an error.
+        // one-element list. Every other value goes through `ToObject` in this
+        // builtin's defining Realm, then observes `length` exactly once while
+        // retaining that original object for the indexed HasProperty/Get walk
+        // below.
         function.instruction(&Instruction::LocalGet(has_single_local));
         function.instruction(&Instruction::I64Eqz);
-        self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
         function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_like_snapshot_payload(
+        self.emit_value_to_current_function_realm_object_locals(
             argument_payload_local,
             argument_tag_local,
-            source_payload_local,
-            "Intl.getCanonicalLocales argument must be an object",
+            array_like.source().payload,
+            array_like.source().tag,
             function,
         )?;
-        self.load_i64_to_local_from_offset(
-            source_payload_local,
-            HEAP_LEN_OFFSET,
-            source_len_local,
+        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+        function.instruction(&Instruction::LocalSet(source_key_local));
+        self.emit_object_read(
+            array_like.source().payload,
+            array_like.source().tag,
+            array_like.source().payload,
+            array_like.source().tag,
+            source_key_local,
+            source_length_payload_local,
+            source_length_tag_local,
             function,
-        );
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_length_i64_from_value_locals(
+            source_length_tag_local,
+            source_length_payload_local,
+            array_like.length(),
+            function,
+        )?;
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(has_single_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_intl_set_const(source_len_local, 1, function);
+        self.emit_intl_set_const(array_like.length(), 1, function);
         function.instruction(&Instruction::End);
 
         self.emit_alloc_array_payload_with_length(
-            source_len_local,
+            array_like.length(),
             result_payload_local,
             function,
         )?;
+        self.emit_intl_set_const(function_realm_local, 0, function);
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            self.current_env_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            function_realm_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        self.emit_load_realm_intrinsic_prototype_or_global(
+            function_realm_local,
+            HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
+            ARRAY_PROTOTYPE_GLOBAL_INDEX,
+            result_prototype.payload,
+            function,
+        );
+        self.emit_intl_set_const(
+            result_prototype.tag,
+            ValueKind::Array.tag() as i64,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            result_payload_local,
+            HEAP_PROTOTYPE_OFFSET,
+            result_prototype.payload,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            result_payload_local,
+            HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+            result_prototype.tag,
+            function,
+        );
         self.load_i64_to_local_from_offset(
             result_payload_local,
             HEAP_PTR_OFFSET,
@@ -1726,19 +1815,40 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(source_len_local));
+        function.instruction(&Instruction::LocalGet(array_like.length()));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
+        self.emit_intl_set_const(property_present_local, 1, function);
         function.instruction(&Instruction::LocalGet(has_single_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_read(
-            source_payload_local,
+        self.emit_index_to_flat_map_key_local(
             index_local,
+            index_number_payload_local,
+            source_key_local,
+            function,
+        )?;
+        self.emit_object_has_property_i32(
+            array_like.source().payload,
+            array_like.source().tag,
+            source_key_local,
+            property_present_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(property_present_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_read(
+            array_like.source().payload,
+            array_like.source().tag,
+            array_like.source().payload,
+            array_like.source().tag,
+            source_key_local,
             element_payload_local,
             element_tag_local,
             function,
-        );
+        )?;
+        self.emit_return_current_completion_if_throw(function);
         self.emit_intl_locale_argument_to_string_payload(
             element_payload_local,
             element_tag_local,
@@ -1746,11 +1856,18 @@ impl<'a> FunctionBuilder<'a> {
             "Intl.getCanonicalLocales locale must be a string or an object",
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(single_payload_local));
         function.instruction(&Instruction::LocalSet(input_payload_local));
         function.instruction(&Instruction::End);
 
+        // A missing property skips Get, coercion, provider work and
+        // deduplication. The index advances only after all work for a present
+        // property completes, so mutations remain observable in spec order.
+        function.instruction(&Instruction::LocalGet(property_present_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_intl_canonicalize_locale_tag(
             input_payload_local,
             tag_payload_local,
@@ -1893,6 +2010,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(result_len_local));
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::I64Const(1));
@@ -1915,6 +2033,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
+        self.release_temp_local(result_prototype_tag_local);
+        self.release_temp_local(result_prototype_payload_local);
+        self.release_temp_local(function_realm_local);
         self.release_temp_local(existing_local);
         self.release_temp_local(entry_local);
         self.release_temp_local(duplicate_local);
@@ -1931,11 +2052,17 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(element_tag_local);
         self.release_temp_local(element_payload_local);
         self.release_temp_local(inner_index_local);
+        self.release_temp_local(property_present_local);
+        self.release_temp_local(index_number_payload_local);
         self.release_temp_local(index_local);
         self.release_temp_local(result_len_local);
         self.release_temp_local(result_buffer_local);
         self.release_temp_local(result_payload_local);
+        self.release_temp_local(source_length_tag_local);
+        self.release_temp_local(source_length_payload_local);
+        self.release_temp_local(source_key_local);
         self.release_temp_local(source_len_local);
+        self.release_temp_local(source_tag_local);
         self.release_temp_local(source_payload_local);
         self.release_temp_local(has_single_local);
         self.release_temp_local(single_payload_local);
