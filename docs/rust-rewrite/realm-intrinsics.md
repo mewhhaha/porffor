@@ -66,15 +66,25 @@ not belong in this table.
 
 The Wasm emitter represents a proven realm-record local as
 `RealmRecordLocal`. Its constructor is private to realm allocation, so the
-created-realm function materializer cannot receive an arbitrary payload, tag
-or scratch local. That materializer allocates the function and writes its
-defining-realm reference before returning the destination local. Created-realm
-bootstrap must not recreate the former two-statement allocate-then-repair
-pattern.
+created-realm Function-prototype context cannot receive an arbitrary realm
+payload, tag or scratch local. The materializer accepts only that context and
+writes its defining-realm reference before returning the destination local.
+Created-realm bootstrap must not recreate the former two-statement
+allocate-then-repair pattern.
 
 Function environment/self-backing is deliberately not folded into this type.
 It controls how a builtin invocation finds additional realm snapshots and is
 not identical to the specification's defining-realm reference.
+
+Created-realm ordinary builtin allocation additionally requires a non-copyable
+`RealmFunctionMaterializationContext`. The context couples the proven realm
+record with that realm's Function-prototype payload and representation tag, so
+the materializer installs `[[Realm]]` and the matching default `[[Prototype]]`
+before exposing the function local. Generator, async and async-generator
+execution kinds fail explicitly until their distinct realm-local prototype
+contexts exist. The full lifecycle and the narrow exceptional inheritance
+families are specified in
+`contracts/created-realm-function-prototype-context.md`.
 
 The emitted `GetFunctionRealm` traversal has three closed outcomes: resolved,
 revoked and invalid. Its raw realm/outcome locals are private and must be

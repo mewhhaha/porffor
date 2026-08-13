@@ -20,10 +20,16 @@ The design contract is recorded in
 `docs/rust-rewrite/realm-intrinsics.md`.
 
 Wasm-AOT created-realm function materialization now takes a private typed
-`RealmRecordLocal` minted only by realm-record allocation. The 83 bootstrap
-sites that previously allocated a function under the current realm and then
-repaired its defining-realm header now go through one in-realm choke point;
-the canonical `parseInt`/`parseFloat` installer delegates to the same path.
+`RealmFunctionMaterializationContext` that contains the `RealmRecordLocal`
+minted only by realm-record allocation together with the realm's exact local
+Function-prototype payload/tag. The 83 bootstrap sites that previously
+allocated a function under the current realm and then repaired pieces of its
+header now go through one in-realm choke point; the canonical
+`parseInt`/`parseFloat` installer delegates to the same path. Ordinary builtins
+therefore receive both their defining realm and that realm's
+`%Function.prototype%` before their destination local is exposed. Generator,
+async and async-generator contexts fail explicitly until their realm-local
+prototype families exist.
 Environment/self-backing remains a separate choice because it has distinct
 execution semantics. `GetFunctionRealm` now returns opaque result locals that
 cannot expose their realm until a consuming route has handled both nonresolved
@@ -62,9 +68,10 @@ Dynamic-source-dependent cross-realm cases remain explicit
 unsupported cases, and no current complete Wasm-AOT aggregate proves the full
 realm acceptance matrix. Complete intrinsic allocation, host-capability
 scoping, teardown, borrowed builtins and realm-correct errors therefore remain
-active work. The Array seam does not make `%Function.prototype%` callable or
-repair the other intrinsic families or unrelated partial-bootstrap prototype
-loaders.
+active work. The typed Function-prototype context preserves identity but does
+not make `%Function.prototype%` callable or add it to the Wasm realm-intrinsic
+record. The Array seam does not repair the other intrinsic families or
+unrelated partial-bootstrap prototype loaders.
 
 ## Objective
 

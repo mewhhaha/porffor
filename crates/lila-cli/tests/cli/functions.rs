@@ -804,3 +804,30 @@ fn run_wasm_backend_succeeds_for_function_prototype_define_property_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
 }
+
+/// `CreateBuiltinFunction` defaults `[[Prototype]]` from the function's
+/// defining realm. This spans constructors, methods, accessors, namespace and
+/// global functions, plus the canonical parseInt/parseFloat helper across two
+/// distinct synthetic realms.
+#[test]
+fn run_wasm_backend_uses_created_realm_builtin_function_prototypes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_created_realm_builtin_function_prototypes.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(123"), "{stdout}");
+}

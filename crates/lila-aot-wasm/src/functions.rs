@@ -8,6 +8,32 @@ use lila_ir::{ClassMethodKindIr, StaticRegExpCompilation};
 #[derive(Clone, Copy)]
 pub(crate) struct RealmRecordLocal(u32);
 
+/// Storage reserved for a created realm's `%Function.prototype%` identity
+/// before its Object representation has been initialized.
+///
+/// The raw local is private and this state is not `Copy`. Realm bootstrap must
+/// consume it together with the matching realm record and Object prototype to
+/// obtain the only capability accepted by created-realm function allocation.
+#[must_use]
+pub(crate) struct ReservedRealmFunctionPrototypeLocal(u32);
+
+/// The inseparable realm/default-function-prototype inputs for creating an
+/// ordinary builtin function in a synthetic realm.
+///
+/// The context is deliberately non-`Copy` and its fields are private. This
+/// prevents a call site from attaching one realm as `[[Realm]]` while leaving
+/// the allocator's entry-realm `%Function.prototype%` in `[[Prototype]]` or
+/// pairing the realm with an arbitrary scratch local. The current partial
+/// `%Function.prototype%` has Object representation; keeping that tag here
+/// makes the representation choice explicit at the same choke point that will
+/// eventually change when the intrinsic becomes callable.
+#[must_use]
+pub(crate) struct RealmFunctionMaterializationContext {
+    realm: RealmRecordLocal,
+    function_prototype_local: u32,
+    function_prototype_kind: ValueKind,
+}
+
 /// Storage reserved for a created realm's `%Array.prototype%`, before an
 /// Array-layout object has been emitted into it.
 ///
@@ -179,6 +205,158 @@ impl NonArrayRealmIntrinsicSlot {
 pub(crate) enum FunctionPrototypeMaterialization {
     Automatic,
     BootstrapSupplied,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RealmFunctionInternalPrototypePolicy {
+    RealmFunctionPrototype,
+    UnsupportedSpecializedPrototype,
+}
+
+const fn realm_function_internal_prototype_policy(
+    execution_kind: FunctionExecutionKind,
+) -> RealmFunctionInternalPrototypePolicy {
+    match execution_kind {
+        FunctionExecutionKind::Ordinary => {
+            RealmFunctionInternalPrototypePolicy::RealmFunctionPrototype
+        }
+        FunctionExecutionKind::Generator
+        | FunctionExecutionKind::Async
+        | FunctionExecutionKind::AsyncGenerator => {
+            RealmFunctionInternalPrototypePolicy::UnsupportedSpecializedPrototype
+        }
+    }
+}
+
+#[cfg(test)]
+mod realm_function_materialization_tests {
+    use super::*;
+
+    #[test]
+    fn specialized_created_realm_function_prototypes_are_explicitly_unsupported() {
+        assert_eq!(
+            realm_function_internal_prototype_policy(FunctionExecutionKind::Ordinary),
+            RealmFunctionInternalPrototypePolicy::RealmFunctionPrototype,
+        );
+        for execution_kind in [
+            FunctionExecutionKind::Generator,
+            FunctionExecutionKind::Async,
+            FunctionExecutionKind::AsyncGenerator,
+        ] {
+            assert_eq!(
+                realm_function_internal_prototype_policy(execution_kind),
+                RealmFunctionInternalPrototypePolicy::UnsupportedSpecializedPrototype,
+            );
+        }
+    }
+
+    #[test]
+    fn created_realm_function_sites_require_the_coupled_context() {
+        let functions = include_str!("functions.rs");
+        let host = include_str!("builtins/host.rs");
+        let objects = include_str!("objects.rs");
+
+        let context_marker = concat!("pub(crate) struct RealmFunctionMaterialization", "Context");
+        let (before_context, _) = functions
+            .split_once(context_marker)
+            .expect("realm function materialization context must exist");
+        let context_attributes = before_context
+            .rsplit_once("\n\n")
+            .expect("context must be separated from the preceding item")
+            .1;
+        assert!(
+            !context_attributes.contains("derive"),
+            "realm function materialization context must remain non-Copy"
+        );
+        let manual_copy_impl = concat!("impl Copy for RealmFunctionMaterialization", "Context");
+        assert!(
+            !functions.contains(manual_copy_impl),
+            "realm function materialization context must remain non-Copy"
+        );
+
+        let materializer_start = concat!(
+            "fn emit_function_value_payload_in_realm_with_",
+            "prototype_materialization"
+        );
+        let lifecycle_start = concat!("pub(crate) fn reserve_realm_function_", "prototype_local");
+        let materializer = functions
+            .split_once(materializer_start)
+            .expect("realm function materializer must exist")
+            .1
+            .split_once(lifecycle_start)
+            .expect("realm function prototype lifecycle must follow the materializer")
+            .0;
+        for field in [
+            "emit_store_function_defining_realm",
+            "HEAP_PROTOTYPE_OFFSET",
+            "HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET",
+        ] {
+            assert!(
+                materializer.contains(field),
+                "realm function materializer must install {field}"
+            );
+        }
+        let array_lifecycle_start =
+            concat!("pub(crate) fn reserve_realm_array_", "prototype_local");
+        let function_prototype_lifecycle = functions
+            .split_once(lifecycle_start)
+            .expect("realm function prototype lifecycle must exist")
+            .1
+            .split_once(array_lifecycle_start)
+            .expect("Array lifecycle must follow Function prototype lifecycle")
+            .0;
+        assert!(
+            function_prototype_lifecycle.contains("function_prototype_kind: ValueKind::Object"),
+            "current created-realm Function prototype representation must remain explicit"
+        );
+
+        let mut remaining = host;
+        let mut direct_sites = 0;
+        let marker = "self.emit_function_value_payload_in_realm(";
+        while let Some((_, after_marker)) = remaining.split_once(marker) {
+            let (call, after_call) = after_marker
+                .split_once(")?;")
+                .expect("created-realm function call must propagate its emission error");
+            assert!(
+                call.contains("&realm_functions"),
+                "created-realm function allocation bypassed its realm/prototype context: {call}"
+            );
+            direct_sites += 1;
+            remaining = after_call;
+        }
+        assert_eq!(
+            direct_sites, 82,
+            "created-realm bootstrap site count drifted"
+        );
+
+        let normalized_host = host.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            !host.contains("let function_prototype_local"),
+            "created-realm bootstrap must not recover the context's raw prototype local"
+        );
+        assert!(
+            !normalized_host.contains("HEAP_PROTOTYPE_OFFSET, function_prototype_local, function,"),
+            "ordinary created-realm functions must not need a default prototype repair"
+        );
+        for inheritance in [
+            "HEAP_PROTOTYPE_OFFSET, error_constructor_locals[0], function,",
+            "HEAP_PROTOTYPE_OFFSET, typed_array_constructor_local, function,",
+        ] {
+            assert!(
+                normalized_host.contains(inheritance),
+                "intentional intrinsic inheritance override disappeared: {inheritance}"
+            );
+        }
+
+        let normalized_objects = objects.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            normalized_objects.contains(
+                "realm_functions: &crate::functions::RealmFunctionMaterializationContext,"
+            ) && normalized_objects
+                .contains("emit_function_value_payload_in_realm(meta, realm_functions,"),
+            "canonical realm host functions must use the coupled realm/prototype context"
+        );
+    }
 }
 
 impl RealmRecordLocal {
@@ -3817,23 +3995,24 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Materialize a function and attach its defining realm before exposing
-    /// the destination local to the caller.
+    /// Materialize a function and attach its coupled defining realm and
+    /// realm-local default Function prototype before exposing the destination
+    /// local to the caller.
     ///
     /// Synthetic realm bootstrap must use this choke point instead of
-    /// allocating under `CURRENT_REALM` and repairing the function header in
-    /// a separate statement that a new builtin can forget.
+    /// allocating under `CURRENT_REALM` and repairing either function-header
+    /// field in a separate statement that a new builtin can forget.
     pub(crate) fn emit_function_value_payload_in_realm(
         &mut self,
         meta: &WasmFunctionMeta,
-        defining_realm: RealmRecordLocal,
+        context: &RealmFunctionMaterializationContext,
         function_object_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_function_value_payload_in_realm_with_prototype_materialization(
             meta,
             FunctionPrototypeMaterialization::Automatic,
-            defining_realm,
+            context,
             function_object_local,
             function,
         )
@@ -3844,7 +4023,7 @@ impl<'a> FunctionBuilder<'a> {
     /// replace with its initialized Array exotic.
     pub(crate) fn emit_realm_array_constructor_value_payload(
         &mut self,
-        defining_realm: RealmRecordLocal,
+        context: &RealmFunctionMaterializationContext,
         function_object_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -3860,7 +4039,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_function_value_payload_in_realm_with_prototype_materialization(
             &meta,
             FunctionPrototypeMaterialization::BootstrapSupplied,
-            defining_realm,
+            context,
             function_object_local,
             function,
         )
@@ -3870,10 +4049,20 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         meta: &WasmFunctionMeta,
         prototype_materialization: FunctionPrototypeMaterialization,
-        defining_realm: RealmRecordLocal,
+        context: &RealmFunctionMaterializationContext,
         function_object_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        match realm_function_internal_prototype_policy(meta.protocol.execution_kind()) {
+            RealmFunctionInternalPrototypePolicy::RealmFunctionPrototype => {}
+            RealmFunctionInternalPrototypePolicy::UnsupportedSpecializedPrototype => {
+                return Err(EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot: created-realm {:?} function `{}` requires its realm-local intrinsic function prototype",
+                    meta.protocol.execution_kind(),
+                    meta.name,
+                )));
+            }
+        }
         self.emit_function_value_payload_with_prototype_materialization(
             meta,
             prototype_materialization,
@@ -3882,10 +4071,87 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(function_object_local));
         self.emit_store_function_defining_realm(
             function_object_local,
-            defining_realm.index(),
+            context.realm.index(),
+            function,
+        );
+        self.store_i64_local_at_offset(
+            function_object_local,
+            HEAP_PROTOTYPE_OFFSET,
+            context.function_prototype_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            function_object_local,
+            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+            context.function_prototype_kind.tag() as u64,
             function,
         );
         Ok(())
+    }
+
+    pub(crate) fn reserve_realm_function_prototype_local(
+        &mut self,
+    ) -> ReservedRealmFunctionPrototypeLocal {
+        ReservedRealmFunctionPrototypeLocal(self.reserve_temp_local())
+    }
+
+    /// Consume reserved storage and initialize the inseparable inputs used to
+    /// materialize ordinary builtin functions in a created realm.
+    pub(crate) fn emit_initialize_realm_function_materialization_context(
+        &mut self,
+        reserved: ReservedRealmFunctionPrototypeLocal,
+        realm: RealmRecordLocal,
+        object_prototype_local: u32,
+        function: &mut Function,
+    ) -> Result<RealmFunctionMaterializationContext, EmitError> {
+        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(reserved.0));
+        self.emit_object_define_number_data_from_f64_const_with_flags(
+            reserved.0, "length", 0.0, false, false, true, function,
+        )?;
+        Ok(RealmFunctionMaterializationContext {
+            realm,
+            function_prototype_local: reserved.0,
+            function_prototype_kind: ValueKind::Object,
+        })
+    }
+
+    pub(crate) fn emit_define_realm_function_prototype_data(
+        &mut self,
+        context: &RealmFunctionMaterializationContext,
+        key: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_object_define_local_data(
+            context.function_prototype_local,
+            key,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_bind_realm_function_constructor_prototype(
+        &mut self,
+        context: &RealmFunctionMaterializationContext,
+        constructor_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_set_function_prototype_data(
+            constructor_local,
+            context.function_prototype_local,
+            true,
+            function,
+        )
+    }
+
+    pub(crate) fn release_realm_function_materialization_context(
+        &mut self,
+        context: RealmFunctionMaterializationContext,
+    ) {
+        self.release_temp_local(context.function_prototype_local);
     }
 
     pub(crate) fn reserve_realm_array_prototype_local(

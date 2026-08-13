@@ -2240,17 +2240,18 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Realm-aware variant: get-or-create the canonical function object in
-    /// `global_index`, wiring the defining realm and realm TypeError prototype
-    /// on first allocation, then define it as an own data property of
-    /// `object_local`. Both the global-object and `Number` install sites call
-    /// this within one realm build so they share the same object.
+    /// `global_index`, wiring the coupled defining realm/default Function
+    /// prototype and the realm TypeError prototype on first allocation, then
+    /// define it as an own data property of `object_local`. Both the
+    /// global-object and `Number` install sites call this within one realm
+    /// build so they share the same object.
     pub(crate) fn emit_define_canonical_realm_host_function(
         &mut self,
         object_local: u32,
         name: &str,
         meta: &WasmFunctionMeta,
         global_index: u32,
-        realm_record: RealmRecordLocal,
+        realm_functions: &crate::functions::RealmFunctionMaterializationContext,
         type_error_prototype_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -2259,7 +2260,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalGet(global_index));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_value_payload_in_realm(meta, realm_record, payload_local, function)?;
+        self.emit_function_value_payload_in_realm(meta, realm_functions, payload_local, function)?;
         self.store_i64_local_at_offset(
             payload_local,
             HEAP_FUNCTION_ENV_HANDLE_OFFSET,

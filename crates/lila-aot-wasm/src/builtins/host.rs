@@ -3870,7 +3870,7 @@ impl<'a> FunctionBuilder<'a> {
         let map_iterator_prototype_local = self.reserve_temp_local();
         let set_iterator_prototype_local = self.reserve_temp_local();
         let array_prototype_slot = self.reserve_realm_array_prototype_local();
-        let function_prototype_local = self.reserve_temp_local();
+        let function_prototype_slot = self.reserve_realm_function_prototype_local();
         let number_prototype_local = self.reserve_temp_local();
         let string_prototype_local = self.reserve_temp_local();
         let boolean_prototype_local = self.reserve_temp_local();
@@ -3949,15 +3949,10 @@ impl<'a> FunctionBuilder<'a> {
             object_prototype_local,
             function,
         );
-        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(function_prototype_local));
-        self.emit_object_define_number_data_from_f64_const_with_flags(
-            function_prototype_local,
-            "length",
-            0.0,
-            false,
-            false,
-            true,
+        let realm_functions = self.emit_initialize_realm_function_materialization_context(
+            function_prototype_slot,
+            realm_record,
+            object_prototype_local,
             function,
         )?;
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
@@ -4176,7 +4171,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4222,7 +4217,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4256,7 +4251,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4286,7 +4281,7 @@ impl<'a> FunctionBuilder<'a> {
         let error_to_string_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &error_prototype_to_string_meta,
-            realm_record,
+            &realm_functions,
             error_to_string_payload_local,
             function,
         )?;
@@ -4316,7 +4311,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4346,7 +4341,7 @@ impl<'a> FunctionBuilder<'a> {
         let map_entries_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &map_entries_meta,
-            realm_record,
+            &realm_functions,
             map_entries_payload_local,
             function,
         )?;
@@ -4374,7 +4369,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(map_size_key_local));
         self.emit_function_value_payload_in_realm(
             &map_size_getter_meta,
-            realm_record,
+            &realm_functions,
             map_size_getter_payload_local,
             function,
         )?;
@@ -4393,7 +4388,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4429,7 +4424,7 @@ impl<'a> FunctionBuilder<'a> {
         let set_values_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &set_values_meta,
-            realm_record,
+            &realm_functions,
             set_values_payload_local,
             function,
         )?;
@@ -4454,7 +4449,7 @@ impl<'a> FunctionBuilder<'a> {
         let set_entries_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &set_entries_meta,
-            realm_record,
+            &realm_functions,
             set_entries_payload_local,
             function,
         )?;
@@ -4480,7 +4475,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(set_size_key_local));
         self.emit_function_value_payload_in_realm(
             &set_size_getter_meta,
-            realm_record,
+            &realm_functions,
             set_size_getter_payload_local,
             function,
         )?;
@@ -4507,7 +4502,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4542,7 +4537,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(key_local));
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 getter_payload_local,
                 function,
             )?;
@@ -4575,7 +4570,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4609,7 +4604,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4649,7 +4644,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4667,8 +4662,8 @@ impl<'a> FunctionBuilder<'a> {
             );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_object_define_local_data(
-                function_prototype_local,
+            self.emit_define_realm_function_prototype_data(
+                &realm_functions,
                 name,
                 method_payload_local,
                 tag_local,
@@ -4688,7 +4683,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -4702,12 +4697,6 @@ impl<'a> FunctionBuilder<'a> {
                 method_payload_local,
                 HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
                 type_error_prototype_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                method_payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                function_prototype_local,
                 function,
             );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -4736,7 +4725,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(typed_array_buffer_key_local));
         self.emit_function_value_payload_in_realm(
             &typed_array_buffer_getter_meta,
-            realm_record,
+            &realm_functions,
             typed_array_buffer_getter_payload_local,
             function,
         )?;
@@ -4750,12 +4739,6 @@ impl<'a> FunctionBuilder<'a> {
             typed_array_buffer_getter_payload_local,
             HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
             type_error_prototype_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            typed_array_buffer_getter_payload_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
             function,
         );
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -4779,7 +4762,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(typed_array_to_string_tag_key_local));
         self.emit_function_value_payload_in_realm(
             &typed_array_to_string_tag_getter_meta,
-            realm_record,
+            &realm_functions,
             typed_array_to_string_tag_getter_payload_local,
             function,
         )?;
@@ -4787,12 +4770,6 @@ impl<'a> FunctionBuilder<'a> {
             typed_array_to_string_tag_getter_payload_local,
             HEAP_FUNCTION_ENV_HANDLE_OFFSET,
             typed_array_to_string_tag_getter_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            typed_array_to_string_tag_getter_payload_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
             function,
         );
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -4841,16 +4818,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &function_meta,
-            realm_record,
+            &realm_functions,
             function_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            function_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             function_constructor_local,
             HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
@@ -4934,16 +4905,15 @@ impl<'a> FunctionBuilder<'a> {
             &typed_array_prototype_locals,
             function,
         )?;
-        self.emit_set_function_prototype_data(
+        self.emit_bind_realm_function_constructor_prototype(
+            &realm_functions,
             function_constructor_local,
-            function_prototype_local,
-            true,
             function,
         )?;
 
         self.emit_function_value_payload_in_realm(
             &object_meta,
-            realm_record,
+            &realm_functions,
             object_constructor_local,
             function,
         )?;
@@ -4951,12 +4921,6 @@ impl<'a> FunctionBuilder<'a> {
             object_constructor_local,
             HEAP_FUNCTION_ENV_HANDLE_OFFSET,
             object_constructor_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            object_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
             function,
         );
         self.emit_set_function_prototype_data(
@@ -4969,7 +4933,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5009,7 +4973,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5089,7 +5053,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5123,7 +5087,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5159,7 +5123,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &iterator_meta,
-            realm_record,
+            &realm_functions,
             iterator_constructor_local,
             function,
         )?;
@@ -5167,12 +5131,6 @@ impl<'a> FunctionBuilder<'a> {
             iterator_constructor_local,
             HEAP_FUNCTION_ENV_HANDLE_OFFSET,
             iterator_constructor_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            iterator_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
             function,
         );
         self.store_i64_local_at_offset(
@@ -5190,7 +5148,7 @@ impl<'a> FunctionBuilder<'a> {
         let iterator_from_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &iterator_from_meta,
-            realm_record,
+            &realm_functions,
             iterator_from_payload_local,
             function,
         )?;
@@ -5219,7 +5177,7 @@ impl<'a> FunctionBuilder<'a> {
         let iterator_concat_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &iterator_concat_meta,
-            realm_record,
+            &realm_functions,
             iterator_concat_payload_local,
             function,
         )?;
@@ -5248,7 +5206,7 @@ impl<'a> FunctionBuilder<'a> {
         let iterator_zip_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &iterator_zip_meta,
-            realm_record,
+            &realm_functions,
             iterator_zip_payload_local,
             function,
         )?;
@@ -5277,7 +5235,7 @@ impl<'a> FunctionBuilder<'a> {
         let iterator_zip_keyed_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &iterator_zip_keyed_meta,
-            realm_record,
+            &realm_functions,
             iterator_zip_keyed_payload_local,
             function,
         )?;
@@ -5306,7 +5264,7 @@ impl<'a> FunctionBuilder<'a> {
         let iterator_identity_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &array_iterator_identity_meta,
-            realm_record,
+            &realm_functions,
             iterator_identity_payload_local,
             function,
         )?;
@@ -5336,7 +5294,7 @@ impl<'a> FunctionBuilder<'a> {
         for (name, meta) in &iterator_prototype_method_metas {
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 iterator_method_payload_local,
                 function,
             )?;
@@ -5376,16 +5334,10 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
-            self.store_i64_local_at_offset(
-                method_payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                function_prototype_local,
-                function,
-            );
             self.store_i64_local_at_offset(
                 method_payload_local,
                 HEAP_FUNCTION_ENV_HANDLE_OFFSET,
@@ -5416,16 +5368,10 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
-            self.store_i64_local_at_offset(
-                method_payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                function_prototype_local,
-                function,
-            );
             self.store_i64_local_at_offset(
                 method_payload_local,
                 HEAP_FUNCTION_ENV_HANDLE_OFFSET,
@@ -5486,7 +5432,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(iterator_accessor_key_local));
         self.emit_function_value_payload_in_realm(
             &iterator_constructor_getter_meta,
-            realm_record,
+            &realm_functions,
             iterator_getter_payload_local,
             function,
         )?;
@@ -5506,7 +5452,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(iterator_getter_tag_local));
         self.emit_function_value_payload_in_realm(
             &iterator_constructor_setter_meta,
-            realm_record,
+            &realm_functions,
             iterator_setter_payload_local,
             function,
         )?;
@@ -5534,7 +5480,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &iterator_symbol_dispose_meta,
-            realm_record,
+            &realm_functions,
             iterator_getter_payload_local,
             function,
         )?;
@@ -5567,7 +5513,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(iterator_accessor_key_local));
         self.emit_function_value_payload_in_realm(
             &iterator_to_string_tag_getter_meta,
-            realm_record,
+            &realm_functions,
             iterator_getter_payload_local,
             function,
         )?;
@@ -5587,7 +5533,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(iterator_getter_tag_local));
         self.emit_function_value_payload_in_realm(
             &iterator_to_string_tag_setter_meta,
-            realm_record,
+            &realm_functions,
             iterator_setter_payload_local,
             function,
         )?;
@@ -5620,16 +5566,10 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(iterator_accessor_key_local);
 
         self.emit_realm_array_constructor_value_payload(
-            realm_record,
+            &realm_functions,
             array_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            array_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_bind_realm_array_constructor_prototype(
             array_constructor_local,
             &array_prototype,
@@ -5639,7 +5579,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5675,7 +5615,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(species_key_local));
         self.emit_function_value_payload_in_realm(
             &array_species_meta,
-            realm_record,
+            &realm_functions,
             species_getter_payload_local,
             function,
         )?;
@@ -5710,7 +5650,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5746,7 +5686,7 @@ impl<'a> FunctionBuilder<'a> {
         let string_iterator_next_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &string_iterator_next_meta,
-            realm_record,
+            &realm_functions,
             string_iterator_next_payload_local,
             function,
         )?;
@@ -5769,7 +5709,7 @@ impl<'a> FunctionBuilder<'a> {
         let map_iterator_next_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &map_iterator_next_meta,
-            realm_record,
+            &realm_functions,
             map_iterator_next_payload_local,
             function,
         )?;
@@ -5792,7 +5732,7 @@ impl<'a> FunctionBuilder<'a> {
         let set_iterator_next_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &set_iterator_next_meta,
-            realm_record,
+            &realm_functions,
             set_iterator_next_payload_local,
             function,
         )?;
@@ -5815,16 +5755,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &number_meta,
-            realm_record,
+            &realm_functions,
             number_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            number_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             number_constructor_local,
             HEAP_FUNCTION_REALM_NUMBER_PROTOTYPE_OFFSET,
@@ -5864,7 +5798,7 @@ impl<'a> FunctionBuilder<'a> {
                     name,
                     meta,
                     global_index,
-                    realm_record,
+                    &realm_functions,
                     type_error_prototype_local,
                     function,
                 )?;
@@ -5873,7 +5807,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5898,7 +5832,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -5928,16 +5862,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &string_meta,
-            realm_record,
+            &realm_functions,
             string_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            string_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_set_function_prototype_data(
             string_constructor_local,
             string_prototype_local,
@@ -5947,16 +5875,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &boolean_meta,
-            realm_record,
+            &realm_functions,
             boolean_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            boolean_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             boolean_constructor_local,
             HEAP_FUNCTION_REALM_BOOLEAN_PROTOTYPE_OFFSET,
@@ -5973,7 +5895,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -6015,16 +5937,10 @@ impl<'a> FunctionBuilder<'a> {
         // shared across realms per spec.
         self.emit_function_value_payload_in_realm(
             &symbol_meta,
-            realm_record,
+            &realm_functions,
             symbol_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            symbol_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_set_function_prototype_data_with_flags(
             symbol_constructor_local,
             symbol_prototype_local,
@@ -6086,7 +6002,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -6116,7 +6032,7 @@ impl<'a> FunctionBuilder<'a> {
         let symbol_to_primitive_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &symbol_to_primitive_meta,
-            realm_record,
+            &realm_functions,
             symbol_to_primitive_payload_local,
             function,
         )?;
@@ -6149,7 +6065,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 for_meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -6174,7 +6090,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 key_for_meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -6200,16 +6116,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &array_buffer_meta,
-            realm_record,
+            &realm_functions,
             array_buffer_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            array_buffer_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             array_buffer_constructor_local,
             HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
@@ -6242,7 +6152,7 @@ impl<'a> FunctionBuilder<'a> {
         let array_buffer_is_view_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &array_buffer_is_view_meta,
-            realm_record,
+            &realm_functions,
             array_buffer_is_view_payload_local,
             function,
         )?;
@@ -6259,7 +6169,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &shared_array_buffer_meta,
-            realm_record,
+            &realm_functions,
             shared_array_buffer_constructor_local,
             function,
         )?;
@@ -6279,12 +6189,6 @@ impl<'a> FunctionBuilder<'a> {
             shared_array_buffer_constructor_local,
             HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
             range_error_prototype_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            shared_array_buffer_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
             function,
         );
         self.emit_set_function_prototype_data(
@@ -6297,7 +6201,7 @@ impl<'a> FunctionBuilder<'a> {
         let shared_array_buffer_grow_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &shared_array_buffer_grow_meta,
-            realm_record,
+            &realm_functions,
             shared_array_buffer_grow_payload_local,
             function,
         )?;
@@ -6317,12 +6221,6 @@ impl<'a> FunctionBuilder<'a> {
             shared_array_buffer_grow_payload_local,
             HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
             range_error_prototype_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            shared_array_buffer_grow_payload_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
             function,
         );
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -6343,7 +6241,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(key_local));
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 getter_payload_local,
                 function,
             )?;
@@ -6365,12 +6263,6 @@ impl<'a> FunctionBuilder<'a> {
                 range_error_prototype_local,
                 function,
             );
-            self.store_i64_local_at_offset(
-                getter_payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                function_prototype_local,
-                function,
-            );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.emit_object_define_accessor(
@@ -6386,16 +6278,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &data_view_meta,
-            realm_record,
+            &realm_functions,
             data_view_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            data_view_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             data_view_constructor_local,
             HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
@@ -6428,16 +6314,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &function_meta,
-            realm_record,
+            &realm_functions,
             typed_array_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            typed_array_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_set_function_prototype_data(
             typed_array_constructor_local,
             typed_array_prototype_local,
@@ -6447,16 +6327,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &aggregate_error_meta,
-            realm_record,
+            &realm_functions,
             aggregate_error_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            aggregate_error_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             aggregate_error_constructor_local,
             HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
@@ -6507,16 +6381,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &suppressed_error_meta,
-            realm_record,
+            &realm_functions,
             suppressed_error_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            suppressed_error_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             suppressed_error_constructor_local,
             HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET,
@@ -6550,16 +6418,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &bigint_meta,
-            realm_record,
+            &realm_functions,
             bigint_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            bigint_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_set_function_prototype_data_with_flags(
             bigint_constructor_local,
             bigint_prototype_local,
@@ -6573,7 +6435,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -6598,7 +6460,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -6634,16 +6496,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &proxy_meta,
-            realm_record,
+            &realm_functions,
             proxy_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            proxy_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             proxy_constructor_local,
             HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
@@ -6716,7 +6572,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(revocable_key_local));
         self.emit_function_value_payload_in_realm(
             &proxy_revocable_meta,
-            realm_record,
+            &realm_functions,
             revocable_payload_local,
             function,
         )?;
@@ -6800,16 +6656,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &map_meta,
-            realm_record,
+            &realm_functions,
             map_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            map_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_set_function_prototype_data(
             map_constructor_local,
             map_prototype_local,
@@ -6819,7 +6669,7 @@ impl<'a> FunctionBuilder<'a> {
         let map_group_by_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &map_group_by_meta,
-            realm_record,
+            &realm_functions,
             map_group_by_payload_local,
             function,
         )?;
@@ -6842,16 +6692,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &set_meta,
-            realm_record,
+            &realm_functions,
             set_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            set_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_set_function_prototype_data(
             set_constructor_local,
             set_prototype_local,
@@ -6861,16 +6705,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &regexp_meta,
-            realm_record,
+            &realm_functions,
             regexp_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            regexp_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.emit_set_function_prototype_data(
             regexp_constructor_local,
             regexp_prototype_local,
@@ -6883,7 +6721,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(regexp_escape_key_local));
         self.emit_function_value_payload_in_realm(
             &regexp_escape_meta,
-            realm_record,
+            &realm_functions,
             regexp_escape_payload_local,
             function,
         )?;
@@ -6913,16 +6751,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_function_value_payload_in_realm(
             &date_meta,
-            realm_record,
+            &realm_functions,
             date_constructor_local,
             function,
         )?;
-        self.store_i64_local_at_offset(
-            date_constructor_local,
-            HEAP_PROTOTYPE_OFFSET,
-            function_prototype_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             date_constructor_local,
             HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
@@ -6939,7 +6771,7 @@ impl<'a> FunctionBuilder<'a> {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 method_payload_local,
                 function,
             )?;
@@ -6972,16 +6804,10 @@ impl<'a> FunctionBuilder<'a> {
             let constructor_local = error_constructor_locals[index];
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 constructor_local,
                 function,
             )?;
-            self.store_i64_local_at_offset(
-                constructor_local,
-                HEAP_PROTOTYPE_OFFSET,
-                function_prototype_local,
-                function,
-            );
             if meta.name != ERROR_NAME {
                 self.store_i64_local_at_offset(
                     constructor_local,
@@ -7142,7 +6968,7 @@ impl<'a> FunctionBuilder<'a> {
         let error_is_error_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &error_is_error_meta,
-            realm_record,
+            &realm_functions,
             error_is_error_payload_local,
             function,
         )?;
@@ -7172,7 +6998,7 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
             self.emit_function_value_payload_in_realm(
                 &meta,
-                realm_record,
+                &realm_functions,
                 constructor_local,
                 function,
             )?;
@@ -7477,7 +7303,7 @@ impl<'a> FunctionBuilder<'a> {
             let function_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 function_payload_local,
                 function,
             )?;
@@ -7515,7 +7341,7 @@ impl<'a> FunctionBuilder<'a> {
                     name,
                     meta,
                     global_index,
-                    realm_record,
+                    &realm_functions,
                     type_error_prototype_local,
                     function,
                 )?;
@@ -7524,7 +7350,7 @@ impl<'a> FunctionBuilder<'a> {
             let function_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
                 meta,
-                realm_record,
+                &realm_functions,
                 function_payload_local,
                 function,
             )?;
@@ -7641,7 +7467,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(boolean_prototype_local);
         self.release_temp_local(string_prototype_local);
         self.release_temp_local(number_prototype_local);
-        self.release_temp_local(function_prototype_local);
+        self.release_realm_function_materialization_context(realm_functions);
         self.release_realm_array_prototype_local(array_prototype);
         self.release_temp_local(set_iterator_prototype_local);
         self.release_temp_local(map_iterator_prototype_local);
