@@ -792,6 +792,49 @@ mod tests {
         }
     }
 
+    #[test]
+    fn duplicate_class_constructors_report_one_early_error_for_both_forms_and_goals() {
+        for source in [
+            "class C { constructor() {} constructor() {} }",
+            "let C = class { constructor() {} constructor() {} };",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a class may not contain two ordinary constructors");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::DuplicateClassConstructor),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn duplicate_class_constructor_boundaries_preserve_static_and_computed_methods() {
+        for source in [
+            r#"class C {
+                constructor() {}
+                static constructor() {}
+                ["constructor"]() {}
+            }"#,
+            r#"let C = class {
+                constructor() {}
+                static constructor() {}
+                ["constructor"]() {}
+            };"#,
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "static and computed constructor methods are not constructor definitions",
+                );
+            }
+        }
+    }
+
     /// Drift B3, closed.
     ///
     /// `ModuleParser::parse` words this one ``lexical name `x` declared

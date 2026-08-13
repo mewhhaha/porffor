@@ -351,6 +351,10 @@ mod tests {
                 EarlyErrorCode::CatchBodyDeclarationConflict,
             ),
             (
+                "a class may only have one constructor",
+                EarlyErrorCode::DuplicateClassConstructor,
+            ),
+            (
                 "module cannot contain `super` on the top-level",
                 EarlyErrorCode::ModuleTopLevelSuper,
             ),
@@ -461,6 +465,25 @@ mod tests {
             );
             assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
         }
+    }
+
+    #[test]
+    fn duplicate_class_constructor_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "class C { constructor() {} constructor() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a class may not contain two ordinary constructors");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::DuplicateClassConstructor)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
     }
 
     /// Drift B1, closed. A duplicate `__proto__` inside a *dependency* module

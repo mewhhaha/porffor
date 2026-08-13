@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter and catch-body conflict classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict and duplicate-class-constructor classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -51,6 +51,14 @@ lexical declarations, and overlap between a binding-pattern parameter and
 catch-body `var` declarations. Script and Module tests preserve the specified
 simple-`BindingIdentifier` `var` exception. This classification does not change
 runtime catch environments, destructuring evaluation, or lowering.
+
+Duplicate ordinary class constructors now have one closed condition for Boa's
+sole exact wording. Class declarations and expressions reject under both Script
+and Module goals, while positive witnesses preserve `static constructor()` and
+computed `["constructor"]()` methods beside one ordinary constructor. This is
+classification only: it does not change class lowering or runtime constructor
+semantics, close adjacent constructor restrictions, or complete the class
+grammar bucket.
 
 ## Objective
 

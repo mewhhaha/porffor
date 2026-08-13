@@ -1,5 +1,18 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-13 duplicate-class-constructor amendment
+
+T07 now classifies duplicate ordinary class constructors as one closed
+condition for class declarations and expressions under both Script and Module
+goals. Pinned Boa emits one exact, case-sensitive message. The normative
+extension is:
+
+`docs/rust-rewrite/contracts/duplicate-class-constructor-early-errors.md`
+
+The current domain has **22** variants and the one parse-failure table has
+**20** rows. Positive source witnesses preserve static and computed methods
+named `constructor` as non-constructor class elements.
+
 ## 2026-08-13 catch-body-declaration-conflict amendment
 
 T07 now classifies the two catch-parameter/body declaration intersections as
@@ -9,8 +22,8 @@ branch. The normative extension is:
 
 `docs/rust-rewrite/contracts/catch-body-declaration-conflict-early-errors.md`
 
-The current domain has **21** variants and the one parse-failure table has
-**19** rows. Script and Module source tests preserve the specified
+At that extension's checkpoint the domain had **21** variants and the one
+parse-failure table had **19** rows. Script and Module source tests preserve the specified
 simple-`BindingIdentifier` `var` redeclaration exception.
 
 ## 2026-08-13 duplicate-catch-parameter amendment
@@ -68,8 +81,9 @@ area brief, three of which change the encoding:
 - §0.2 — the original domain had **18** inhabitants, not 20.
   `E_IR_DIAGNOSTIC` names the absence of a code and `E_TEST_EARLY` is a test
   fixture. The duplicate-formal-parameter extension adds the nineteenth real
-  condition; the duplicate-catch-parameter extension adds the twentieth; and
-  the catch-body-declaration-conflict extension above adds the twenty-first.
+  condition; the duplicate-catch-parameter extension adds the twentieth; the
+  catch-body-declaration-conflict extension adds the twenty-first; and the
+  duplicate-class-constructor extension above adds the twenty-second.
 - §0.4 — the `E_DUPLICATE_LEXICAL_DECLARATION` drift is bidirectional and one
   direction is conformance-visible, not merely taxonomy-visible.
 
