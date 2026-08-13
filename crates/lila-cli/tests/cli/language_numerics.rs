@@ -193,6 +193,22 @@ fn run_wasm_backend_succeeds_for_json_parse_invalid_literal_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_json_parse_dynamic_reviver_frame_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_json_parse_dynamic_reviver_frame.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_json_parse_reviver_array_getter_throw_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

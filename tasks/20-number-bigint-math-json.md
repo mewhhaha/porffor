@@ -42,7 +42,20 @@ engine path without making production output constant. The central
 feature-enabled CLI compile is green, as are focused checks for the typed host
 import, injected provider, and BigInt bitwise CLI fixture. The full Number,
 BigInt, Math and JSON current-pin trees have not met this task's shortcut-free
-acceptance gate.
+acceptance gate. The JSON reviver frame protocol now has a theory source of
+truth at `docs/rust-rewrite/contracts/json-reviver-frame.md`. Its dynamic frame
+stores closed typed states and an explicit nested-versus-root property role;
+exhaustive emission gives every valid wire word a semantic arm and traps an
+invalid word as an internal invariant violation. The static-specialized and
+dynamic parser paths share the post-call deletion/replacement emitter, so an
+ordinary empty-string property cannot be mistaken for the synthetic root. A
+registered dynamic-input CLI fixture pins postorder traversal, array-length
+and object-key snapshots, forward mutation, `context.source` SameValue
+eligibility, nested empty-string replacement, root replacement/`undefined`,
+and abrupt completion ordering. This batch has only run static gates for that
+seam while the repository-wide conformance matrix owns the verifier; its
+focused Wasm fixture and broader JSON/Test262 gates remain deferred, and this
+is not a JSON closure or full-tree conformance claim.
 
 ## Objective
 
