@@ -255,7 +255,15 @@ declared test, an orphan ledger row, or an `#[ignore]` with no owner all turn
 rung 1c red. Green means exactly the declared outcomes, for the declared
 reasons.
 
-Developer differential builds also expose a deterministic bounded campaign:
+Developer differential builds expose a versioned bounded replay protocol.
+`lila differential replay <case.json> --oracle spec-exec` keeps schema v1's
+self-checking, no-output disposition comparison unchanged and additively admits
+schema v2 `primitive_completion_no_output` cases. V2 compares normal-versus-throw
+plus `undefined`, `null`, Boolean, canonical Number bits, UTF-16 String units or
+decimal BigInt; output, Symbol and Object observations make the bounded contract
+red. A match still reports semantic equivalence as `not_established`.
+
+The same builds also expose a deterministic bounded campaign:
 `lila differential generate-arithmetic <output.json> --seed N --checks N
 --depth 1|2|3|4 --max-replays N --oracle spec-exec` generates and, on a
 backend mismatch, type-safely reduces the `integer-arithmetic-v1` Add/Sub

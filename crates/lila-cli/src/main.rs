@@ -157,8 +157,9 @@ Commands:
   cache prune [--legacy-wasmtime]       delete Lila caches; optionally delete
                                         the reported legacy Wasmtime cache
   differential replay <case.json> --oracle spec-exec
-                                        replay one versioned, self-checking
-                                        corpus case through Wasm-AOT and the
+                                        replay one versioned v1 self-checking
+                                        or v2 primitive-completion corpus case
+                                        through Wasm-AOT and the
                                         explicitly enabled spec-exec oracle;
                                         emit one JSON observation report
   differential generate-arithmetic <output.json>
@@ -414,7 +415,9 @@ fn finish_differential_report(
     println!("{report_json}");
 
     match report.verdict() {
-        DifferentialVerdict::BothCompleted => Ok(()),
+        DifferentialVerdict::BothCompleted | DifferentialVerdict::PrimitiveCompletionsMatch => {
+            Ok(())
+        }
         DifferentialVerdict::BothFailed => Err(format!(
             "differential case {} failed in both backends; see the JSON observations above",
             case.id().as_str()
@@ -427,8 +430,9 @@ fn finish_differential_report(
             Err(format!("differential mismatch: {signature}"))
         }
         DifferentialVerdict::ObservationContractViolated => Err(format!(
-            "differential case {} violated its self-checking no-output contract; see the JSON observations above",
-            case.id().as_str()
+            "differential case {} violated its {} contract; see the JSON observations above",
+            case.id().as_str(),
+            case.observation_contract().as_str(),
         )),
     }
 }

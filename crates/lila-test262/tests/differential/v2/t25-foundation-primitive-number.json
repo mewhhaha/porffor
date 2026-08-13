@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "id": "t25/foundation/primitive-number",
+  "goal": "script",
+  "observation_contract": "primitive_completion_no_output",
+  "filename": "differential/v2/t25-foundation-primitive-number.js",
+  "timeout_ms": 5000,
+  "source": "1 + 2;\n"
+}

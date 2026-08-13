@@ -4,8 +4,8 @@ use std::num::{NonZeroU16, NonZeroU8};
 use serde::Serialize;
 
 use super::{
-    replay_case, DifferentialCase, DifferentialError, DifferentialGoal, DifferentialReport,
-    DifferentialVerdict, ExecutionObservation, FailurePhase, ObservationContract, SpecExecOracle,
+    replay_case, DifferentialCase, DifferentialError, DifferentialGoal, DifferentialProtocol,
+    DifferentialReport, DifferentialVerdict, ExecutionObservation, FailurePhase, SpecExecOracle,
 };
 
 const GENERATOR_VERSION: &str = "integer-arithmetic-v1";
@@ -478,7 +478,7 @@ impl GeneratedArithmeticProgram {
         DifferentialCase::new(
             format!("t25/generated/{GENERATOR_VERSION}/{stem}"),
             DifferentialGoal::Script,
-            ObservationContract::SelfCheckingNoOutput,
+            DifferentialProtocol::V1SelfCheckingNoOutput,
             format!("differential/v1/generated/{GENERATOR_VERSION}/{stem}.js"),
             GENERATED_CASE_TIMEOUT_MS,
             self.source()?,
@@ -570,6 +570,18 @@ impl ReductionWitness {
             }
             (ExecutionObservation::Normal { .. }, ExecutionObservation::Normal { .. })
             | (ExecutionObservation::Error { .. }, ExecutionObservation::Error { .. }) => None,
+            (
+                ExecutionObservation::PrimitiveCompletion { .. }
+                | ExecutionObservation::UnsupportedCompletion { .. }
+                | ExecutionObservation::EngineFailure { .. },
+                _,
+            )
+            | (
+                _,
+                ExecutionObservation::PrimitiveCompletion { .. }
+                | ExecutionObservation::UnsupportedCompletion { .. }
+                | ExecutionObservation::EngineFailure { .. },
+            ) => None,
         }
     }
 }
@@ -706,6 +718,11 @@ pub fn run_generated_arithmetic_campaign(
     match report.verdict() {
         DifferentialVerdict::BothCompleted => {
             Ok(GeneratedArithmeticCampaignOutcome::Verified { case, report })
+        }
+        DifferentialVerdict::PrimitiveCompletionsMatch => {
+            Err(DifferentialError::GeneratorInvariant(
+                "schema-v1 arithmetic replay returned a schema-v2 primitive verdict".to_string(),
+            ))
         }
         DifferentialVerdict::Mismatch => {
             let witness = ReductionWitness::from_report(&report).ok_or_else(|| {

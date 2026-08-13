@@ -1,6 +1,6 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-**Status:** Bounded campaign in progress — versioned replay, one deterministic Add/Sub generator/reducer and an additive observed-execution seam exist; structured value comparison, broader generation/reduction, performance budgets and CI remain open
+**Status:** Bounded campaign in progress — versioned replay, one deterministic Add/Sub generator/reducer, an additive observed-execution seam and a schema-v2 primitive-completion protocol exist; object/identity comparison, broader generation/reduction, performance budgets and CI remain open
 
 **Parallel group:** Validation lane  
 **Depends on:** T01, T02, T03, T04  
@@ -12,13 +12,13 @@ T28 removed the retired JavaScript fuzz, benchmark and execution surfaces. The
 durable starting points are ignored Rust-owned Wasm-AOT performance probes,
 snapshot determinism tests and an explicitly feature-gated spec-exec oracle.
 One performance probe still expects a machine-local untracked manifest, so it
-is not a portable benchmark corpus. The new `lila differential replay` command
-consumes a schema-v1 Rust-owned corpus entry, always runs Wasm-AOT first, and
-can run the off-by-default spec-exec oracle only when both the cargo feature
-and explicit `--oracle spec-exec` flag are present. Its JSON report has a stable
-case fingerprint and mismatch signature. Replay compiles both backends with the
-ordinary product host-surface policy; schema-v1 probes do not silently gain
-Test262-only globals.
+is not a portable benchmark corpus. The `lila differential replay` command
+consumes a closed schema-v1 or schema-v2 Rust-owned corpus entry, always runs
+Wasm-AOT first, and can run the off-by-default spec-exec oracle only when both
+the cargo feature and explicit `--oracle spec-exec` flag are present. Its JSON
+report has a versioned stable case fingerprint and mismatch signature. Replay
+compiles both backends with the ordinary product host-surface policy; probes do
+not silently gain Test262-only globals.
 
 The Rust-owned `integer-arithmetic-v1` campaign is the first non-decorative
 consumer of that replay path. `lila differential generate-arithmetic` uses a
@@ -40,18 +40,27 @@ failures and observation-contract failures are reported but are not persisted
 as corpus entries. The committed seed-1/checks-4/depth-2 case pins the PRNG,
 grammar rendering and schema encoding.
 
-This first observation protocol is intentionally smaller than the objective
-below. The engine exposes backend identity, a typed normal-or-throw completion,
-and an execution-scoped `print` event channel for both backends. Schema v1
-deliberately projects that richer result back to self-checking, no-output
-probes: it compares only normal-versus-error disposition and verifies that both
-transcripts are empty. Reports say semantic equivalence is `not_established`
-and enumerate every value/identity observation capability they still omit. A
-shared failure or observed no-output contract violation is red, not a match.
-The committed foundation and generated cases plus feature-gated end-to-end
-contract tests make this slice durable, but they do not satisfy the full
-structured differential, full-corpus replay, layered generator, general AST
-reducer, fuzz, performance, or CI requirements.
+The engine exposes backend identity, a typed normal-or-throw completion, and an
+execution-scoped `print` event channel for both backends. Corpus protocol is a
+closed, version-bearing type rather than an independently mutable integer and
+contract string:
+
+- schema v1 remains `self_checking_no_output` byte-for-byte. It deliberately
+  projects the richer engine result back to normal-versus-error disposition
+  and verifies that both transcripts are empty.
+- schema v2 is `primitive_completion_no_output`. It retains completion kind
+  and compares only owned primitive values: `undefined`, `null`, Boolean,
+  canonical Number bits, UTF-16 String units and decimal BigInt. Symbol and
+  Object are outside this contract and make the report red rather than being
+  guessed, coerced or treated as matching types.
+
+Both report versions say semantic equivalence is `not_established`; matching
+the dimensions declared by one bounded protocol is not whole-program semantic
+equivalence. A shared engine failure or no-output contract violation is red,
+not a match. The committed v1/v2 cases and feature-gated end-to-end contract
+tests make this slice durable, but they do not satisfy object/identity
+comparison, full-corpus replay, layered generation, a general AST reducer,
+fuzz, performance, or CI requirements.
 
 ## Objective
 
@@ -112,11 +121,11 @@ Structured Wasm execution never reads the throw-diagnostic globals or invokes
 the legacy renderer. A separate legacy mode retains its bounded historical
 human diagnostic, using a generic placeholder for valid non-scalar UTF-16.
 
-Corpus and report schema v1 remain the self-checking, no-output protocol. The
-differential runner consumes the common event channel and projects the typed
-completion back to v1's normal-versus-error disposition. It does not serialize
-or compare the new values yet, and matching projected dispositions still do
-not establish semantic equivalence.
+Corpus and report schema v1 remain the self-checking, no-output protocol with
+their original serialization, fingerprint and mismatch-signature vocabulary.
+Schema v2 is additive and compares the typed primitive completion directly. A
+version/contract cross-pair cannot inhabit the in-memory corpus type. Neither
+protocol establishes whole-program semantic equivalence.
 
 This seam does not yet carry a partial transcript inside `EngineError`,
 identify Symbols or Objects, expose Symbol descriptions, classify Error
@@ -125,9 +134,10 @@ output is excluded from the common typed-transcript contract in this batch:
 Wasm worker stores run delegate-only and the root typed outcome does not capture
 their lines, while spec-exec's shared observed session can currently surface
 agent lines. Their presence and ordering are therefore not backend-comparable
-and consumers must not rely on them. Differential schema v1 shadows the existing
-realm output hook so it can still report output emitted before an `EngineError`;
-the typed outcome is authoritative for completed normal and throw executions.
+and consumers must not rely on them. Differential replay shadows the existing
+realm output hook so both protocol versions can still report output emitted
+before an `EngineError`; the typed outcome is authoritative for completed
+normal and throw executions.
 
 ## Differential execution framework
 
@@ -244,6 +254,7 @@ cargo test -p lila-test262 snapshot_determinism --quiet
 cargo test -p lila-test262 --features spec-exec-oracle differential::generated_arithmetic::tests::committed_generated_arithmetic_case_replays_through_both_backends -- --exact
 cargo run -p lila-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/lila-t25-arithmetic.json --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
 cargo run -p lila-cli --features spec-exec-oracle -- differential replay /tmp/lila-t25-arithmetic.json --oracle spec-exec
+cargo run -p lila-cli --features spec-exec-oracle -- differential replay crates/lila-test262/tests/differential/v2/t25-foundation-primitive-number.json --oracle spec-exec
 ```
 
 The exact CLI may differ, but equivalent seed/replay/reduce commands, CI jobs and artifact retention are required before closing this task.
