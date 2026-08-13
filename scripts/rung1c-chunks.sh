@@ -501,6 +501,7 @@ run_chunk frontend_test262_subset frontend_test262_subset::
 run_chunk throw_propagation throw_propagation::
 run_chunk dynamic           dynamic::
 run_chunk heap              heap::
+run_chunk intl              intl::
 run_chunk date              date::
 run_chunk iterator          iterator::
 run_chunk iterator_helpers  iterator_helpers::

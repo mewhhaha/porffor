@@ -17,6 +17,7 @@ mod frontend;
 mod frontend_test262_subset;
 mod functions;
 mod heap;
+mod intl;
 mod iterator;
 mod iterator_helpers;
 mod known_failures;
