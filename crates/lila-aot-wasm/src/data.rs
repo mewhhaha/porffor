@@ -2341,6 +2341,10 @@ impl StringPool {
                 // behind the PlainDate-only gate above.
                 "Invalid Temporal.PlainDate calendar annotation",
                 "Invalid Temporal.PlainDate string",
+                // The same shared helper's final time-string arm resolves
+                // calendar annotations rather than using PlainTime's
+                // ignore-calendar policy.
+                "Invalid Temporal time-string calendar annotation",
                 "Invalid Temporal.PlainMonthDay calendarName option",
                 "Invalid Temporal.PlainMonthDay monthCode",
                 "Invalid Temporal.PlainMonthDay overflow option",
