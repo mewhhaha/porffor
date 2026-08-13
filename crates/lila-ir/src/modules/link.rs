@@ -1008,6 +1008,42 @@ mod tests {
         );
     }
 
+    /// There is no line-terminator restriction between `export` and `default`.
+    /// The dependency's split pair still declares the minted cell that the
+    /// importer's live alias reads, and the merged result remains Script text.
+    #[test]
+    fn a_split_anonymous_default_links_to_its_importer() {
+        let sources = sources_of(
+            &[
+                ("a", "export\ndefault 42;"),
+                ("b", "import answer from \"a\";\nanswer;"),
+            ],
+            1,
+            vec![(1, request_key("a"), 0)],
+        );
+        let mut graph = graph_of(&sources);
+        let linked = linked_script_source(&sources, &mut graph).expect("split default links");
+
+        let binding = MergedName::anonymous_default(0);
+        assert!(
+            linked
+                .source_text
+                .contains(&format!("let {}    =\n 42;", binding.as_str())),
+            "got {}",
+            linked.source_text
+        );
+        assert!(
+            linked.source_text.contains(&format!(
+                "Object.defineProperty(globalThis, \"answer\", {{ get: () => {},",
+                binding.as_str()
+            )),
+            "got {}",
+            linked.source_text
+        );
+        lila_front::parse(linked.source_text, lila_front::ParseOptions::script())
+            .expect("span-stable linked output should remain valid Script text");
+    }
+
     /// Two units may both have an anonymous `export default`: the spec calls
     /// both bindings `*default*`, but the merged scope names them apart.
     #[test]

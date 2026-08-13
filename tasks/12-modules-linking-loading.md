@@ -17,7 +17,10 @@ retained as a closed root-`this` binding domain. In a flat eager synchronous
 Module-entry graph, direct and lexical-arrow module-root reads lower to
 `undefined` without changing ordinary function activations or Script-global
 `this`; existing Script-entry, deferred and top-level-await wrappers retain
-their activation route and obtain the same value from a bare strict call.
+their activation route and obtain the same value from a bare strict call. The
+source-text bridge also carries only closed span-stable edits: erased Unicode
+module syntax cannot move later byte offsets, and an anonymous `export default`
+may be split across lines without losing the original line-terminator sequence.
 Those are foundations rather than completion: attributed re-exports, exact
 module namespace exotic
 behavior, lazy dynamic target evaluation, all cyclic/deferred/async evaluation
@@ -144,6 +147,23 @@ deferred thunks and top-level-await async wrappers continue to use activation
 global-object root reads contribute to `ScriptIr::top_level_this_uses` and
 therefore to AOT global bootstrap. The invariant and regression shape live in
 `docs/rust-rewrite/contracts/module-root-this-binding.md`.
+
+### Span-stable module-syntax rewriting
+
+The linker erases module-goal-only syntax before its merged Script reparse.
+Every edit is either byte-width-aware blanking or a replacement constructed
+against the exact source slice it erases. Both preserve byte length and the
+ordered ECMAScript LineTerminatorSequence list, including the distinction
+between one CRLF and separated CR/LF sequences. A replacement reserves a
+non-terminator barrier when relocation would fuse those sequences, including
+across the edit boundary into the untouched initializer suffix. The same
+lexical helper ends line comments at CR, LF, CRLF, U+2028 and U+2029.
+Anonymous default exports therefore retain the byte offsets and line numbers
+later passes consume even when `export` and `default` are separated by any of
+those sequences or by comment trivia. The replacement may move those erased
+sequences within their own span, so this is not a source-column mapping claim.
+The invariant and regression shape live in
+`docs/rust-rewrite/contracts/module-syntax-span-stability.md`.
 
 Dynamic-import targets are compiled into the same artifact, not separate Wasm
 modules, and dispatch through the artifact's generated dynamic-import registry.

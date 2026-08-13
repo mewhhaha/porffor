@@ -178,9 +178,13 @@ pub(crate) const IMPORT_META_HEAD: &str = "import";
 /// The property name `import.meta` closes with, as `modules::record` checks it.
 pub(crate) const IMPORT_META_TAIL: &str = "meta";
 
-/// Narrowest byte span the `export default` keyword pair can occupy: the two
-/// keywords with a single separating space.
-const EXPORT_DEFAULT_MIN_WIDTH: usize = EXPORT_KEYWORD.len() + 1 + DEFAULT_KEYWORD.len();
+/// Bytes every valid `export default` pair leaves available for generated code
+/// after its line terminators are reserved: the two keywords themselves.
+///
+/// Inline whitespace makes the source span at least one byte wider, but the
+/// narrowest split spelling is `export\ndefault`, whose separator byte must be
+/// preserved rather than spent on the replacement head.
+const EXPORT_DEFAULT_MIN_CODE_WIDTH: usize = EXPORT_KEYWORD.len() + DEFAULT_KEYWORD.len();
 
 /// Largest module unit id the source-text linker can name.
 ///
@@ -188,10 +192,11 @@ const EXPORT_DEFAULT_MIN_WIDTH: usize = EXPORT_KEYWORD.len() + 1 + DEFAULT_KEYWO
 /// length, and each caps the decimal width of a unit id:
 ///
 /// * **B1** — `modules::source` rewrites `export default` into
-///   `keyword ++ name ++ padding ++ "="` inside a span whose narrowest form is
-///   `"export" ++ " " ++ "default"` = 14 bytes, so
-///   `len(MergedName::anonymous_default(u)) <= 14 - 4 - 1 = 9`, i.e.
-///   `len(dec(u)) <= 6`.
+///   `keyword ++ name ++ padding ++ "="` while preserving every line
+///   terminator in the erased span. The two keywords guarantee 13 non-terminator
+///   bytes even in `export\ndefault`, so
+///   `len(MergedName::anonymous_default(u)) <= 13 - 4 - 1 = 8`, i.e.
+///   `len(dec(u)) <= 5`.
 /// * **B2** — `modules::record::rewrite_import_meta` replaces `import.meta` in
 ///   place, and its narrowest span is 11 bytes, so
 ///   `len(MergedName::minted(u, ImportMeta)) <= 11`, i.e. `len(dec(u)) <= 4`.
@@ -537,12 +542,13 @@ const _: () = assert!(
 );
 
 // **V2 (budget B1).** The whole rewritten declaration head must fit in the
-// narrowest `export default` span.
+// code budget left by the narrowest split `export default` span after its line
+// terminator is reserved.
 const _: () = assert!(
     DEFAULT_BINDING_LET.len()
         + anonymous_default_len(MAX_LINKABLE_MODULE_UNIT_ID)
         + DEFAULT_BINDING_ASSIGN.len()
-        <= EXPORT_DEFAULT_MIN_WIDTH,
+        <= EXPORT_DEFAULT_MIN_CODE_WIDTH,
     "the anonymous `export default` binding no longer fits the keywords it replaces"
 );
 
@@ -678,9 +684,9 @@ mod tests {
 
     /// The budgets V2 and V4 assert at compile time, checked here against the
     /// values the two rewriters actually measure so a change to either side is
-    /// visible in one place.
+    /// visible in one place. B2 is tight at the cap; B1 has one byte of slack.
     #[test]
-    fn the_byte_budgets_are_tight_at_the_cap() {
+    fn the_byte_budgets_hold_at_the_cap() {
         let meta = MergedName::minted(MAX_LINKABLE_MODULE_UNIT_ID, UnitCellRole::ImportMeta);
         assert_eq!(meta.as_str().len(), IMPORT_META_TEXT.len());
         let default = LocalName::AnonymousDefault.merged_in(MAX_LINKABLE_MODULE_UNIT_ID);
@@ -690,7 +696,7 @@ mod tests {
         );
         assert!(
             DEFAULT_BINDING_LET.len() + default.as_str().len() + DEFAULT_BINDING_ASSIGN.len()
-                <= EXPORT_DEFAULT_MIN_WIDTH
+                <= EXPORT_DEFAULT_MIN_CODE_WIDTH
         );
     }
 }

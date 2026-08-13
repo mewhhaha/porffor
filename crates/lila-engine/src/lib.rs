@@ -19465,6 +19465,21 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
     }
 
     #[test]
+    fn wasm_backend_module_split_anonymous_default_evaluates_in_place() {
+        let outcome = engine()
+            .run_module(
+                "let seen = 0;\nexport\ndefault (seen = 42);\nseen;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("split anonymous default should compile and run");
+        assert!(outcome.note.contains("number(42"), "note: {}", outcome.note);
+    }
+
+    #[test]
     fn wasm_backend_supports_default_rest_and_arguments_core() {
         for (source, expected, label) in [
             (

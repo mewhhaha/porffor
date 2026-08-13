@@ -16,10 +16,13 @@
 //! module syntax at nesting depth zero and never immediately after `.`. So
 //! neither `const s = "export const x = 1;"` nor `obj.export` is touched.
 //!
-//! Deleted bytes are replaced with spaces and every line terminator inside the
-//! deleted range is kept, so the stripped text has the same byte length and the
-//! same line structure as the original. Positions therefore stay comparable
-//! with the record's spans.
+//! Deleted bytes are replaced with the same number of space *bytes* and every
+//! line terminator inside the deleted range is kept, so the stripped text has
+//! the same byte length and line count as the original. Replacements carry the
+//! same invariant in a closed type. Later tokens therefore keep their byte
+//! offsets and line numbers, including the distinction between one CRLF
+//! sequence and separate CR/LF sequences, although a replacement may move a
+//! sequence within its own span and therefore does not promise column fidelity.
 
 use crate::{
     MergedName, DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR, DEFAULT_KEYWORD,
@@ -41,17 +44,209 @@ impl StripError {
     }
 }
 
+/// One source edit, whose kind exhaustively determines how its span is rebuilt.
+struct SourceEdit {
+    start: usize,
+    end: usize,
+    kind: ModuleSyntaxEdit,
+}
+
+enum ModuleSyntaxEdit {
+    /// Keep line-terminator sequences; replace every other source byte with a
+    /// space.
+    Blank,
+    /// Replace with text proved stable against this edit's source span.
+    Replace(SpanStableReplacement),
+}
+
+/// Replacement text with the byte width and ordered ECMAScript
+/// LineTerminatorSequences of the source span it erases.
+///
+/// There is deliberately no raw-string constructor. The only constructor
+/// receives the erased source slice and reserves its terminator sequences
+/// before it admits generated text, so neither length nor line structure can be
+/// forgotten at a call site.
+struct SpanStableReplacement(String);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpanStableReplacementError {
+    InvalidSpan,
+    GeneratedLineTerminator,
+    DoesNotFit,
+}
+
+impl SourceEdit {
+    fn blank(source: &str, start: usize, end: usize) -> Result<Self, StripError> {
+        source.get(start..end).ok_or_else(|| {
+            StripError::new(format!(
+                "module-syntax edit {start}..{end} is not a span of this source text"
+            ))
+        })?;
+        Ok(Self {
+            start,
+            end,
+            kind: ModuleSyntaxEdit::Blank,
+        })
+    }
+
+    fn replace_around_padding(
+        source: &str,
+        start: usize,
+        end: usize,
+        before_padding: &str,
+        after_padding: &str,
+    ) -> Result<Self, SpanStableReplacementError> {
+        let erased = source
+            .get(start..end)
+            .ok_or(SpanStableReplacementError::InvalidSpan)?;
+        let suffix = source
+            .get(end..)
+            .ok_or(SpanStableReplacementError::InvalidSpan)?;
+        let replacement =
+            SpanStableReplacement::around_padding(erased, suffix, before_padding, after_padding)?;
+        Ok(Self {
+            start,
+            end,
+            kind: ModuleSyntaxEdit::Replace(replacement),
+        })
+    }
+}
+
+impl SpanStableReplacement {
+    fn around_padding(
+        erased: &str,
+        suffix: &str,
+        before_padding: &str,
+        after_padding: &str,
+    ) -> Result<Self, SpanStableReplacementError> {
+        if contains_ecmascript_line_terminator(before_padding)
+            || contains_ecmascript_line_terminator(after_padding)
+        {
+            return Err(SpanStableReplacementError::GeneratedLineTerminator);
+        }
+
+        let mut terminators = Vec::new();
+        let mut cursor = 0usize;
+        while cursor < erased.len() {
+            if let Some(sequence) = ecmascript_line_terminator_sequence_at(erased, cursor) {
+                terminators.push(sequence);
+                cursor += sequence.len();
+            } else {
+                cursor += erased[cursor..].chars().next().map_or(1, char::len_utf8);
+            }
+        }
+        // Relocating separate CR and LF sequences next to one another would
+        // turn them into one CRLF sequence. Each internal pair had at least one
+        // non-terminator byte between it in `erased`. The edit-boundary pair
+        // below had `default` between the erased CR and the untouched suffix
+        // LF. Reserving one of those displaced bytes as a barrier therefore
+        // cannot make an otherwise-fitting rewrite overflow.
+        let internal_barriers = terminators
+            .windows(2)
+            .filter(|pair| pair[0] == "\r" && pair[1] == "\n")
+            .count();
+        let trailing_barrier = terminators.last() == Some(&"\r") && suffix.starts_with('\n');
+        let terminator_width = terminators
+            .iter()
+            .map(|sequence| sequence.len())
+            .sum::<usize>();
+        let Some(generated_width) = before_padding.len().checked_add(after_padding.len()) else {
+            return Err(SpanStableReplacementError::DoesNotFit);
+        };
+        let Some(required_width) = generated_width
+            .checked_add(terminator_width)
+            .and_then(|width| width.checked_add(internal_barriers))
+            .and_then(|width| width.checked_add(if trailing_barrier { 1 } else { 0 }))
+        else {
+            return Err(SpanStableReplacementError::DoesNotFit);
+        };
+        let Some(padding) = erased.len().checked_sub(required_width) else {
+            return Err(SpanStableReplacementError::DoesNotFit);
+        };
+
+        let mut replacement = String::with_capacity(erased.len());
+        replacement.push_str(before_padding);
+        replacement.extend(core::iter::repeat_n(' ', padding));
+        replacement.push_str(after_padding);
+        for (index, sequence) in terminators.iter().enumerate() {
+            if index != 0 && terminators[index - 1] == "\r" && *sequence == "\n" {
+                replacement.push(' ');
+            }
+            replacement.push_str(sequence);
+        }
+        if trailing_barrier {
+            replacement.push(' ');
+        }
+
+        debug_assert_eq!(replacement.len(), erased.len());
+        let mut replacement_with_suffix = String::with_capacity(replacement.len() + suffix.len());
+        replacement_with_suffix.push_str(&replacement);
+        replacement_with_suffix.push_str(suffix);
+        let mut erased_with_suffix = String::with_capacity(erased.len() + suffix.len());
+        erased_with_suffix.push_str(erased);
+        erased_with_suffix.push_str(suffix);
+        debug_assert_eq!(
+            collect_ecmascript_line_terminator_sequences(&replacement_with_suffix),
+            collect_ecmascript_line_terminator_sequences(&erased_with_suffix)
+        );
+        Ok(Self(replacement))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The ECMAScript LineTerminatorSequence beginning at this byte offset.
+///
+/// CRLF is returned as one sequence; a standalone CR or LF is returned as one
+/// sequence of its own. All scanner paths use this helper so line comments and
+/// span-stable replacements cannot disagree about the lexical line boundary.
+fn ecmascript_line_terminator_sequence_at(source: &str, index: usize) -> Option<&str> {
+    let remaining = source.get(index..)?;
+    for sequence in ["\r\n", "\r", "\n", "\u{2028}", "\u{2029}"] {
+        if remaining.starts_with(sequence) {
+            return remaining.get(..sequence.len());
+        }
+    }
+    None
+}
+
+fn contains_ecmascript_line_terminator(source: &str) -> bool {
+    let mut index = 0usize;
+    while index < source.len() {
+        if ecmascript_line_terminator_sequence_at(source, index).is_some() {
+            return true;
+        }
+        index += source[index..].chars().next().map_or(1, char::len_utf8);
+    }
+    false
+}
+
+fn collect_ecmascript_line_terminator_sequences(source: &str) -> Vec<&str> {
+    let mut sequences = Vec::new();
+    let mut index = 0usize;
+    while index < source.len() {
+        if let Some(sequence) = ecmascript_line_terminator_sequence_at(source, index) {
+            sequences.push(sequence);
+            index += sequence.len();
+        } else {
+            index += source[index..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    sequences
+}
+
 /// What the scanner does with the `export default` keyword pair, decided by the
 /// record rather than re-derived from the text.
 ///
-/// The two keywords are 14 bytes with a single separating space, which is the
-/// whole budget the anonymous form has to spend on a declaration head. That
-/// budget is invariant B1, and const assertion V2 in `crate::binding_names`
-/// holds `MergedName::anonymous_default` to it at compile time using the very
+/// Once line terminators are reserved, the two keywords guarantee 13 bytes for
+/// generated code even in the narrowest split pair, `export\ndefault`. That is
+/// invariant B1, and const assertion V2 in `crate::binding_names` holds
+/// `MergedName::anonymous_default` to it at compile time using the very
 /// constants this scanner matches on — [`EXPORT_KEYWORD`], [`DEFAULT_KEYWORD`],
 /// [`DEFAULT_BINDING_LET`] and [`DEFAULT_BINDING_ASSIGN`]. The runtime check in
-/// `Scanner::rewrite_default_keywords` therefore only has to catch a *span*
-/// wider than the minimum, never a name that outgrew its budget.
+/// `Scanner::rewrite_default_keywords` still verifies the actual source span.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DefaultExportRewrite<'a> {
     /// No `export default` in this unit; one found anyway is a disagreement
@@ -103,10 +298,8 @@ struct Scanner<'a> {
     source: &'a str,
     bytes: &'a [u8],
     default_export: DefaultExportRewrite<'a>,
-    /// Byte ranges to rewrite, in ascending order and non-overlapping. `None`
-    /// blanks the range; `Some(text)` replaces it, and `text` is always exactly
-    /// as long as the range it replaces.
-    deletions: Vec<(usize, usize, Option<String>)>,
+    /// Byte ranges to rewrite, in ascending order and non-overlapping.
+    edits: Vec<SourceEdit>,
     /// Nesting depth of `(`, `[` and `{`. Module declarations only exist at 0.
     depth: usize,
     /// One entry per open template substitution, holding the `depth` *inside*
@@ -125,7 +318,7 @@ impl<'a> Scanner<'a> {
             source,
             bytes: source.as_bytes(),
             default_export,
-            deletions: Vec::new(),
+            edits: Vec::new(),
             depth: 0,
             template_stack: Vec::new(),
             slash: SlashMeaning::Regexp,
@@ -137,28 +330,36 @@ impl<'a> Scanner<'a> {
     /// Rebuilds the source with every rewritten range blanked or replaced.
     ///
     /// Rewritten ranges are produced in ascending order and never overlap, so
-    /// one forward pass suffices. Line terminators inside a blanked range
-    /// survive, which is what keeps line numbers stable; every other character
-    /// becomes a space, which keeps byte offsets stable. A replacement is
-    /// already the length of the range it covers, and `scan_export_prefix`
-    /// only ever mints one for a range with no line terminator in it.
+    /// one forward pass suffices. A blank emits one space per source *byte* and
+    /// retains line-terminator sequences; a replacement already proves the
+    /// same byte length and ordered sequence list as the range it covers.
     fn finish(self) -> String {
         let mut rebuilt = String::with_capacity(self.source.len());
         let mut cursor = 0usize;
-        for (start, end, replacement) in &self.deletions {
-            rebuilt.push_str(&self.source[cursor..*start]);
-            if let Some(text) = replacement {
-                rebuilt.push_str(text);
-            } else {
-                for ch in self.source[*start..*end].chars() {
-                    if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
-                        rebuilt.push(ch);
-                    } else {
-                        rebuilt.push(' ');
+        for edit in &self.edits {
+            rebuilt.push_str(&self.source[cursor..edit.start]);
+            match &edit.kind {
+                ModuleSyntaxEdit::Replace(replacement) => {
+                    rebuilt.push_str(replacement.as_str());
+                }
+                ModuleSyntaxEdit::Blank => {
+                    let erased = &self.source[edit.start..edit.end];
+                    let mut index = 0usize;
+                    while index < erased.len() {
+                        if let Some(sequence) =
+                            ecmascript_line_terminator_sequence_at(erased, index)
+                        {
+                            rebuilt.push_str(sequence);
+                            index += sequence.len();
+                        } else {
+                            let width = erased[index..].chars().next().map_or(1, char::len_utf8);
+                            rebuilt.extend(core::iter::repeat_n(' ', width));
+                            index += width;
+                        }
                     }
                 }
             }
-            cursor = *end;
+            cursor = edit.end;
         }
         rebuilt.push_str(&self.source[cursor..]);
         rebuilt
@@ -280,7 +481,7 @@ impl<'a> Scanner<'a> {
                     // expression; neither is a declaration.
                     if after != Some(b'(') && after != Some(b'.') {
                         let end = self.scan_import_declaration()?;
-                        self.deletions.push((start, end, None));
+                        self.edits.push(SourceEdit::blank(self.source, start, end)?);
                         self.index = end;
                         self.slash = SlashMeaning::Regexp;
                         self.previous_was_dot = false;
@@ -288,9 +489,9 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 EXPORT_KEYWORD => {
-                    let (end, replacement) = self.scan_export_prefix(start)?;
-                    self.deletions.push((start, end, replacement));
-                    self.index = end;
+                    let edit = self.scan_export_prefix(start)?;
+                    self.index = edit.end;
+                    self.edits.push(edit);
                     self.slash = SlashMeaning::Regexp;
                     self.previous_was_dot = false;
                     return Ok(());
@@ -349,8 +550,7 @@ impl<'a> Scanner<'a> {
         self.consume_optional_semicolon(cursor)
     }
 
-    /// Byte offset one past the end of the part of an `export` declaration the
-    /// linker rewrites, and what to put there.
+    /// Edit for the part of an `export` declaration the linker rewrites.
     ///
     /// For `export { ... }` and `export * from "m"` that is the whole
     /// declaration, blanked. For `export <declaration>` it is only the keyword,
@@ -360,7 +560,7 @@ impl<'a> Scanner<'a> {
     ///
     /// `start` is the offset of the `export` keyword, which is where a
     /// replacement has to begin.
-    fn scan_export_prefix(&mut self, start: usize) -> Result<(usize, Option<String>), StripError> {
+    fn scan_export_prefix(&mut self, start: usize) -> Result<SourceEdit, StripError> {
         let after_keyword = self.index;
         let cursor = self.skip_trivia_from(after_keyword)?;
         match self.bytes.get(cursor).copied() {
@@ -380,7 +580,7 @@ impl<'a> Scanner<'a> {
                 } else {
                     end = after_list;
                 }
-                Ok((self.consume_optional_semicolon(end)?, None))
+                SourceEdit::blank(self.source, start, self.consume_optional_semicolon(end)?)
             }
             Some(b'*') => {
                 let mut end = cursor + 1;
@@ -395,12 +595,12 @@ impl<'a> Scanner<'a> {
                     }
                     end += self.char_len_at(end);
                 }
-                Ok((self.consume_optional_semicolon(end)?, None))
+                SourceEdit::blank(self.source, start, self.consume_optional_semicolon(end)?)
             }
             _ if self.word_at(cursor, DEFAULT_KEYWORD) => {
                 self.rewrite_default_keywords(start, cursor + DEFAULT_KEYWORD.len())
             }
-            Some(_) => Ok((after_keyword, None)),
+            Some(_) => SourceEdit::blank(self.source, start, after_keyword),
             None => Err(StripError::new("`export` at end of source")),
         }
     }
@@ -413,47 +613,45 @@ impl<'a> Scanner<'a> {
     /// so the keywords become the head of a declaration of the minted one, and
     /// the rest of the text — the function, the class or the expression — stays
     /// exactly where it was as that declaration's initializer.
-    fn rewrite_default_keywords(
-        &self,
-        start: usize,
-        end: usize,
-    ) -> Result<(usize, Option<String>), StripError> {
+    fn rewrite_default_keywords(&self, start: usize, end: usize) -> Result<SourceEdit, StripError> {
         let (name, hoisted) = match self.default_export {
             DefaultExportRewrite::None => {
                 return Err(StripError::new(
                     "`export default` in a module whose record has no default export",
                 ));
             }
-            DefaultExportRewrite::DeleteKeywords => return Ok((end, None)),
+            DefaultExportRewrite::DeleteKeywords => {
+                return SourceEdit::blank(self.source, start, end);
+            }
             DefaultExportRewrite::Bind { name, hoisted } => (name, hoisted),
         };
-        // A replacement is written verbatim, so a line terminator inside the
-        // range it covers would be lost and every later line would shift.
-        if self.source[start..end].contains(['\n', '\r', '\u{2028}', '\u{2029}']) {
-            return Err(StripError::new(
-                "`export default` split across lines is not linked yet",
-            ));
-        }
         let keyword = if hoisted {
             DEFAULT_BINDING_VAR
         } else {
             DEFAULT_BINDING_LET
         };
         let name = name.as_str();
-        let head = keyword.len() + name.len() + DEFAULT_BINDING_ASSIGN.len();
-        let width = end - start;
-        let Some(padding) = width.checked_sub(head) else {
-            return Err(StripError::new(format!(
-                "`export default` binding `{name}` does not fit in the {width} bytes it replaces"
-            )));
-        };
-        Ok((
+        let width = end.saturating_sub(start);
+        let before_padding = format!("{keyword}{name}");
+        SourceEdit::replace_around_padding(
+            self.source,
+            start,
             end,
-            Some(format!(
-                "{keyword}{name}{}{DEFAULT_BINDING_ASSIGN}",
-                " ".repeat(padding)
+            &before_padding,
+            DEFAULT_BINDING_ASSIGN,
+        )
+        .map_err(|error| match error {
+            SpanStableReplacementError::DoesNotFit => StripError::new(format!(
+                "`export default` binding `{name}` does not fit in the {width} bytes it replaces \
+                 after preserving its line terminators"
             )),
-        ))
+            SpanStableReplacementError::InvalidSpan => StripError::new(format!(
+                "`export default` span {start}..{end} is not a span of this module's source text"
+            )),
+            SpanStableReplacementError::GeneratedLineTerminator => StripError::new(
+                "generated `export default` declaration head contains a line terminator",
+            ),
+        })
     }
 
     fn consume_optional_semicolon(&self, end: usize) -> Result<usize, StripError> {
@@ -491,13 +689,10 @@ impl<'a> Scanner<'a> {
             match self.bytes.get(index).copied() {
                 Some(byte) if byte.is_ascii_whitespace() => index += 1,
                 Some(b'/') if self.bytes.get(index + 1) == Some(&b'/') => {
-                    while self
-                        .bytes
-                        .get(index)
-                        .copied()
-                        .is_some_and(|byte| byte != b'\n')
+                    while index < self.source.len()
+                        && ecmascript_line_terminator_sequence_at(self.source, index).is_none()
                     {
-                        index += 1;
+                        index += self.char_len_at(index);
                     }
                 }
                 Some(b'/') if self.bytes.get(index + 1) == Some(&b'*') => {
@@ -569,13 +764,10 @@ impl<'a> Scanner<'a> {
     }
 
     fn skip_line_comment(&mut self) {
-        while self
-            .bytes
-            .get(self.index)
-            .copied()
-            .is_some_and(|byte| byte != b'\n')
+        while self.index < self.source.len()
+            && ecmascript_line_terminator_sequence_at(self.source, self.index).is_none()
         {
-            self.index += 1;
+            self.index += self.char_len();
         }
     }
 
@@ -735,7 +927,7 @@ fn is_reserved_word(word: &str) -> bool {
 mod tests {
     use super::*;
 
-    use crate::LocalName;
+    use crate::{LocalName, MAX_LINKABLE_MODULE_UNIT_ID};
 
     fn strip(source: &str) -> String {
         strip_module_syntax(source, DefaultExportRewrite::None).expect("source should strip")
@@ -765,6 +957,27 @@ mod tests {
             stripped.lines().count(),
             source.lines().count(),
             "line count must survive stripping"
+        );
+    }
+
+    /// Blanking is measured in bytes, not Unicode scalar values. A single
+    /// space for `π` or `☿` would move the marker that follows the erased
+    /// declarations and invalidate every later span.
+    #[test]
+    fn non_ascii_module_syntax_is_blanked_without_moving_later_bytes() {
+        let source = "import { π as value } from \"☿\";\n\
+                      export { value as \"☿\" };\n\
+                      const after_unicode_module_syntax = 1;";
+        let stripped = strip(source);
+
+        assert_eq!(stripped.len(), source.len());
+        assert_eq!(
+            stripped.find("after_unicode_module_syntax"),
+            source.find("after_unicode_module_syntax")
+        );
+        assert_eq!(
+            collect_ecmascript_line_terminator_sequences(&stripped),
+            collect_ecmascript_line_terminator_sequences(source)
         );
     }
 
@@ -825,6 +1038,159 @@ mod tests {
         .expect("source should strip");
         assert_eq!(stripped.len(), source.len());
         assert_eq!(stripped, "let $d0$     = 42;\nprint(1);\n");
+    }
+
+    /// The grammar permits line terminators between `export` and `default`.
+    /// Reserve every terminator byte before fitting the widest binding name,
+    /// including CRLF as one sequence and the two Unicode forms.
+    #[test]
+    fn split_anonymous_defaults_preserve_bytes_and_ordered_line_sequences_at_the_cap() {
+        let name = LocalName::AnonymousDefault.merged_in(MAX_LINKABLE_MODULE_UNIT_ID);
+        assert_eq!(name.as_str(), "$d9999$");
+
+        let forms = [
+            ("42", false, "let $d9999$"),
+            ("function () {}", true, "var $d9999$"),
+        ];
+        for trivia in [
+            "\n",
+            "\r\n",
+            "\u{2028}",
+            "\u{2029}",
+            "/*☿\r\n\u{2028}π\u{2029}*/",
+        ] {
+            for (initializer, hoisted, declaration) in forms {
+                let source =
+                    format!("export{trivia}default {initializer};\nconst after_split_default = 1;");
+                let stripped = strip_module_syntax(
+                    &source,
+                    DefaultExportRewrite::Bind {
+                        name: &name,
+                        hoisted,
+                    },
+                )
+                .expect("split default should strip");
+
+                assert_eq!(stripped.len(), source.len(), "{trivia:?} {initializer}");
+                assert_eq!(
+                    stripped.find("after_split_default"),
+                    source.find("after_split_default"),
+                    "{trivia:?} {initializer}"
+                );
+                assert!(stripped.starts_with(declaration), "got {stripped}");
+                let initializer_offset = stripped
+                    .find(initializer)
+                    .expect("initializer should stay present");
+                let terminators = collect_ecmascript_line_terminator_sequences(trivia).concat();
+                assert!(
+                    stripped[..initializer_offset].ends_with(&format!("={terminators} ")),
+                    "got {stripped}"
+                );
+                assert_eq!(
+                    collect_ecmascript_line_terminator_sequences(&stripped),
+                    collect_ecmascript_line_terminator_sequences(&source),
+                    "got {stripped}"
+                );
+            }
+        }
+    }
+
+    /// A standalone CR and a later standalone LF are two line-terminator
+    /// sequences. Relocating their raw code points adjacently would silently
+    /// collapse them into one CRLF sequence and move every later line number.
+    #[test]
+    fn relocated_separate_cr_and_lf_sequences_keep_a_non_terminator_barrier() {
+        let source = "export/*\rseparate\n*/default 42;\nconst after = 1;";
+        let stripped = strip_module_syntax(
+            source,
+            DefaultExportRewrite::Bind {
+                name: &LocalName::AnonymousDefault.merged_in(0),
+                hoisted: false,
+            },
+        )
+        .expect("separated CR and LF should strip");
+
+        assert_eq!(stripped.len(), source.len());
+        assert_eq!(stripped.find("after"), source.find("after"));
+        assert_eq!(
+            collect_ecmascript_line_terminator_sequences(&stripped),
+            vec!["\r", "\n", "\n"]
+        );
+        assert_eq!(
+            collect_ecmascript_line_terminator_sequences(&stripped),
+            collect_ecmascript_line_terminator_sequences(source)
+        );
+        assert!(stripped.contains("=\r \n 42;"), "got {stripped}");
+    }
+
+    /// The untouched suffix participates in line-sequence grouping too. A
+    /// relocated standalone CR at the end of the edit must not fuse with an LF
+    /// that begins the initializer suffix.
+    #[test]
+    fn relocated_cr_keeps_a_barrier_before_an_untouched_suffix_lf_at_the_cap() {
+        let source = "export\rdefault\n42;\nconst after_boundary = 1;";
+        let stripped = strip_module_syntax(
+            source,
+            DefaultExportRewrite::Bind {
+                name: &LocalName::AnonymousDefault.merged_in(MAX_LINKABLE_MODULE_UNIT_ID),
+                hoisted: false,
+            },
+        )
+        .expect("edit-boundary CR and LF should stay separate");
+
+        assert_eq!(stripped.len(), source.len());
+        assert_eq!(
+            stripped.find("after_boundary"),
+            source.find("after_boundary")
+        );
+        assert_eq!(
+            collect_ecmascript_line_terminator_sequences(&stripped),
+            vec!["\r", "\n", "\n"]
+        );
+        assert_eq!(
+            collect_ecmascript_line_terminator_sequences(&stripped),
+            collect_ecmascript_line_terminator_sequences(source)
+        );
+        assert!(
+            stripped.starts_with("let $d9999$=\r \n42;"),
+            "got {stripped}"
+        );
+    }
+
+    /// Both the lookahead scanner inside an export and the top-level scanner
+    /// must end `//` at every ECMAScript LineTerminatorSequence, not only LF.
+    #[test]
+    fn line_comments_end_at_cr_ls_and_ps_around_a_split_default() {
+        for terminator in ["\r", "\u{2028}", "\u{2029}"] {
+            let source = format!(
+                "// leading{terminator}export// between{terminator}default 42;\nconst after = 1;"
+            );
+            let stripped = strip_module_syntax(
+                &source,
+                DefaultExportRewrite::Bind {
+                    name: &LocalName::AnonymousDefault.merged_in(0),
+                    hoisted: false,
+                },
+            )
+            .expect("line comments should stop at an ECMAScript line terminator");
+
+            assert_eq!(stripped.len(), source.len(), "{terminator:?}");
+            assert_eq!(stripped.find("after"), source.find("after"));
+            assert!(stripped.contains("let $d0$"), "got {stripped}");
+            assert_eq!(
+                collect_ecmascript_line_terminator_sequences(&stripped),
+                collect_ecmascript_line_terminator_sequences(&source),
+                "got {stripped}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_generated_replacement_cannot_add_a_line_terminator() {
+        assert!(matches!(
+            SpanStableReplacement::around_padding("export default", "", "let $d0$\n", "="),
+            Err(SpanStableReplacementError::GeneratedLineTerminator)
+        ));
     }
 
     /// A hoistable anonymous default keeps being initialized before the body
