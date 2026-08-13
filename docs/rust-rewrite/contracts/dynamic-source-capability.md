@@ -8,6 +8,12 @@ not an ECMAScript rejection and not a passing conformance result. Source proven
 at AOT time may eventually be compiled only through the ordinary
 front-end-to-Wasm pipeline.
 
+`%eval%` does not always evaluate source. `PerformEval` returns its argument
+unchanged before selecting a realm or environment when the argument is not a
+primitive String, and `%eval%` called with no arguments returns `undefined`.
+Those branches are ordinary builtin execution, not dynamic-source support, and
+are admitted by the closed proof below.
+
 This contract does not implement that static subset. It makes the current gap
 compiler-visible without inferring support from test paths or source snippets.
 
@@ -80,11 +86,38 @@ debt.
    body is a defensive throw only; a resolved call is rejected by the compiler
    diagnostic before backend planning.
 
+## Proven no-source `%eval%`
+
+The lowering boundary classifies each resolved dynamic-source call exactly once
+as either `EvalPassThrough(ProvenEvalPassThrough)` or
+`Unsupported(DynamicSourceGap)`. The pass-through proof has private
+constructors and exists only for direct or indirect intrinsic `%eval%` when:
+
+- the call has no spread and no arguments; or
+- the call has no spread and its lowered first argument has a nonempty
+  `KindSet` that excludes primitive `String`.
+
+An empty kind set is not evidence. A set containing `String`, any spread,
+realm `evalScript`, and every Function-family identity remain typed gaps. For a
+multi-target call, every dynamic-source target must independently produce the
+pass-through proof; one unsupported target rejects the call.
+
+The proof permits lowering to retain the ordinary indirect call. It never
+replaces the call with its first argument or `undefined`: the evaluated callee
+and every argument remain in source order, an overwritten `eval` still wins,
+and abrupt argument completion is unchanged. Its result fact is `undefined`
+for no arguments and the first argument's exact `ValueInfo` otherwise.
+
+This is intentionally not an AOT-known textual subset. No String source is
+parsed, compiled, or executed by this branch, and it establishes none of the
+caller-environment, target-realm, declaration-instantiation, or deferred-error
+capabilities required by static Script evaluation.
+
 ## Current producer coverage
 
 | Operation | Compiler-owned identity today | Accounting |
 | --- | --- | --- |
-| direct/indirect `%eval%` on directly resolved call paths | `StandardBuiltinId::EvalFunction` | typed diagnostic |
+| direct/indirect `%eval%` on directly resolved call paths | `StandardBuiltinId::EvalFunction` | no-argument/proven non-String pass-through; typed diagnostic whenever String remains possible |
 | ordinary `%Function%` on directly resolved call/construct paths | `StandardBuiltinId::FunctionConstructor` | typed diagnostic |
 | Generator/Async/AsyncGenerator Function constructors on directly resolved call/construct paths | `DynamicSourceIntrinsic::Function(..)` carried by the function prototype shape | typed diagnostic |
 | directly resolved `$262.evalScript` calls | `HostBuiltinId::RealmEvalScript`, mapped to `DynamicSourceIntrinsic::RealmEvalScript` and exposed only by `HostSurfacePolicy::Test262` | typed diagnostic |
@@ -92,8 +125,9 @@ debt.
 There is no lexical Test262 pre-gate for these operations. Unsupported
 accounting begins only after lowering resolves one of the identities above.
 This does not claim static-source support: literal strings still produce
-target-realm-environment debt, while non-literals produce runtime-compilation
-debt.
+caller- or target-realm-environment debt, while values that may be primitive
+Strings produce runtime-compilation debt. Only proven no-source `%eval%` calls
+avoid the dynamic-source diagnostic.
 
 Forwarding builtins and wrapper callables are not yet identity-transparent for
 this accounting boundary. Calls that reach these operations through

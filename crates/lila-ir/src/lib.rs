@@ -11020,6 +11020,132 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn proven_no_source_eval_preserves_the_call_and_exact_result_fact() {
+        for (source, expected_kind, expected_arg_count) in [
+            ("eval();", ValueKind::Undefined, 0),
+            ("eval(1);", ValueKind::Number, 1),
+            ("eval(true);", ValueKind::Boolean, 1),
+            ("eval(null);", ValueKind::Null, 1),
+            ("eval({ marker: 1 });", ValueKind::Object, 1),
+            ("eval(new String('source'));", ValueKind::Object, 1),
+            ("eval(function marker() {});", ValueKind::Function, 1),
+            ("eval(1, 2);", ValueKind::Number, 2),
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script IR should exist");
+            let StatementIr::Expression(expression) = &script.body.statements[0] else {
+                panic!("{source}: eval should remain an expression statement");
+            };
+            let call = indirect_call_body(expression)
+                .unwrap_or_else(|| panic!("{source}: eval must remain an indirect call"));
+            assert_eq!(call.kind, expected_kind, "{source}: result kind");
+            let ExprIr::CallIndirect { callee, args, .. } = &call.expr else {
+                unreachable!("indirect_call_body returned a non-call")
+            };
+            assert!(
+                matches!(&callee.expr, ExprIr::GlobalPropertyRead { name } if name == "eval"),
+                "{source}: the evaluated callee must be retained"
+            );
+            assert_eq!(args.len(), expected_arg_count, "{source}: retained args");
+        }
+    }
+
+    #[test]
+    fn no_source_eval_works_through_alias_optional_and_safe_multi_target_calls() {
+        for source in [
+            "let indirect = eval; indirect(1);",
+            "eval?.();",
+            "eval?.(1);",
+            "(eval?.(function marker() { return 1; }))();",
+            "function plusOne(value) { return value + 1; } let f = unknown ? eval : plusOne; f(1);",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                !program.diagnostics.iter().any(|diagnostic| matches!(
+                    diagnostic.unsupported_feature(),
+                    Some(UnsupportedFeature::DynamicSource(_))
+                )),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn multi_target_eval_keeps_genuine_undefined_as_a_result_alternative() {
+        for source in [
+            "function returnsNumber() { return 1; } let f = unknown ? eval : returnsNumber; f();",
+            "function returnsNumber() { return 1; } let f = unknown ? eval : returnsNumber; f(undefined);",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                !program.diagnostics.iter().any(|diagnostic| matches!(
+                    diagnostic.unsupported_feature(),
+                    Some(UnsupportedFeature::DynamicSource(_))
+                )),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script IR should exist");
+            let call = script
+                .body
+                .statements
+                .iter()
+                .rev()
+                .find_map(|statement| match statement {
+                    StatementIr::Expression(expression) => indirect_call_body(expression),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{source}: missing multi-target call"));
+            assert_eq!(
+                call.possible_kinds,
+                KindSet::from_kind(ValueKind::Undefined)
+                    .union(KindSet::from_kind(ValueKind::Number)),
+                "{source}: target alternatives"
+            );
+        }
+    }
+
+    #[test]
+    fn eval_pass_through_requires_every_dynamic_target_and_excludes_spread_and_string() {
+        for (source, expected) in [
+            (
+                "eval(...[1]);",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
+            ),
+            (
+                "let source = unknown ? 1 : 'source'; eval(source);",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
+            ),
+            (
+                "function plusOne(value) { return value + 1; } let f = unknown ? eval : plusOne; f('source');",
+                DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
+            ),
+            (
+                "let f = unknown ? eval : Function; f(1);",
+                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
+                    DynamicFunctionKind::Ordinary,
+                )),
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.unsupported_feature()
+                        == Some(UnsupportedFeature::DynamicSource(expected))
+                }),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+    }
+
+    #[test]
     fn dynamic_source_diagnostics_carry_closed_operation_and_requirement() {
         for (source, expected) in [
             (

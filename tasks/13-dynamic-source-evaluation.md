@@ -1,6 +1,6 @@
 # T13 — Dynamic source evaluation: `eval`, `Function` and realm evaluation
 
-**Status:** Policy and typed compiler accounting implemented; static subsets remain
+**Status:** Policy, typed accounting and no-source `%eval%` implemented; textual static subsets remain
 
 **Parallel group:** Feature lane; architecture decision recorded
 **Depends on:** T03, T06, T08, T09, T12  
@@ -11,16 +11,21 @@
 The active product policy is explicit: generic `eval`, Function-family
 construction and realm `evalScript` remain visible Wasm-AOT unsupported cases
 when support would require an interpreter or runtime parser. Resolved ordinary
-`eval` and `%Function%` calls now carry a closed `UnsupportedFeature` through
+`eval` calls that may receive primitive String source and `%Function%` calls
+now carry a closed `UnsupportedFeature` through
 IR diagnostics into conformance accounting. The three derived Function-family
 constructors now have closed compiler-only intrinsic identities carried by
 function prototype shapes, and `$262.evalScript` is a typed host
 identity admitted solely by the Test262 host-surface policy. Test262 no longer
 infers any dynamic-source result from source spelling. The README reports all
 of these cases separately.
-Supported statically known subsets have not been implemented. Keep this task
-focused on capability reporting and general compilation paths rather than
-treating the permitted unsupported result as a pass.
+The spec's pre-source `%eval%` branches are implemented: a no-argument call
+returns `undefined`, and a call whose lowered first-argument kind is nonempty
+and excludes primitive String returns that value unchanged. This is ordinary
+builtin execution, not a textual static subset. Supported statically known
+source subsets have not been implemented. Keep this task focused on capability
+reporting and general compilation paths rather than treating the permitted
+unsupported result as a pass.
 
 The 2026-08-13 current-pin Wasm-AOT run supplies the first concrete static
 subset owner: its first 17 failures are all typed `$262.evalScript`
@@ -97,6 +102,15 @@ compile an empty function; it manufactured a value with Function-constructor
 metadata, so it is now typed unsupported with every other Function-constructor
 call.
 
+Resolved `%eval%` is classified through one private, must-use disposition.
+No-argument calls and no-spread calls whose first argument has a nonempty
+`KindSet` excluding primitive String receive a `ProvenEvalPassThrough` and keep
+their ordinary indirect-call IR. All dynamic targets in a multi-target call
+must qualify. A String-capable or unknown argument, every spread, realm
+`evalScript`, and all Function-family operations retain their typed gaps. The
+pass-through never folds away the call: runtime callee identity and evaluation
+of every argument remain observable.
+
 Forwarding through `Function.prototype.call`/`apply`, `Reflect.apply` or
 `Reflect.construct`, bound functions and proxies does not yet preserve the
 underlying dynamic-source identity into this accounting boundary. Those paths
@@ -107,7 +121,8 @@ This boundary deliberately does not claim the static subset. A literal eval
 string is recorded as blocked on the caller/realm environment seam rather than
 sent through Script parsing, and a Function-family literal is recorded as
 blocked on the target-realm environment seam rather than synthesized as a
-wrapper. Generic source remains blocked on runtime compilation.
+wrapper. Generic String-capable source remains blocked on runtime compilation;
+proven non-String eval is outside that boundary because it evaluates no source.
 
 `DynamicSourceIntrinsic` is the non-executable catalog behind the remaining
 identities. Generator, async and async-generator function object shapes expose
@@ -161,6 +176,9 @@ Cover `Function`, `GeneratorFunction`, `AsyncFunction` and `AsyncGeneratorFuncti
 ## Acceptance criteria
 
 - The repository has one documented policy; no ambiguous fallback.
+- Proven no-source `%eval%` retains runtime callee identity and evaluates every
+  argument exactly once in source order; unknown, String-capable and spread
+  calls remain typed gaps.
 - Any supported static direct-eval cases preserve lexical scope and abrupt completions.
 - Any supported indirect/cross-realm evaluation never aliases the wrong global.
 - Unsupported dynamic cases are classified consistently and remain in real-suite accounting.

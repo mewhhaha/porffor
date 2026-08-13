@@ -54,8 +54,9 @@ As of `2026-08-13`, the Rust rewrite has 30 epic-level tasks:
 - `24` in progress with substantial implementation but unmet closure criteria,
   including the deterministic Intl architecture plus its first consumed,
   provider-backed locale canonicalization operation (`T23`);
-- `1` with policy selected and implementation/accounting still open: dynamic
-  source evaluation (`T13`);
+- `1` with policy, typed accounting and the no-source `%eval%` branch
+  implemented while textual compilation remains open: dynamic source
+  evaluation (`T13`);
 - `1` blocked final gate: zero-failure current-pin Wasm-AOT conformance (`T26`).
 
 These are closure counts, not an estimate that “2/30 of JavaScript” is
@@ -4349,10 +4350,12 @@ paths above, RegExp-heavy behavior, Intl, full descriptor/species semantics,
 complete typed arrays, complete Date/Temporal behavior, and many edge cases
 around exotic objects and cross-realm behavior.
 
-Dynamic source evaluation features such as `eval`, `new Function`, and
-cross-realm `Function` constructors are explicit Wasm-AOT unsupported cases
-when supporting them would require bundling a parser, interpreter, or VM into
-the emitted Wasm artifact.
+No-argument `%eval%` and calls whose first argument is proven not to be a
+primitive String execute their spec pass-through behavior without evaluating
+source. String-capable `eval`, `new Function`, and cross-realm `Function`
+constructors remain explicit Wasm-AOT unsupported cases when supporting them
+would require bundling a parser, interpreter, or VM into the emitted Wasm
+artifact.
 
 ## Architecture Invariants
 

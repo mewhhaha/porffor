@@ -30,7 +30,7 @@ that run is oracle triage; the Wasm-AOT run is the requirement.
 |---|---|---|
 | Complete | T00, T27-T29 | Repository contracts are enforced, the interpreter is quarantined from the product, the legacy JavaScript product is retired, and the Lila identity cutover is verified |
 | In progress | T01-T12, T14-T25 | Substantial implementation exists; T23's deterministic Intl architecture is live, but each task retains unmet acceptance criteria described in its current-state section |
-| Policy and typed accounting implemented; static subsets open | T13 | Generic runtime dynamic source stays explicit Wasm-AOT unsupported; `eval`, all Function-family constructors and realm `evalScript` now carry closed compiler diagnostics into conformance accounting, while sound static subsets remain open |
+| Policy, typed accounting and no-source eval implemented; textual static subsets open | T13 | Generic runtime dynamic source stays explicit Wasm-AOT unsupported; no-argument and proven non-String `%eval%` execute without crossing that boundary, while String-capable eval, all Function-family constructors and realm `evalScript` retain closed compiler diagnostics and sound textual subsets remain open |
 | Blocked final gate | T26 | The current pinned real Wasm-AOT aggregate is not green or fully republished |
 
 The current working tree passes the task-plan, module-boundary, host-ABI,

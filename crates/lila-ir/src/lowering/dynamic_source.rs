@@ -10,10 +10,77 @@ enum DynamicSourceProof {
     AotSyntax,
 }
 
+/// The exhaustive result of resolving a call to a dynamic-source identity.
+///
+/// Call lowering must consume this value before it can emit executable IR. The
+/// pass-through variant proves that `%eval%` never reaches source evaluation;
+/// it is not evidence that any source text is AOT-compilable.
+#[derive(Debug)]
+#[must_use = "resolved dynamic-source calls must execute a proven no-source eval branch or record their typed gap"]
+pub(super) enum ResolvedDynamicSourceCall {
+    EvalPassThrough(ProvenEvalPassThrough),
+    Unsupported(DynamicSourceGap),
+}
+
+/// Proof that the intrinsic `%eval%` call returns before parsing source.
+///
+/// The field and constructors stay private to this module so lowered call sites
+/// cannot skip the dynamic-source diagnostic from an arbitrary return fact.
+#[derive(Debug)]
+pub(super) struct ProvenEvalPassThrough {
+    result: ValueInfo,
+}
+
+impl ProvenEvalPassThrough {
+    fn from_args(source_args: Option<&[Expression]>, lowered_args: &[TypedExpr]) -> Option<Self> {
+        let source_has_spread = source_args
+            .is_some_and(|args| args.iter().any(|arg| matches!(arg, Expression::Spread(_))));
+        let lowered_has_spread = lowered_args
+            .iter()
+            .any(|arg| matches!(arg.expr, ExprIr::SpreadArgument(_)));
+        if source_has_spread || lowered_has_spread {
+            return None;
+        }
+
+        match lowered_args {
+            [] if source_args.is_none_or(<[Expression]>::is_empty) => Some(Self {
+                result: ValueInfo::undefined(),
+            }),
+            [first, ..]
+                if source_args.is_none_or(|args| !args.is_empty())
+                    && first.possible_kinds != KindSet::EMPTY
+                    && !first.possible_kinds.contains(ValueKind::String) =>
+            {
+                Some(Self {
+                    result: first.value_info(),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn into_result_info(self) -> ValueInfo {
+        self.result
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum OptionalCallSource<'a> {
     AlreadyAccounted,
     Syntax(&'a [Expression]),
+}
+
+impl<'a> OptionalCallSource<'a> {
+    pub(super) const fn syntax(self) -> Option<&'a [Expression]> {
+        match self {
+            Self::AlreadyAccounted => None,
+            Self::Syntax(args) => Some(args),
+        }
+    }
+
+    pub(super) const fn owns_diagnostic(self) -> bool {
+        matches!(self, Self::Syntax(_))
+    }
 }
 
 pub(super) fn already_accounted_optional_calls<'a>(
@@ -132,24 +199,13 @@ const fn gap_for_source_proof(
 }
 
 impl ScriptLowerer<'_> {
-    pub(super) fn record_dynamic_source_call_targets(
-        &mut self,
-        callee: &TypedExpr,
-        function_ids: &[FunctionId],
-        args: &[Expression],
-    ) -> bool {
-        function_ids.iter().fold(false, |rejected, function_id| {
-            let context = resolved_builtin_call_context(callee, function_id);
-            self.record_dynamic_source_syntax_args(function_id, context, args) || rejected
-        })
-    }
-
-    pub(super) fn record_constructable_dynamic_source_targets(
-        &mut self,
+    pub(super) fn resolve_constructable_dynamic_source_calls(
+        &self,
         function_ids: &BTreeSet<FunctionId>,
-        args: &[Expression],
-    ) -> bool {
-        let function_ids = function_ids
+        source_args: &[Expression],
+        lowered_args: &[TypedExpr],
+    ) -> Vec<(FunctionId, ResolvedDynamicSourceCall)> {
+        function_ids
             .iter()
             .filter(|function_id| {
                 self.function_signatures
@@ -159,27 +215,16 @@ impl ScriptLowerer<'_> {
                             && signature.protocol.flavor() != FunctionFlavor::Arrow
                     })
             })
-            .collect::<Vec<_>>();
-        self.record_dynamic_source_targets(function_ids, BuiltinCallContext::Construct, args)
-    }
-
-    pub(super) fn record_optional_dynamic_source(
-        &mut self,
-        function_id: &FunctionId,
-        source: OptionalCallSource<'_>,
-    ) -> bool {
-        if dynamic_source_kind_for_function_id(function_id, BuiltinCallContext::Call).is_none() {
-            return false;
-        }
-        if let OptionalCallSource::Syntax(args) = source {
-            let recorded =
-                self.record_dynamic_source_syntax_args(function_id, BuiltinCallContext::Call, args);
-            debug_assert!(
-                recorded,
-                "resolved dynamic-source identity must be recorded"
-            );
-        }
-        true
+            .filter_map(|function_id| {
+                self.resolve_dynamic_source_call(
+                    function_id,
+                    BuiltinCallContext::Construct,
+                    Some(source_args),
+                    lowered_args,
+                )
+                .map(|resolved| (function_id.clone(), resolved))
+            })
+            .collect()
     }
 
     pub(super) fn register_dynamic_source_intrinsic_signatures(&mut self) {
@@ -263,83 +308,72 @@ impl ScriptLowerer<'_> {
         }
     }
 
-    /// Records a resolved dynamic-source identity. The boolean lets call and
-    /// construct lowering stop before manufacturing executable dynamic-source
-    /// IR; derived constructors have no emitter and realm eval has only a
-    /// defensive host body.
-    fn record_dynamic_source_for_function_id(
-        &mut self,
+    /// Classifies a resolved dynamic-source identity before call lowering can
+    /// manufacture executable IR.
+    pub(super) fn resolve_dynamic_source_call(
+        &self,
         function_id: &str,
         context: BuiltinCallContext,
-        proof: DynamicSourceProof,
-    ) -> bool {
-        if let Some(kind) = dynamic_source_kind_for_function_id(function_id, context) {
-            if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
-                self.note_standard_builtin_call(builtin);
-            }
-            self.record_dynamic_source_gap(gap_for_source_proof(kind, proof));
-            true
-        } else {
-            false
-        }
-    }
-
-    pub(super) fn record_dynamic_source_targets<'a>(
-        &mut self,
-        function_ids: impl IntoIterator<Item = &'a FunctionId>,
-        context: BuiltinCallContext,
-        args: &[Expression],
-    ) -> bool {
-        function_ids
-            .into_iter()
-            .cloned()
-            .fold(false, |found, function_id| {
-                let Some(kind) = dynamic_source_kind_for_function_id(&function_id, context) else {
-                    return found;
-                };
-                let proof = DynamicSourceProof::for_args(kind, args);
-                self.record_dynamic_source_for_function_id(&function_id, context, proof) || found
-            })
-    }
-
-    pub(super) fn record_dynamic_source_syntax_args(
-        &mut self,
-        function_id: &str,
-        context: BuiltinCallContext,
-        args: &[Expression],
-    ) -> bool {
+        source_args: Option<&[Expression]>,
+        lowered_args: &[TypedExpr],
+    ) -> Option<ResolvedDynamicSourceCall> {
         let Some(kind) = dynamic_source_kind_for_function_id(function_id, context) else {
-            return false;
+            return None;
         };
-        let proof = DynamicSourceProof::for_args(kind, args);
-        self.record_dynamic_source_for_function_id(function_id, context, proof)
+
+        if matches!(
+            kind,
+            DynamicSourceKind::DirectEval | DynamicSourceKind::IndirectEval
+        ) {
+            if let Some(proof) = ProvenEvalPassThrough::from_args(source_args, lowered_args) {
+                return Some(ResolvedDynamicSourceCall::EvalPassThrough(proof));
+            }
+        }
+
+        let proof = source_args
+            .map(|args| DynamicSourceProof::for_args(kind, args))
+            .unwrap_or(DynamicSourceProof::Runtime);
+        Some(ResolvedDynamicSourceCall::Unsupported(
+            gap_for_source_proof(kind, proof),
+        ))
+    }
+
+    pub(super) fn record_unsupported_dynamic_source(
+        &mut self,
+        function_id: &str,
+        gap: DynamicSourceGap,
+    ) {
+        if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
+            self.note_standard_builtin_call(builtin);
+        }
+        self.record_dynamic_source_gap(gap);
     }
 
     pub(super) fn lower_dynamic_source_construct(
         &mut self,
         function_id: &str,
-        args: &[Expression],
+        source_args: &[Expression],
     ) -> TypedExpr {
-        if self.lower_call_args_expanding_spread(args).is_some() {
-            self.record_dynamic_source_syntax_args(
+        let Some(lowered_args) = self.lower_call_args_expanding_spread(source_args) else {
+            return TypedExpr::undefined();
+        };
+        let resolved = self
+            .resolve_dynamic_source_call(
                 function_id,
                 BuiltinCallContext::Construct,
-                args,
-            );
+                Some(source_args),
+                &lowered_args,
+            )
+            .expect("dynamic-source construct lowering requires a dynamic-source identity");
+        match resolved {
+            ResolvedDynamicSourceCall::EvalPassThrough(_) => {
+                unreachable!("the intrinsic eval function is not constructable")
+            }
+            ResolvedDynamicSourceCall::Unsupported(gap) => {
+                self.record_unsupported_dynamic_source(function_id, gap);
+            }
         }
         TypedExpr::undefined()
-    }
-
-    pub(super) fn record_runtime_dynamic_source(
-        &mut self,
-        function_id: &str,
-        context: BuiltinCallContext,
-    ) -> bool {
-        self.record_dynamic_source_for_function_id(
-            function_id,
-            context,
-            DynamicSourceProof::Runtime,
-        )
     }
 
     pub(super) fn record_dynamic_source_gap(&mut self, gap: DynamicSourceGap) {

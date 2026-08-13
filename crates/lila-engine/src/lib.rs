@@ -9924,6 +9924,84 @@ typeRealm + "|" + rangeRealm + "|" + getterRealm;
     }
 
     #[test]
+    fn wasm_backend_eval_no_source_branch_preserves_values_calls_and_argument_order() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let object = { marker: 1 };
+let boxedString = new String("1 + 1");
+let symbol = Symbol("eval marker");
+let order = "";
+function mark(value, label) {
+  order += label;
+  return value;
+}
+function fail() {
+  throw 9;
+}
+function replacement(value) {
+  return value + 1;
+}
+function returnsNumber() {
+  return 1;
+}
+function dispatch(useEval, value) {
+  let selected = useEval ? eval : replacement;
+  return selected(value);
+}
+function dispatchNoArg(useEval) {
+  let selected = useEval ? eval : returnsNumber;
+  return selected();
+}
+function dispatchUndefined(useEval) {
+  let selected = useEval ? eval : returnsNumber;
+  return selected(undefined);
+}
+let indirect = eval;
+let callable = eval(function(value) { return value + 1; });
+let abrupt = false;
+try {
+  eval(1, fail());
+} catch (error) {
+  abrupt = error === 9;
+}
+[
+  eval() === undefined,
+  eval(7) === 7,
+  eval(true) === true,
+  eval(null) === null,
+  eval(object) === object,
+  eval(boxedString) === boxedString,
+  indirect(symbol) === symbol,
+  callable(4) === 5,
+  eval(mark(object, "a"), mark(0, "b")) === object,
+  order === "ab",
+  dispatch(true, 4) === 4,
+  dispatch(false, 4) === 5,
+  dispatchNoArg(true) === undefined,
+  dispatchNoArg(false) === 1,
+  dispatchUndefined(true) === undefined,
+  dispatchUndefined(false) === 1,
+  abrupt
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("non-String eval should use the ordinary builtin pass-through branch");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn run_defaults_to_wasm_aot() {
         // Product invariant: Wasm-AOT is the default execution backend
         // everywhere. Selecting spec-exec (the hidden differential oracle)

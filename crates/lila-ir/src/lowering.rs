@@ -6,7 +6,7 @@ mod proxy_traps;
 use super::*;
 use dynamic_source::{
     already_accounted_optional_calls, resolved_builtin_call_context, BuiltinCallContext,
-    OptionalCallSource,
+    OptionalCallSource, ResolvedDynamicSourceCall,
 };
 use proxy_traps::{ProxyTrap, ProxyTrapSignature};
 
@@ -16624,12 +16624,29 @@ impl<'a> ScriptLowerer<'a> {
                 let args_have_spread = Self::call_args_have_spread(&args);
                 let mut result_info: Option<ValueInfo> = None;
                 let function_targets = callee.function_targets.iter().cloned().collect::<Vec<_>>();
-                let rejected_dynamic_source = self.record_dynamic_source_call_targets(
-                    &callee,
-                    &function_targets,
-                    source_args,
-                );
+                let mut rejected_dynamic_source = false;
                 for function_id in &function_targets {
+                    let context = resolved_builtin_call_context(&callee, function_id);
+                    let eval_pass_through = match self.resolve_dynamic_source_call(
+                        function_id,
+                        context,
+                        Some(source_args),
+                        &args,
+                    ) {
+                        None => None,
+                        Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => {
+                            if let Some(builtin) = StandardBuiltinId::from_function_id(function_id)
+                            {
+                                self.note_standard_builtin_call(builtin);
+                            }
+                            Some(proof.into_result_info())
+                        }
+                        Some(ResolvedDynamicSourceCall::Unsupported(gap)) => {
+                            self.record_unsupported_dynamic_source(function_id, gap);
+                            rejected_dynamic_source = true;
+                            None
+                        }
+                    };
                     let Some(signature) = self.function_signatures.get(function_id).cloned() else {
                         continue;
                     };
@@ -16672,14 +16689,14 @@ impl<'a> ScriptLowerer<'a> {
                     if self.is_prepass && !args_have_spread {
                         self.propagate_direct_call_context(function_id, &arg_infos);
                     }
-                    let next_info = ValueInfo {
+                    let next_info = eval_pass_through.unwrap_or(ValueInfo {
                         kind: signature.return_kind,
                         possible_kinds: signature.return_possible_kinds,
                         heap_shape: signature.return_shape,
                         function_targets: signature.return_targets,
-                    };
+                    });
                     result_info = Some(match result_info {
-                        Some(existing) => self.merge_return_infos(existing, next_info),
+                        Some(existing) => self.merge_value_infos(existing, next_info),
                         None => next_info,
                     });
                 }
@@ -18005,10 +18022,22 @@ impl<'a> ScriptLowerer<'a> {
             let Some(args) = self.lower_call_args_expanding_spread(new_expr.arguments()) else {
                 return TypedExpr::undefined();
             };
-            if self.record_constructable_dynamic_source_targets(
+            let dynamic_source_calls = self.resolve_constructable_dynamic_source_calls(
                 &callee.function_targets,
                 new_expr.arguments(),
-            ) {
+                &args,
+            );
+            if !dynamic_source_calls.is_empty() {
+                for (function_id, resolved) in dynamic_source_calls {
+                    match resolved {
+                        ResolvedDynamicSourceCall::EvalPassThrough(_) => {
+                            unreachable!("the intrinsic eval function is not constructable")
+                        }
+                        ResolvedDynamicSourceCall::Unsupported(gap) => {
+                            self.record_unsupported_dynamic_source(&function_id, gap);
+                        }
+                    }
+                }
                 return TypedExpr::undefined();
             }
             return TypedExpr::from_info(
@@ -18265,8 +18294,16 @@ impl<'a> ScriptLowerer<'a> {
                 .get(function_id)
                 .cloned()
                 .expect("function signature must exist");
-            if self.record_dynamic_source_syntax_args(function_id, context, args) {
-                return (function_id.clone(), Vec::new(), ValueInfo::undefined());
+            match self.resolve_dynamic_source_call(function_id, context, Some(args), &lowered_args)
+            {
+                None => {}
+                Some(ResolvedDynamicSourceCall::EvalPassThrough(_)) => {
+                    unreachable!("spread arguments cannot prove eval's first value is non-String")
+                }
+                Some(ResolvedDynamicSourceCall::Unsupported(gap)) => {
+                    self.record_unsupported_dynamic_source(function_id, gap);
+                    return (function_id.clone(), Vec::new(), ValueInfo::undefined());
+                }
             }
             return (
                 function_id.clone(),
@@ -18283,9 +18320,16 @@ impl<'a> ScriptLowerer<'a> {
         for arg in args {
             lowered_args.push(self.lower_expression(arg));
         }
-        if self.record_dynamic_source_syntax_args(function_id, context, args) {
-            return (function_id.clone(), Vec::new(), ValueInfo::undefined());
-        }
+        let mut eval_pass_through =
+            match self.resolve_dynamic_source_call(function_id, context, Some(args), &lowered_args)
+            {
+                None => None,
+                Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
+                Some(ResolvedDynamicSourceCall::Unsupported(gap)) => {
+                    self.record_unsupported_dynamic_source(function_id, gap);
+                    return (function_id.clone(), Vec::new(), ValueInfo::undefined());
+                }
+            };
         if StandardBuiltinId::from_function_id(function_id) == Some(StandardBuiltinId::JsonParse) {
             let reviver_targets = self.known_json_parse_reviver_targets(&lowered_args);
             self.observe_json_parse_reviver_targets(reviver_targets);
@@ -18409,12 +18453,25 @@ impl<'a> ScriptLowerer<'a> {
 
         if let Some(builtin) = StandardBuiltinId::from_function_id(&effective_function_id) {
             self.note_standard_builtin_call(builtin);
+            if let Some(proof) = eval_pass_through.take() {
+                debug_assert_eq!(builtin, StandardBuiltinId::EvalFunction);
+                return (
+                    effective_function_id,
+                    lowered_args,
+                    proof.into_result_info(),
+                );
+            }
             let Some(info) = self.standard_builtin_call_info(builtin, &lowered_args, context)
             else {
                 return (effective_function_id, Vec::new(), ValueInfo::undefined());
             };
             return (effective_function_id, lowered_args, info);
         }
+
+        debug_assert!(
+            eval_pass_through.is_none(),
+            "only the standard intrinsic eval identity can produce a pass-through proof"
+        );
 
         (
             effective_function_id,
@@ -18655,8 +18712,9 @@ impl<'a> ScriptLowerer<'a> {
         self.record_boxed_builtin_invocation(builtin, context);
         match builtin {
             StandardBuiltinId::EvalFunction | StandardBuiltinId::FunctionConstructor => {
-                let _ = self.record_runtime_dynamic_source(&builtin.function_id(), context);
-                None
+                unreachable!(
+                    "dynamic-source builtins must consume their resolved disposition before builtin result analysis"
+                )
             }
             StandardBuiltinId::PromiseConstructor => {
                 if let Some(executor_id) = args
@@ -22253,10 +22311,32 @@ impl<'a> ScriptLowerer<'a> {
             {
                 continue;
             }
-            if self.record_optional_dynamic_source(&function_id, source) {
+            if let Some(resolved) = self.resolve_dynamic_source_call(
+                &function_id,
+                BuiltinCallContext::Call,
+                source.syntax(),
+                args,
+            ) {
+                let return_info = match resolved {
+                    ResolvedDynamicSourceCall::EvalPassThrough(proof) => {
+                        if source.owns_diagnostic() {
+                            if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id)
+                            {
+                                self.note_standard_builtin_call(builtin);
+                            }
+                        }
+                        proof.into_result_info()
+                    }
+                    ResolvedDynamicSourceCall::Unsupported(gap) => {
+                        if source.owns_diagnostic() {
+                            self.record_unsupported_dynamic_source(&function_id, gap);
+                        }
+                        ValueInfo::undefined()
+                    }
+                };
                 result = Some(match result {
-                    Some(existing) => self.merge_value_infos(existing, ValueInfo::undefined()),
-                    None => ValueInfo::undefined(),
+                    Some(existing) => self.merge_value_infos(existing, return_info),
+                    None => return_info,
                 });
                 continue;
             }
