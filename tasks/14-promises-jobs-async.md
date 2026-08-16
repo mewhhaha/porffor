@@ -47,6 +47,15 @@ callback shapes. No callback independently treats an invalid word as its own
 fallback. This is a record-integrity boundary; valid reaction behavior and the
 wire encoding are unchanged.
 
+Promise `finally` completion preservation now has its own closed
+`PromiseFinallyCompletion::{Fulfill, Reject}` domain. The `ThenFinally` /
+`CatchFinally` continuation stage and the later `ValueThunk` / `Thrower` stage
+consume the same typed choice through exhaustive matches, while four named
+zero-choice wrappers keep naked booleans out of the standard-builtin
+dispatcher. This closes a representational hole in which one inverted boolean
+could compile and silently restore the wrong original completion. Existing
+valid behavior and ordering are unchanged.
+
 Ordinary async-function activations now store the completion supplied by
 `Await` through one closed `AsyncFunctionResumeCompletion::{Normal, Throw}`
 domain. The raw offset and stable words 0/1 are private to the heap boundary;

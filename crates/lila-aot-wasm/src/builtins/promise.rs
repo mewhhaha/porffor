@@ -60,6 +60,33 @@ enum AsyncAwaitContinuation {
     AsyncGeneratorYieldReturn,
 }
 
+/// The original completion restored after a `finally` cleanup resolves.
+///
+/// This is deliberately distinct from Promise record settlement and reaction
+/// type. Named wrappers below select the variant, so the builtin dispatcher
+/// cannot invert `ThenFinally`/`CatchFinally` with an unlabelled boolean.
+#[derive(Clone, Copy)]
+enum PromiseFinallyCompletion {
+    Fulfill,
+    Reject,
+}
+
+impl PromiseFinallyCompletion {
+    const fn continuation_builtin(self) -> StandardBuiltinId {
+        match self {
+            Self::Fulfill => StandardBuiltinId::PromiseValueThunk,
+            Self::Reject => StandardBuiltinId::PromiseThrower,
+        }
+    }
+
+    const fn completion_kind(self) -> CompletionKind {
+        match self {
+            Self::Fulfill => CompletionKind::Normal,
+            Self::Reject => CompletionKind::Throw,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PromiseCombinatorMode {
     Values,
@@ -2485,9 +2512,23 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_promise_finally_continuation(
+    pub(crate) fn emit_promise_then_finally(
         &mut self,
-        rejected: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_promise_finally_continuation(PromiseFinallyCompletion::Fulfill, function)
+    }
+
+    pub(crate) fn emit_promise_catch_finally(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_promise_finally_continuation(PromiseFinallyCompletion::Reject, function)
+    }
+
+    fn emit_promise_finally_continuation(
+        &mut self,
+        completion: PromiseFinallyCompletion,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let context_local = self.reserve_temp_local();
@@ -2517,11 +2558,7 @@ impl<'a> FunctionBuilder<'a> {
             .get(&StandardBuiltinId::PromiseResolve.function_id())
             .cloned()
             .ok_or_else(|| EmitError::unsupported("missing Promise.resolve builtin"))?;
-        let continuation_builtin = if rejected {
-            StandardBuiltinId::PromiseThrower
-        } else {
-            StandardBuiltinId::PromiseValueThunk
-        };
+        let continuation_builtin = completion.continuation_builtin();
         let continuation_meta = self
             .functions
             .get(&continuation_builtin.function_id())
@@ -2660,9 +2697,23 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_promise_finally_value_thunk(
+    pub(crate) fn emit_promise_value_thunk(
         &mut self,
-        throws: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_promise_finally_value_thunk(PromiseFinallyCompletion::Fulfill, function)
+    }
+
+    pub(crate) fn emit_promise_thrower(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_promise_finally_value_thunk(PromiseFinallyCompletion::Reject, function)
+    }
+
+    fn emit_promise_finally_value_thunk(
+        &mut self,
+        completion: PromiseFinallyCompletion,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let context_local = self.reserve_temp_local();
@@ -2681,14 +2732,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         );
-        self.set_completion_kind(
-            if throws {
-                CompletionKind::Throw
-            } else {
-                CompletionKind::Normal
-            },
-            function,
-        );
+        self.set_completion_kind(completion.completion_kind(), function);
 
         self.release_temp_local(context_local);
         Ok(())

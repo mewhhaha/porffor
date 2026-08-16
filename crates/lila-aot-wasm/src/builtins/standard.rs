@@ -7829,16 +7829,16 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_promise_prototype_finally(function)?;
             }
             StandardBuiltinId::PromiseThenFinally => {
-                self.emit_promise_finally_continuation(false, function)?;
+                self.emit_promise_then_finally(function)?;
             }
             StandardBuiltinId::PromiseCatchFinally => {
-                self.emit_promise_finally_continuation(true, function)?;
+                self.emit_promise_catch_finally(function)?;
             }
             StandardBuiltinId::PromiseValueThunk => {
-                self.emit_promise_finally_value_thunk(false, function)?;
+                self.emit_promise_value_thunk(function)?;
             }
             StandardBuiltinId::PromiseThrower => {
-                self.emit_promise_finally_value_thunk(true, function)?;
+                self.emit_promise_thrower(function)?;
             }
             StandardBuiltinId::PromiseResolve => {
                 self.emit_promise_static_settle(PromiseSettlement::Fulfill, function)?;
