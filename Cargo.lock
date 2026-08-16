@@ -1491,6 +1491,7 @@ name = "lila-spec-exec"
 version = "0.1.0"
 dependencies = [
  "boa_engine",
+ "lila-runtime",
 ]
 
 [[package]]
