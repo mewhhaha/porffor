@@ -89,6 +89,7 @@
 
 use super::super::*;
 use super::temporal_plain_date::TemporalCalendarId;
+use crate::functions::NewTargetPrototypeFallback;
 
 /// Where a component's code lives and what spellings map to it.
 ///
@@ -1520,6 +1521,22 @@ impl DtfResolvedTimeZone {
     }
 }
 
+/// An allocated `Intl.DateTimeFormat` result that has not been branded or
+/// connected to its internal record.
+///
+/// The raw local is private and this state is deliberately non-`Copy`:
+/// `OrdinaryCreateFromConstructor` must happen before any locale or options
+/// observation, but an abrupt initialization must not publish that object.
+#[must_use]
+struct ReservedIntlDateTimeFormatObjectLocal(u32);
+
+/// A reserved `Intl.DateTimeFormat` result whose complete represented record
+/// and internal brand have been installed.
+///
+/// Only this state can cross the constructor result boundary.
+#[must_use]
+struct InitializedIntlDateTimeFormatObjectLocal(u32);
+
 /// The broken-down components of one side of a format.
 ///
 /// Naming the set lets the range path derive it twice — once per side — and
@@ -2661,18 +2678,91 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Resolve `NewTarget.prototype` and reserve the ordinary result before
+    /// the first locale or options operation.
+    fn emit_reserve_intl_date_time_format_object(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<ReservedIntlDateTimeFormatObjectLocal, EmitError> {
+        // Reserve the retained object first so both temporary prototype locals
+        // can be released in strict LIFO order while it stays live.
+        let object_payload_local = self.reserve_temp_local();
+        let prototype_payload_local = self.reserve_temp_local();
+        let prototype_tag_local = self.reserve_temp_local();
+        let prototype = TaggedLocals::new(prototype_payload_local, prototype_tag_local);
+        let result = (|| {
+            self.emit_new_target_prototype_to_locals(
+                INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+                NewTargetPrototypeFallback::CurrentGlobal,
+                prototype.payload,
+                prototype.tag,
+                function,
+            )?;
+            self.emit_alloc_plain_object_with_prototype_and_tag(
+                Some(prototype.payload),
+                Some(prototype.tag),
+                None,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(object_payload_local));
+            Ok(())
+        })();
+        self.release_temp_local(prototype.tag);
+        self.release_temp_local(prototype.payload);
+        if let Err(error) = result {
+            self.release_temp_local(object_payload_local);
+            return Err(error);
+        }
+        Ok(ReservedIntlDateTimeFormatObjectLocal(object_payload_local))
+    }
+
+    /// Consume the unreachable reserved result after the DateTimeFormat record
+    /// is complete, then make the object eligible for publication.
+    fn emit_initialize_intl_date_time_format_object(
+        &self,
+        reserved: ReservedIntlDateTimeFormatObjectLocal,
+        record_local: u32,
+        function: &mut Function,
+    ) -> InitializedIntlDateTimeFormatObjectLocal {
+        let object_payload_local = reserved.0;
+        self.store_i64_const_at_offset(
+            object_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            object_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        InitializedIntlDateTimeFormatObjectLocal(object_payload_local)
+    }
+
+    /// Publish the only DateTimeFormat lifecycle state allowed to escape.
+    fn emit_publish_intl_date_time_format_object(
+        &mut self,
+        initialized: InitializedIntlDateTimeFormatObjectLocal,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(initialized.0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.release_temp_local(initialized.0);
+    }
+
     /// `CreateDateTimeFormat(newTarget, locales, options, any, date)` —
     /// ECMA-402 11.1.2.
     ///
-    /// The option reads below are in the exact order the specification
-    /// prescribes, which is observable through accessor properties on the
-    /// options bag; do not reorder them.
+    /// Result reservation precedes every observable initialization step. The
+    /// option reads then follow the exact order the specification prescribes;
+    /// do not reorder them.
     pub(crate) fn emit_intl_date_time_format_constructor(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
         let locales_payload_local = self.reserve_temp_local();
         let locales_tag_local = self.reserve_temp_local();
         let options_payload_local = self.reserve_temp_local();
@@ -2701,29 +2791,21 @@ impl<'a> FunctionBuilder<'a> {
         let date_style_local = self.reserve_temp_local();
         let time_style_local = self.reserve_temp_local();
         let record_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let object_payload_local = self.reserve_temp_local();
         let component_locals: Vec<u32> = INTL_DTF_COMPONENT_OPTIONS
             .iter()
             .map(|_| self.reserve_temp_local())
             .collect();
         let fractional_local = self.reserve_temp_local();
 
-        // ECMA-402 11.1.1 step 1: a plain call substitutes the active function
-        // object for NewTarget, so `Intl.DateTimeFormat()` builds an instance
-        // rather than throwing. `ChainDateTimeFormat`'s legacy
-        // %IntlLegacyConstructedSymbol% brand is **not** installed, so the
-        // `Intl.DateTimeFormat.call(existingInstance)` re-initialisation path
-        // is absent rather than half-implemented.
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
-        )?;
+        // ECMA-402 11.1.1 steps 1-2. The shared prototype resolver preserves
+        // the current plain-call fallback and observes an explicit
+        // NewTarget.prototype exactly once. The reserved object remains
+        // unreachable until its complete record and brand are installed.
+        let reserved_object = self.emit_reserve_intl_date_time_format_object(function)?;
 
-        // Step 2: CanonicalizeLocaleList. Every tag is validated even though
-        // negotiation always lands on `en-US`, because an invalid tag is a
-        // RangeError the caller can observe.
+        // CreateDateTimeFormat step 2: CanonicalizeLocaleList. Every tag is
+        // validated even though negotiation always lands on `en-US`, because
+        // an invalid tag is a RangeError the caller can observe.
         self.emit_builtin_arg_to_locals(0, locales_payload_local, locales_tag_local, function);
         self.emit_intl_dtf_canonicalize_locale_list(
             locales_payload_local,
@@ -3050,14 +3132,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_intl_dtf_resolve_hour_cycle(hour12_local, hour_cycle_local, function);
 
-        self.emit_error_new_target_prototype_to_local(
-            INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
-            None,
-            prototype_payload_local,
-            function,
-        )?;
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_payload_local));
         self.emit_heap_alloc_const(HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(record_local));
 
@@ -3112,30 +3186,18 @@ impl<'a> FunctionBuilder<'a> {
             0,
             function,
         );
-        self.store_i64_const_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+        let initialized_object = self.emit_initialize_intl_date_time_format_object(
+            reserved_object,
             record_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(object_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_publish_intl_date_time_format_object(initialized_object, function);
 
         self.release_temp_local(fractional_local);
         for local in component_locals.into_iter().rev() {
             self.release_temp_local(local);
         }
         for local in [
-            object_payload_local,
-            prototype_payload_local,
             record_local,
             time_style_local,
             date_style_local,
@@ -3165,8 +3227,6 @@ impl<'a> FunctionBuilder<'a> {
             options_payload_local,
             locales_tag_local,
             locales_payload_local,
-            new_target_tag_local,
-            new_target_payload_local,
         ] {
             self.release_temp_local(local);
         }

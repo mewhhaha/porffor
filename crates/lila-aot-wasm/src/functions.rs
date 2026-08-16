@@ -3240,6 +3240,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
             StandardBuiltinId::IteratorConstructor,
             StandardBuiltinId::RegExpConstructor,
+            StandardBuiltinId::IntlDateTimeFormatConstructor,
         ]
         .into_iter()
         .chain(
