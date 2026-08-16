@@ -359,16 +359,17 @@ fi
 # implementation, the Proxy lifecycle, the Math emitter family, Symbol's
 # registry/prototype implementation or BigInt's constructor, fixed-width and
 # prototype implementation, Boolean's constructor and prototype receiver logic,
-# Number's constructor, predicates and prototype methods, Function's constructor
-# and four prototype methods, the Error intrinsic family, or JSON's
+# Number's constructor, predicates and prototype methods, Function's constructor,
+# four prototype methods and hidden bound-function invoker, the Error intrinsic
+# family, or JSON's
 # parse/stringify/raw-JSON wrappers. The two coercing global numeric predicates
 # and the six global URI and Annex-B codec wrappers likewise stay out of the
 # shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after Number extraction: 33,512 raw lines. This leaves
-# 213 lines of dispatch-maintenance headroom and removes most of the prior cap's
-# drift; substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 33725
+# Measured after the bound-function invoker extraction: 33,248 raw lines. This
+# leaves 212 lines of dispatch-maintenance headroom; substantive bodies belong
+# in family modules.
+check_raw_line_budget "$wasm_standard_builtins" 33460
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
@@ -425,17 +426,61 @@ check_raw_line_budget "$wasm_number_builtins" 370
 wasm_function_builtins="crates/lila-aot-wasm/src/builtins/function.rs"
 check_no_inline_legacy_includes "$wasm_function_builtins"
 if ! grep -q '^pub(super) enum FunctionBuiltin' "$wasm_function_builtins" \
+  || ! grep -q '^    BoundFunctionInvoker,$' "$wasm_function_builtins" \
   || ! grep -q '^        match builtin {' "$wasm_function_builtins"; then
   fail "$wasm_function_builtins must dispatch through the closed FunctionBuiltin domain"
 fi
 require_fixed_string_count \
   "$wasm_standard_builtins" \
   'self.emit_function_builtin(' \
-  5 \
+  6 \
   'Function builtin delegate'
-# Measured immediately after extraction: 411 raw lines. The narrow margin is
-# for maintenance of this family, not adjacent builtin implementations.
-check_raw_line_budget "$wasm_function_builtins" 450
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  'FunctionBuiltin::BoundFunctionInvoker' \
+  1 \
+  'bound-function invoker delegate'
+bound_function_invoker_delegate="$(
+  sed -n \
+    '/^            StandardBuiltinId::BoundFunctionInvoker => {$/,/^            }$/p' \
+    "$wasm_standard_builtins"
+)"
+if [ "$(printf '%s\n' "$bound_function_invoker_delegate" | wc -l)" -ne 3 ] \
+  || ! grep -Fqx \
+    '                self.emit_function_builtin(FunctionBuiltin::BoundFunctionInvoker, function)?' \
+    <<<"$bound_function_invoker_delegate"; then
+  fail "$wasm_standard_builtins must keep BoundFunctionInvoker as one typed delegate"
+fi
+require_fixed_string_count \
+  "$wasm_function_builtins" \
+  'FunctionBuiltin::BoundFunctionInvoker => {' \
+  1 \
+  'bound-function invoker body'
+if grep -q 'StandardBuiltinId::BoundFunctionInvoker' "$wasm_function_builtins"; then
+  fail "$wasm_function_builtins must own the bound-function invoker through FunctionBuiltin"
+fi
+if grep -Eq '^[[:space:]]*_ =>|unreachable!\(' "$wasm_function_builtins"; then
+  fail "$wasm_function_builtins must keep its family match exhaustive without catch-all arms"
+fi
+require_fixed_string_count \
+  crates/lila-cli/tests/cli/functions.rs \
+  'fn run_wasm_backend_succeeds_for_supported_bind_builtin_fixture()' \
+  1 \
+  'bound-function call/construct regression'
+require_fixed_string_count \
+  crates/lila-cli/tests/cli/language_errors.rs \
+  'fn run_wasm_backend_succeeds_for_bound_construct_new_target_identity_fixture()' \
+  1 \
+  'bound-function new.target regression'
+require_fixed_string_count \
+  crates/lila-cli/tests/cli/heap.rs \
+  'fn run_wasm_backend_succeeds_for_heap_rooted_bound_function_fixture()' \
+  1 \
+  'bound-function heap-rooting regression'
+# Measured after moving the hidden invoker body into this owner: 486 raw lines.
+# The narrow margin is for maintenance of this family, not adjacent builtin
+# implementations.
+check_raw_line_budget "$wasm_function_builtins" 525
 
 wasm_bigint_builtins="crates/lila-aot-wasm/src/builtins/bigint.rs"
 wasm_numeric_operations="crates/lila-aot-wasm/src/operations.rs"

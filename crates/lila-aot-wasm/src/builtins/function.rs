@@ -7,6 +7,7 @@ pub(super) enum FunctionBuiltin {
     PrototypeApply,
     PrototypeBind,
     PrototypeToString,
+    BoundFunctionInvoker,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -381,6 +382,103 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(proxy_handler_payload_local);
                 self.release_temp_local(proxy_target_tag_local);
                 self.release_temp_local(proxy_target_payload_local);
+            }
+            FunctionBuiltin::BoundFunctionInvoker => {
+                let record_local = self.current_env_local;
+                let target_payload_local = self.reserve_temp_local();
+                let target_tag_local = self.reserve_temp_local();
+                let bound_this_payload_local = self.reserve_temp_local();
+                let bound_this_tag_local = self.reserve_temp_local();
+                let bound_args_payload_local = self.reserve_temp_local();
+                let self_payload_local = self.reserve_temp_local();
+                let self_tag_local = self.reserve_temp_local();
+                let merged_argv_local = self.reserve_temp_local();
+                let merged_argc_local = self.reserve_temp_local();
+                let forwarded_new_target_payload_local = self.reserve_temp_local();
+                let forwarded_new_target_tag_local = self.reserve_temp_local();
+
+                self.emit_load_bound_function_record(
+                    record_local,
+                    target_payload_local,
+                    target_tag_local,
+                    bound_this_payload_local,
+                    bound_this_tag_local,
+                    bound_args_payload_local,
+                    self_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self_tag_local));
+                self.emit_concat_argv_payloads(
+                    bound_args_payload_local,
+                    self.argv_param_local(),
+                    merged_argv_local,
+                    function,
+                )?;
+                self.load_i64_to_local_from_offset(
+                    merged_argv_local,
+                    HEAP_LEN_OFFSET,
+                    merged_argc_local,
+                    function,
+                );
+                self.compile_new_target_to_locals(
+                    forwarded_new_target_payload_local,
+                    forwarded_new_target_tag_local,
+                    function,
+                )?;
+
+                function.instruction(&Instruction::LocalGet(forwarded_new_target_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call_with_argv(
+                    target_payload_local,
+                    target_tag_local,
+                    Some((bound_this_payload_local, Some(bound_this_tag_local))),
+                    merged_argc_local,
+                    merged_argv_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                self.emit_tagged_payload_same_value_i32(
+                    forwarded_new_target_tag_local,
+                    forwarded_new_target_payload_local,
+                    self_tag_local,
+                    self_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(target_payload_local));
+                function.instruction(&Instruction::LocalSet(forwarded_new_target_payload_local));
+                function.instruction(&Instruction::LocalGet(target_tag_local));
+                function.instruction(&Instruction::LocalSet(forwarded_new_target_tag_local));
+                function.instruction(&Instruction::End);
+                self.emit_function_handle_construct_with_argv(
+                    target_payload_local,
+                    target_tag_local,
+                    forwarded_new_target_payload_local,
+                    forwarded_new_target_tag_local,
+                    merged_argc_local,
+                    merged_argv_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+
+                self.release_temp_local(forwarded_new_target_tag_local);
+                self.release_temp_local(forwarded_new_target_payload_local);
+                self.release_temp_local(merged_argc_local);
+                self.release_temp_local(merged_argv_local);
+                self.release_temp_local(self_tag_local);
+                self.release_temp_local(self_payload_local);
+                self.release_temp_local(bound_args_payload_local);
+                self.release_temp_local(bound_this_tag_local);
+                self.release_temp_local(bound_this_payload_local);
+                self.release_temp_local(target_tag_local);
+                self.release_temp_local(target_payload_local);
             }
         }
         Ok(())

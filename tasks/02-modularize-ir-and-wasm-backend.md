@@ -17,6 +17,31 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-17: bound-function invoker ownership
+
+The hidden `BoundFunctionInvoker` body now lives beside
+`Function.prototype.bind` in `builtins/function.rs`. `FunctionBuiltin` is the
+closed six-case backend domain for the five public Function intrinsics and the
+one internal call/construct invoker they create; `builtins/standard.rs` keeps
+only one typed delegate per case. This closes the remaining Function-owned body
+that unrelated builtin work still had to cross in the shared dispatcher and
+reduces that parent from 33,342 to 33,248 raw lines.
+
+The invoker body is a semantic-free source move. Comparing it with the frozen
+pre-move `builtins/standard.rs` arm after normalizing only the enum qualifier
+shows the same instruction, temporary-local reservation and reverse-release
+order. Its existing call, construct, nested `new.target` and heap-rooting CLI
+fixtures remain the behavioral characterization; they were not executed while
+Cargo and runtime verification remain under the centralized lease.
+
+The module-boundary audit requires all six typed delegates, the unique hidden
+variant and its unique child match arm, rejects catch-all/unreachable escape
+routes, and budgets both the newly complete family file and the smaller parent.
+The static write-phase gates are green: `git diff --check`, the bounded
+source-body comparison, `check-module-boundaries.sh`, `check-task-plan.sh` and
+focused `rustfmt`. No Function, bind, call/construct, `new.target`, heap-rooting
+or conformance behavior improvement is claimed by this extraction.
+
 ### Landed 2026-08-13: Number intrinsic ownership
 
 The complete eleven-member Number intrinsic family now lives in
@@ -102,11 +127,12 @@ Fourteen previously coupled builtin stores now have separate owners:
   Eleven typed delegates preserve the flat catalog dispatch, and `standard.rs`
   fell from 33,730 to 33,512 lines.
 - `lila-aot-wasm/src/builtins/function.rs` owns the complete five-member
-  Function intrinsic family behind a private closed `FunctionBuiltin` domain:
-  the constructor and `Function.prototype.{call,apply,bind,toString}`. The
-  catalog dispatch keeps five typed delegates, while the moved bodies retain
-  their exact instruction and temporary-local order. The extraction reduced
-  `standard.rs` from 34,461 to 34,088 lines.
+  Function intrinsic family and its hidden bound-function call/construct
+  invoker behind a private closed `FunctionBuiltin` domain. The catalog
+  dispatch keeps six typed delegates, while the moved bodies retain their exact
+  instruction and temporary-local order. The original intrinsic extraction
+  reduced `standard.rs` from 34,461 to 34,088 lines; moving the remaining
+  invoker body reduces it again without changing the public family.
 - `lila-aot-wasm/src/builtins/uri.rs` owns all six global URI and Annex-B codec
   wrappers behind a private closed `UriBuiltin` domain. The UTF-8/UTF-16 codec
   primitives remain with their existing `string.rs` owner; only the complete
@@ -151,10 +177,12 @@ wrapper-coercion and cross-realm prototype behavior checkpoints are green.
 The Boolean move is statically instruction-sequence equivalent and
 boundary-checked; its compile, focused fixture, and real Boolean shard gates
 remain queued behind the active resource-bounded matrix run.
-The Function move is an exact 389-line body match after normalizing only the
-five closed enum arm headers. Its compile, focused constructor/call/apply/bind/
-toString fixtures and real `built-ins/Function` shard remain queued behind the
-same matrix run.
+The original Function move is an exact 389-line body match after normalizing
+only the five public enum arm headers. The later hidden-invoker move preserves
+its complete body after normalizing only that sixth arm header. Compile,
+focused constructor/call/apply/bind/toString and bound-call/construct fixtures,
+and the real `built-ins/Function` shard remain queued behind the same matrix
+run.
 The URI move is statically source-equivalent after normalizing only the closed
 enum path and rustfmt's block-expression layout, and is boundary-checked; its
 compile, focused global-codec fixtures and real URI/Annex-B shard gates remain
