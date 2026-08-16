@@ -130,13 +130,37 @@ pub(crate) enum HeapWeakEdgeKind {
     FinalizerToken,
 }
 
+/// How one passive weak-edge inventory entry participates in reachability.
+///
+/// This is collector vocabulary, not an executable weak edge. Keeping it
+/// separate from the slot row makes the edge kind the sole semantic authority.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HeapWeakEdgeRetention {
+    DoesNotRetain,
+    ConditionalOnReachableEphemeronKey,
+    StrongUntilCleanup,
+}
+
+impl HeapWeakEdgeKind {
+    /// Exhaustive retention projection for the future weak-processing phase.
+    pub(crate) const fn retention(self) -> HeapWeakEdgeRetention {
+        match self {
+            Self::EphemeronKey | Self::WeakTarget | Self::FinalizerToken => {
+                HeapWeakEdgeRetention::DoesNotRetain
+            }
+            Self::EphemeronValue => HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey,
+            Self::FinalizerHoldings => HeapWeakEdgeRetention::StrongUntilCleanup,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct HeapWeakEdgeSlot {
     pub record: &'static str,
     pub name: &'static str,
     pub kind: HeapWeakEdgeKind,
-    pub keeps_target_alive: bool,
 }
 
 #[allow(dead_code)]
@@ -5329,43 +5353,36 @@ pub(crate) const HEAP_WEAK_EDGE_SLOTS: &[HeapWeakEdgeSlot] = &[
         record: "weak-map-entry",
         name: "key",
         kind: HeapWeakEdgeKind::EphemeronKey,
-        keeps_target_alive: false,
     },
     HeapWeakEdgeSlot {
         record: "weak-map-entry",
         name: "value",
         kind: HeapWeakEdgeKind::EphemeronValue,
-        keeps_target_alive: false,
     },
     HeapWeakEdgeSlot {
         record: "weak-set-entry",
         name: "value",
         kind: HeapWeakEdgeKind::EphemeronKey,
-        keeps_target_alive: false,
     },
     HeapWeakEdgeSlot {
         record: "weak-ref-record",
         name: "target",
         kind: HeapWeakEdgeKind::WeakTarget,
-        keeps_target_alive: false,
     },
     HeapWeakEdgeSlot {
         record: "finalization-registry-cell",
         name: "target",
         kind: HeapWeakEdgeKind::WeakTarget,
-        keeps_target_alive: false,
     },
     HeapWeakEdgeSlot {
         record: "finalization-registry-cell",
         name: "holdings",
         kind: HeapWeakEdgeKind::FinalizerHoldings,
-        keeps_target_alive: true,
     },
     HeapWeakEdgeSlot {
         record: "finalization-registry-cell",
         name: "unregister-token",
         kind: HeapWeakEdgeKind::FinalizerToken,
-        keeps_target_alive: false,
     },
 ];
 
@@ -6326,19 +6343,19 @@ mod tests {
                 slot.record,
                 slot.name
             );
-            match slot.kind {
-                HeapWeakEdgeKind::EphemeronKey
-                | HeapWeakEdgeKind::EphemeronValue
-                | HeapWeakEdgeKind::WeakTarget
-                | HeapWeakEdgeKind::FinalizerToken => assert!(
-                    !slot.keeps_target_alive,
-                    "{:?} must not keep the weak target alive",
-                    slot
-                ),
-                HeapWeakEdgeKind::FinalizerHoldings => assert!(
-                    slot.keeps_target_alive,
-                    "finalizer holdings must stay live until cleanup"
-                ),
+            match slot.kind.retention() {
+                HeapWeakEdgeRetention::DoesNotRetain => assert!(matches!(
+                    slot.kind,
+                    HeapWeakEdgeKind::EphemeronKey
+                        | HeapWeakEdgeKind::WeakTarget
+                        | HeapWeakEdgeKind::FinalizerToken
+                )),
+                HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey => {
+                    assert_eq!(slot.kind, HeapWeakEdgeKind::EphemeronValue)
+                }
+                HeapWeakEdgeRetention::StrongUntilCleanup => {
+                    assert_eq!(slot.kind, HeapWeakEdgeKind::FinalizerHoldings)
+                }
             }
         }
     }
@@ -7072,24 +7089,25 @@ mod tests {
             slot.record == "weak-map-entry"
                 && slot.name == "key"
                 && slot.kind == HeapWeakEdgeKind::EphemeronKey
-                && !slot.keeps_target_alive
+                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
         assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
             slot.record == "weak-map-entry"
                 && slot.name == "value"
                 && slot.kind == HeapWeakEdgeKind::EphemeronValue
-                && !slot.keeps_target_alive
+                && slot.kind.retention()
+                    == HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey
         }));
         assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
             slot.record == "weak-ref-record"
                 && slot.kind == HeapWeakEdgeKind::WeakTarget
-                && !slot.keeps_target_alive
+                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
         assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
             slot.record == "weak-set-entry"
                 && slot.name == "value"
                 && slot.kind == HeapWeakEdgeKind::EphemeronKey
-                && !slot.keeps_target_alive
+                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
         assert!(HEAP_WEAK_SET_ENTRY_LAYOUT
             .iter()
@@ -7099,8 +7117,36 @@ mod tests {
             slot.record == "finalization-registry-cell"
                 && slot.name == "holdings"
                 && slot.kind == HeapWeakEdgeKind::FinalizerHoldings
-                && slot.keeps_target_alive
+                && slot.kind.retention() == HeapWeakEdgeRetention::StrongUntilCleanup
         }));
+    }
+
+    #[test]
+    fn heap_weak_edge_kinds_own_their_retention_semantics() {
+        for (kind, retention) in [
+            (
+                HeapWeakEdgeKind::EphemeronKey,
+                HeapWeakEdgeRetention::DoesNotRetain,
+            ),
+            (
+                HeapWeakEdgeKind::EphemeronValue,
+                HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey,
+            ),
+            (
+                HeapWeakEdgeKind::WeakTarget,
+                HeapWeakEdgeRetention::DoesNotRetain,
+            ),
+            (
+                HeapWeakEdgeKind::FinalizerHoldings,
+                HeapWeakEdgeRetention::StrongUntilCleanup,
+            ),
+            (
+                HeapWeakEdgeKind::FinalizerToken,
+                HeapWeakEdgeRetention::DoesNotRetain,
+            ),
+        ] {
+            assert_eq!(kind.retention(), retention);
+        }
     }
 
     #[test]
@@ -7169,7 +7215,7 @@ mod tests {
             slot.record == "weak-ref-record"
                 && slot.name == "target"
                 && slot.kind == HeapWeakEdgeKind::WeakTarget
-                && !slot.keeps_target_alive
+                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
     }
 
@@ -7181,16 +7227,28 @@ mod tests {
         assert!(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter().all(|slot| {
             !matches!(slot.name, "target_payload" | "unregister_token_payload") || !slot.pointer
         }));
-        for (name, kind, keeps_target_alive) in [
-            ("target", HeapWeakEdgeKind::WeakTarget, false),
-            ("holdings", HeapWeakEdgeKind::FinalizerHoldings, true),
-            ("unregister-token", HeapWeakEdgeKind::FinalizerToken, false),
+        for (name, kind, retention) in [
+            (
+                "target",
+                HeapWeakEdgeKind::WeakTarget,
+                HeapWeakEdgeRetention::DoesNotRetain,
+            ),
+            (
+                "holdings",
+                HeapWeakEdgeKind::FinalizerHoldings,
+                HeapWeakEdgeRetention::StrongUntilCleanup,
+            ),
+            (
+                "unregister-token",
+                HeapWeakEdgeKind::FinalizerToken,
+                HeapWeakEdgeRetention::DoesNotRetain,
+            ),
         ] {
             assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
                 slot.record == "finalization-registry-cell"
                     && slot.name == name
                     && slot.kind == kind
-                    && slot.keeps_target_alive == keeps_target_alive
+                    && slot.kind.retention() == retention
             }));
         }
     }

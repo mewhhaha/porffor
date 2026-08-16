@@ -273,6 +273,15 @@ Weak builtins remain blocked until a real facility is selected and replaces
 that variant. This is a truthful unsupported capability, not a silent skip and
 not permission to preserve the current strong behavior.
 
+The passive linear-heap weak-edge inventory keeps its retention vocabulary
+closed even while that facility is unavailable. `HeapWeakEdgeKind` exhaustively
+derives one of three meanings: an edge that does not retain its target, an
+ephemeron value retained only when its key is reachable through the fixpoint,
+or finalizer holdings retained strongly until cleanup. A slot cannot separately
+attach a Boolean strength claim that contradicts its kind. This makes the
+future collector obligation precise; it does not make the inventory executable
+or give the current linear records weak semantics.
+
 ## Atomic cutover plan
 
 Each phase has an invariant gate. Phases 0–3 add no second semantic object path;

@@ -56,6 +56,14 @@ errors retain that fact independently of the collector selection. This is an
 explicit blocker, not a claim that the current linear weak records have weak
 semantics.
 
+The passive linear-heap weak-edge inventory now derives retention from one
+closed `HeapWeakEdgeKind` domain. Weak keys, targets and unregister tokens do
+not retain their targets; ephemeron values are conditionally retained when
+their keys are reachable through the fixpoint; and finalizer holdings remain
+strong until cleanup. No independently writable Boolean can contradict those
+meanings. This is an inventory invariant only: it does not execute tracing,
+clear a weak target, queue cleanup or make the current records weak in practice.
+
 The central feature-enabled CLI compile covers both `lila-aot-wasm` and
 `lila-engine`. The complete resource-bounded engine inventory and the complete
 620-test default CLI inventory instantiate and execute product modules through
@@ -102,6 +110,9 @@ heap migration, reclamation, cycle collection or weak reachability.
 - `WasmWeakReachabilityCapability::Unavailable` independently closes the
   product weak/ephemeron capability domain, so changing the collector cannot
   silently imply weak-reference support.
+- `HeapWeakEdgeKind` exhaustively derives non-retaining, ephemeron-conditional
+  or strong-until-cleanup retention for every passive weak-edge slot; slot rows
+  cannot encode a contradictory Boolean strength claim.
 
 ## Remaining implementation sequence
 
