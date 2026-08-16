@@ -58,6 +58,27 @@ naming its completion owner. The ordinary `ToLength` wrapper and its 56 callers
 retain their existing current-function policy and remain outside this bounded
 migration.
 
+The proxy-aware `Call` dispatcher now encodes its remaining internal
+two-policy choice as a private, exhaustive `ProxyCallThrowRouting` domain:
+return the current function's completion tuple, or leave the throw in that
+tuple for the caller to inspect. The raw dispatcher is private to
+`functions.rs`; its two named wrappers fix one variant each, and the outlined
+runtime-helper generator reaches it through the leave-completion wrapper rather
+than selecting a raw boolean from `emit.rs`. This domain is deliberately
+separate from `PropagateCallThrow::ToActiveHandler`, which may branch to an
+active in-function handler instead of returning the current function.
+
+This is an invariant-only rewrite. The three former boolean selections already
+chose the correct policies, all existing public wrapper call sites are
+unchanged, and the nine policy-dependent emission points retain their exact
+return/leave branch and instruction order. A focused source contract pins the
+closed variants, exhaustive projection, private raw entry and named-helper
+route. Its static source/diff/rustfmt gates are green; compile and the existing
+Proxy apply, callable-trap abrupt-completion and JSON reviver runtime fixtures
+remain queued behind centralized verification. No `Call`/Proxy conformance
+gain, completion-ABI redesign or `exnref` migration is claimed. The separate
+primitive-to-number `return_on_throw` seam remains outside this bounded change.
+
 This migration also fixes the Temporal month-code coercion path: a user value
 thrown by `toString` now escapes unchanged instead of being overwritten by the
 later non-String TypeError check. Existing coercion and iterator-close order is

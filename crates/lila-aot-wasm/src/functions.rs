@@ -1,6 +1,27 @@
 use super::*;
 use lila_ir::{ClassMethodKindIr, NativeErrorKind, StaticRegExpCompilation};
 
+/// What the proxy-aware call state machine does after producing a throw.
+///
+/// This is deliberately not [`PropagateCallThrow`]. Returning the current
+/// function's completion tuple does not consult its active in-function handler,
+/// while `PropagateCallThrow::ToActiveHandler` does. The two existing wrappers
+/// below fix one route each so their callers cannot transpose a raw boolean.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProxyCallThrowRouting {
+    ReturnCurrentFunction,
+    LeaveInCompletion,
+}
+
+impl ProxyCallThrowRouting {
+    const fn returns_current_function(self) -> bool {
+        match self {
+            Self::ReturnCurrentFunction => true,
+            Self::LeaveInCompletion => false,
+        }
+    }
+}
+
 /// A Wasm local proven to contain an allocated realm record.
 ///
 /// The constructor stays in this module so realm-aware materializers cannot
@@ -6414,7 +6435,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            true,
+            ProxyCallThrowRouting::ReturnCurrentFunction,
             function,
         )
     }
@@ -6440,12 +6461,12 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            false,
+            ProxyCallThrowRouting::LeaveInCompletion,
             function,
         )
     }
 
-    pub(crate) fn emit_function_or_proxy_call_with_argv_inner(
+    fn emit_function_or_proxy_call_with_argv_inner(
         &mut self,
         callee_payload_local: u32,
         callee_tag_local: u32,
@@ -6455,7 +6476,7 @@ impl<'a> FunctionBuilder<'a> {
         argv_local: u32,
         payload_local: u32,
         tag_local: u32,
-        return_on_throw: bool,
+        throw_routing: ProxyCallThrowRouting,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if !self
@@ -6472,7 +6493,7 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            if return_on_throw {
+            if throw_routing.returns_current_function() {
                 self.emit_return_current_completion_if_throw(function);
             }
             return Ok(());
@@ -6489,7 +6510,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(payload_local, tag_local, function);
-                if return_on_throw {
+                if throw_routing.returns_current_function() {
                     self.emit_return_current_completion_if_throw(function);
                 }
                 return Ok(());
@@ -6531,7 +6552,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if return_on_throw {
+        if throw_routing.returns_current_function() {
             self.emit_return_current_completion_if_throw(function);
         }
         function.instruction(&Instruction::Br(2));
@@ -6548,7 +6569,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if return_on_throw {
+        if throw_routing.returns_current_function() {
             self.emit_return_current_completion(function);
         }
         function.instruction(&Instruction::Br(2));
@@ -6571,7 +6592,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if return_on_throw {
+        if throw_routing.returns_current_function() {
             self.emit_return_current_completion(function);
         }
         function.instruction(&Instruction::Br(2));
@@ -6601,7 +6622,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if return_on_throw {
+        if throw_routing.returns_current_function() {
             self.emit_return_current_completion(function);
         }
         function.instruction(&Instruction::Br(2));
@@ -6633,7 +6654,7 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
-        if return_on_throw {
+        if throw_routing.returns_current_function() {
             self.emit_return_current_completion_if_throw(function);
         } else {
             self.emit_break_current_completion_if_throw(2, function);
@@ -6666,7 +6687,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if return_on_throw {
+        if throw_routing.returns_current_function() {
             self.emit_return_current_completion_if_throw(function);
         }
         function.instruction(&Instruction::Br(2));
@@ -6694,7 +6715,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if return_on_throw {
+        if throw_routing.returns_current_function() {
             self.emit_return_current_completion(function);
         }
         function.instruction(&Instruction::Br(1));

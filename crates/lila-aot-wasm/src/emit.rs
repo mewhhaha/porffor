@@ -4312,7 +4312,7 @@ impl<'a> FunctionBuilder<'a> {
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_function_or_proxy_call_with_argv_inner(
+        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
             0,
             1,
             2,
@@ -4321,7 +4321,6 @@ impl<'a> FunctionBuilder<'a> {
             5,
             self.result_local,
             self.result_tag_local,
-            false,
             &mut function,
         )?;
         self.pop_scope();
