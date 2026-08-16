@@ -17,13 +17,25 @@ fallback in the default product path. Publication now accepts only the closed
 oracle publication request before writing status. The CI-wired product-artifact
 test proves representative Wasm contains compiled user semantics, no embedded
 source marker and no evaluator import, and it is green in the current batch.
-The complete 684-test engine inventory is green in resource-bounded shards, and
-the complete 620-test default CLI integration inventory is green across the
-tracked 20-chunk runner. The package's library, binary, cache,
+At the 2026-08-13 closure checkpoint, the then-current 684-test engine inventory
+was green in resource-bounded shards and the then-current 620-test default CLI
+integration inventory was green across the tracked 20-chunk runner. Later
+feature work has expanded both inventories, so those figures are historical
+checkpoint evidence rather than claims about the current test count. The
+package's library, binary, cache,
 `async_generator`, performance-test (ignored by contract), and doctest targets
 are also green. The dependency quarantine, product-artifact audit, flag-free
 fake-suite smoke, developer-oracle regression, and representative real-suite
 default-backend checks are green in the same final batch.
+
+The [execution-backend routing contract](../docs/rust-rewrite/contracts/execution-backend-routing.md)
+makes the engine's four backend-consuming entry points exhaustively match the
+closed `ExecutionBackend` domain. Script run, module run, shared observation
+and compiled-unit run each state the `SpecExec` oracle and `WasmAot` product
+arms; none relies on `if SpecExec { ... } else { ... }`. A future backend
+cannot be silently treated as Wasm after its enum variant is introduced. The
+compiler and a bounded structural regression own this routing invariant; valid
+two-variant behavior is unchanged.
 
 ## Objective
 

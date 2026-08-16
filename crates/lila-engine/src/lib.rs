@@ -2074,22 +2074,22 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
-        if run.backend == ExecutionBackend::SpecExec {
-            return self.run_with_spec_exec(
+        match run.backend {
+            ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
                 options.filename.as_deref(),
                 ParseGoal::Script,
                 options.module_loading_policy,
                 run,
-            );
+            ),
+            ExecutionBackend::WasmAot => self.run_source_with_cached_wasm(
+                source,
+                ParseGoal::Script,
+                options,
+                run.timeout_ms,
+                run.can_block,
+            ),
         }
-        self.run_source_with_cached_wasm(
-            source,
-            ParseGoal::Script,
-            options,
-            run.timeout_ms,
-            run.can_block,
-        )
     }
 
     pub fn run_module(
@@ -2098,22 +2098,22 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
-        if run.backend == ExecutionBackend::SpecExec {
-            return self.run_with_spec_exec(
+        match run.backend {
+            ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
                 options.filename.as_deref(),
                 ParseGoal::Module,
                 options.module_loading_policy,
                 run,
-            );
+            ),
+            ExecutionBackend::WasmAot => self.run_source_with_cached_wasm(
+                source,
+                ParseGoal::Module,
+                options,
+                run.timeout_ms,
+                run.can_block,
+            ),
         }
-        self.run_source_with_cached_wasm(
-            source,
-            ParseGoal::Module,
-            options,
-            run.timeout_ms,
-            run.can_block,
-        )
     }
 
     /// Executes one Script while keeping ECMAScript abrupt completion distinct
@@ -2145,16 +2145,22 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<ObservedRunOutcome, EngineError> {
-        if run.backend == ExecutionBackend::SpecExec {
-            return self.observe_with_spec_exec(
+        match run.backend {
+            ExecutionBackend::SpecExec => self.observe_with_spec_exec(
                 source,
                 options.filename.as_deref(),
                 goal,
                 options.module_loading_policy,
                 run,
-            );
+            ),
+            ExecutionBackend::WasmAot => self.observe_source_with_cached_wasm(
+                source,
+                goal,
+                options,
+                run.timeout_ms,
+                run.can_block,
+            ),
         }
-        self.observe_source_with_cached_wasm(source, goal, options, run.timeout_ms, run.can_block)
     }
 
     /// Runs a script through the Wasm-AOT backend on the calling thread.
