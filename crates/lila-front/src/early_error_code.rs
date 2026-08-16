@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 22] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 23] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -198,6 +198,10 @@ early_error_codes! {
     /// one occurrence of `"constructor"`. Static and computed methods named
     /// `constructor` are not constructor definitions and remain excluded.
     DuplicateClassConstructor => "E_DUPLICATE_CLASS_CONSTRUCTOR";
+    /// ClassStaticBlockBody early errors: `ContainsArguments` of the
+    /// `ClassStaticBlockStatementList` is true. Nested ordinary function and
+    /// method bodies are traversal boundaries; arrow functions are not.
+    ClassStaticBlockContainsArguments => "E_CLASS_STATIC_BLOCK_CONTAINS_ARGUMENTS";
     /// 14.13.1. `ContainsDuplicateLabels` with argument « » is `true`.
     DuplicateLabel => "E_DUPLICATE_LABEL";
     /// 14.13.1, applied by 16.1.1 / 16.2.1.2. `ContainsUndefinedBreakTarget`
@@ -276,7 +280,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 20;
+const PARSE_FAILURE_RULE_COUNT: usize = 21;
 
 /// The one fragment table.
 ///
@@ -401,25 +405,32 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::DuplicateClassConstructor,
         witnesses: &["a class may only have one constructor"],
     },
-    // 13. boa_parser/src/parser/mod.rs:567
+    // 13. statement/declaration/hoistable/class_decl/mod.rs:740-745. This is
+    //     the sole pinned producer and its complete, case-sensitive wording.
+    ParseFailureRule {
+        fragments: &["'arguments' not allowed in class static block"],
+        code: EarlyErrorCode::ClassStaticBlockContainsArguments,
+        witnesses: &["'arguments' not allowed in class static block"],
+    },
+    // 14. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
         fragments: &["module cannot contain", "super"],
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
-    // 14. boa_parser/src/parser/mod.rs:575
+    // 15. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
         fragments: &["module cannot contain", "new.target"],
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
-    // 15. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
+    // 16. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
         fragments: &["invalid private identifier usage"],
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
-    // 16-20. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
+    // 17-21. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
         fragments: &["duplicate label"],
         code: EarlyErrorCode::DuplicateLabel,

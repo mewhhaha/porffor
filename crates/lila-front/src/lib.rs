@@ -835,6 +835,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn class_static_block_arguments_rejections_cover_both_forms_and_goals() {
+        for source in [
+            r"class C { static { (class { [argument\u0073]() {} }); } }",
+            "const C = class { static { (() => arguments); } };",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("lexical arguments use in a class static block should fail");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassStaticBlockContainsArguments),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_static_block_arguments_stop_at_function_and_method_boundaries() {
+        for source in [
+            r#"class C {
+                static {
+                    function nested(value = arguments) { return arguments; }
+                }
+            }"#,
+            r#"const C = class {
+                static {
+                    class Nested {
+                        method(value = arguments) { return arguments; }
+                    }
+                }
+            };"#,
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("ordinary function and method bodies own their arguments bindings");
+            }
+        }
+    }
+
     /// Drift B3, closed.
     ///
     /// `ModuleParser::parse` words this one ``lexical name `x` declared
@@ -1253,6 +1297,10 @@ switch (0) {
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::CatchBodyDeclarationConflict).is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)
+                .is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());

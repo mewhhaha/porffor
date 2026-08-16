@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict and duplicate-class-constructor classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor and class-static-block `ContainsArguments` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -59,6 +59,16 @@ computed `["constructor"]()` methods beside one ordinary constructor. This is
 classification only: it does not change class lowering or runtime constructor
 semantics, close adjacent constructor restrictions, or complete the class
 grammar bucket.
+
+Class static blocks whose statement lists have `ContainsArguments` now have one
+closed condition for Boa's sole exact wording. Declaration and expression forms
+reject under both Script and Module goals, including the pinned escaped
+computed-name source and lexical use through an arrow. Positive witnesses keep
+ordinary function and method parameters/bodies as traversal boundaries. This is
+classification only: it does not implement static-block lowering or execution,
+class-field `ContainsArguments`, or adjacent static-block early errors. Focused
+Cargo and Test262 verification remains deferred to the shared verification
+lane.
 
 ## Objective
 

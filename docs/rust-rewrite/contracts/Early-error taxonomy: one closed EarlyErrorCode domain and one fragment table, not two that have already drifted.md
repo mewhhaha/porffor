@@ -1,12 +1,63 @@
 # Contract: early-error taxonomy — one closed `EarlyErrorCode` domain and one fragment table
 
+## 2026-08-17 normative class-static-block `ContainsArguments` amendment
+
+The ClassStaticBlockBody early-error rules reject a
+`ClassStaticBlockStatementList` whose `ContainsArguments` result is true. The
+condition is decided before evaluation and reported as a `SyntaxError` under
+both Script and Module goals. The traversal follows lexical `arguments` use
+through arrows and evaluated class-element names, but stops at ordinary,
+generator and async functions and at method parameters and bodies, where
+`arguments` belongs to the nested callable.
+
+Pinned `boa_parser-0.21.1` has exactly one producer and one case-sensitive
+literal for this condition. At
+`vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs:740-745`,
+it applies `contains_arguments` to the parsed static-block statement list and
+reports `'arguments' not allowed in class static block`. The full literal
+occurs nowhere else in pinned Boa. The visitor's function and method traversal
+boundaries are explicit in
+`vendor/boa_ast-0.21.1/src/operations/mod.rs:350-452`.
+
+T07 therefore extends the domain with
+`EarlyErrorCode::ClassStaticBlockContainsArguments` /
+`E_CLASS_STATIC_BLOCK_CONTAINS_ARGUMENTS` and exactly one classifier row whose
+fragment and witness are that full literal. `lila-ir` maps the new variant in
+its exhaustive `rejection_kind` match to `IrDiagnosticKind::EarlyError`; phase
+and error type remain derived as `Early` and `SyntaxError`. The closed domain
+now has **23** variants and the one parse-failure table has **21** rows.
+
+Front-end regressions require declaration and expression forms to reject under
+both goals. They include pinned Test262's escaped `argument\u0073`
+computed-name source and lexical use through an arrow, and preserve ordinary
+function and method parameters and bodies as positive traversal boundaries. A
+real Module parse crosses the retained front-end-to-IR diagnostic boundary, and
+the message-table regression separately fixes the exact literal-to-code map.
+
+At pinned Test262 revision
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, the bounded evidence is
+`language/statements/class/static-init-invalid-arguments.js` (`phase: parse`,
+`type: SyntaxError`) plus the positive
+`static-init-arguments-functions.js` and `static-init-arguments-methods.js`
+files in the same directory. They specify the classification and traversal
+boundary; they are not a current Wasm-AOT pass claim.
+
+This amendment classifies the rejection Boa already produces. It does not
+implement static-block parsing, lowering, initialization or execution; cover
+the separate `'arguments' not allowed in class field definition` condition,
+direct eval, or adjacent `await`, `yield`, `super()`, `return`, lexical or label
+rules; close T07; or change a snapshot or published count. Cargo, focused
+execution and current-pin Test262 verification remain deferred to the shared
+verification lane.
+
 ## 2026-08-13 normative duplicate-class-constructor amendment
 
 T07 extends the closed taxonomy with
 `EarlyErrorCode::DuplicateClassConstructor` /
 `E_DUPLICATE_CLASS_CONSTRUCTOR` and exactly one classifier row for the sole
-case-sensitive message emitted by pinned `boa_parser-0.21.1`. The current domain
-therefore has 22 variants and the current parse-failure table has 20 rows.
+case-sensitive message emitted by pinned `boa_parser-0.21.1`. At that
+amendment's checkpoint the domain had 22 variants and the parse-failure table
+had 20 rows.
 
 The theory, exact producer, declaration/expression and Script/Module source
 matrix, positive static/computed-method boundaries, and nonclaims live in

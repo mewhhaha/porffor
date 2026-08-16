@@ -1,5 +1,17 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-17 class-static-block `ContainsArguments` amendment
+
+T07 now classifies the one exact rejection Boa produces when a class static
+block's statement list has `ContainsArguments`. The normative extension is the
+top amendment in:
+
+`docs/rust-rewrite/contracts/Early-error taxonomy: one closed EarlyErrorCode domain and one fragment table, not two that have already drifted.md`
+
+The current domain has **23** variants and the one parse-failure table has
+**21** rows. Source witnesses preserve the lexical traversal through arrows and
+the specified stop at ordinary function and method boundaries.
+
 ## 2026-08-13 duplicate-class-constructor amendment
 
 T07 now classifies duplicate ordinary class constructors as one closed
@@ -9,9 +21,9 @@ extension is:
 
 `docs/rust-rewrite/contracts/duplicate-class-constructor-early-errors.md`
 
-The current domain has **22** variants and the one parse-failure table has
-**20** rows. Positive source witnesses preserve static and computed methods
-named `constructor` as non-constructor class elements.
+At that extension's checkpoint the domain had **22** variants and the one
+parse-failure table had **20** rows. Positive source witnesses preserve static
+and computed methods named `constructor` as non-constructor class elements.
 
 ## 2026-08-13 catch-body-declaration-conflict amendment
 
@@ -82,8 +94,9 @@ area brief, three of which change the encoding:
   `E_IR_DIAGNOSTIC` names the absence of a code and `E_TEST_EARLY` is a test
   fixture. The duplicate-formal-parameter extension adds the nineteenth real
   condition; the duplicate-catch-parameter extension adds the twentieth; the
-  catch-body-declaration-conflict extension adds the twenty-first; and the
-  duplicate-class-constructor extension above adds the twenty-second.
+  catch-body-declaration-conflict extension adds the twenty-first, the
+  duplicate-class-constructor extension adds the twenty-second, and the
+  class-static-block `ContainsArguments` extension above adds the twenty-third.
 - §0.4 — the `E_DUPLICATE_LEXICAL_DECLARATION` drift is bidirectional and one
   direction is conformance-visible, not merely taxonomy-visible.
 
