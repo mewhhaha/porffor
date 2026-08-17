@@ -54,8 +54,13 @@ Pinned Test262 exposes the slot distinction through the collection
 Map, Set, WeakMap and WeakSet files explicitly use Arrays as missing-slot
 receivers. The product regression
 `wasm_collection_data_receiver_realm.js` additionally distinguishes backend
-Array, Function and Arguments layouts, both BigInt representations, defining
-realm provenance, and non-observation of live and revoked Proxies.
+Array, Function and Arguments layouts, both BigInt representations, and
+non-observation of live and revoked Proxies across all four families. Its
+created-realm Map and Set methods prove defining-realm provenance at runtime.
+WeakMap and WeakSet use the entry-realm methods because the created-realm host
+does not yet publish those two intrinsics; the exhaustive shared error emitter
+keeps their realm route structurally covered until that separate bootstrap seam
+lands.
 
 ## Rust invariant
 
@@ -98,15 +103,17 @@ brand loads, messages or error-realm behavior through duplicated control flow.
 
 This seam does not change successful collection algorithms, key equality,
 mutation order, iterator cursor movement, weak reachability or cleanup jobs. It
-does not claim every collection error path is covered, that the full pinned
-collection trees are green, or that T21 is complete.
+does not bootstrap WeakMap or WeakSet into created realms or claim cross-realm
+runtime evidence for their methods. It does not claim every collection error
+path is covered, that the full pinned collection trees are green, or that T21
+is complete.
 
-The implementation freeze is static while the shared low-RAM current-pin
-matrix owns Cargo and Test262 resources. Deferred verification is:
+The focused CLI fixture passes on the current working tree, alongside the
+bounded source-structure checks and independent review. Remaining centralized
+verification is:
 
 1. `cargo fmt --all --check`;
-2. the focused CLI test for `wasm_collection_data_receiver_realm.js`;
-3. `cargo test -p lila-aot-wasm collection_ --quiet` and the bounded CLI
+2. `cargo test -p lila-aot-wasm collection_ --quiet` and the bounded CLI
    collection/iterator shard;
-4. focused pinned Map, Set, WeakMap and WeakSet receiver filters;
-5. the centralized broad Wasm-AOT checkpoint.
+3. focused pinned Map, Set, WeakMap and WeakSet receiver filters;
+4. the centralized broad Wasm-AOT checkpoint.

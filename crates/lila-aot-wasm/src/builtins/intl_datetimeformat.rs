@@ -90,6 +90,7 @@
 use super::super::*;
 use super::temporal_plain_date::TemporalCalendarId;
 use crate::functions::NewTargetPrototypeFallback;
+use crate::objects::TaggedLocals;
 
 /// Where a component's code lives and what spellings map to it.
 ///

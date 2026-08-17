@@ -2558,9 +2558,9 @@ const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x09d1_0132_16fd_f211;
 
 const PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x59f3_3074_36d5_4a9a;
 
-const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0x8736_340a_5516_df4d;
+const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0x4819_6e5d_7313_3b01;
 
-const LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0xa989_68ad_f4e4_0929;
+const LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x82dc_db75_2db0_7218;
 
 const COMPARE_ARRAY_PRELUDE_FNV1A: u64 = 0x5bb6_1296_deec_6e91;
 
@@ -2568,7 +2568,7 @@ const DETACH_ARRAY_BUFFER_PRELUDE_FNV1A: u64 = 0xb288_4dc7_609b_1d2a;
 
 const IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0x5815_595f_f0a9_9c34;
 
-const LOCAL_IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0xa2a6_002a_053d_e6bd;
+const LOCAL_IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0xc91f_a7a5_609a_e8f8;
 
 const RESIZABLE_ARRAY_BUFFER_UTILS_PRELUDE_FNV1A: u64 = 0x6466_6602_9ee8_9d5d;
 
@@ -2597,8 +2597,9 @@ struct TypedArrayLiteralHelperPlan {
 }
 
 // These are FNV-1a fingerprints of path, ordered include names, and original
-// source bytes for every pinned test in the nine literal TypedArray families
-// below. A changed path, include list, or body cannot inherit a helper mode.
+// source bytes for every physical pinned test in the nine literal TypedArray
+// families below. A changed path, include list, or body cannot inherit a helper
+// mode.
 const TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A: [u64; 319] = [
     0x01a7_64cf_4431_856f,
     0x03ed_1fe1_9322_e60f,
@@ -23609,6 +23610,7 @@ enum CaseSetRequirement {
     Exact,
 }
 
+#[derive(Debug)]
 struct SnapshotCaseCounts {
     counts_per_kind: BTreeMap<FailureKind, usize>,
     counts_per_outcome: BTreeMap<OutcomeKind, usize>,
@@ -26134,7 +26136,7 @@ mod tests {
         load_preludes(&config).expect("real wasm-aot preludes should load")
     }
 
-    fn typed_array_literal_cases() -> Vec<TestCase> {
+    fn typed_array_literal_physical_cases() -> Vec<TestCase> {
         let test_root = repo_root().join("test262/vendor/test262/test");
         let prototype_root = test_root.join("built-ins/TypedArray/prototype");
         let mut cases = Vec::new();
@@ -26158,8 +26160,29 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("vendored {method} cases should scan: {error}"));
         }
-        cases.sort_by(|left, right| left.path.cmp(&right.path));
-        cases
+        assert_eq!(cases.len(), 622);
+        cases.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
+
+        let mut physical_cases: Vec<TestCase> = Vec::new();
+        for case in cases {
+            if let Some(previous) = physical_cases.last() {
+                if previous.path == case.path {
+                    assert_eq!(previous.execution_mode(), TestExecutionMode::SloppyScript);
+                    assert_eq!(case.execution_mode(), TestExecutionMode::StrictScript);
+                    assert!(Arc::ptr_eq(
+                        &previous.original_source,
+                        &case.original_source
+                    ));
+                    assert_eq!(
+                        test_case_contract_fingerprint(previous),
+                        test_case_contract_fingerprint(&case)
+                    );
+                    continue;
+                }
+            }
+            physical_cases.push(case);
+        }
+        physical_cases
     }
 
     fn resizable_array_buffer_cases() -> Vec<TestCase> {
@@ -27500,7 +27523,7 @@ print('Test262:AsyncTestComplete');
 
             assert!(materialized.used_preludes.is_empty(), "{path}");
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{path}"
             );
             assert!(
@@ -27579,7 +27602,7 @@ print('Test262:AsyncTestComplete');
                 .source
                 .contains(&format!("{name} generic harness")));
         }
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -27726,7 +27749,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(materialized
             .source
             .contains("iteratorZipUtils.js generic harness"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -27765,7 +27788,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(materialized
             .source
             .contains("iteratorZipUtils.js generic harness"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -27947,7 +27970,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(materialized.used_preludes.is_empty());
         assert!(materialized
             .source
-            .ends_with(&changed_source.original_source));
+            .ends_with(changed_source.original_source.as_ref()));
 
         let mut changed_includes = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
         changed_includes.includes = vec!["assert.js".to_string()];
@@ -27956,7 +27979,7 @@ assert.sameValue(descriptor.configurable, true);
             .expect("materialization should work");
         assert!(materialized
             .source
-            .ends_with(&changed_includes.original_source));
+            .ends_with(changed_includes.original_source.as_ref()));
     }
 
     #[test]
@@ -27973,7 +27996,7 @@ assert.sameValue(descriptor.configurable, true);
         let materialized =
             materialize_test(&case, &PreludeStore::default()).expect("materialization should work");
 
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -28395,9 +28418,9 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn typed_array_literal_helper_contract_covers_all_319_vendored_bodies() {
+    fn typed_array_literal_helper_contract_covers_all_319_physical_vendored_bodies() {
         let store = real_wasm_aot_preludes();
-        let cases = typed_array_literal_cases();
+        let cases = typed_array_literal_physical_cases();
         assert_eq!(cases.len(), 319);
         let mut fingerprints = cases
             .iter()
@@ -28439,7 +28462,7 @@ assert.sameValue(descriptor.configurable, true);
                 representative_source_bytes.1 = materialized.source.len();
             }
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{} body changed",
                 case.path
             );
@@ -28596,13 +28619,13 @@ assert.sameValue(descriptor.configurable, true);
         assert_eq!(factory_counts, [29, 72, 218]);
         assert_eq!(property_helper_count, 27);
         assert_eq!(deprecated_compare_array_count, 67);
-        assert_eq!(representative_source_bytes, (2_930, 17_298));
+        assert_eq!(representative_source_bytes, (2_930, 17_801));
     }
 
     #[test]
     fn typed_array_literal_helper_contract_rejects_case_and_helper_drift() {
         let store = real_wasm_aot_preludes();
-        let cases = typed_array_literal_cases();
+        let cases = typed_array_literal_physical_cases();
         let metadata_case = cases
             .iter()
             .find(|case| case.path.ends_with("/some/length.js"))
@@ -28764,15 +28787,15 @@ assert.sameValue(descriptor.configurable, true);
             .contains("class MyUint8Array extends Uint8Array {}"));
 
         let mut changed_resizable_case = resizable_case.clone();
-        changed_resizable_case
-            .original_source
-            .push_str("\n// changed\n");
+        let mut changed_source = changed_resizable_case.original_source.to_string();
+        changed_source.push_str("\n// changed\n");
+        changed_resizable_case.original_source = changed_source.into();
         let materialized = materialize_test(&changed_resizable_case, &store)
             .expect("changed resizable case should materialize safely");
         assert!(materialized.source.contains("new Function"));
         assert!(materialized
             .source
-            .ends_with(&changed_resizable_case.original_source));
+            .ends_with(changed_resizable_case.original_source.as_ref()));
     }
 
     #[test]
@@ -28804,7 +28827,7 @@ assert.sameValue(descriptor.configurable, true);
 
     #[test]
     fn copy_within_not_a_constructor_keeps_literal_or_exact_intrinsic_semantics() {
-        let case = typed_array_literal_cases()
+        let case = typed_array_literal_physical_cases()
             .into_iter()
             .find(|case| case.path.ends_with("/copyWithin/not-a-constructor.js"))
             .expect("copyWithin constructor case should exist");
@@ -28836,7 +28859,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(vendored_materialized.source.contains("return true;"));
         assert!(vendored_materialized
             .source
-            .ends_with(&case.original_source));
+            .ends_with(case.original_source.as_ref()));
 
         let mut changed_store = real_wasm_aot_preludes();
         let mut changed_prelude = changed_store
@@ -28860,12 +28883,14 @@ assert.sameValue(descriptor.configurable, true);
         assert!(changed_materialized
             .source
             .contains("// changed constructor helper"));
-        assert!(changed_materialized.source.ends_with(&case.original_source));
+        assert!(changed_materialized
+            .source
+            .ends_with(case.original_source.as_ref()));
     }
 
     #[test]
     fn copy_within_five_resizable_admissions_have_exact_literal_contracts() {
-        let cases = typed_array_literal_cases();
+        let cases = typed_array_literal_physical_cases();
         let store = real_wasm_aot_preludes();
         for path in [
             "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js",
@@ -28883,7 +28908,10 @@ assert.sameValue(descriptor.configurable, true);
 
             let materialized =
                 materialize_test(case, &store).expect("admitted case should materialize");
-            assert!(materialized.source.ends_with(&case.original_source), "{path}");
+            assert!(
+                materialized.source.ends_with(case.original_source.as_ref()),
+                "{path}"
+            );
             if case
                 .includes
                 .iter()
@@ -29556,7 +29584,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized
             .source
             .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -29581,7 +29609,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized
             .source
             .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -29736,7 +29764,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized
             .source
             .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -29761,7 +29789,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized
             .source
             .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -29786,7 +29814,7 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized
             .source
             .contains("var boundArgFactory = argFactory.bind(undefined, constructor);\n      try"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -32314,7 +32342,10 @@ assert.sameValue(descriptor.configurable, true);
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
 
-            assert!(materialized.source.ends_with(&case.original_source), "{path}");
+            assert!(
+                materialized.source.ends_with(case.original_source.as_ref()),
+                "{path}"
+            );
             assert!(materialized
                 .source
                 .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
@@ -32396,7 +32427,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
 
-            assert!(materialized.source.ends_with(&case.original_source), "{path}");
+            assert!(
+                materialized.source.ends_with(case.original_source.as_ref()),
+                "{path}"
+            );
             if case
                 .includes
                 .iter()
@@ -32570,7 +32604,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 materialize_test(&case, &store).expect("materialization should work");
 
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{file}"
             );
             assert!(materialized
@@ -32636,7 +32670,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 materialize_test(&case, &store).expect("materialization should work");
 
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{file}"
             );
             assert!(materialized
@@ -32786,7 +32820,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             let materialized =
                 materialize_test(&case, &store).expect("vendored case should materialize");
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{path}"
             );
 
@@ -32931,7 +32965,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             let materialized =
                 materialize_test(&case, &store).expect("changed case should materialize");
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{path}"
             );
             assert!(
@@ -33640,7 +33674,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert!(!materialized
             .source
             .contains("class MyUint8Array extends Uint8Array {}"));
-        assert!(materialized.source.ends_with(&case.original_source));
+        assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
     #[test]
@@ -34509,7 +34543,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     materialize_test(&case, &store).expect("materialization should work");
 
                 assert!(
-                    materialized.source.ends_with(&case.original_source),
+                    materialized.source.ends_with(case.original_source.as_ref()),
                     "{path}"
                 );
                 assert!(!materialized
@@ -34539,7 +34573,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let materialized =
             materialize_test(&changed_case, &store).expect("changed case should materialize");
 
-        assert!(materialized.source.ends_with(&changed_case.original_source));
+        assert!(materialized
+            .source
+            .ends_with(changed_case.original_source.as_ref()));
         assert!(materialized
             .source
             .contains("function verifyCallableProperty"));
@@ -34566,7 +34602,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     materialize_test(&case, &store).expect("materialization should work");
 
                 assert!(
-                    materialized.source.ends_with(&case.original_source),
+                    materialized.source.ends_with(case.original_source.as_ref()),
                     "{path}"
                 );
                 assert!(materialized.source.contains("assert.throws(TypeError"));
@@ -34590,7 +34626,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let materialized =
             materialize_test(&changed_case, &store).expect("changed case should materialize");
 
-        assert!(materialized.source.ends_with(&changed_case.original_source));
+        assert!(materialized
+            .source
+            .ends_with(changed_case.original_source.as_ref()));
         assert!(materialized
             .source
             .contains("var sourceDriftMarker = true;"));
@@ -35227,7 +35265,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 materialize_test(&case, &store).expect("materialization should work");
 
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{path}"
             );
             assert!(materialized
@@ -35247,7 +35285,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let materialized =
             materialize_test(&changed_case, &store).expect("changed case should materialize");
 
-        assert!(materialized.source.ends_with(&changed_case.original_source));
+        assert!(materialized
+            .source
+            .ends_with(changed_case.original_source.as_ref()));
         assert!(materialized
             .source
             .contains("function verifyCallableProperty"));
@@ -35271,7 +35311,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 materialize_test(&case, &store).expect("materialization should work");
 
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{path}"
             );
             assert!(materialized.source.contains("assert.throws(TypeError"));
@@ -35301,7 +35341,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let materialized =
             materialize_test(&changed_case, &store).expect("changed case should materialize");
 
-        assert!(materialized.source.ends_with(&changed_case.original_source));
+        assert!(materialized
+            .source
+            .ends_with(changed_case.original_source.as_ref()));
         assert!(materialized
             .source
             .contains("var sourceDriftMarker = true;"));
@@ -41285,7 +41327,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 materialize_test(&case, &preludes).expect("Atomics case should materialize");
 
             assert!(
-                materialized.source.ends_with(&case.original_source),
+                materialized.source.ends_with(case.original_source.as_ref()),
                 "{path}"
             );
             for include in &case.includes {

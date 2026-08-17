@@ -31,6 +31,7 @@
 
 use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
+use crate::objects::TaggedLocals;
 use lila_intl::{IntlHostCallOutcome, IntlHostOp, MAX_INTL_IDENTIFIER_BYTES};
 
 /// Sort key used to force the `x-` private-use sequence after every other

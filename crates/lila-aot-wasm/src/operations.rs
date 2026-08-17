@@ -1,6 +1,7 @@
 #![deny(unused_must_use)]
 
 use super::*;
+use crate::emit::NumericErrorRealmSource;
 use lila_ir::{NativeErrorKind, StaticRegExpCompilation};
 
 /// A shared operation whose descriptor admits a throw completion.

@@ -57,6 +57,15 @@ fn assert_typed_caller(caller: &str, object: &str, target: &str, handler: &str, 
         "ProxyHandlerLocals::new(",
     );
     assert_before(caller, "self.emit_proxy_own_keys_trap_result(", validator);
+    for retired_inline_acquisition in [
+        "self.strings.payload(\"ownKeys\")",
+        "Proxy ownKeys trap is not callable",
+    ] {
+        assert!(
+            !caller.contains(retired_inline_acquisition),
+            "caller must not retain the raw ownKeys acquisition `{retired_inline_acquisition}`",
+        );
+    }
 }
 
 #[test]
@@ -254,9 +263,10 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "self.emit_proxy_own_keys_filtered_result(",
     );
 
-    let keys = after(
+    let keys = bounded(
         OBJECT_BUILTINS_SOURCE,
         "pub(super) fn compile_object_keys_builtin(",
+        "fn compile_object_own_descriptor_predicate_builtin(",
     );
     assert_typed_caller(
         keys,

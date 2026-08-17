@@ -147,7 +147,6 @@ fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
     );
     for forbidden in [
         "emit_error_new_target_prototype_to_local(",
-        "emit_alloc_plain_object_with_prototype(",
         "Instruction::LocalSet(self.result_local)",
     ] {
         assert!(
@@ -155,6 +154,24 @@ fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
             "constructor bypassed its typed lifecycle through {forbidden}"
         );
     }
+    assert_eq!(
+        constructor
+            .matches("emit_alloc_plain_object_with_prototype(None, None, function)?;")
+            .count(),
+        1,
+        "the sole untagged allocation is the internal default options object"
+    );
+    assert_eq!(
+        constructor
+            .matches("emit_alloc_plain_object_with_prototype(")
+            .count(),
+        1,
+        "no second untagged allocation may bypass the reserved result"
+    );
+    let default_options_allocation = constructor
+        .find("emit_alloc_plain_object_with_prototype(None, None, function)?;")
+        .expect("undefined options should allocate their internal default object");
+    assert!(options_observation < default_options_allocation);
 
     let construct = functions
         .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")

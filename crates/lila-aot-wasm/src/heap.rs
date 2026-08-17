@@ -1141,16 +1141,16 @@ pub(crate) const HEAP_PENDING_JOB_KIND_OFFSET: u64 = 48;
 
 macro_rules! promise_wire_domain {
     ($name:ident, $first_word:literal, { $($variant:ident = $word:literal),+ $(,)? }) => {
-        promise_wire_domain!(@define pub(crate); $name, $first_word, {
+        promise_wire_domain!(@define pub(crate), $name, $first_word, {
             $($variant = $word),+
         });
     };
     (private $name:ident, $first_word:literal, { $($variant:ident = $word:literal),+ $(,)? }) => {
-        promise_wire_domain!(@define; $name, $first_word, {
+        promise_wire_domain!(@define, $name, $first_word, {
             $($variant = $word),+
         });
     };
-    (@define $method_visibility:vis; $name:ident, $first_word:literal, { $($variant:ident = $word:literal),+ $(,)? }) => {
+    (@define $method_visibility:vis, $name:ident, $first_word:literal, { $($variant:ident = $word:literal),+ $(,)? }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub(crate) enum $name {
             $($variant),+

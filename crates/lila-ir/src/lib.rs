@@ -5959,7 +5959,7 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name.starts_with("$generator.with.")));
+            .any(|binding| binding.name.starts_with("$with.object.")));
     }
 
     #[test]

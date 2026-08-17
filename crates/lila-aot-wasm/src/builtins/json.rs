@@ -1233,7 +1233,7 @@ impl<'a> FunctionBuilder<'a> {
             holder_payload_local,
             holder_tag_local,
             array_index_local,
-            false,
+            JsonReviverPropertyRole::Nested,
             key_payload_local,
             key_tag_local,
             value_payload_local,

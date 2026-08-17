@@ -1,4 +1,5 @@
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
+const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -72,5 +73,67 @@ fn typed_array_join_uses_one_validated_method_entry_witness() {
     assert!(
         witness < separator,
         "buffer validation must precede separator coercion"
+    );
+}
+
+#[test]
+fn created_realm_installs_the_self_backed_join_entry() {
+    let method_metas = HOST_SOURCE
+        .split_once("        let typed_array_method_metas = [")
+        .expect("created-realm TypedArray method table")
+        .1
+        .split_once("        let number_meta = self")
+        .expect("created-realm TypedArray method table end")
+        .0;
+    let entry_start = "            (\n                \"join\",";
+    assert_eq!(method_metas.matches(entry_start).count(), 1);
+    let entry = method_metas
+        .split_once(entry_start)
+        .expect("created-realm TypedArray join entry")
+        .1
+        .split_once("            ),")
+        .expect("created-realm TypedArray join entry end")
+        .0;
+    assert_eq!(
+        entry
+            .matches("StandardBuiltinId::TypedArrayPrototypeJoin.function_id()")
+            .count(),
+        1
+    );
+
+    let installer = HOST_SOURCE
+        .split_once("        for (name, meta) in &typed_array_method_metas {")
+        .expect("created-realm TypedArray method installer")
+        .1
+        .split_once("        let typed_array_buffer_key_local")
+        .expect("created-realm TypedArray method installer end")
+        .0;
+    assert_eq!(
+        installer
+            .matches("emit_function_value_payload_in_realm(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        installer
+            .matches(
+                "method_payload_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                method_payload_local,",
+            )
+            .count(),
+        1
+    );
+    assert_eq!(
+        installer
+            .matches(
+                "method_payload_local,\n                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,\n                type_error_prototype_local,",
+            )
+            .count(),
+        1
+    );
+    assert_eq!(
+        installer
+            .matches("typed_array_prototype_local,\n                name,")
+            .count(),
+        1
     );
 }

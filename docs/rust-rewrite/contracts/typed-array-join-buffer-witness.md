@@ -61,20 +61,27 @@ Realm matrix invokes a created Realm's `join` on both created-Realm and
 entry-Realm receivers, proving that the executing builtin rather than the
 receiver chooses the thrown `TypeError.prototype`.
 
+The created-Realm bootstrap installs that `join` entry through the shared
+TypedArray method table. The installer materializes the function in the target
+Realm, self-backs its environment handle and stores that Realm's
+`TypeError.prototype` before defining the method on `%TypedArray%.prototype`.
+The foreign out-of-bounds case borrows the entry Realm's `ArrayBuffer.prototype.resize`:
+the buffer, view and `join` method remain foreign, while this seam does not
+claim that the created-Realm ArrayBuffer prototype already exposes every
+method.
+
 ## Deferred verification
 
-While the low-memory current-pin baseline owns Cargo and Test262, this seam is
-verified with scoped formatting, JavaScript syntax, source-structure and diff
-checks plus independent read-only review. The centralized ladder later runs
-the focused AOT structure test, the CLI fixture, the complete pinned
-`built-ins/TypedArray/prototype/join` leaf, and the current-SHA binary-data
-matrix.
+The focused AOT structure test and CLI fixture pass on the current working
+tree. The centralized ladder still runs the complete pinned
+`built-ins/TypedArray/prototype/join` leaf and current-SHA binary-data matrix
+before any broader status claim.
 
 ## Nonclaims
 
 This seam does not migrate the remaining raw TypedArray validators, complete
 the universal integer-indexed exotic protocol, change the shared indexed
 `Get`, retire a Test262 harness rewrite, add SharedArrayBuffer synchronization,
-or establish a new conformance count. It closes one product-reachable
-method-entry invariant and its created-Realm error identity; T17 remains in
-progress.
+complete the created-Realm ArrayBuffer or TypedArray method surfaces, or
+establish a new conformance count. It closes one product-reachable method-entry
+invariant and its created-Realm error identity; T17 remains in progress.

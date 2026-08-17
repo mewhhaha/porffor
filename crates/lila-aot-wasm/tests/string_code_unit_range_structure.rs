@@ -1,5 +1,6 @@
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
+const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const STRING_SOURCE: &str = include_str!("../src/builtins/string.rs");
 
@@ -197,6 +198,69 @@ fn standard_and_direct_entries_delegate_without_parallel_algorithms() {
         direct_builtin,
         "self.emit_call_args_vector(args, function)",
         "self.emit_direct_js_call_with_argv(",
+    );
+}
+
+#[test]
+fn created_realm_installs_both_self_backed_range_methods() {
+    let method_metas = bounded(
+        HOST_SOURCE,
+        "        let string_prototype_method_metas = [",
+        "        let boolean_prototype_method_metas = [",
+    );
+    for (name, builtin) in [
+        ("slice", "StringPrototypeSlice"),
+        ("substring", "StringPrototypeSubstring"),
+    ] {
+        let entry_start = format!("            (\n                \"{name}\",");
+        assert_eq!(method_metas.matches(&entry_start).count(), 1);
+        let entry = method_metas
+            .split_once(&entry_start)
+            .expect("created-realm String range method entry")
+            .1
+            .split_once("            ),")
+            .expect("created-realm String range method entry end")
+            .0;
+        assert_eq!(
+            entry
+                .matches(&format!("StandardBuiltinId::{builtin}.function_id()"))
+                .count(),
+            1
+        );
+    }
+
+    let installer = bounded(
+        HOST_SOURCE,
+        "        for (name, meta) in &string_prototype_method_metas {",
+        "        for (name, meta) in &array_prototype_method_metas {",
+    );
+    assert_eq!(
+        installer
+            .matches("emit_function_value_payload_in_realm(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        installer
+            .matches(
+                "method_payload_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                method_payload_local,",
+            )
+            .count(),
+        1
+    );
+    assert_eq!(
+        installer
+            .matches(
+                "method_payload_local,\n                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,\n                type_error_prototype_local,",
+            )
+            .count(),
+        1
+    );
+    assert_eq!(
+        installer
+            .matches("string_prototype_local,\n                name,")
+            .count(),
+        1
     );
 }
 

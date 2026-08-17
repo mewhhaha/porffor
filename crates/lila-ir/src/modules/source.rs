@@ -430,6 +430,14 @@ impl<'a> Scanner<'a> {
                     self.slash = SlashMeaning::Regexp;
                     self.previous_was_dot = true;
                 }
+                byte if !byte.is_ascii()
+                    && self.source[self.index..]
+                        .chars()
+                        .next()
+                        .is_some_and(is_js_whitespace) =>
+                {
+                    self.index += self.char_len();
+                }
                 byte if is_identifier_start_byte(byte) => self.scan_word()?,
                 byte if byte.is_ascii_digit() => {
                     self.skip_number();
@@ -463,13 +471,18 @@ impl<'a> Scanner<'a> {
 
     fn scan_word(&mut self) -> Result<(), StripError> {
         let start = self.index;
-        while self
-            .bytes
-            .get(self.index)
-            .copied()
-            .is_some_and(is_identifier_part_byte)
-        {
-            self.index += 1;
+        while let Some(character) = self.source[self.index..].chars().next() {
+            if character.is_ascii() {
+                if !is_identifier_part_byte(character as u8) {
+                    break;
+                }
+                self.index += 1;
+            } else {
+                if is_js_whitespace(character) {
+                    break;
+                }
+                self.index += character.len_utf8();
+            }
         }
         let word = &self.source[start..self.index];
         let module_position = self.depth == 0 && self.template_stack.is_empty();
@@ -670,10 +683,10 @@ impl<'a> Scanner<'a> {
             return false;
         }
         !self
-            .bytes
-            .get(index + word.len())
-            .copied()
-            .is_some_and(is_identifier_part_byte)
+            .source
+            .get(index + word.len()..)
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(is_identifier_part)
     }
 
     fn char_len_at(&self, index: usize) -> usize {
@@ -711,7 +724,7 @@ impl<'a> Scanner<'a> {
                 }
                 Some(byte) if !byte.is_ascii() => {
                     let ch = self.source[index..].chars().next().unwrap_or(' ');
-                    if ch.is_whitespace() {
+                    if is_js_whitespace(ch) {
                         index += ch.len_utf8();
                     } else {
                         return Ok(index);
@@ -882,6 +895,39 @@ fn is_identifier_start_byte(byte: u8) -> bool {
 
 fn is_identifier_part_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$' || !byte.is_ascii()
+}
+
+/// The scanner's deliberately conservative identifier boundary.
+///
+/// Non-ASCII source characters remain word-shaped unless ECMAScript classifies
+/// them as `WhiteSpace` or a `LineTerminator`. This matches [`Scanner::scan_word`]
+/// without inspecting a UTF-8 continuation byte in isolation.
+fn is_identifier_part(character: char) -> bool {
+    if character.is_ascii() {
+        is_identifier_part_byte(character as u8)
+    } else {
+        !is_js_whitespace(character)
+    }
+}
+
+/// ECMAScript `WhiteSpace` and `LineTerminator` code points.
+///
+/// This is intentionally not [`char::is_whitespace`]: Unicode `White_Space`
+/// also contains U+0085 NEXT LINE, which ECMAScript does not treat as trivia.
+fn is_js_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        '\u{0009}' | '\u{000B}' | '\u{000C}' | '\u{0020}' | '\u{00A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+                | '\n'
+                | '\r'
+    )
 }
 
 fn is_reserved_word(word: &str) -> bool {
@@ -1183,6 +1229,86 @@ mod tests {
                 "got {stripped}"
             );
         }
+    }
+
+    /// Keyword lookahead uses scalar boundaries too: UTF-8 whitespace after a
+    /// keyword must not be mistaken for another identifier byte.
+    #[test]
+    fn unicode_whitespace_terminates_looked_ahead_module_keywords() {
+        let default_source = "export default\u{2028}42;\nconst after_default = 1;";
+        let stripped_default = strip_module_syntax(
+            default_source,
+            DefaultExportRewrite::Bind {
+                name: &LocalName::AnonymousDefault.merged_in(0),
+                hoisted: false,
+            },
+        )
+        .expect("line separator should terminate the default keyword");
+        assert_eq!(stripped_default.len(), default_source.len());
+        assert!(stripped_default.starts_with("let $d0$"));
+        assert_eq!(
+            stripped_default.find("after_default"),
+            default_source.find("after_default")
+        );
+
+        let export_source =
+            "const value = 1;\nexport { value } from\u{00A0}\"m\";\nconst after_export = 1;";
+        let stripped_export = strip(export_source);
+        assert_eq!(stripped_export.len(), export_source.len());
+        assert!(!stripped_export.contains("from\u{00A0}\"m\""));
+        assert_eq!(
+            stripped_export.find("after_export"),
+            export_source.find("after_export")
+        );
+
+        let import_source = "import \"m\" with\u{FEFF}{ type: \"json\" };\nconst after_import = 1;";
+        let stripped_import = strip(import_source);
+        assert_eq!(stripped_import.len(), import_source.len());
+        assert!(!stripped_import.contains("type: \"json\""));
+        assert_eq!(
+            stripped_import.find("after_import"),
+            import_source.find("after_import")
+        );
+
+        assert!(!is_js_whitespace('\u{0085}'));
+    }
+
+    /// The scanner must recognize non-ASCII whitespace both before a word and
+    /// while advancing through one. These are distinct production branches
+    /// from the keyword lookahead above.
+    #[test]
+    fn unicode_whitespace_is_dispatched_and_terminates_scanned_words() {
+        let leading_source = "\u{FEFF}export default 42;\nconst after_leading = 1;";
+        let stripped_leading = strip_module_syntax(
+            leading_source,
+            DefaultExportRewrite::Bind {
+                name: &LocalName::AnonymousDefault.merged_in(0),
+                hoisted: false,
+            },
+        )
+        .expect("leading byte-order mark should be scanner whitespace");
+        assert_eq!(stripped_leading.len(), leading_source.len());
+        assert!(stripped_leading.contains("let $d0$"));
+        assert_eq!(
+            stripped_leading.find("after_leading"),
+            leading_source.find("after_leading")
+        );
+
+        let word_source = "export\u{00A0}default 42;\nconst after_word = 1;";
+        let stripped_word = strip_module_syntax(
+            word_source,
+            DefaultExportRewrite::Bind {
+                name: &LocalName::AnonymousDefault.merged_in(0),
+                hoisted: false,
+            },
+        )
+        .expect("non-breaking space should terminate the scanned export word");
+        assert_eq!(stripped_word.len(), word_source.len());
+        assert!(stripped_word.contains("let $d0$"));
+        assert_eq!(
+            stripped_word.find("after_word"),
+            word_source.find("after_word")
+        );
     }
 
     #[test]

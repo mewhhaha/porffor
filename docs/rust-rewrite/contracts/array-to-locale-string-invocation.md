@@ -66,11 +66,13 @@ The available `built-ins/Array/prototype` baseline predates the T10
 `toLocaleString` failures for primitive elements because the old Object path
 used its boxed lookup target as the getter and call receiver. T10 now
 statically preserves the original primitive through GetV and Proxy-aware Call;
-focused runtime and pinned Test262 execution remain deferred, so this carries
-no current-SHA baseline-delta or full-subtree-green claim.
+the focused structure and CLI fixture pass on the current working tree. Pinned
+Test262 execution remains deferred, so this carries no current-SHA
+baseline-delta or full-subtree-green claim.
 
 This change does not complete compiler-wide `GetV`, ECMA-402 locale formatting,
 Array exotic descriptors, species or constructor realms.
 It removes no Test262 materializer, changes no published conformance count, and
 does not claim the Array, Array prototype or TypedArray trees are green.
-Runtime verification remains deferred to the coordinated batch checkpoint.
+Broad runtime verification remains deferred to the coordinated batch
+checkpoint.

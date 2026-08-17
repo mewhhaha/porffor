@@ -142,7 +142,7 @@ assertOtherRealmTypeError(function () {
 
 let otherShrinkBeforeBuffer = new other.ArrayBuffer(2, { maxByteLength: 2 });
 let otherShrinkBeforeView = new other.Uint8Array(otherShrinkBeforeBuffer, 0, 2);
-otherShrinkBeforeBuffer.resize(1);
+ArrayBuffer.prototype.resize.call(otherShrinkBeforeBuffer, 1);
 assertOtherRealmTypeError(function () {
   otherValues.call(otherShrinkBeforeView);
 }, "other out-of-bounds creation");
@@ -150,7 +150,7 @@ assertOtherRealmTypeError(function () {
 let otherShrinkAfterBuffer = new other.ArrayBuffer(2, { maxByteLength: 2 });
 let otherShrinkAfterView = new other.Uint8Array(otherShrinkAfterBuffer, 0, 2);
 let otherShrinkAfterIterator = otherValues.call(otherShrinkAfterView);
-otherShrinkAfterBuffer.resize(1);
+ArrayBuffer.prototype.resize.call(otherShrinkAfterBuffer, 1);
 assertOtherRealmTypeError(function () {
   otherShrinkAfterIterator.next();
 }, "other out-of-bounds next");

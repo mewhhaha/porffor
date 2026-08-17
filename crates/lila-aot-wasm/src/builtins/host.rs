@@ -2575,6 +2575,28 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?,
             ),
+            (
+                "join",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeJoin.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.join`",
+                        )
+                    })?,
+            ),
+            (
+                "toLocaleString",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeToLocaleString.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.toLocaleString`",
+                        )
+                    })?,
+            ),
         ];
         let number_meta = self
             .functions
@@ -2972,6 +2994,17 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in lila wasm-aot first slice: missing builtin meta `String.prototype.startsWith`",
+                        )
+                    })?,
+            ),
+            (
+                "substring",
+                self.functions
+                    .get(&StandardBuiltinId::StringPrototypeSubstring.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `String.prototype.substring`",
                         )
                     })?,
             ),

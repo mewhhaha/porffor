@@ -108,6 +108,9 @@ assertion.
   bytes, marker offset and ordered sequence list;
 - source scanner: `//` ends at CR, LF, CRLF, U+2028 and U+2029 both in ordinary
   top-level scanning and in trivia between `export` and `default`;
+- source scanner: non-ASCII ECMAScript whitespace is skipped at top level and
+  terminates scanned module keywords and keyword lookahead, while U+0085 stays
+  outside the ECMAScript whitespace set;
 - source rewriter: non-ASCII static import/export clauses blank without moving
   a following marker's byte offset;
 - source rewriter: the existing over-budget negative case remains an error;
@@ -125,6 +128,7 @@ dynamic-target evaluation, cyclic/deferred/async evaluation, top-level await,
 or the full pinned `language/module-code` closure.
 
 Cheap freeze gates are exact Rust formatting, `git diff --check`, module
-boundaries and the task-plan validator. Compilation, focused module tests and
-the pinned Test262 module sweep remain deferred until the coherent batch is
-ready for its verification ladder.
+boundaries and the task-plan validator; they pass on the current working tree.
+The focused Unicode-whitespace scanner regression also passes. The remaining
+module/linker gates and pinned Test262 module sweep remain centralized
+verification obligations.

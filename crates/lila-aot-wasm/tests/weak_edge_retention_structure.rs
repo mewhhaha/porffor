@@ -10,7 +10,7 @@ fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .0
 }
 
-fn variants(source: &str, declaration: &str) -> Vec<&str> {
+fn variants<'a>(source: &'a str, declaration: &str) -> Vec<&'a str> {
     source
         .split_once(declaration)
         .unwrap_or_else(|| panic!("missing enum declaration: {declaration}"))
@@ -87,11 +87,7 @@ fn weak_edge_kind_owns_one_closed_retention_projection() {
 fn weak_edge_slots_cannot_override_kind_retention() {
     assert!(!HEAP_SOURCE.contains("keeps_target_alive"));
 
-    let slot = between(
-        HEAP_SOURCE,
-        "pub(crate) struct HeapWeakEdgeSlot {",
-        "\n}",
-    );
+    let slot = between(HEAP_SOURCE, "pub(crate) struct HeapWeakEdgeSlot {", "\n}");
     let fields = slot
         .lines()
         .map(str::trim)

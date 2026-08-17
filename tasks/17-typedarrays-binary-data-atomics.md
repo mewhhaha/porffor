@@ -84,9 +84,12 @@ through the current function Realm, including created-Realm TypedArray methods
 and their Realm-owned `%ArrayIteratorPrototype%.next`. The focused
 [iterator buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-iterator-buffer-witness.md)
 and existing iterator fixture pin Realm identity, detach/shrink timing, current
-resizable length, whole-element flooring and permanently-done behavior. The remaining raw TypedArray
-validators and full integer-indexed/iterator closure remain open; this is a
-source-invariant correction and does not claim a new baseline pass.
+resizable length, whole-element flooring and permanently-done behavior. Its
+foreign buffers borrow the entry Realm's `resize`, so the proof does not claim
+complete created-Realm ArrayBuffer prototype bootstrap. The focused structure
+and CLI fixture pass on the current working tree. The remaining raw TypedArray
+validators and full integer-indexed/iterator closure remain open; this does not
+claim a new Test262 baseline pass.
 
 `%TypedArray%.prototype.join` now uses the validated-method-entry projection of
 that same buffer witness. Its compiler performs the receiver-brand check first,
@@ -99,8 +102,12 @@ after the initially captured length, and later integer-indexed reads remain
 live. The focused
 [join buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-join-buffer-witness.md)
 and CLI fixture pin Realm identity, fixed and tracking resize behavior, BigInt,
-and whole-element flooring. Remaining raw validators, the shared indexed
-`Get`, Test262 rewrites and full binary-data closure remain separate work.
+and whole-element flooring. Created-Realm `join` is installed through the
+self-backed TypedArray method table; the foreign buffer borrows the entry
+Realm's `resize`, so complete created-Realm ArrayBuffer surface parity remains
+open. The focused structure and CLI fixture pass on the current working tree.
+Remaining raw validators, the shared indexed `Get`, Test262 rewrites and full
+binary-data closure remain separate work.
 
 ## Objective
 

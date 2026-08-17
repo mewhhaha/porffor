@@ -6,9 +6,9 @@ function assert(condition, message) {
 
 var other = __lilaCreateRealm().global;
 var mapGet = other.Map.prototype.get;
-var weakMapHas = other.WeakMap.prototype.has;
+var weakMapHas = WeakMap.prototype.has;
 var setHas = other.Set.prototype.has;
-var weakSetHas = other.WeakSet.prototype.has;
+var weakSetHas = WeakSet.prototype.has;
 
 var messages = {
   mapNonObject: "Map method receiver is not an object",
@@ -21,17 +21,49 @@ var messages = {
   weakSetMissing: "WeakSet method receiver does not have [[WeakSetData]]"
 };
 
-function expectOtherRealmTypeError(method, receiver, args, expected, label) {
+function expectRealmTypeError(
+  method,
+  receiver,
+  args,
+  expected,
+  expectedConstructor,
+  unexpectedConstructor,
+  label
+) {
   var threw = false;
   try {
     method.apply(receiver, args);
   } catch (error) {
     threw = true;
-    assert(error instanceof other.TypeError, label + " defining realm");
-    assert(!(error instanceof TypeError), label + " not entry realm");
+    assert(error instanceof expectedConstructor, label + " defining realm");
+    assert(!(error instanceof unexpectedConstructor), label + " wrong realm");
     assert(error.message === expected, label + " error category");
   }
   assert(threw, label + " did not throw");
+}
+
+function expectOtherRealmTypeError(method, receiver, args, expected, label) {
+  expectRealmTypeError(
+    method,
+    receiver,
+    args,
+    expected,
+    other.TypeError,
+    TypeError,
+    label
+  );
+}
+
+function expectEntryRealmTypeError(method, receiver, args, expected, label) {
+  expectRealmTypeError(
+    method,
+    receiver,
+    args,
+    expected,
+    TypeError,
+    other.TypeError,
+    label
+  );
 }
 
 function makeArguments() {
@@ -45,7 +77,7 @@ expectOtherRealmTypeError(
   messages.mapMissing,
   "Map Array"
 );
-expectOtherRealmTypeError(
+expectEntryRealmTypeError(
   weakMapHas,
   function () {},
   [{}],
@@ -59,7 +91,7 @@ expectOtherRealmTypeError(
   messages.setMissing,
   "Set Arguments"
 );
-expectOtherRealmTypeError(
+expectEntryRealmTypeError(
   weakSetHas,
   {},
   [{}],
@@ -68,7 +100,7 @@ expectOtherRealmTypeError(
 );
 
 expectOtherRealmTypeError(mapGet, 0, [0], messages.mapNonObject, "Map number");
-expectOtherRealmTypeError(
+expectEntryRealmTypeError(
   weakMapHas,
   Symbol("receiver"),
   [{}],
@@ -76,7 +108,7 @@ expectOtherRealmTypeError(
   "WeakMap Symbol"
 );
 expectOtherRealmTypeError(setHas, 1n, [1], messages.setNonObject, "Set BigInt");
-expectOtherRealmTypeError(
+expectEntryRealmTypeError(
   weakSetHas,
   1844674407370955161600000n,
   [{}],
@@ -104,9 +136,9 @@ expectOtherRealmTypeError(
 );
 assert(proxyTrapCount === 0, "live Proxy traps not observed");
 
-var revoked = Proxy.revocable(new other.WeakSet(), trappingHandler);
+var revoked = Proxy.revocable(new WeakSet(), trappingHandler);
 revoked.revoke();
-expectOtherRealmTypeError(
+expectEntryRealmTypeError(
   weakSetHas,
   revoked.proxy,
   [{}],
@@ -117,10 +149,10 @@ assert(proxyTrapCount === 0, "revoked Proxy traps not observed");
 
 var map = new other.Map([[1, 2]]);
 var weakMapKey = {};
-var weakMap = new other.WeakMap([[weakMapKey, 3]]);
+var weakMap = new WeakMap([[weakMapKey, 3]]);
 var set = new other.Set([4]);
 var weakSetKey = {};
-var weakSet = new other.WeakSet([weakSetKey]);
+var weakSet = new WeakSet([weakSetKey]);
 assert(mapGet.call(map, 1) === 2, "Map valid receiver");
 assert(weakMapHas.call(weakMap, weakMapKey), "WeakMap valid receiver");
 assert(setHas.call(set, 4), "Set valid receiver");

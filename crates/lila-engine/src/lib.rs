@@ -4353,16 +4353,26 @@ report;
 
         let specifier = ambient_path.to_string_lossy();
         let worker_source = format!(
-            "import({specifier:?}).then(function () {{ $262.agent.leaving(); }}, function () {{ $262.agent.leaving(); }});"
+            "import({specifier:?}).then(function () {{ $262.agent.report(\"ambient-loaded\"); $262.agent.leaving(); }}, function () {{ $262.agent.report(\"module-rejected\"); $262.agent.leaving(); }});"
         );
-        let source = format!("{TEST262_AGENT_PRELUDE}\n$262.agent.start({worker_source:?});\n");
+        let source = format!(
+            r#"{TEST262_AGENT_PRELUDE}
+$262.agent.start({worker_source:?});
+var report = null;
+for (var attempt = 0; attempt < 10000 && report === null; attempt++) {{
+  $262.agent.sleep(1);
+  report = $262.agent.getReport();
+}}
+report;
+"#
+        );
         let options = |module_loading_policy| CompileOptions {
             filename: Some(entry_path.to_string_lossy().into_owned()),
             module_loading_policy,
             ..test262_compile_options()
         };
 
-        Engine::new(RealmBuilder::new().build())
+        let filesystem = Engine::new(RealmBuilder::new().build())
             .run_wasm_aot_script_with_agents(
                 &source,
                 options(ModuleLoadingPolicy::Filesystem),
@@ -4371,8 +4381,13 @@ report;
                 TEST262_AGENT_PRELUDE.to_string(),
             )
             .expect("the filesystem control should load the on-disk worker dependency");
+        assert!(
+            filesystem.note.contains("ambient-loaded"),
+            "{}",
+            filesystem.note
+        );
 
-        let error = Engine::new(RealmBuilder::new().build())
+        let reject_all = Engine::new(RealmBuilder::new().build())
             .run_wasm_aot_script_with_agents(
                 &source,
                 options(ModuleLoadingPolicy::RejectAll),
@@ -4380,10 +4395,11 @@ report;
                 true,
                 TEST262_AGENT_PRELUDE.to_string(),
             )
-            .expect_err("a reject-all root must close the worker module graph");
+            .expect("a reject-all root should settle the worker import through rejection");
         assert!(
-            error.message().contains("unresolved module request"),
-            "{error}"
+            reject_all.note.contains("module-rejected"),
+            "{}",
+            reject_all.note
         );
 
         std::fs::remove_dir_all(&directory).expect("ambient witness directory should be removed");

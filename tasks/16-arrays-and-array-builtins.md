@@ -81,9 +81,9 @@ The available current-pin Array prototype baseline predates the T10
 `Object.prototype.toLocaleString` repair and still records two primitive
 `toLocaleString` failures caused by its former boxed getter and call receiver.
 The Object path now statically preserves the original primitive through GetV
-and Proxy-aware Call. Focused runtime and pinned Test262 execution remain
-deferred, so neither seam carries a current-SHA baseline-delta or
-full-subtree-green claim.
+and Proxy-aware Call. The focused structure and CLI fixture pass on the current
+working tree; pinned Test262 execution remains deferred, so neither seam
+carries a current-SHA baseline-delta or full-subtree-green claim.
 
 `Array.prototype.pop` now has one compiler algorithm owner. Statically named
 method calls delegate to `StandardBuiltinId::ArrayPrototypePop` instead of
@@ -96,10 +96,11 @@ accessors, descriptors or deletion failures. The ownership boundary and its
 focused static evidence are recorded in
 `docs/rust-rewrite/contracts/array-pop-algorithm-owner.md`.
 
-Runtime verification for this `pop` seam remains deferred to the coordinated
-batch checkpoint. It changes no published count, removes no Test262
-materializer, carries no current-SHA snapshot delta, and does not claim the
-Array or Array prototype tree is green.
+The focused structure test and CLI fixture for this `pop` seam pass on the
+current working tree. The pinned leaf and broader Array checkpoint remain
+deferred. It changes no published count, removes no Test262 materializer,
+carries no current-SHA snapshot delta, and does not claim the Array or Array
+prototype tree is green.
 
 ## Objective
 

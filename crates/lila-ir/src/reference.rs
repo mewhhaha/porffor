@@ -21,7 +21,7 @@
 //!   is `E0382`.
 
 use super::*;
-use crate::WithObjectBindingName;
+use crate::{WellKnownSymbol, WithObjectBindingName};
 
 const DELETE_SUPER_THIS_BINDING: &str = "$delete.super.this";
 const DELETE_SUPER_KEY_BINDING: &str = "$delete.super.key";

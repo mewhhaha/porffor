@@ -102,9 +102,10 @@ Function-constructor, created-realm and agent contexts. It then requires the
 root plus all fifteen v1/v2/v3 generated-source pairs to take only the
 `RejectAll` rejection handler. Thus neither a missing/invalid file nor a broken
 positive loader can make the negative gate look green. A paired AOT agent
-witness likewise requires one on-disk worker dependency to load under
-`Filesystem` and fail graph linking under `RejectAll`; a pure policy test pins
-the root-to-worker projection independently of backend support. The exact
+witness likewise requires one on-disk worker dependency to settle through its
+fulfillment handler under `Filesystem` and its rejection handler under
+`RejectAll`, with distinct reports proving which path ran; a pure policy test
+pins the root-to-worker projection independently of backend support. The exact
 cross-policy filename/source tuple that collided under the retired unframed
 program-cache hash is a regression input for the framed key.
 

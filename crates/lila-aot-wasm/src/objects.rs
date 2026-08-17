@@ -12016,7 +12016,7 @@ impl<'a> FunctionBuilder<'a> {
         fact.emit_present_i32(function);
         function.instruction(&Instruction::If(BlockType::Empty));
         fact.emit_configurable_i32(function);
-        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,

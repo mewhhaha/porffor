@@ -37,8 +37,10 @@ assert(
 
 let otherTypedArrayToLocaleString = other.Uint8Array.prototype.toLocaleString;
 assert(
-  typeof otherTypedArrayToLocaleString === "function",
-  "created realm TypedArray toLocaleString"
+  typeof otherTypedArrayToLocaleString === "function" &&
+    otherTypedArrayToLocaleString !== other.Object.prototype.toLocaleString &&
+    otherTypedArrayToLocaleString !== Uint8Array.prototype.toLocaleString,
+  "created realm TypedArray toLocaleString identity"
 );
 let originalNumberToLocaleString = other.Number.prototype.toLocaleString;
 other.Number.prototype.toLocaleString = 0;

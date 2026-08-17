@@ -1,4 +1,5 @@
 use super::*;
+use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
     ArrayDestructuringEvaluationIr, ObjectDestructuringPatternIr, OptionalChainOperationIr,
 };

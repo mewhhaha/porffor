@@ -51,10 +51,10 @@ throw; and even an empty non-writable `+0` length throws.
 
 ## Verification boundary and nonclaims
 
-This seam has only static verification in this implementation batch: scoped
-formatting, JavaScript syntax checking, the structural guard, and task/module
-bookkeeping checks. Runtime execution is deferred to the coordinated batch
-checkpoint.
+The focused structure test and CLI fixture pass on the current working tree,
+alongside scoped formatting, JavaScript syntax and task/module bookkeeping
+checks. The pinned `Array.prototype.pop` leaf and broader Array checkpoint
+remain centralized verification obligations.
 
 It removes no Test262 materializer, changes no published conformance count, and
 does not claim a current-SHA snapshot delta or a green Array subtree. It does

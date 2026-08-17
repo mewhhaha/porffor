@@ -3,6 +3,7 @@ use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::control_flow::SyncIteratorErrorPolicy;
 use crate::objects::{TaggedLocals, WasmPartialDescriptor};
 use lila_ir::property_descriptor::Presence;
+use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr, ArrayAccumulationTargetIr};
 
 /// One array-descriptor field whose value locals always exist, while its
 /// 6.2.6 presence may be decided when the program runs.

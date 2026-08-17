@@ -123,7 +123,7 @@ assertTypeErrorPrototype(function () {
 
 let otherFixedBuffer = new other.ArrayBuffer(2, { maxByteLength: 2 });
 let otherFixed = new other.Uint8Array(otherFixedBuffer, 0, 2);
-otherFixedBuffer.resize(1);
+ArrayBuffer.prototype.resize.call(otherFixedBuffer, 1);
 assertTypeErrorPrototype(function () {
   otherJoin.call(otherFixed);
 }, other.TypeError.prototype, "other out of bounds");

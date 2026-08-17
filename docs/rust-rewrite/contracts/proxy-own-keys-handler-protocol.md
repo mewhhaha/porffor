@@ -30,6 +30,13 @@ The target and handler roles cannot be interchanged at a call site. Both tags
 are mandatory, and the helper consumes the same `ProxySlotLocals` record as
 the single Proxy slot writer and reader.
 
+After that shared acquisition returns, a caller must proceed directly to its
+one list/descriptor validator. It may not retain a second inline `"ownKeys"`
+lookup, raw Proxy slot reconstruction, Function-only trap call or legacy
+runtime-error route. Such a block is unreachable after the typed acquisition's
+callable path returns and its nullish path has traversed to a non-Proxy target;
+keeping it would restore a second, representation-lossy algorithm owner.
+
 The handler-payload word may be read directly only to classify the current
 Object as a Proxy. Once that branch is entered, `emit_load_live_proxy_slots`
 is the sole authority that reads `[[ProxyTarget]]` and `[[ProxyHandler]]`. It
@@ -74,7 +81,8 @@ is borrowed by main-realm source.
 
 The durable structure test pins the typed signature, sole slot reader, exact
 handler mapping, lookup/completion/callability/call order, current-Function-
-Realm errors, and the absence of a fabricated Object handler tag.
+Realm errors, the absence of a fabricated Object handler tag, and the absence
+of the retired inline `"ownKeys"` acquisition in every caller.
 
 The focused source-free Wasm-AOT fixture covers Function, Array, arguments and
 Proxy handlers across all four public consumers. It observes exact getter and
@@ -82,18 +90,16 @@ trap receivers, a callable Proxy trap, a thrown lookup sentinel, nullish
 fallback to a nested Proxy target, and created-realm revoked and non-callable
 errors.
 
-The focused checkpoint is:
+The focused structure test and both source-free CLI fixtures pass on the
+current working tree. The remaining centralized checkpoint is:
 
 ```sh
-cargo test -p lila-aot-wasm --test proxy_own_keys_handler_protocol_structure --quiet
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_own_keys_handler_protocol -- --exact
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_own_keys_fixture -- --exact
 ./target/debug/lila test262 run built-ins/Proxy/ownKeys --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Reflect/ownKeys --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
-These commands are the verification obligation, not a claim that they have
-run on the current tree.
+Those pinned leaves remain verification obligations, not current-tree pass
+claims.
 
 ## Non-goals
 

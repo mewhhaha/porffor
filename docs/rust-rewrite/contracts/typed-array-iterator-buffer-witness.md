@@ -73,16 +73,17 @@ iterator methods and `%ArrayIteratorPrototype%.next`:
 - neither error may inherit from the entry Realm's `TypeError.prototype`.
 
 These cases make both migrations load-bearing. The existing resize matrix
-continues to pin current-length observation and whole-element flooring.
+continues to pin current-length observation and whole-element flooring. The
+foreign buffers are resized by borrowing the entry Realm's `resize` method;
+this keeps the iterator/view objects foreign while avoiding a claim that the
+created-Realm ArrayBuffer prototype already exposes the complete method set.
 
 ## Deferred verification
 
-While the low-memory current-pin baseline owns Cargo and Test262, this seam is
-verified only with scoped formatting, JavaScript syntax, source-structure and
-diff checks plus independent read-only review. The centralized ladder later
-runs the focused AOT structure test, the existing TypedArray iterator CLI
-fixture, all four `%TypedArray%.prototype` iterator leaves, and the complete
-current-SHA binary-data matrix.
+The focused AOT structure test and existing TypedArray iterator CLI fixture
+pass on the current working tree. The centralized ladder still runs all four
+`%TypedArray%.prototype` iterator leaves and the complete current-SHA
+binary-data matrix before any broader status claim.
 
 ## Nonclaims
 

@@ -6,6 +6,7 @@ use icu_normalizer::{
     DecomposingNormalizerBorrowed,
 };
 use icu_properties::{props, CodePointSetData};
+use lila_ir::ArrayAccumulationElementIr;
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
     StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
@@ -1974,6 +1975,7 @@ impl StringPool {
             "ArrayBuffer detached getter requires ArrayBuffer",
             "ArrayBuffer slice receiver is not ArrayBuffer",
             "ArrayBuffer slice receiver is detached",
+            "ArrayBuffer slice source is shorter than the resolved final bound",
             "ArrayBuffer species constructor returned invalid ArrayBuffer",
             "ArrayBuffer constructor requires new",
             "ArrayBuffer maxByteLength getter requires ArrayBuffer",
