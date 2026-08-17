@@ -8,9 +8,15 @@
 
 ## Current repository state
 
-The fake suites are green, but the README explicitly states that the current
-pinned real Wasm-AOT aggregate is not green and has not been fully republished.
-The shortcut audit is green as an exact-drift contract over 440 classified
+The fake suites were green at the preceding path-only checkpoint. Their
+execution-identity denominator is derived as 191 executions from 190 physical
+files: one unflagged parse-negative runs once as sloppy Script and once as
+strict Script. Runtime proof of that refreshed denominator is deferred to the
+centralized Cargo/Test262 verification lease. The committed pre-version-7 fake
+snapshots are path-only historical evidence, not current version-7 proof. The
+README explicitly states that the current pinned real Wasm-AOT aggregate is not
+green and has not been fully republished.
+The shortcut audit is green as an exact-drift contract over 432 classified
 observations, but 353 of those observations are still semantic shortcuts; audit
 green therefore does not satisfy the final integrity criterion. The generated
 current-pin backlog is absent, and several architecture/feature lanes retain
@@ -37,13 +43,21 @@ Begin formal closure only when:
 
 - Discover the complete suite from the pinned vendored Test262 checkout and current matrix strategy.
 - Include all selected top-level roots, flags, negative tests, modules and async tests supported by the repository's conformance definition.
-- A case appears exactly once in the manifest and aggregate.
+- Each execution identity `(physical path, closed execution mode)` appears
+  exactly once in the manifest and aggregate. An unflagged physical file has
+  distinct sloppy-Script and strict-Script identities; path-only accounting is
+  invalid evidence.
+- `onlyStrict`, `noStrict`, `raw`, `module`, and `raw`+`module` expand through
+  the closed mode law in
+  `docs/rust-rewrite/contracts/test262-execution-identity.md`; conflicting
+  strictness flags are invalid suite data, not a reason to choose a mode.
 - `Unsupported`, parser/lowering/backend failure, runtime failure, host failure, crash, bug and timeout are all non-passing outcomes.
 - Unknown failure-kind, outcome, origin, or classification-count wire spellings
   invalidate the evidence. The explicit `unknown` origin remains a recognized
   non-passing taxonomy value that must burn down to zero.
 - Fake-suite counts remain separate smoke-test metrics and never contribute to the real-suite numerator or denominator.
-- Pin changes invalidate stale aggregate evidence and require a fresh complete matrix.
+- Pin, snapshot schema, matrix strategy, or execution-identity changes
+  invalidate stale aggregate evidence and require a fresh complete matrix.
 
 ## Closure workflow
 

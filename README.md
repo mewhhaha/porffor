@@ -40,6 +40,14 @@ Status refresh commands:
 When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
 <!-- lila-status:end -->
 
+The generated block above is preserved as the last published path-only
+checkpoint, not current execution-aware proof. Its fake full-suite `190/190`
+means 190 physical paths; the current denominator is statically derived as 191
+executions from those files because the one unflagged parse-negative now runs
+in both sloppy and strict Script mode. Both fake-suite execution-aware reruns
+and the pinned real Test262 refresh remain pending until the centralized
+Cargo/Test262 verification lease.
+
 Focused Wasm-AOT progress verified after the last aggregate publish is recorded
 under [Current Capabilities](#current-capabilities). The generated status block
 above stays conservative until a full pinned real-suite publish is refreshed.
@@ -68,7 +76,8 @@ What is already in place:
 - direct JS-to-Wasm compilation is the product default;
 - the Boa interpreter is feature-gated as a developer-only oracle and excluded
   from default product dependency graphs;
-- both repository fake suites are fully green at their generated status counts;
+- both repository fake suites were green at the last path-only checkpoint;
+  execution-aware refreshes remain pending;
 - shared IR, lowering, operation, ABI, heap, object, control-flow and builtin
   modules exist;
 - substantial focused support exists across functions/classes, objects,
@@ -346,6 +355,12 @@ most likely to work when they stay close to the fixtures under
 `crates/lila-cli/tests/fixtures/wasm_*.js` and the fake wasm-safe Test262
 cases under
 `crates/lila-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
+
+Every focused Test262 count below predates the execution-identity cutover and
+is historical physical/path evidence, not a current execution numerator or
+denominator. Unflagged files now contribute separate sloppy and strict
+executions, so each focused count must be rediscovered and rerun before it can
+be reported as current execution-aware evidence.
 
 Recent focused progress through `2026-07-27`:
 

@@ -8,7 +8,7 @@
 //! which fires only after a case **completes**, and only every
 //! [`crate::RESUME_CASE_CHECKPOINT_INTERVAL`]th completion. `execute_cases`
 //! reconstructs the completed set from the previous snapshot's failures plus
-//! its `completed_paths` and runs `cases - completed`, so a case whose
+//! its `completed_test_ids` and runs `cases - completed`, so a case whose
 //! *process* died enters neither list and is re-selected on every resume,
 //! forever.
 //!
@@ -33,7 +33,7 @@
 //!   process died, and is charged one strike.
 //! * At [`CrashStrikeLimit`] strikes the case is not run at all: it is recorded
 //!   as an ordinary `TestStatus::Failed` result carrying
-//!   [`crate::OutcomeKind::Crash`], so it lands in `completed_paths`, in
+//!   [`crate::OutcomeKind::Crash`], so it lands in `completed_test_ids`, in
 //!   `failures`, and in the outcome counts. It is never a silent skip
 //!   (AGENTS.md, "Correctness Rules").
 //!
@@ -68,19 +68,87 @@
 //! fabricated `OutcomeKind::Crash`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::fs;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
+use lila_engine::ExecutionBackend;
+use serde::de::{self, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{ArtifactProducer, TestCase};
+use crate::{ArtifactProducer, TestCase, TestExecutionId};
 
 /// On-disk format version. A journal written by a different version is
 /// discarded with a message rather than misread; losing attribution for one
 /// death is recoverable, misreading a strike count is not.
-const ATTEMPT_JOURNAL_VERSION: u32 = 2;
+const ATTEMPT_JOURNAL_VERSION: u32 = 3;
+
+/// The complete identity of the execution selection whose deaths this journal
+/// is allowed to attribute.
+///
+/// A journal path alone is not an identity: the same snapshot name can be run
+/// with a different backend, manifest, filter, or shard. Keeping the selected
+/// execution ids here makes every resumed in-flight entry and strike evidence
+/// for this exact run rather than merely for a similarly named file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AttemptJournalIdentity {
+    manifest_hash: u64,
+    execution_backend: JournalExecutionBackend,
+    selected_test_ids: BTreeSet<TestExecutionId>,
+}
+
+impl AttemptJournalIdentity {
+    pub(crate) fn new(
+        manifest_hash: u64,
+        execution_backend: ExecutionBackend,
+        selected_test_ids: impl IntoIterator<Item = TestExecutionId>,
+    ) -> Result<Self, String> {
+        let mut selected = BTreeSet::new();
+        for test_id in selected_test_ids {
+            if !selected.insert(test_id.clone()) {
+                return Err(format!(
+                    "attempt journal identity contains duplicate selected execution {test_id}"
+                ));
+            }
+        }
+        Ok(Self {
+            manifest_hash,
+            execution_backend: execution_backend.into(),
+            selected_test_ids: selected,
+        })
+    }
+}
+
+/// Closed on-disk spelling of the two execution backends. Deriving serde for
+/// this enum makes an unknown or differently-cased string a parse error rather
+/// than a string that can drift through resume validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum JournalExecutionBackend {
+    #[serde(rename = "spec-exec")]
+    SpecExec,
+    #[serde(rename = "wasm-aot")]
+    WasmAot,
+}
+
+impl From<ExecutionBackend> for JournalExecutionBackend {
+    fn from(backend: ExecutionBackend) -> Self {
+        match backend {
+            ExecutionBackend::SpecExec => Self::SpecExec,
+            ExecutionBackend::WasmAot => Self::WasmAot,
+        }
+    }
+}
+
+impl JournalExecutionBackend {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::SpecExec => ExecutionBackend::SpecExec.as_str(),
+            Self::WasmAot => ExecutionBackend::WasmAot.as_str(),
+        }
+    }
+}
 
 /// `NonZeroU32::new(..).unwrap()` is not usable in a `const` on every toolchain
 /// this tree builds with; this is the const-stable spelling.
@@ -201,33 +269,103 @@ pub(crate) enum CaseAdmission {
     /// Journalled and cleared to run.
     Run(AdmittedCase),
     /// At the strike limit. Not run; recorded as a crash result by the caller.
-    Quarantined { path: String, strikes: CaseStrikes },
+    Quarantined {
+        test_id: TestExecutionId,
+        strikes: CaseStrikes,
+    },
 }
 
 /// A case that was in flight when a previous process died, with the strike
 /// count it has just reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StruckCase {
-    pub(crate) path: String,
+    pub(crate) test_id: TestExecutionId,
     pub(crate) strikes: CaseStrikes,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct InFlightAttempt {
     worker_slot: usize,
-    case_path: String,
+    test_id: TestExecutionId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct AttemptJournalFile {
     version: u32,
     producer: ArtifactProducer,
+    manifest_hash: u64,
+    execution_backend: JournalExecutionBackend,
+    /// The exact executions selected for this run. A set is serialized as a
+    /// stable array and cannot acquire duplicates after validation.
+    selected_test_ids: BTreeSet<TestExecutionId>,
     /// Cases whose attempt started and has not been retired. On a clean exit
     /// this is empty; a non-empty list at startup *is* the record of a process
     /// death, and is the only thing that grants a strike.
     in_flight: Vec<InFlightAttempt>,
-    /// Accumulated strikes per case path.
-    strikes: BTreeMap<String, u32>,
+    /// Accumulated strikes per execution id.
+    strikes: BTreeMap<TestExecutionId, u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct InFlightAttemptWire {
+    worker_slot: usize,
+    #[serde(default)]
+    test_id: Option<TestExecutionId>,
+    /// The outer option records whether the key existed; the inner option is
+    /// its JSON value. That distinction rejects both `"case_path":"..."`
+    /// and the otherwise invisible legacy spelling `"case_path":null`.
+    #[serde(default, deserialize_with = "deserialize_present_case_path")]
+    case_path: Option<Option<String>>,
+}
+
+fn deserialize_present_case_path<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+/// Strike entries as they appeared on the wire. `BTreeMap`'s ordinary serde
+/// implementation overwrites duplicate JSON keys before validation can see
+/// them, so this visitor rejects duplicates while the map is still being
+/// decoded.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct StrikeEntries(Vec<(String, u32)>);
+
+impl<'de> Deserialize<'de> for StrikeEntries {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct StrikeEntriesVisitor;
+
+        impl<'de> Visitor<'de> for StrikeEntriesVisitor {
+            type Value = StrikeEntries;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a map from unique execution ids to strike counts")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut seen = BTreeSet::new();
+                let mut entries = Vec::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if !seen.insert(key.clone()) {
+                        return Err(de::Error::custom(format!("duplicate strike key `{key}`")));
+                    }
+                    entries.push((key, map.next_value::<u32>()?));
+                }
+                Ok(StrikeEntries(entries))
+            }
+        }
+
+        deserializer.deserialize_map(StrikeEntriesVisitor)
+    }
 }
 
 /// Permissive wire header used only long enough to identify stale journals.
@@ -239,16 +377,25 @@ struct AttemptJournalWire {
     #[serde(default)]
     producer: Option<ArtifactProducer>,
     #[serde(default)]
-    in_flight: Vec<InFlightAttempt>,
+    manifest_hash: Option<u64>,
     #[serde(default)]
-    strikes: BTreeMap<String, u32>,
+    execution_backend: Option<JournalExecutionBackend>,
+    #[serde(default)]
+    selected_test_ids: Option<Vec<TestExecutionId>>,
+    #[serde(default)]
+    in_flight: Vec<InFlightAttemptWire>,
+    #[serde(default)]
+    strikes: StrikeEntries,
 }
 
 impl AttemptJournalFile {
-    fn fresh() -> Self {
+    fn fresh(identity: &AttemptJournalIdentity) -> Self {
         Self {
             version: ATTEMPT_JOURNAL_VERSION,
             producer: ArtifactProducer::CURRENT,
+            manifest_hash: identity.manifest_hash,
+            execution_backend: identity.execution_backend,
+            selected_test_ids: identity.selected_test_ids.clone(),
             in_flight: Vec::new(),
             strikes: BTreeMap::new(),
         }
@@ -258,8 +405,9 @@ impl AttemptJournalFile {
 /// The journal for one `execute_cases` run.
 ///
 /// One mutex guards the whole state, and every mutation persists the file
-/// before returning. One small `fs::write` per case is bounded against the
-/// measured ~1.0 s/case budget of a sweep.
+/// before returning. V3 also repeats the exact selected execution set on each
+/// atomic write, so the write size is proportional to the node selection; it
+/// is not described as a constant-size per-case cost.
 #[derive(Debug)]
 pub(crate) struct AttemptJournal {
     path: PathBuf,
@@ -275,16 +423,21 @@ impl AttemptJournal {
     /// and must not inherit a stale node's strikes.
     ///
     /// Infallible, and deliberately not `Result<Self, String>`: [`read_journal`]
-    /// answers `AttemptJournalFile::fresh()` for a missing file, a version
+    /// answers `AttemptJournalFile::fresh(..)` for a missing file, a version
     /// mismatch and a parse error alike, so there was never a failing path for
     /// a `?` at the call site to take. A `Result` with no `Err` is a state that
     /// cannot occur, which AGENTS.md ("Code Invariants Before Test Invariants")
     /// says not to represent.
-    pub(crate) fn open(path: PathBuf, resume: bool, limit: CrashStrikeLimit) -> Self {
+    pub(crate) fn open(
+        path: PathBuf,
+        resume: bool,
+        limit: CrashStrikeLimit,
+        identity: AttemptJournalIdentity,
+    ) -> Self {
         let state = if resume {
-            read_journal(&path)
+            read_journal(&path, &identity)
         } else {
-            AttemptJournalFile::fresh()
+            AttemptJournalFile::fresh(&identity)
         };
         Self {
             path,
@@ -307,25 +460,23 @@ impl AttemptJournal {
             let survivors = std::mem::take(&mut state.in_flight);
             let mut already_charged = BTreeSet::new();
             for attempt in survivors {
-                if !already_charged.insert(attempt.case_path.clone()) {
+                if !already_charged.insert(attempt.test_id.clone()) {
                     // One death charges a case at most once even if two worker
                     // slots somehow recorded the same path.
                     continue;
                 }
                 let previous = state
                     .strikes
-                    .get(&attempt.case_path)
+                    .get(&attempt.test_id)
                     .copied()
                     .and_then(CaseStrikes::from_count);
                 let strikes = match previous {
                     Some(previous) => previous.next(),
                     None => CaseStrikes::FIRST,
                 };
-                state
-                    .strikes
-                    .insert(attempt.case_path.clone(), strikes.get());
+                state.strikes.insert(attempt.test_id.clone(), strikes.get());
                 struck.push(StruckCase {
-                    path: attempt.case_path,
+                    test_id: attempt.test_id,
                     strikes,
                 });
             }
@@ -347,15 +498,21 @@ impl AttemptJournal {
         let QueuedCase(case) = queued;
         {
             let mut state = self.lock()?;
+            if !state.selected_test_ids.contains(&case.execution_id) {
+                return Err(format!(
+                    "attempt journal cannot admit foreign execution {}",
+                    case.execution_id
+                ));
+            }
             let strikes = state
                 .strikes
-                .get(&case.path)
+                .get(&case.execution_id)
                 .copied()
                 .and_then(CaseStrikes::from_count);
             if let Some(strikes) = strikes {
                 if self.limit.is_reached_by(strikes) {
                     return Ok(CaseAdmission::Quarantined {
-                        path: case.path,
+                        test_id: case.execution_id,
                         strikes,
                     });
                 }
@@ -365,7 +522,7 @@ impl AttemptJournal {
                 .retain(|attempt| attempt.worker_slot != worker_slot);
             state.in_flight.push(InFlightAttempt {
                 worker_slot,
-                case_path: case.path.clone(),
+                test_id: case.execution_id.clone(),
             });
         }
         self.persist()?;
@@ -388,7 +545,7 @@ impl AttemptJournal {
     /// one unrelated death away from a fabricated `OutcomeKind::Crash` for the
     /// remaining life of the node's journal — a wrong answer in the very
     /// conformance number this module exists to unblock, and one that can never
-    /// self-correct, because a quarantined case enters `completed_paths` and is
+    /// self-correct, because a quarantined case enters `completed_test_ids` and is
     /// excluded from `remaining` on every later resume.
     ///
     /// Convergence is unaffected: a case that kills the process never reaches
@@ -402,7 +559,7 @@ impl AttemptJournal {
                 .position(|attempt| attempt.worker_slot == worker_slot)
                 .map(|index| state.in_flight.remove(index));
             if let Some(attempt) = retired {
-                state.strikes.remove(&attempt.case_path);
+                state.strikes.remove(&attempt.test_id);
             }
             // `admit` clears the slot before pushing, so a second entry for the
             // same slot should not exist; drop any anyway rather than leaving
@@ -453,25 +610,25 @@ impl AttemptJournal {
     /// Reads a persisted strike count back. Test-only: the product path never
     /// asks this question outside [`Self::admit`], which must own the decision.
     #[cfg(test)]
-    pub(crate) fn strikes_for(&self, case_path: &str) -> Option<CaseStrikes> {
+    pub(crate) fn strikes_for(&self, test_id: &TestExecutionId) -> Option<CaseStrikes> {
         self.state
             .lock()
             .expect("attempt journal mutex poisoned")
             .strikes
-            .get(case_path)
+            .get(test_id)
             .copied()
             .and_then(CaseStrikes::from_count)
     }
 
     /// The paths currently recorded as in flight, in journal order.
     #[cfg(test)]
-    pub(crate) fn in_flight_paths(&self) -> Vec<String> {
+    pub(crate) fn in_flight_test_ids(&self) -> Vec<TestExecutionId> {
         self.state
             .lock()
             .expect("attempt journal mutex poisoned")
             .in_flight
             .iter()
-            .map(|attempt| attempt.case_path.clone())
+            .map(|attempt| attempt.test_id.clone())
             .collect()
     }
 }
@@ -485,9 +642,10 @@ impl AttemptJournal {
 #[cfg(test)]
 pub(crate) fn simulate_process_death_with_cases_in_flight(
     path: PathBuf,
+    identity: AttemptJournalIdentity,
     cases: &[TestCase],
 ) -> Result<(), String> {
-    let journal = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
+    let journal = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT, identity);
     for (worker_slot, case) in cases.iter().enumerate() {
         let admission = journal.admit(worker_slot, QueuedCase(case.clone()))?;
         assert!(
@@ -505,7 +663,7 @@ pub(crate) fn simulate_process_death_with_cases_in_flight(
 /// with cases and no workers is a *silent skip*: `execute_cases` spawns
 /// `0..worker_count` workers, so a zero would leave the queue undrained and
 /// every case in the phase would vanish from `results` without appearing in
-/// `completed_paths`, in `failures`, or in any outcome count. That is precisely
+/// `completed_test_ids`, in `failures`, or in any outcome count. That is precisely
 /// the class of loss this module exists to end, and AGENTS.md ("Correctness
 /// Rules") bans it outright, so it is spelled as a type the value cannot take
 /// rather than a clamp somebody has to remember.
@@ -525,8 +683,11 @@ impl RunPhase {
     }
 
     #[cfg(test)]
-    pub(crate) fn case_paths(&self) -> Vec<String> {
-        self.cases.iter().map(|case| case.path.clone()).collect()
+    pub(crate) fn test_ids(&self) -> Vec<TestExecutionId> {
+        self.cases
+            .iter()
+            .map(|case| case.execution_id.clone())
+            .collect()
     }
 }
 
@@ -546,13 +707,13 @@ pub(crate) fn plan_run_phases(
     scheduled_cases: Vec<TestCase>,
     worker_count: NonZeroUsize,
 ) -> Vec<RunPhase> {
-    let suspect_paths = suspects
+    let suspect_ids = suspects
         .iter()
-        .map(|suspect| suspect.path.as_str())
+        .map(|suspect| &suspect.test_id)
         .collect::<BTreeSet<_>>();
     let suspects_present = scheduled_cases
         .iter()
-        .filter(|case| suspect_paths.contains(case.path.as_str()))
+        .filter(|case| suspect_ids.contains(&case.execution_id))
         .count();
     if suspects_present < 2 {
         return vec![RunPhase {
@@ -563,7 +724,7 @@ pub(crate) fn plan_run_phases(
 
     let (suspect_cases, rest): (Vec<TestCase>, Vec<TestCase>) = scheduled_cases
         .into_iter()
-        .partition(|case| suspect_paths.contains(case.path.as_str()));
+        .partition(|case| suspect_ids.contains(&case.execution_id));
     // Serial by construction: one worker is what makes the next death name
     // exactly one of the suspects.
     let mut phases = vec![RunPhase {
@@ -579,21 +740,36 @@ pub(crate) fn plan_run_phases(
     phases
 }
 
-fn read_journal(path: &Path) -> AttemptJournalFile {
-    let Ok(raw) = fs::read_to_string(path) else {
-        return AttemptJournalFile::fresh();
+fn read_journal(path: &Path, identity: &AttemptJournalIdentity) -> AttemptJournalFile {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return AttemptJournalFile::fresh(identity);
+        }
+        Err(err) => {
+            eprintln!(
+                "test262 attempt journal: {} could not be read ({err}); starting a fresh journal, so a previous process death cannot be attributed",
+                path.display()
+            );
+            return AttemptJournalFile::fresh(identity);
+        }
     };
     match serde_json::from_str::<AttemptJournalWire>(&raw) {
-        Ok(AttemptJournalWire {
-            version: ATTEMPT_JOURNAL_VERSION,
-            producer: Some(ArtifactProducer::Lila),
-            in_flight,
-            strikes,
-        }) => AttemptJournalFile {
-            version: ATTEMPT_JOURNAL_VERSION,
-            producer: ArtifactProducer::CURRENT,
-            in_flight,
-            strikes,
+        Ok(
+            wire @ AttemptJournalWire {
+                version: ATTEMPT_JOURNAL_VERSION,
+                producer: Some(ArtifactProducer::Lila),
+                ..
+            },
+        ) => match decode_current_journal(wire, identity) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!(
+                    "test262 attempt journal: {} has invalid current state ({err}); starting a fresh journal, so foreign execution evidence is never reinterpreted",
+                    path.display()
+                );
+                AttemptJournalFile::fresh(identity)
+            }
         },
         Ok(file) => {
             // Loud, never silent: the run continues (refusing to start would
@@ -610,16 +786,124 @@ fn read_journal(path: &Path) -> AttemptJournalFile {
                 ATTEMPT_JOURNAL_VERSION,
                 ArtifactProducer::CURRENT.as_str()
             );
-            AttemptJournalFile::fresh()
+            AttemptJournalFile::fresh(identity)
         }
         Err(err) => {
             eprintln!(
                 "test262 attempt journal: {} could not be parsed ({err}); starting a fresh journal, so a previous process death cannot be attributed",
                 path.display()
             );
-            AttemptJournalFile::fresh()
+            AttemptJournalFile::fresh(identity)
         }
     }
+}
+
+fn decode_current_journal(
+    wire: AttemptJournalWire,
+    identity: &AttemptJournalIdentity,
+) -> Result<AttemptJournalFile, String> {
+    let manifest_hash = wire
+        .manifest_hash
+        .ok_or_else(|| "current journal is missing manifest_hash".to_string())?;
+    if manifest_hash != identity.manifest_hash {
+        return Err(format!(
+            "current journal manifest hash {manifest_hash:016x} does not match selected manifest {:016x}",
+            identity.manifest_hash
+        ));
+    }
+
+    let execution_backend = wire
+        .execution_backend
+        .ok_or_else(|| "current journal is missing execution_backend".to_string())?;
+    if execution_backend != identity.execution_backend {
+        return Err(format!(
+            "current journal backend {} does not match selected backend {}",
+            execution_backend.as_str(),
+            identity.execution_backend.as_str()
+        ));
+    }
+
+    let selected_test_ids = wire
+        .selected_test_ids
+        .ok_or_else(|| "current journal is missing selected_test_ids".to_string())?;
+    let mut selected = BTreeSet::new();
+    for test_id in selected_test_ids {
+        if !selected.insert(test_id.clone()) {
+            return Err(format!(
+                "current journal contains duplicate selected execution {test_id}"
+            ));
+        }
+    }
+    if let Some(test_id) = selected.difference(&identity.selected_test_ids).next() {
+        return Err(format!(
+            "current journal selected foreign execution {test_id}"
+        ));
+    }
+    if let Some(test_id) = identity.selected_test_ids.difference(&selected).next() {
+        return Err(format!(
+            "current journal is missing selected execution {test_id}"
+        ));
+    }
+
+    let mut worker_slots = BTreeSet::new();
+    let mut in_flight_ids = BTreeSet::new();
+    let mut in_flight = Vec::with_capacity(wire.in_flight.len());
+    for attempt in wire.in_flight {
+        if attempt.case_path.is_some() {
+            return Err("current journal contains legacy case_path".to_string());
+        }
+        let test_id = attempt
+            .test_id
+            .ok_or_else(|| "in-flight attempt is missing test_id".to_string())?;
+        if !selected.contains(&test_id) {
+            return Err(format!(
+                "current journal contains foreign in-flight execution {test_id}"
+            ));
+        }
+        if !worker_slots.insert(attempt.worker_slot) {
+            return Err(format!(
+                "current journal contains duplicate worker slot {}",
+                attempt.worker_slot
+            ));
+        }
+        if !in_flight_ids.insert(test_id.clone()) {
+            return Err(format!(
+                "current journal contains duplicate in-flight execution {test_id}"
+            ));
+        }
+        in_flight.push(InFlightAttempt {
+            worker_slot: attempt.worker_slot,
+            test_id,
+        });
+    }
+    let mut strikes = BTreeMap::new();
+    for (key, count) in wire.strikes.0 {
+        if count == 0 {
+            return Err(format!(
+                "current journal contains zero strikes for execution key `{key}`"
+            ));
+        }
+        let test_id = TestExecutionId::parse_wire_key(&key)?;
+        if !selected.contains(&test_id) {
+            return Err(format!(
+                "current journal contains foreign strike execution {test_id}"
+            ));
+        }
+        if strikes.insert(test_id.clone(), count).is_some() {
+            return Err(format!(
+                "current journal contains duplicate strike execution {test_id}"
+            ));
+        }
+    }
+    Ok(AttemptJournalFile {
+        version: ATTEMPT_JOURNAL_VERSION,
+        producer: ArtifactProducer::CURRENT,
+        manifest_hash,
+        execution_backend,
+        selected_test_ids: selected,
+        in_flight,
+        strikes,
+    })
 }
 
 /// Writes the journal atomically.
@@ -658,18 +942,46 @@ fn write_journal(path: &Path, state: &AttemptJournalFile) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TestExecutionMode;
+    use std::sync::Arc;
 
     fn case(path: &str) -> TestCase {
         TestCase {
-            path: path.to_string(),
+            execution_id: TestExecutionId::new(path, TestExecutionMode::SloppyScript),
             source_path: PathBuf::from(path),
-            original_source: "0;".to_string(),
+            original_source: Arc::from("0;"),
             flags: BTreeSet::new(),
             features: BTreeSet::new(),
             includes: Vec::new(),
             negative: None,
-            is_module: false,
         }
+    }
+
+    const TEST_MANIFEST_HASH: u64 = 0x1234;
+
+    fn identity(cases: &[TestCase]) -> AttemptJournalIdentity {
+        AttemptJournalIdentity::new(
+            TEST_MANIFEST_HASH,
+            ExecutionBackend::WasmAot,
+            cases.iter().map(|case| case.execution_id.clone()),
+        )
+        .expect("test selections contain unique execution ids")
+    }
+
+    fn open(path: PathBuf, resume: bool, cases: &[TestCase]) -> AttemptJournal {
+        AttemptJournal::open(path, resume, CrashStrikeLimit::DEFAULT, identity(cases))
+    }
+
+    fn current_v3_journal(
+        manifest_hash: u64,
+        execution_backend: &str,
+        selected_test_ids: &str,
+        in_flight: &str,
+        strikes: &str,
+    ) -> String {
+        format!(
+            r#"{{"version":3,"producer":"lila","manifest_hash":{manifest_hash},"execution_backend":"{execution_backend}","selected_test_ids":{selected_test_ids},"in_flight":{in_flight},"strikes":{strikes}}}"#
+        )
     }
 
     /// Test-side spelling of a phase width, so the assertions below read as
@@ -709,8 +1021,10 @@ mod tests {
     }
 
     #[test]
-    fn attempt_journal_schema_is_lila_v2_and_rejects_unknown_producers() {
-        let value = serde_json::to_value(AttemptJournalFile::fresh())
+    fn attempt_journal_schema_is_lila_v3_and_rejects_unknown_producers() {
+        let cases = [case("a.js"), case("b.js")];
+        let identity = identity(&cases);
+        let value = serde_json::to_value(AttemptJournalFile::fresh(&identity))
             .expect("current attempt journal should serialize");
         assert_eq!(
             value["version"].as_u64(),
@@ -720,10 +1034,67 @@ mod tests {
             value["producer"].as_str(),
             Some(ArtifactProducer::CURRENT.as_str())
         );
+        assert_eq!(value["manifest_hash"].as_u64(), Some(TEST_MANIFEST_HASH));
+        assert_eq!(
+            value["execution_backend"].as_str(),
+            Some(ExecutionBackend::WasmAot.as_str())
+        );
+        assert_eq!(
+            value["selected_test_ids"],
+            serde_json::json!(["sloppy-script:a.js", "sloppy-script:b.js"])
+        );
 
-        let raw = r#"{"version":2,"producer":"other","in_flight":[],"strikes":{}}"#;
+        let raw = r#"{"version":3,"producer":"other","manifest_hash":4660,"execution_backend":"wasm-aot","selected_test_ids":[],"in_flight":[],"strikes":{}}"#;
         let err = serde_json::from_str::<AttemptJournalWire>(raw)
             .expect_err("an unknown producer must not enter journal state");
+        assert!(err.to_string().contains("unknown variant"));
+    }
+
+    #[test]
+    fn attempt_journal_identity_rejects_duplicate_selected_executions() {
+        let duplicate = case("duplicate.js").execution_id;
+        let err = AttemptJournalIdentity::new(
+            TEST_MANIFEST_HASH,
+            ExecutionBackend::WasmAot,
+            [duplicate.clone(), duplicate],
+        )
+        .expect_err("an execution selection is a set, not a multiset");
+        assert!(err.contains("duplicate selected execution"));
+    }
+
+    #[test]
+    fn attempt_journal_accepts_only_the_two_closed_backend_spellings() {
+        let selected = [case("a.js")];
+        for backend in [ExecutionBackend::SpecExec, ExecutionBackend::WasmAot] {
+            let identity = AttemptJournalIdentity::new(
+                TEST_MANIFEST_HASH,
+                backend,
+                selected.iter().map(|case| case.execution_id.clone()),
+            )
+            .expect("test selection should be valid");
+            let raw = current_v3_journal(
+                TEST_MANIFEST_HASH,
+                backend.as_str(),
+                r#"["sloppy-script:a.js"]"#,
+                "[]",
+                "{}",
+            );
+            let wire = serde_json::from_str::<AttemptJournalWire>(&raw)
+                .expect("a canonical backend spelling should decode");
+            let file = decode_current_journal(wire, &identity)
+                .expect("a matching backend should validate");
+            assert_eq!(file.execution_backend, backend.into());
+        }
+
+        let raw = current_v3_journal(
+            TEST_MANIFEST_HASH,
+            "WasmAot",
+            r#"["sloppy-script:a.js"]"#,
+            "[]",
+            "{}",
+        );
+        let err = serde_json::from_str::<AttemptJournalWire>(&raw)
+            .expect_err("a backend spelling outside the closed enum must fail");
         assert!(err.to_string().contains("unknown variant"));
     }
 
@@ -738,45 +1109,270 @@ mod tests {
         )
         .expect("legacy journal should write");
 
-        let file = read_journal(&path);
+        let identity = identity(&[case("poison.js")]);
+        let file = read_journal(&path, &identity);
         assert_eq!(file.version, ATTEMPT_JOURNAL_VERSION);
         assert_eq!(file.producer, ArtifactProducer::CURRENT);
+        assert_eq!(file.manifest_hash, TEST_MANIFEST_HASH);
+        assert_eq!(file.execution_backend, JournalExecutionBackend::WasmAot);
+        assert_eq!(file.selected_test_ids, identity.selected_test_ids);
         assert!(file.in_flight.is_empty());
         assert!(file.strikes.is_empty());
     }
 
     #[test]
+    fn stale_version_two_attempt_journal_starts_fresh() {
+        let path = journal_path("legacy-v2-starts-fresh");
+        fs::create_dir_all(path.parent().expect("journal path should have a parent"))
+            .expect("journal directory should exist");
+        fs::write(
+            &path,
+            r#"{"version":2,"producer":"lila","in_flight":[{"worker_slot":0,"test_id":"sloppy-script:poison.js"}],"strikes":{"sloppy-script:poison.js":1}}"#,
+        )
+        .expect("stale v2 journal should write");
+
+        let identity = identity(&[case("poison.js")]);
+        let file = read_journal(&path, &identity);
+        assert_eq!(file.version, ATTEMPT_JOURNAL_VERSION);
+        assert_eq!(file.producer, ArtifactProducer::CURRENT);
+        assert_eq!(file.manifest_hash, TEST_MANIFEST_HASH);
+        assert_eq!(file.execution_backend, JournalExecutionBackend::WasmAot);
+        assert_eq!(file.selected_test_ids, identity.selected_test_ids);
+        assert!(file.in_flight.is_empty());
+        assert!(file.strikes.is_empty());
+    }
+
+    #[test]
+    fn malformed_or_noncanonical_v3_attempt_journal_starts_fresh() {
+        let cases = [case("a.js"), case("b.js")];
+        let identity = identity(&cases);
+        let selected = r#"["sloppy-script:a.js","sloppy-script:b.js"]"#;
+        for (label, raw) in [
+            (
+                "duplicate-slot",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    r#"[{"worker_slot":0,"test_id":"sloppy-script:a.js"},{"worker_slot":0,"test_id":"sloppy-script:b.js"}]"#,
+                    "{}",
+                ),
+            ),
+            (
+                "duplicate-id",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    r#"[{"worker_slot":0,"test_id":"sloppy-script:a.js"},{"worker_slot":1,"test_id":"sloppy-script:a.js"}]"#,
+                    "{}",
+                ),
+            ),
+            (
+                "legacy-path",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    r#"[{"worker_slot":0,"test_id":"sloppy-script:a.js","case_path":"a.js"}]"#,
+                    "{}",
+                ),
+            ),
+            (
+                "legacy-null-path",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    r#"[{"worker_slot":0,"test_id":"sloppy-script:a.js","case_path":null}]"#,
+                    "{}",
+                ),
+            ),
+            (
+                "zero-strike",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    "[]",
+                    r#"{"sloppy-script:a.js":0}"#,
+                ),
+            ),
+            (
+                "malformed-strike-key",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    "[]",
+                    r#"{"a.js":1}"#,
+                ),
+            ),
+            (
+                "duplicate-json-strike-key",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    "[]",
+                    r#"{"sloppy-script:a.js":1,"sloppy-script:a.js":2}"#,
+                ),
+            ),
+            (
+                "foreign-in-flight-id",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    r#"[{"worker_slot":0,"test_id":"sloppy-script:c.js"}]"#,
+                    "{}",
+                ),
+            ),
+            (
+                "foreign-strike-id",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    selected,
+                    "[]",
+                    r#"{"sloppy-script:c.js":1}"#,
+                ),
+            ),
+            (
+                "duplicate-selected-id",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    r#"["sloppy-script:a.js","sloppy-script:a.js"]"#,
+                    "[]",
+                    "{}",
+                ),
+            ),
+            (
+                "missing-selected-id",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    r#"["sloppy-script:a.js"]"#,
+                    "[]",
+                    "{}",
+                ),
+            ),
+            (
+                "foreign-selected-id",
+                current_v3_journal(
+                    TEST_MANIFEST_HASH,
+                    "wasm-aot",
+                    r#"["sloppy-script:a.js","sloppy-script:b.js","sloppy-script:c.js"]"#,
+                    "[]",
+                    "{}",
+                ),
+            ),
+            (
+                "wrong-manifest",
+                current_v3_journal(TEST_MANIFEST_HASH + 1, "wasm-aot", selected, "[]", "{}"),
+            ),
+            (
+                "wrong-known-backend",
+                current_v3_journal(TEST_MANIFEST_HASH, "spec-exec", selected, "[]", "{}"),
+            ),
+            (
+                "unknown-backend-spelling",
+                current_v3_journal(TEST_MANIFEST_HASH, "WasmAot", selected, "[]", "{}"),
+            ),
+            (
+                "missing-v3-identity",
+                r#"{"version":3,"producer":"lila","in_flight":[],"strikes":{}}"#.to_string(),
+            ),
+        ] {
+            let path = journal_path(label);
+            fs::create_dir_all(path.parent().expect("journal path should have a parent"))
+                .expect("journal directory should exist");
+            fs::write(&path, raw).expect("invalid current journal fixture should write");
+
+            let file = read_journal(&path, &identity);
+            assert_eq!(
+                file,
+                AttemptJournalFile::fresh(&identity),
+                "fixture: {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_json_strike_keys_are_rejected_during_map_decoding() {
+        let raw = current_v3_journal(
+            TEST_MANIFEST_HASH,
+            "wasm-aot",
+            r#"["sloppy-script:a.js"]"#,
+            "[]",
+            r#"{"sloppy-script:a.js":1,"sloppy-script:a.js":2}"#,
+        );
+        let err = serde_json::from_str::<AttemptJournalWire>(&raw)
+            .expect_err("duplicate JSON object keys must remain visible to validation");
+        assert!(err.to_string().contains("duplicate strike key"));
+    }
+
+    #[test]
+    fn missing_and_non_file_journals_start_with_the_requested_identity() {
+        let cases = [case("a.js")];
+        let identity = identity(&cases);
+
+        let missing = journal_path("missing-starts-fresh");
+        assert_eq!(
+            read_journal(&missing, &identity),
+            AttemptJournalFile::fresh(&identity)
+        );
+
+        let directory = journal_path("directory-read-error-starts-fresh");
+        fs::create_dir_all(&directory).expect("journal fixture directory should exist");
+        assert_eq!(
+            read_journal(&directory, &identity),
+            AttemptJournalFile::fresh(&identity)
+        );
+    }
+
+    #[test]
     fn attempt_journal_admission_records_before_it_hands_back_the_case() {
         let path = journal_path("admit-records-first");
-        let journal = AttemptJournal::open(path.clone(), false, CrashStrikeLimit::DEFAULT);
+        let poison = case("built-ins/Array/prototype/map/poison.js");
+        let cases = [poison.clone()];
+        let journal = open(path.clone(), false, &cases);
         let admission = journal
-            .admit(
-                0,
-                QueuedCase(case("built-ins/Array/prototype/map/poison.js")),
-            )
+            .admit(0, QueuedCase(poison.clone()))
             .expect("admission should work");
         assert!(matches!(admission, CaseAdmission::Run(_)));
 
         // Read the file back through the product reader: the entry must be on
         // disk already, not merely in memory.
-        let reopened = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
-        assert_eq!(
-            reopened.in_flight_paths(),
-            vec!["built-ins/Array/prototype/map/poison.js".to_string()]
-        );
+        let reopened = open(path, true, &cases);
+        assert_eq!(reopened.in_flight_test_ids(), vec![poison.execution_id]);
+    }
+
+    #[test]
+    fn attempt_journal_never_persists_an_execution_outside_its_selection() {
+        let path = journal_path("rejects-foreign-admission");
+        let journal = open(path, false, &[case("selected.js")]);
+        let err = journal
+            .admit(0, QueuedCase(case("foreign.js")))
+            .expect_err("only selected executions can enter durable state");
+        assert!(err.contains("cannot admit foreign execution"));
+        assert!(journal.in_flight_test_ids().is_empty());
     }
 
     #[test]
     fn attempt_journal_retire_clears_the_slot_so_a_clean_exit_charges_nothing() {
         let path = journal_path("retire-clears");
-        let journal = AttemptJournal::open(path.clone(), false, CrashStrikeLimit::DEFAULT);
+        let clean = case("language/statements/try/clean.js");
+        let cases = [clean.clone()];
+        let journal = open(path.clone(), false, &cases);
         journal
-            .admit(3, QueuedCase(case("language/statements/try/clean.js")))
+            .admit(3, QueuedCase(clean))
             .expect("admission should work");
         journal.retire(3).expect("retire should work");
 
-        let reopened = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
-        assert!(reopened.in_flight_paths().is_empty());
+        let reopened = open(path, true, &cases);
+        assert!(reopened.in_flight_test_ids().is_empty());
         assert!(reopened
             .charge_strikes_for_survivors()
             .expect("charging should work")
@@ -793,14 +1389,22 @@ mod tests {
         let path = journal_path("retire-forgives");
         let poison = case("built-ins/poison.js");
         let bystander = case("built-ins/bystander.js");
+        let selected = [poison.clone(), bystander.clone()];
+        let journal_identity = identity(&selected);
 
         // One death, two cases in flight, exactly as `--threads 2` leaves it.
         simulate_process_death_with_cases_in_flight(
             path.clone(),
-            &[poison.clone(), bystander.clone()],
+            journal_identity.clone(),
+            &selected,
         )
         .expect("seeded death should write the journal");
-        let resume = AttemptJournal::open(path.clone(), true, CrashStrikeLimit::DEFAULT);
+        let resume = AttemptJournal::open(
+            path.clone(),
+            true,
+            CrashStrikeLimit::DEFAULT,
+            journal_identity.clone(),
+        );
         assert_eq!(
             resume
                 .charge_strikes_for_survivors()
@@ -810,7 +1414,7 @@ mod tests {
             "a two-worker death charges both in-flight cases; only one of them is the culprit"
         );
         assert_eq!(
-            resume.strikes_for(&bystander.path),
+            resume.strikes_for(&bystander.execution_id),
             Some(CaseStrikes::FIRST)
         );
 
@@ -824,14 +1428,19 @@ mod tests {
         resume.retire(0).expect("retire should work");
 
         // Durably forgiven, not merely forgotten in memory.
-        let reopened = AttemptJournal::open(path.clone(), true, CrashStrikeLimit::DEFAULT);
+        let reopened = AttemptJournal::open(
+            path.clone(),
+            true,
+            CrashStrikeLimit::DEFAULT,
+            journal_identity.clone(),
+        );
         assert_eq!(
-            reopened.strikes_for(&bystander.path),
+            reopened.strikes_for(&bystander.execution_id),
             None,
             "completing a case is positive evidence it did not kill the process"
         );
         assert_eq!(
-            reopened.strikes_for(&poison.path),
+            reopened.strikes_for(&poison.execution_id),
             Some(CaseStrikes::FIRST),
             "the case that never retired keeps its strike, so convergence is unchanged"
         );
@@ -839,9 +1448,13 @@ mod tests {
 
         // ... so a second death on the poison alone quarantines the poison and
         // leaves the bystander admissible.
-        simulate_process_death_with_cases_in_flight(path.clone(), std::slice::from_ref(&poison))
-            .expect("second seeded death should write the journal");
-        let second = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
+        simulate_process_death_with_cases_in_flight(
+            path.clone(),
+            journal_identity.clone(),
+            std::slice::from_ref(&poison),
+        )
+        .expect("second seeded death should write the journal");
+        let second = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT, journal_identity);
         second
             .charge_strikes_for_survivors()
             .expect("charging should work");
@@ -863,10 +1476,21 @@ mod tests {
     fn attempt_journal_charges_one_strike_per_death_and_quarantines_at_the_limit() {
         let path = journal_path("two-deaths");
         let poison = case("built-ins/Array/prototype/map/15.4.4.19-5-21.js");
+        let selected = [poison.clone()];
+        let journal_identity = identity(&selected);
 
-        simulate_process_death_with_cases_in_flight(path.clone(), std::slice::from_ref(&poison))
-            .expect("first death should seed");
-        let first_resume = AttemptJournal::open(path.clone(), true, CrashStrikeLimit::DEFAULT);
+        simulate_process_death_with_cases_in_flight(
+            path.clone(),
+            journal_identity.clone(),
+            std::slice::from_ref(&poison),
+        )
+        .expect("first death should seed");
+        let first_resume = AttemptJournal::open(
+            path.clone(),
+            true,
+            CrashStrikeLimit::DEFAULT,
+            journal_identity.clone(),
+        );
         let struck = first_resume
             .charge_strikes_for_survivors()
             .expect("charging should work");
@@ -880,7 +1504,8 @@ mod tests {
         ));
 
         // The process dies again with the same case in flight.
-        let second_resume = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
+        let second_resume =
+            AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT, journal_identity);
         let struck = second_resume
             .charge_strikes_for_survivors()
             .expect("charging should work");
@@ -890,8 +1515,8 @@ mod tests {
             .admit(0, QueuedCase(poison.clone()))
             .expect("admission should work")
         {
-            CaseAdmission::Quarantined { path, strikes } => {
-                assert_eq!(path, poison.path);
+            CaseAdmission::Quarantined { test_id, strikes } => {
+                assert_eq!(test_id, poison.execution_id);
                 assert_eq!(strikes.get(), 2);
             }
             CaseAdmission::Run(_) => panic!("a case at the strike limit must not be admitted"),
@@ -902,15 +1527,19 @@ mod tests {
     fn attempt_journal_plans_one_phase_when_at_most_one_case_is_suspect() {
         let cases = vec![case("a.js"), case("b.js"), case("c.js")];
         let suspects = vec![StruckCase {
-            path: "b.js".to_string(),
+            test_id: case("b.js").execution_id,
             strikes: CaseStrikes::FIRST,
         }];
         let phases = plan_run_phases(&suspects, cases.clone(), workers(4));
         assert_eq!(phases.len(), 1);
         assert_eq!(phases[0].worker_count(), workers(4));
         assert_eq!(
-            phases[0].case_paths(),
-            vec!["a.js".to_string(), "b.js".to_string(), "c.js".to_string()]
+            phases[0].test_ids(),
+            vec![
+                case("a.js").execution_id,
+                case("b.js").execution_id,
+                case("c.js").execution_id
+            ]
         );
 
         let phases = plan_run_phases(&[], cases, workers(4));
@@ -925,11 +1554,11 @@ mod tests {
         let cases = vec![case("a.js"), case("b.js")];
         let suspects = vec![
             StruckCase {
-                path: "b.js".to_string(),
+                test_id: case("b.js").execution_id,
                 strikes: CaseStrikes::FIRST,
             },
             StruckCase {
-                path: "already-done.js".to_string(),
+                test_id: case("already-done.js").execution_id,
                 strikes: CaseStrikes::FIRST,
             },
         ];

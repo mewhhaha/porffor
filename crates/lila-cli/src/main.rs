@@ -2655,7 +2655,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             let manifest = runner.discover_suite(parsed.filter.as_deref())?;
             println!("count: {}", manifest.cases.len());
             for case in manifest.cases.iter().take(50) {
-                println!("{}", case.path);
+                println!("{}", case.execution_id().wire_key());
             }
             if manifest.cases.len() > 50 {
                 println!("... {} more", manifest.cases.len() - 50);
@@ -3055,7 +3055,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             for change in comparison.changed_failure_hashes.iter().take(25) {
                 println!(
                     "  hash: {} {:016x}->{:016x}",
-                    change.test_path, change.base_hash, change.candidate_hash
+                    change.test_id, change.base_hash, change.candidate_hash
                 );
             }
             Ok(())

@@ -18,8 +18,8 @@ observations inside a declaration retain a local occurrence ordinal. It rejects 
 duplicated or drifted entries, invalid classifications and non-concrete task
 IDs, then byte-compares the generated inventory.
 
-The current ledger contains 440 observations: 32 legitimate harness
-adaptations, 55 diagnostic instrumentation sites and 353 semantic shortcuts.
+The current ledger contains 432 observations: 32 legitimate harness
+adaptations, 47 diagnostic instrumentation sites and 353 semantic shortcuts.
 Every entry has a concrete owner, removal task and closed reason code; none use
 `T26-unclassified`. This is an honest cleanup map, not completion. The semantic
 materialization layer is still large, so harness results cannot yet satisfy
@@ -42,14 +42,15 @@ before returning a non-zero exit. This closes command-level false-green and
 zero-selection paths; it does not prove that the harness semantics which
 produced a verdict are correct.
 
-Direct-run resume checkpoints now cross a typed identity boundary containing
-both the manifest hash and the execution backend. A checkpoint must also carry
-the current matrix-strategy version before any recorded completion can enter a
-new run. A SpecExec checkpoint therefore cannot skip Wasm-AOT execution and be
-rewritten under a Wasm-AOT label, and a mismatched manifest body cannot be
-silently relabelled from its file name. This identity check is deliberately
-narrow: shard-selection identity and the remaining semantic materialization
-debt stay open work.
+Direct-run resume checkpoints now bind the exact selected execution set,
+manifest hash, pins, execution backend, matrix-strategy version, and intended
+canonical terminal kind and matrix path before any recorded completion can
+enter a new run. Full, shard, and matrix-node selections therefore cannot
+share completion or journal state, and a SpecExec checkpoint cannot skip
+Wasm-AOT execution and be rewritten under a Wasm-AOT label. Completed ids and
+nested failure, timeout, and slow records are validated against that selection.
+This closes the checkpoint/shard identity boundary; the remaining semantic
+materialization debt stays open work.
 
 ## Objective
 

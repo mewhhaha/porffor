@@ -24,7 +24,8 @@ mod attempt_journal;
 pub mod differential;
 
 use attempt_journal::{
-    plan_run_phases, AdmittedCase, AttemptJournal, CaseAdmission, CaseStrikes, CrashStrikeLimit,
+    plan_run_phases, AdmittedCase, AttemptJournal, AttemptJournalIdentity, CaseAdmission,
+    CaseStrikes, CrashStrikeLimit,
 };
 
 const TOP_LEVEL_FILTERS: [&str; 6] = [
@@ -36,17 +37,23 @@ const TOP_LEVEL_FILTERS: [&str; 6] = [
     "staging",
 ];
 const MATRIX_SPLIT_FILTERS: [&str; 4] = ["built-ins", "intl402", "language", "staging"];
-const SNAPSHOT_VERSION: u32 = 6;
-/// Snapshot version 4 predates per-failure outcome data. Read-only status,
-/// triage, backlog, and comparison paths may still consume such snapshots
-/// because every outcome can be *derived* from the recorded failure kind and
-/// detail with the same classifier used at write time — nothing is invented.
+const SNAPSHOT_VERSION: u32 = 7;
+/// Snapshot version 4 predates per-failure outcome data and execution identity.
+/// Its envelope may still be inspected as historical metadata, but path-only
+/// case records cannot enter current status, backlog, comparison, or resume
+/// state and are never assigned a guessed execution mode.
 const LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION: u32 = 4;
 /// Snapshot version 5 has outcome data, but predates the explicit Lila
-/// producer identity. Like version 4 it is evidence only: it may be inspected,
-/// but never resumed, merged, rewritten, or published as current status.
+/// producer identity or execution identity. Like version 4 it is historical
+/// metadata only: path-only case records cannot enter typed current state and
+/// the artifact is never resumed, merged, rewritten, or published as current.
 const LEGACY_PRE_LILA_SNAPSHOT_VERSION: u32 = 5;
-const MATRIX_STRATEGY_VERSION: u32 = 2;
+/// Version 6 is the last Lila snapshot whose case identity was only a physical
+/// path. Its envelope remains readable historical metadata where supported,
+/// but it cannot enter any stateful path: a path does not say which of the
+/// required sloppy/strict executions ran.
+const LEGACY_PATH_ONLY_SNAPSHOT_VERSION: u32 = 6;
+const MATRIX_STRATEGY_VERSION: u32 = 3;
 // Keep matrix nodes small enough that slow semantic buckets like RegExp and
 // Temporal checkpoint incrementally instead of monopolizing a whole run.
 const MATRIX_RECURSION_THRESHOLD: usize = 500;
@@ -152,7 +159,8 @@ impl TryFrom<ExecutionBackend> for PublicationBackend {
 enum SnapshotArtifactKind {
     LegacyV4,
     LegacyV5,
-    CurrentLilaV6,
+    LegacyPathOnlyV6,
+    CurrentLilaV7,
 }
 
 impl SnapshotArtifactKind {
@@ -160,7 +168,10 @@ impl SnapshotArtifactKind {
         match (version, producer) {
             (LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION, None) => Ok(Self::LegacyV4),
             (LEGACY_PRE_LILA_SNAPSHOT_VERSION, None) => Ok(Self::LegacyV5),
-            (SNAPSHOT_VERSION, Some(ArtifactProducer::Lila)) => Ok(Self::CurrentLilaV6),
+            (LEGACY_PATH_ONLY_SNAPSHOT_VERSION, Some(ArtifactProducer::Lila)) => {
+                Ok(Self::LegacyPathOnlyV6)
+            }
+            (SNAPSHOT_VERSION, Some(ArtifactProducer::Lila)) => Ok(Self::CurrentLilaV7),
             (
                 LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION | LEGACY_PRE_LILA_SNAPSHOT_VERSION,
                 Some(producer),
@@ -168,20 +179,18 @@ impl SnapshotArtifactKind {
                 "legacy snapshot version {version} must not claim current producer {}",
                 producer.as_str()
             )),
-            (SNAPSHOT_VERSION, None) => Err(format!(
-                "snapshot version {SNAPSHOT_VERSION} is missing required producer {}",
-                ArtifactProducer::CURRENT.as_str()
-            )),
+            (version @ (LEGACY_PATH_ONLY_SNAPSHOT_VERSION | SNAPSHOT_VERSION), None) => {
+                Err(format!(
+                    "snapshot version {version} is missing required producer {}",
+                    ArtifactProducer::CURRENT.as_str()
+                ))
+            }
             (version, _) => Err(format!("unsupported snapshot_version {version}")),
         }
     }
 
     const fn is_current(self) -> bool {
-        matches!(self, Self::CurrentLilaV6)
-    }
-
-    const fn needs_legacy_outcome_migration(self) -> bool {
-        matches!(self, Self::LegacyV4)
+        matches!(self, Self::CurrentLilaV7)
     }
 }
 
@@ -409,6 +418,7 @@ where
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailureRecord {
+    pub test_id: TestExecutionId,
     pub test_path: String,
     pub kind: FailureKind,
     pub outcome: OutcomeKind,
@@ -485,16 +495,245 @@ pub struct NegativeExpectation {
     pub error_type: String,
 }
 
+/// The complete execution-mode domain required by Test262's frontmatter.
+///
+/// This is the sole parse-goal and strictness authority. In particular there
+/// is intentionally no `is_module` field beside it that could disagree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TestExecutionMode {
+    SloppyScript,
+    StrictScript,
+    RawScript,
+    Module,
+    RawModule,
+}
+
+impl TestExecutionMode {
+    pub const ALL: [Self; 5] = [
+        Self::SloppyScript,
+        Self::StrictScript,
+        Self::RawScript,
+        Self::Module,
+        Self::RawModule,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SloppyScript => "sloppy-script",
+            Self::StrictScript => "strict-script",
+            Self::RawScript => "raw-script",
+            Self::Module => "module",
+            Self::RawModule => "raw-module",
+        }
+    }
+
+    pub const fn is_module(self) -> bool {
+        match self {
+            Self::Module | Self::RawModule => true,
+            Self::SloppyScript | Self::StrictScript | Self::RawScript => false,
+        }
+    }
+
+    pub const fn is_raw(self) -> bool {
+        match self {
+            Self::RawScript | Self::RawModule => true,
+            Self::SloppyScript | Self::StrictScript | Self::Module => false,
+        }
+    }
+
+    pub const fn needs_strict_directive(self) -> bool {
+        match self {
+            Self::StrictScript => true,
+            Self::SloppyScript | Self::RawScript | Self::Module | Self::RawModule => false,
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "sloppy-script" => Ok(Self::SloppyScript),
+            "strict-script" => Ok(Self::StrictScript),
+            "raw-script" => Ok(Self::RawScript),
+            "module" => Ok(Self::Module),
+            "raw-module" => Ok(Self::RawModule),
+            _ => Err(format!("unknown Test262 execution mode `{value}`")),
+        }
+    }
+}
+
+impl fmt::Display for TestExecutionMode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// A source file plus the mode of this particular Test262 execution.
+///
+/// Fields are private so a caller cannot manufacture an id whose path or mode
+/// disagrees with a `TestCase`. The stable wire spelling is
+/// `<mode>:<physical-path>`; the mode prefix makes parsing unambiguous even
+/// when the path itself contains a colon.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TestExecutionId {
+    path: String,
+    mode: TestExecutionMode,
+}
+
+impl TestExecutionId {
+    fn new(path: impl Into<String>, mode: TestExecutionMode) -> Self {
+        Self {
+            path: path.into(),
+            mode,
+        }
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub const fn mode(&self) -> TestExecutionMode {
+        self.mode
+    }
+
+    pub fn wire_key(&self) -> String {
+        format!("{}:{}", self.mode.as_str(), self.path)
+    }
+
+    pub fn parse_wire_key(value: &str) -> Result<Self, String> {
+        let Some((mode, path)) = value.split_once(':') else {
+            return Err(format!(
+                "invalid Test262 execution id `{value}` (expected <mode>:<path>)"
+            ));
+        };
+        if path.is_empty() {
+            return Err("Test262 execution id has an empty physical path".to_string());
+        }
+        Ok(Self::new(path, TestExecutionMode::parse(mode)?))
+    }
+}
+
+impl fmt::Display for TestExecutionId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{} [{}]", self.path, self.mode)
+    }
+}
+
+impl Serialize for TestExecutionId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.wire_key())
+    }
+}
+
+impl<'de> Deserialize<'de> for TestExecutionId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse_wire_key(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// The validated expansion of one physical file. Keeping the one- and
+/// two-execution cases closed makes it impossible for discovery to produce an
+/// empty plan or an accidental third variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TestExecutionPlan {
+    One(TestExecutionMode),
+    SloppyAndStrict,
+}
+
+impl TestExecutionPlan {
+    fn from_flags(path: &str, flags: &BTreeSet<String>) -> Result<Self, String> {
+        let only_strict = flags.contains("onlyStrict");
+        let no_strict = flags.contains("noStrict");
+        let raw = flags.contains("raw");
+        let module = flags.contains("module");
+
+        if only_strict && no_strict {
+            return Err(format!(
+                "invalid Test262 flags for {path}: onlyStrict and noStrict are mutually exclusive"
+            ));
+        }
+        if raw && (only_strict || no_strict) {
+            return Err(format!(
+                "invalid Test262 flags for {path}: raw cannot be combined with onlyStrict or noStrict"
+            ));
+        }
+        if module && (only_strict || no_strict) {
+            return Err(format!(
+                "invalid Test262 flags for {path}: module cannot be combined with onlyStrict or noStrict"
+            ));
+        }
+
+        match (raw, module, only_strict, no_strict) {
+            (true, true, false, false) => Ok(Self::One(TestExecutionMode::RawModule)),
+            (true, false, false, false) => Ok(Self::One(TestExecutionMode::RawScript)),
+            (false, true, false, false) => Ok(Self::One(TestExecutionMode::Module)),
+            (false, false, true, false) => Ok(Self::One(TestExecutionMode::StrictScript)),
+            (false, false, false, true) => Ok(Self::One(TestExecutionMode::SloppyScript)),
+            (false, false, false, false) => Ok(Self::SloppyAndStrict),
+            // Every invalid combination was rejected above. This exhaustive
+            // arm documents that invariant without silently choosing a mode.
+            (true, _, true, _)
+            | (true, _, _, true)
+            | (_, true, true, _)
+            | (_, true, _, true)
+            | (_, _, true, true) => unreachable!("invalid flag combinations were rejected"),
+        }
+    }
+
+    fn modes(self) -> impl Iterator<Item = TestExecutionMode> {
+        let modes = match self {
+            Self::One(mode) => [Some(mode), None],
+            Self::SloppyAndStrict => [
+                Some(TestExecutionMode::SloppyScript),
+                Some(TestExecutionMode::StrictScript),
+            ],
+        };
+        modes.into_iter().flatten()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestCase {
-    pub path: String,
+    execution_id: TestExecutionId,
     pub source_path: PathBuf,
-    pub original_source: String,
+    pub original_source: Arc<str>,
     pub flags: BTreeSet<String>,
     pub features: BTreeSet<String>,
     pub includes: Vec<String>,
-    pub negative: Option<NegativeExpectation>,
-    pub is_module: bool,
+    pub negative: Option<Arc<NegativeExpectation>>,
+}
+
+impl TestCase {
+    pub const fn execution_id(&self) -> &TestExecutionId {
+        &self.execution_id
+    }
+
+    pub fn path(&self) -> &str {
+        self.execution_id.path()
+    }
+
+    pub const fn execution_mode(&self) -> TestExecutionMode {
+        self.execution_id.mode()
+    }
+}
+
+// Keep the substantial source-shape implementation readable while the one
+// authoritative identity remains private and immutable. Field projections
+// through `Deref` are available only where `TestExecutionId`'s fields are
+// visible (this module and its tests); external consumers use the explicit
+// accessors above. There is deliberately no `DerefMut`.
+impl std::ops::Deref for TestCase {
+    type Target = TestExecutionId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.execution_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -550,11 +789,24 @@ impl PreludeStore {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterializedTest {
-    pub path: String,
+    execution_id: TestExecutionId,
     pub source: String,
     pub used_preludes: Vec<(String, PreludeOrigin)>,
-    pub negative: Option<NegativeExpectation>,
-    pub is_module: bool,
+    pub negative: Option<Arc<NegativeExpectation>>,
+}
+
+impl MaterializedTest {
+    pub const fn execution_id(&self) -> &TestExecutionId {
+        &self.execution_id
+    }
+
+    pub fn test_path(&self) -> &str {
+        self.execution_id.path()
+    }
+
+    pub const fn execution_mode(&self) -> TestExecutionMode {
+        self.execution_id.mode()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -594,7 +846,7 @@ pub enum TestStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestResult {
-    pub test_path: String,
+    pub test_id: TestExecutionId,
     pub status: TestStatus,
     pub duration_ms: u128,
 }
@@ -615,9 +867,52 @@ pub struct RunSummary {
     pub counts_per_kind: BTreeMap<FailureKind, usize>,
     pub counts_per_outcome: BTreeMap<OutcomeKind, usize>,
     pub failures: Vec<FailureRecord>,
-    pub timeouts: Vec<String>,
-    pub slowest_tests: Vec<(String, u128)>,
-    pub completed_paths: Vec<String>,
+    pub timeouts: Vec<TestExecutionId>,
+    pub slowest_tests: Vec<(TestExecutionId, u128)>,
+    pub completed_test_ids: Vec<TestExecutionId>,
+}
+
+/// The canonical run context an in-progress direct checkpoint will eventually
+/// become. Keeping kind and matrix path in one value prevents a full, shard,
+/// or matrix checkpoint from being resumed or promoted in another context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointRunIdentity {
+    terminal_run_kind: String,
+    matrix_path: Vec<String>,
+}
+
+impl CheckpointRunIdentity {
+    fn new(terminal_run_kind: impl Into<String>, matrix_path: &[String]) -> Self {
+        Self {
+            terminal_run_kind: terminal_run_kind.into(),
+            matrix_path: matrix_path.to_vec(),
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        let is_canonical_shard = self
+            .terminal_run_kind
+            .strip_prefix("shard-")
+            .and_then(|value| value.split_once('/'))
+            .and_then(|(index, count)| {
+                Some((index.parse::<usize>().ok()?, count.parse::<usize>().ok()?))
+            })
+            .is_some_and(|(index, count)| {
+                index >= 1
+                    && index <= count
+                    && format!("shard-{index}/{count}") == self.terminal_run_kind
+            });
+        match self.terminal_run_kind.as_str() {
+            "full" if self.matrix_path.is_empty() => Ok(()),
+            "matrix-filter-leaf" | "matrix-chunk-leaf" if !self.matrix_path.is_empty() => Ok(()),
+            _ if is_canonical_shard && self.matrix_path.is_empty() => Ok(()),
+            _ => Err(format!(
+                "noncanonical checkpoint terminal identity: run_kind={} matrix_path=[{}]",
+                self.terminal_run_kind,
+                self.matrix_path.join(", ")
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -628,14 +923,15 @@ pub struct ProgressSnapshot {
     pub pinned_revisions: PinnedRevisions,
     pub manifest_hash: u64,
     pub run_kind: String,
+    pub checkpoint_identity: Option<CheckpointRunIdentity>,
     pub total: usize,
     pub passed: usize,
     pub counts_per_kind: BTreeMap<FailureKind, usize>,
     pub counts_per_outcome: BTreeMap<OutcomeKind, usize>,
-    pub slowest_tests: Vec<(String, u128)>,
-    pub timeout_list: Vec<String>,
+    pub slowest_tests: Vec<(TestExecutionId, u128)>,
+    pub timeout_list: Vec<TestExecutionId>,
     pub failures: Vec<FailureRecord>,
-    pub completed_paths: Vec<String>,
+    pub completed_test_ids: Vec<TestExecutionId>,
     pub matrix_path: Vec<String>,
     pub completed_nodes: Vec<String>,
     pub aggregate_counts_so_far: BTreeMap<FailureKind, usize>,
@@ -739,9 +1035,9 @@ pub struct AggregateRunSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedAggregateSummary {
     pub pinned_revisions: PinnedRevisions,
-    /// Pins recorded inside the snapshot file. May differ textually from
-    /// `pinned_revisions` for legacy snapshots, but only when the vendored
-    /// suite content was verified as identical via the git object store.
+    /// Pins recorded inside the current snapshot file. They may use a
+    /// historical commit spelling rather than the current suite-tree spelling,
+    /// but only when the git object store verifies identical vendored content.
     pub recorded_pinned_revisions: PinnedRevisions,
     /// Snapshot name the aggregate actually resolved to. Equals the requested
     /// name unless honest name resolution found exactly one compatible
@@ -820,7 +1116,7 @@ pub struct RunMatrixNode {
     pub filter: String,
     pub matrix_path: Vec<String>,
     pub total_cases: usize,
-    pub case_paths: Vec<String>,
+    pub case_ids: Vec<TestExecutionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -844,6 +1140,7 @@ pub struct BacklogArtifact {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklogRecord {
+    pub test_id: TestExecutionId,
     pub test_path: String,
     pub features: Vec<String>,
     pub flags: Vec<String>,
@@ -1086,13 +1383,14 @@ pub struct SnapshotComparison {
     pub pinned_revisions: PinnedRevisions,
     pub base_total: usize,
     pub candidate_total: usize,
-    pub added_passes: Vec<String>,
-    pub regressions: Vec<String>,
+    pub added_passes: Vec<TestExecutionId>,
+    pub regressions: Vec<TestExecutionId>,
     pub changed_failure_hashes: Vec<ChangedFailureHash>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangedFailureHash {
+    pub test_id: TestExecutionId,
     pub test_path: String,
     pub base_hash: u64,
     pub candidate_hash: u64,
@@ -1161,6 +1459,8 @@ struct SnapshotFile {
     pinned_revisions: SnapshotPinnedRevisions,
     manifest_hash: u64,
     run_kind: String,
+    #[serde(default, skip_serializing_if = "WireCheckpointIdentity::is_absent")]
+    checkpoint_identity: WireCheckpointIdentity,
     total: usize,
     passed: usize,
     #[serde(
@@ -1176,9 +1476,15 @@ struct SnapshotFile {
     )]
     counts_per_outcome: Option<BTreeMap<OutcomeKind, usize>>,
     slowest_tests: Vec<SnapshotSlowTest>,
-    timeout_list: Vec<String>,
+    #[serde(default, skip_serializing_if = "WireIdentityList::is_absent")]
+    timeout_test_ids: WireIdentityList<TestExecutionId>,
+    #[serde(default, skip_serializing_if = "WireIdentityList::is_absent")]
+    timeout_list: WireIdentityList<String>,
     failures: Vec<SnapshotFailureRecord>,
-    completed_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "WireIdentityList::is_absent")]
+    completed_test_ids: WireIdentityList<TestExecutionId>,
+    #[serde(default, skip_serializing_if = "WireIdentityList::is_absent")]
+    completed_paths: WireIdentityList<String>,
     matrix_path: Vec<String>,
     completed_nodes: Vec<String>,
     #[serde(
@@ -1187,6 +1493,145 @@ struct SnapshotFile {
     )]
     aggregate_counts_so_far: BTreeMap<FailureKind, usize>,
     aggregate_entries: Vec<SnapshotAggregateEntry>,
+}
+
+/// Presence-aware list decoding for the v7 identity cutover.
+///
+/// `Option<Vec<_>>` cannot distinguish an omitted field from an explicitly
+/// present `null`. That distinction is schema evidence here: *any* legacy
+/// occurrence of a v7 typed field or old path field is a mixed artifact,
+/// including `[]` and `null`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WireIdentityList<T> {
+    Absent,
+    Present(Option<Vec<T>>),
+}
+
+/// Presence-aware decoding for the checkpoint identity introduced by v7.
+///
+/// A plain `Option<CheckpointRunIdentity>` collapses an omitted key and an
+/// explicitly present `null`. That would let a legacy envelope smuggle a v7
+/// field through as `null`, and let a terminal v7 artifact carry a checkpoint
+/// key whose value merely happened to decode to `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WireCheckpointIdentity {
+    Absent,
+    Present(Option<CheckpointRunIdentity>),
+}
+
+impl Default for WireCheckpointIdentity {
+    fn default() -> Self {
+        Self::Absent
+    }
+}
+
+impl WireCheckpointIdentity {
+    fn present(value: CheckpointRunIdentity) -> Self {
+        Self::Present(Some(value))
+    }
+
+    fn is_absent(&self) -> bool {
+        matches!(self, Self::Absent)
+    }
+
+    fn value(&self) -> Option<&CheckpointRunIdentity> {
+        match self {
+            Self::Present(Some(value)) => Some(value),
+            Self::Absent | Self::Present(None) => None,
+        }
+    }
+
+    fn into_value(self) -> Option<CheckpointRunIdentity> {
+        match self {
+            Self::Present(Some(value)) => Some(value),
+            Self::Absent | Self::Present(None) => None,
+        }
+    }
+}
+
+impl Serialize for WireCheckpointIdentity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Absent | Self::Present(None) => serializer.serialize_none(),
+            Self::Present(Some(value)) => value.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for WireCheckpointIdentity {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<CheckpointRunIdentity>::deserialize(deserializer).map(Self::Present)
+    }
+}
+
+impl<T> Default for WireIdentityList<T> {
+    fn default() -> Self {
+        Self::Absent
+    }
+}
+
+impl<T> WireIdentityList<T> {
+    fn present(values: Vec<T>) -> Self {
+        Self::Present(Some(values))
+    }
+
+    fn is_absent(&self) -> bool {
+        matches!(self, Self::Absent)
+    }
+
+    fn values(&self) -> Option<&[T]> {
+        match self {
+            Self::Present(Some(values)) => Some(values),
+            Self::Absent | Self::Present(None) => None,
+        }
+    }
+
+    fn values_mut(&mut self) -> Option<&mut Vec<T>> {
+        match self {
+            Self::Present(Some(values)) => Some(values),
+            Self::Absent | Self::Present(None) => None,
+        }
+    }
+
+    fn into_values(self) -> Option<Vec<T>> {
+        match self {
+            Self::Present(Some(values)) => Some(values),
+            Self::Absent | Self::Present(None) => None,
+        }
+    }
+}
+
+impl<T> Serialize for WireIdentityList<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Absent | Self::Present(None) => serializer.serialize_none(),
+            Self::Present(Some(values)) => values.serialize(serializer),
+        }
+    }
+}
+
+impl<'de, T> Deserialize<'de> for WireIdentityList<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<Vec<T>>::deserialize(deserializer).map(Self::Present)
+    }
 }
 
 impl SnapshotFile {
@@ -1216,12 +1661,16 @@ struct SnapshotPinnedRevisions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnapshotSlowTest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test_id: Option<TestExecutionId>,
     path: String,
     duration_ms: u128,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnapshotFailureRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test_id: Option<TestExecutionId>,
     test_path: String,
     kind: FailureKind,
     #[serde(
@@ -1321,11 +1770,11 @@ impl ConformanceRunner {
 
     pub fn classify(
         &self,
-        test_path: impl Into<String>,
+        test_id: TestExecutionId,
         kind: FailureKind,
         detail: impl Into<String>,
     ) -> FailureRecord {
-        classify_failure(test_path, kind, detail)
+        classify_failure(test_id, kind, detail)
     }
 
     pub fn discover_suite(&self, filter: Option<&str>) -> Result<SuiteManifest, String> {
@@ -1476,7 +1925,17 @@ pub fn discover_suite(config: &SuiteConfig, filter: Option<&str>) -> Result<Suit
         ));
     }
 
+    let requested_execution = match filter {
+        Some(value) if value.contains(':') => Some(
+            TestExecutionId::parse_wire_key(value)
+                .map_err(|err| format!("invalid Test262 execution selector `{value}`: {err}"))?,
+        ),
+        Some(_) | None => None,
+    };
     let filter = filter.map(|value| {
+        let value = requested_execution
+            .as_ref()
+            .map_or(value, TestExecutionId::path);
         value
             .trim_start_matches("test/")
             .trim_end_matches('/')
@@ -1494,15 +1953,29 @@ pub fn discover_suite(config: &SuiteConfig, filter: Option<&str>) -> Result<Suit
         boundary_filter,
         &mut cases,
     )?;
-    cases.sort_by(|left, right| left.path.cmp(&right.path));
+    if let Some(requested_execution) = &requested_execution {
+        cases.retain(|case| &case.execution_id == requested_execution);
+        if cases.len() != 1 {
+            return Err(format!(
+                "Test262 execution {} resolved to {} cases; expected exactly one",
+                requested_execution,
+                cases.len()
+            ));
+        }
+    }
+    cases.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
 
     let pinned_revisions = pinned_revisions(config);
-    let manifest_hash = hash_manifest(&pinned_revisions, &cases, filter.as_deref());
+    let manifest_filter = requested_execution
+        .as_ref()
+        .map(TestExecutionId::wire_key)
+        .or_else(|| filter.clone());
+    let manifest_hash = hash_manifest(&pinned_revisions, &cases, manifest_filter.as_deref());
 
     Ok(SuiteManifest {
         pinned_revisions,
         manifest_hash,
-        filter,
+        filter: manifest_filter,
         cases,
     })
 }
@@ -1565,49 +2038,28 @@ pub fn materialize_test(
     case: &TestCase,
     preludes: &PreludeStore,
 ) -> Result<MaterializedTest, String> {
-    if let Some(source) = rewrite_wasm_aot_self_contained(case) {
+    let mode = case.execution_mode();
+    if mode.is_raw() {
         return Ok(MaterializedTest {
-            path: case.path.clone(),
-            source,
+            execution_id: case.execution_id.clone(),
+            source: case.original_source.to_string(),
             used_preludes: Vec::new(),
             negative: case.negative.clone(),
-            is_module: case.is_module,
         });
     }
 
     let mut source = String::new();
     let mut used_preludes = Vec::new();
+    if mode.needs_strict_directive() {
+        // INTERPRETING.md requires the directive to be the initial source text.
+        // It therefore precedes both harness preludes and self-contained
+        // Wasm-AOT rewrites.
+        source.push_str("\"use strict\";\n");
+    }
 
-    if !case.flags.contains("raw") {
-        // ONE materialization per case, and for the un-flagged majority that is
-        // half of what the suite specifies.
-        //
-        // INTERPRETING.md requires a case carrying none of
-        // `onlyStrict | noStrict | raw | module` to be run TWICE: once in sloppy
-        // mode and once with `"use strict";` prepended. This function prepends
-        // the prologue only for `onlyStrict` and never produces a second
-        // variant, so every such case is executed sloppy-mode only, and every
-        // total this harness reports for it is one of the two executions the
-        // suite asks for.
-        //
-        // That is not a rounding error. Measured over the batch-7 frontier
-        // nodes: 48 of 48 `language/computed-property-names` files, 102 of 102
-        // `language/asi`, 60 of 63 `language/expressions/yield`, 18 of 19
-        // `language/destructuring` and 33 of 42 `language/global-code` carry
-        // none of the four flags, and each node's reported `total` equals its
-        // plain file count exactly. So "yield 63/63" is 63 of 120.
-        //
-        // Do not read this as a skip list — nothing is silently excluded, and
-        // every case that runs is reported honestly. It is an unmeasured HALF,
-        // and it is unmeasured everywhere, not only in that lane. Closing it
-        // means materializing both variants and reporting them as two cases,
-        // which moves every denominator in the project; that is a lane of its
-        // own, and this comment exists so the next count is not quoted as
-        // conformance coverage before it lands.
-        if case.flags.contains("onlyStrict") {
-            source.push_str("\"use strict\";\n");
-        }
-
+    if let Some(rewritten) = rewrite_wasm_aot_self_contained(case) {
+        source.push_str(&rewritten);
+    } else {
         let assert_prelude = preludes.get("assert.js");
         let typed_array_literal_plan = typed_array_literal_helper_plan(case);
         let typed_array_literal_assert_can_be_specialized =
@@ -1814,20 +2266,18 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 used_preludes.push((prelude.name.clone(), prelude.origin));
             }
         }
-    }
-
-    if let Some(sort_value_matrix) = rewrite_wasm_aot_typed_array_sort_value_matrix(case) {
-        source.push_str(&sort_value_matrix);
-    } else {
-        source.push_str(&rewrite_wasm_aot_known_static_for_of(case));
+        if let Some(sort_value_matrix) = rewrite_wasm_aot_typed_array_sort_value_matrix(case) {
+            source.push_str(&sort_value_matrix);
+        } else {
+            source.push_str(&rewrite_wasm_aot_known_static_for_of(case));
+        }
     }
 
     Ok(MaterializedTest {
-        path: case.path.clone(),
+        execution_id: case.execution_id.clone(),
         source,
         used_preludes,
         negative: case.negative.clone(),
-        is_module: case.is_module,
     })
 }
 
@@ -2726,7 +3176,7 @@ fn typed_array_literal_helper_plan(case: &TestCase) -> Option<TypedArrayLiteralH
         .contains(&file);
     let uses_property_helper =
         !file.contains('/') && ["length.js", "name.js", "prop-desc.js"].contains(&file);
-    let source = case.original_source.as_str();
+    let source = case.original_source.as_ref();
     let assert_mode = if uses_property_helper && !source.contains("assert.") {
         TypedArrayLiteralAssertMode::Omit
     } else if (uses_property_helper
@@ -4211,7 +4661,7 @@ fn can_use_wasm_aot_same_value_assert_prelude(
         return false;
     }
 
-    let source = case.original_source.as_str();
+    let source = case.original_source.as_ref();
     source.contains("assert.sameValue") && !source_uses_assertions_other_than_same_value(source)
 }
 
@@ -4247,7 +4697,7 @@ fn can_use_wasm_aot_compare_array_assert_prelude(
         return false;
     }
 
-    let source = case.original_source.as_str();
+    let source = case.original_source.as_ref();
     (source.contains("assert.compareArray") || source.contains("compareArray("))
         && !source_uses_assertions_other_than_compare_array(source)
 }
@@ -12970,7 +13420,7 @@ for (let ctor of ctors) {
             .path
             .starts_with("built-ins/TypedArray/prototype/length/")
     {
-        return case.original_source.clone();
+        return case.original_source.to_string();
     }
 
     case.original_source
@@ -18677,26 +19127,43 @@ fn rewrite_typedarray_accessor_resizable_case(case: &TestCase) -> Option<String>
 }
 
 pub fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSummary, String> {
-    let manifest = discover_suite(config, run_config.filter.as_deref())?;
+    let discovered = discover_suite(config, run_config.filter.as_deref())?;
     let preludes = load_preludes(config)?;
     let cases = shard_cases(
-        &manifest.cases,
+        &discovered.cases,
         run_config.shard_index,
         run_config.shard_count,
     )?;
-    let results = execute_cases(config, &manifest, &preludes, &cases, &run_config)?;
+    let run_kind = format!(
+        "shard-{}/{}",
+        run_config.shard_index + 1,
+        run_config.shard_count
+    );
+    let manifest = manifest_for_selected_cases(&discovered, cases, &run_kind)?;
+    let results = execute_cases(
+        config,
+        &manifest,
+        &preludes,
+        &manifest.cases,
+        &run_config,
+        &run_kind,
+        &[],
+        ResumeCheckpointLoadPolicy::RequireExact,
+    )?;
     let summary = summarize_results(&results);
 
-    let snapshot = snapshot_from_summary(
-        &manifest,
-        format!(
-            "shard-{}/{}",
-            run_config.shard_index + 1,
-            run_config.shard_count
-        ),
-        &summary,
-        run_config.execution_backend,
-    );
+    let snapshot =
+        snapshot_from_summary(&manifest, run_kind, &summary, run_config.execution_backend);
+    validate_case_snapshot_contract(
+        &snapshot,
+        &manifest
+            .cases
+            .iter()
+            .map(|case| case.execution_id.clone())
+            .collect::<Vec<_>>(),
+        CaseSetRequirement::Exact,
+        "completed shard snapshot",
+    )?;
     write_snapshot(config, &snapshot, &run_config.snapshot_name)?;
 
     Ok(ShardSummary {
@@ -18708,10 +19175,54 @@ pub fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSum
     })
 }
 
+fn manifest_for_selected_cases(
+    discovered: &SuiteManifest,
+    cases: Vec<TestCase>,
+    selection: &str,
+) -> Result<SuiteManifest, String> {
+    let discovered_ids = discovered
+        .cases
+        .iter()
+        .map(|case| &case.execution_id)
+        .collect::<BTreeSet<_>>();
+    if discovered_ids.len() != discovered.cases.len() {
+        return Err("discovered Test262 manifest contains duplicate execution ids".to_string());
+    }
+    let selected_ids = cases
+        .iter()
+        .map(|case| &case.execution_id)
+        .collect::<BTreeSet<_>>();
+    if selected_ids.len() != cases.len() || !selected_ids.is_subset(&discovered_ids) {
+        return Err(format!(
+            "Test262 {selection} selection must contain unique executions from the discovered manifest"
+        ));
+    }
+
+    let filter = format!(
+        "{}#{selection}",
+        discovered.filter.as_deref().unwrap_or("<all>")
+    );
+    Ok(SuiteManifest {
+        pinned_revisions: discovered.pinned_revisions.clone(),
+        manifest_hash: hash_manifest(&discovered.pinned_revisions, &cases, Some(&filter)),
+        filter: Some(filter),
+        cases,
+    })
+}
+
 pub fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummary, String> {
     let manifest = discover_suite(config, run_config.filter.as_deref())?;
     let preludes = load_preludes(config)?;
-    let results = execute_cases(config, &manifest, &preludes, &manifest.cases, &run_config)?;
+    let results = execute_cases(
+        config,
+        &manifest,
+        &preludes,
+        &manifest.cases,
+        &run_config,
+        "full",
+        &[],
+        ResumeCheckpointLoadPolicy::RequireExact,
+    )?;
     let summary = summarize_results(&results);
 
     let snapshot = snapshot_from_summary(
@@ -18720,6 +19231,16 @@ pub fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummar
         &summary,
         run_config.execution_backend,
     );
+    validate_case_snapshot_contract(
+        &snapshot,
+        &manifest
+            .cases
+            .iter()
+            .map(|case| case.execution_id.clone())
+            .collect::<Vec<_>>(),
+        CaseSetRequirement::Exact,
+        "completed full-run snapshot",
+    )?;
     write_snapshot(config, &snapshot, &run_config.snapshot_name)?;
 
     Ok(summary)
@@ -18741,6 +19262,10 @@ pub fn run_top_level_matrix(
     let aggregate_snapshot_name = format!("{}-aggregate", run_config.snapshot_name);
     let pinned_revisions = pinned_revisions(config);
     let low_ram_resume = run_config.resume && run_config.max_matrix_nodes == Some(1);
+    let checkpoint_load_policy = match low_ram_resume {
+        true => ResumeCheckpointLoadPolicy::TreatStaleEnvelopeAsAbsent,
+        false => ResumeCheckpointLoadPolicy::RequireExact,
+    };
 
     let mut entries = Vec::new();
     let mut completed_nodes = BTreeSet::new();
@@ -18778,6 +19303,7 @@ pub fn run_top_level_matrix(
                 &nodes,
                 run_config.execution_backend,
                 &pinned_revisions,
+                checkpoint_load_policy,
             )?;
             entries = rebuilt_entries;
             completed_nodes = entries
@@ -18791,14 +19317,15 @@ pub fn run_top_level_matrix(
                 continue;
             }
 
-            let resumed = if let Some(entry) = aggregate_entries.get(&node.node_id) {
+            let loaded = if let Some(entry) = aggregate_entries.get(&node.node_id) {
                 load_resume_matrix_node_summary(
                     config,
                     &run_config.snapshot_name,
-                    entry,
+                    node,
+                    Some(entry),
                     run_config.execution_backend,
                     &pinned_revisions,
-                )?
+                )
             } else {
                 load_resume_matrix_node_summary_for_node(
                     config,
@@ -18806,8 +19333,9 @@ pub fn run_top_level_matrix(
                     node,
                     run_config.execution_backend,
                     &pinned_revisions,
-                )?
+                )
             };
+            let resumed = checkpoint_load_policy.resolve(loaded)?;
 
             if let Some(summary) = resumed {
                 completed_nodes.insert(node.node_id.clone());
@@ -18836,7 +19364,12 @@ pub fn run_top_level_matrix(
             continue;
         }
 
-        entries.push(run_matrix_node(config, node, &run_config)?);
+        entries.push(run_matrix_node(
+            config,
+            node,
+            &run_config,
+            checkpoint_load_policy,
+        )?);
         completed_nodes.insert(node.node_id.clone());
 
         let aggregate = aggregate_from_entries(&entries);
@@ -18868,23 +19401,88 @@ fn rebuild_resume_entries_from_node_snapshots(
     nodes: &[RunMatrixNode],
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
+    checkpoint_load_policy: ResumeCheckpointLoadPolicy,
 ) -> Result<Vec<TopLevelRunSummary>, String> {
     let mut entries = Vec::new();
     for node in nodes {
-        match load_resume_matrix_node_summary_for_node(
+        let loaded = load_resume_matrix_node_summary_for_node(
             config,
             snapshot_name,
             node,
             expected_backend,
             expected_pinned,
-        ) {
-            Ok(Some(summary)) => entries.push(summary),
-            Ok(None) => {}
-            Err(err) if err.starts_with("resume node snapshot mismatch") => {}
-            Err(err) => return Err(err),
+        );
+        if let Some(summary) = checkpoint_load_policy.resolve(loaded)? {
+            entries.push(summary);
         }
     }
     Ok(entries)
+}
+
+/// Controls whether a stale but well-formed checkpoint is a hard mismatch or
+/// absent work. Only the top-level low-RAM matrix flow selects the latter; all
+/// direct, child, shard, full, and public node entry points require exact
+/// evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResumeCheckpointLoadPolicy {
+    RequireExact,
+    TreatStaleEnvelopeAsAbsent,
+}
+
+impl ResumeCheckpointLoadPolicy {
+    fn resolve<T>(
+        self,
+        loaded: Result<Option<T>, ResumeCheckpointLoadError>,
+    ) -> Result<Option<T>, String> {
+        match (self, loaded) {
+            (Self::RequireExact, Ok(value)) | (Self::TreatStaleEnvelopeAsAbsent, Ok(value)) => {
+                Ok(value)
+            }
+            (Self::RequireExact, Err(ResumeCheckpointLoadError::StaleEnvelope(err))) => Err(err),
+            (Self::RequireExact, Err(ResumeCheckpointLoadError::Integrity(err))) => Err(err),
+            (
+                Self::TreatStaleEnvelopeAsAbsent,
+                Err(ResumeCheckpointLoadError::StaleEnvelope(_)),
+            ) => Ok(None),
+            (Self::TreatStaleEnvelopeAsAbsent, Err(ResumeCheckpointLoadError::Integrity(err))) => {
+                Err(err)
+            }
+        }
+    }
+}
+
+/// A node file found at the canonical resume path either belongs to an older
+/// run envelope or is corrupt evidence for the current one. Only the former is
+/// ignorable throughout the top-level low-RAM resume flow; string-prefix
+/// matching made body hash corruption look stale and silently dropped it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ResumeCheckpointLoadError {
+    StaleEnvelope(String),
+    Integrity(String),
+}
+
+impl ResumeCheckpointLoadError {
+    fn stale(message: impl Into<String>) -> Self {
+        Self::StaleEnvelope(message.into())
+    }
+
+    fn integrity(message: impl Into<String>) -> Self {
+        Self::Integrity(message.into())
+    }
+
+    fn into_message(self) -> String {
+        match self {
+            Self::StaleEnvelope(message) | Self::Integrity(message) => message,
+        }
+    }
+}
+
+impl fmt::Display for ResumeCheckpointLoadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StaleEnvelope(message) | Self::Integrity(message) => formatter.write_str(message),
+        }
+    }
 }
 
 fn load_resume_matrix_node_summary_for_node(
@@ -18893,25 +19491,12 @@ fn load_resume_matrix_node_summary_for_node(
     node: &RunMatrixNode,
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
-) -> Result<Option<TopLevelRunSummary>, String> {
-    let manifest_hash = matrix_node_manifest_hash(expected_pinned, node);
-    let entry = TopLevelRunSummary {
-        node_id: node.node_id.clone(),
-        node_kind: node.node_kind,
-        filter: node.filter.clone(),
-        matrix_path: node.matrix_path.clone(),
-        total: node.total_cases,
-        passed: 0,
-        failed: 0,
-        counts_per_kind: BTreeMap::new(),
-        counts_per_outcome: empty_outcome_counts(),
-        counts_per_origin: BTreeMap::new(),
-        manifest_hash,
-    };
+) -> Result<Option<TopLevelRunSummary>, ResumeCheckpointLoadError> {
     load_resume_matrix_node_summary(
         config,
         snapshot_name,
-        &entry,
+        node,
+        None,
         expected_backend,
         expected_pinned,
     )
@@ -18920,194 +19505,171 @@ fn load_resume_matrix_node_summary_for_node(
 fn load_resume_matrix_node_summary(
     config: &SuiteConfig,
     snapshot_name: &str,
-    entry: &TopLevelRunSummary,
+    node: &RunMatrixNode,
+    expected_entry: Option<&TopLevelRunSummary>,
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
-) -> Result<Option<TopLevelRunSummary>, String> {
+) -> Result<Option<TopLevelRunSummary>, ResumeCheckpointLoadError> {
+    let manifest_hash = expected_entry.map_or_else(
+        || matrix_node_manifest_hash(expected_pinned, node),
+        |entry| entry.manifest_hash,
+    );
     let node_snapshot_name = format!(
         "{}-{}",
         snapshot_name,
-        sanitize_filter_for_snapshot(&entry.node_id)
+        sanitize_filter_for_snapshot(&node.node_id)
     );
-    let path = config.snapshot_dir.join(format!(
-        "{}-{}.json",
-        node_snapshot_name, entry.manifest_hash
-    ));
-    if !path.exists() {
+    let path = config
+        .snapshot_dir
+        .join(format!("{}-{}.json", node_snapshot_name, manifest_hash));
+    let exists = path.try_exists().map_err(|err| {
+        ResumeCheckpointLoadError::integrity(format!(
+            "failed to inspect resume node snapshot {}: {err}",
+            path.display()
+        ))
+    })?;
+    if !exists {
         return Ok(None);
     }
 
-    let file = read_snapshot_file(&path)?;
-    file.require_current(&path, "resume node snapshot")?;
-    if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
-        return Err(format!(
-            "resume node snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
-            path.display(),
-            MATRIX_STRATEGY_VERSION,
-            file.matrix_strategy_version
-        ));
-    }
-    if file.execution_backend != expected_backend.as_str() {
-        return Err(format!(
-            "resume node snapshot mismatch for execution_backend in {}: expected {}, found {}",
-            path.display(),
-            expected_backend.as_str(),
-            file.execution_backend
-        ));
-    }
-    if file.manifest_hash != entry.manifest_hash {
-        return Err(format!(
-            "resume node snapshot mismatch for manifest_hash in {}: expected {}, found {}",
-            path.display(),
-            entry.manifest_hash,
-            file.manifest_hash
-        ));
-    }
-    if file.pinned_revisions.ecma262 != expected_pinned.ecma262 {
-        return Err(format!(
-            "resume node snapshot mismatch for ecma262 revision in {}: expected {}, found {}",
-            path.display(),
-            expected_pinned.ecma262,
-            file.pinned_revisions.ecma262
-        ));
-    }
-    let recorded_pinned = PinnedRevisions {
-        ecma262: file.pinned_revisions.ecma262.clone(),
-        test262: file.pinned_revisions.test262.clone(),
-    };
-    if !test262_pins_equivalent(config, &recorded_pinned, expected_pinned) {
-        return Err(format!(
-            "resume node snapshot mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
-            path.display(),
-            expected_pinned.test262,
-            file.pinned_revisions.test262
-        ));
-    }
-    let is_complete_case_checkpoint = file.run_kind == "resume-case-checkpoint"
-        && file.total == entry.total
-        && file.completed_paths.len() == file.total;
-    if !is_complete_case_checkpoint && file.run_kind == "resume-case-checkpoint" {
+    let file = read_snapshot_file(&path).map_err(ResumeCheckpointLoadError::integrity)?;
+    let case_requirement = validate_resume_node_snapshot(
+        config,
+        &file,
+        &path,
+        node,
+        manifest_hash,
+        expected_backend,
+        expected_pinned,
+    )?;
+    let snapshot = snapshot_from_file(file).map_err(ResumeCheckpointLoadError::integrity)?;
+    validate_case_snapshot_contract(
+        &snapshot,
+        &node.case_ids,
+        case_requirement,
+        &format!(
+            "matrix node checkpoint integrity failure in {}",
+            path.display()
+        ),
+    )
+    .map_err(ResumeCheckpointLoadError::integrity)?;
+    if snapshot.completed_test_ids.len() < node.total_cases {
+        if expected_entry.is_some() {
+            return Err(ResumeCheckpointLoadError::integrity(format!(
+                "matrix node checkpoint integrity failure in {}: aggregate entry marks node {} complete, but its checkpoint contains {} of {} executions",
+                path.display(),
+                node.node_id,
+                snapshot.completed_test_ids.len(),
+                node.total_cases
+            )));
+        }
         return Ok(None);
     }
-    if !is_complete_case_checkpoint {
-        let expected_run_kind = format!("matrix-{}", entry.node_kind.as_str());
-        if file.run_kind != expected_run_kind {
-            return Err(format!(
-                "resume node snapshot mismatch for run_kind in {}: expected {}, found {}",
-                path.display(),
-                expected_run_kind,
-                file.run_kind
-            ));
-        }
-        if file.matrix_path != entry.matrix_path {
-            return Err(format!(
-                "resume node snapshot mismatch for matrix_path in {}: expected [{}], found [{}]",
-                path.display(),
-                entry.matrix_path.join(", "),
-                file.matrix_path.join(", ")
-            ));
-        }
-    }
-
-    let snapshot = snapshot_from_file(file)?;
-    Ok(Some(TopLevelRunSummary {
-        node_id: entry.node_id.clone(),
-        node_kind: entry.node_kind,
-        filter: entry.filter.clone(),
-        matrix_path: entry.matrix_path.clone(),
+    let actual_entry = TopLevelRunSummary {
+        node_id: node.node_id.clone(),
+        node_kind: node.node_kind,
+        filter: node.filter.clone(),
+        matrix_path: node.matrix_path.clone(),
         total: snapshot.total,
         passed: snapshot.passed,
         failed: snapshot.total.saturating_sub(snapshot.passed),
         counts_per_kind: snapshot.counts_per_kind.clone(),
         counts_per_outcome: snapshot.counts_per_outcome.clone(),
         counts_per_origin: counts_per_origin(&snapshot.failures),
-        manifest_hash: entry.manifest_hash,
-    }))
+        manifest_hash: snapshot.manifest_hash,
+    };
+    validate_complete_node_contract(
+        &snapshot,
+        node,
+        expected_entry.unwrap_or(&actual_entry),
+        &path,
+    )
+    .map_err(ResumeCheckpointLoadError::integrity)?;
+    Ok(Some(actual_entry))
 }
 
 fn validate_resume_node_snapshot(
     config: &SuiteConfig,
     file: &SnapshotFile,
     path: &Path,
-    entry: &TopLevelRunSummary,
+    node: &RunMatrixNode,
+    expected_manifest_hash: u64,
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
-    snapshot_use: SnapshotUse,
-) -> Result<(), String> {
-    if snapshot_use == SnapshotUse::CurrentState {
-        file.require_current(path, "resume node snapshot")?;
-    }
-    if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
-        return Err(format!(
-            "resume node snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
-            path.display(),
-            MATRIX_STRATEGY_VERSION,
-            file.matrix_strategy_version
-        ));
-    }
+) -> Result<CaseSetRequirement, ResumeCheckpointLoadError> {
+    file.require_current(path, "resume node snapshot")
+        .map_err(ResumeCheckpointLoadError::integrity)?;
     if file.execution_backend != expected_backend.as_str() {
-        return Err(format!(
+        return Err(ResumeCheckpointLoadError::stale(format!(
             "resume node snapshot mismatch for execution_backend in {}: expected {}, found {}",
             path.display(),
             expected_backend.as_str(),
             file.execution_backend
-        ));
+        )));
     }
-    if file.manifest_hash != entry.manifest_hash {
-        return Err(format!(
-            "resume node snapshot mismatch for manifest_hash in {}: expected {}, found {}",
+    if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
+        return Err(ResumeCheckpointLoadError::stale(format!(
+            "resume node snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
             path.display(),
-            entry.manifest_hash,
-            file.manifest_hash
-        ));
+            MATRIX_STRATEGY_VERSION,
+            file.matrix_strategy_version
+        )));
     }
     if file.pinned_revisions.ecma262 != expected_pinned.ecma262 {
-        return Err(format!(
+        return Err(ResumeCheckpointLoadError::stale(format!(
             "resume node snapshot mismatch for ecma262 revision in {}: expected {}, found {}",
             path.display(),
             expected_pinned.ecma262,
             file.pinned_revisions.ecma262
-        ));
+        )));
     }
     let recorded_pinned = PinnedRevisions {
         ecma262: file.pinned_revisions.ecma262.clone(),
         test262: file.pinned_revisions.test262.clone(),
     };
     if !test262_pins_equivalent(config, &recorded_pinned, expected_pinned) {
-        return Err(format!(
+        return Err(ResumeCheckpointLoadError::stale(format!(
             "resume node snapshot mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
             path.display(),
             expected_pinned.test262,
             file.pinned_revisions.test262
-        ));
+        )));
     }
-    let is_complete_case_checkpoint = file.run_kind == "resume-case-checkpoint"
-        && file.completed_paths.len() == file.total
-        && file.total == entry.total;
-    if !is_complete_case_checkpoint {
-        let expected_run_kind = format!("matrix-{}", entry.node_kind.as_str());
-        if file.run_kind != expected_run_kind {
-            return Err(format!(
-                "resume node snapshot mismatch for run_kind in {}: expected {}, found {}",
-                path.display(),
-                expected_run_kind,
-                file.run_kind
-            ));
-        }
-        if file.matrix_path != entry.matrix_path {
-            return Err(format!(
-                "resume node snapshot mismatch for matrix_path in {}: expected [{}], found [{}]",
-                path.display(),
-                entry.matrix_path.join(", "),
-                file.matrix_path.join(", ")
-            ));
-        }
+    if file.manifest_hash != expected_manifest_hash {
+        return Err(ResumeCheckpointLoadError::integrity(format!(
+            "resume node snapshot integrity failure for manifest_hash in {}: filename/selection expects {}, body records {}",
+            path.display(),
+            expected_manifest_hash,
+            file.manifest_hash
+        )));
     }
-    Ok(())
+    let recomputed_manifest_hash = matrix_node_manifest_hash(&recorded_pinned, node);
+    if file.manifest_hash != recomputed_manifest_hash {
+        return Err(ResumeCheckpointLoadError::integrity(format!(
+            "resume node snapshot integrity failure for manifest_hash in {}: accepted recorded pins and exact node execution set recompute to {}, body records {}",
+            path.display(),
+            recomputed_manifest_hash,
+            file.manifest_hash
+        )));
+    }
+    direct_snapshot_case_requirement(
+        DirectSnapshotKind::ResumeCheckpoint,
+        &format!("matrix-{}", node.node_kind.as_str()),
+        &node.matrix_path,
+        &file.run_kind,
+        file.checkpoint_identity.value(),
+        &file.matrix_path,
+    )
+    .map_err(|err| {
+        ResumeCheckpointLoadError::integrity(format!(
+            "matrix node checkpoint integrity failure in {}: {err}",
+            path.display()
+        ))
+    })
 }
 
 pub fn classify_failure(
-    test_path: impl Into<String>,
+    test_id: TestExecutionId,
     kind: FailureKind,
     detail: impl Into<String>,
 ) -> FailureRecord {
@@ -19116,7 +19678,8 @@ pub fn classify_failure(
     let origin = classify_failure_origin(&detail);
     let detail = format!("[origin:{}] {detail}", origin.as_str());
     FailureRecord {
-        test_path: test_path.into(),
+        test_path: test_id.path().to_string(),
+        test_id,
         kind,
         outcome,
         origin,
@@ -19338,7 +19901,12 @@ pub fn run_selected_matrix_node(
 ) -> Result<RunSummary, String> {
     let nodes = load_or_build_run_matrix(config, run_config.execution_backend)?;
     let node = select_run_matrix_node(&nodes, node_selector)?;
-    let (_, summary) = execute_matrix_node(config, node, &run_config)?;
+    let (_, summary) = execute_matrix_node(
+        config,
+        node,
+        &run_config,
+        ResumeCheckpointLoadPolicy::RequireExact,
+    )?;
     Ok(summary)
 }
 
@@ -19391,14 +19959,14 @@ fn build_matrix_nodes_for_root(
     let matrix_path = vec![filter.clone()];
     if !MATRIX_SPLIT_FILTERS.contains(&root) || cases.is_empty() {
         let mut ordered = cases.to_vec();
-        ordered.sort_by(|left, right| left.path.cmp(&right.path));
+        ordered.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
         return vec![RunMatrixNode {
             node_id: filter.clone(),
             node_kind: MatrixNodeKind::FilterLeaf,
             filter,
             matrix_path,
             total_cases: ordered.len(),
-            case_paths: ordered.into_iter().map(|case| case.path).collect(),
+            case_ids: ordered.into_iter().map(|case| case.execution_id).collect(),
         }];
     }
 
@@ -19420,13 +19988,13 @@ fn build_matrix_nodes_for_root(
         if child_cases.len() > recursion_threshold {
             let grandchild_groups = group_cases_by_directory_segment(&child_cases, 2);
             if !grandchild_groups.is_empty() {
-                let grandchild_case_paths = grandchild_groups
+                let grandchild_case_ids = grandchild_groups
                     .values()
-                    .flat_map(|group| group.iter().map(|case| case.path.clone()))
+                    .flat_map(|group| group.iter().map(|case| case.execution_id.clone()))
                     .collect::<BTreeSet<_>>();
                 let residual_cases = child_cases
                     .iter()
-                    .filter(|case| !grandchild_case_paths.contains(&case.path))
+                    .filter(|case| !grandchild_case_ids.contains(&case.execution_id))
                     .cloned()
                     .collect::<Vec<_>>();
                 if !residual_cases.is_empty() {
@@ -19468,7 +20036,7 @@ fn finalize_matrix_nodes(
     recursion_threshold: usize,
     chunk_size: usize,
 ) -> Vec<RunMatrixNode> {
-    cases.sort_by(|left, right| left.path.cmp(&right.path));
+    cases.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
     if cases.len() > recursion_threshold {
         let total_chunks = cases.len().div_ceil(chunk_size);
         return cases
@@ -19485,7 +20053,7 @@ fn finalize_matrix_nodes(
                     filter: filter.clone(),
                     matrix_path: matrix_path.clone(),
                     total_cases: chunk.len(),
-                    case_paths: chunk.iter().map(|case| case.path.clone()).collect(),
+                    case_ids: chunk.iter().map(|case| case.execution_id.clone()).collect(),
                 }
             })
             .collect();
@@ -19497,7 +20065,7 @@ fn finalize_matrix_nodes(
         filter,
         matrix_path,
         total_cases: cases.len(),
-        case_paths: cases.into_iter().map(|case| case.path).collect(),
+        case_ids: cases.into_iter().map(|case| case.execution_id).collect(),
     }]
 }
 
@@ -19554,6 +20122,7 @@ fn hash_matrix_nodes(nodes: &[RunMatrixNode], execution_backend: ExecutionBacken
         node.filter.hash(&mut hasher);
         node.matrix_path.hash(&mut hasher);
         node.total_cases.hash(&mut hasher);
+        node.case_ids.hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -19562,20 +20131,57 @@ fn sanitize_filter_for_snapshot(filter: &str) -> String {
     filter.replace('/', "_")
 }
 
+fn validate_manifest_execution_set(
+    manifest: &SuiteManifest,
+    cases: &[TestCase],
+) -> Result<(), String> {
+    let manifest_ids = manifest
+        .cases
+        .iter()
+        .map(|case| &case.execution_id)
+        .collect::<BTreeSet<_>>();
+    let selected_ids = cases
+        .iter()
+        .map(|case| &case.execution_id)
+        .collect::<BTreeSet<_>>();
+    if manifest_ids.len() != manifest.cases.len() {
+        return Err("Test262 manifest contains duplicate execution ids".to_string());
+    }
+    if selected_ids.len() != cases.len() {
+        return Err("Test262 execution selection contains duplicate ids".to_string());
+    }
+    if selected_ids != manifest_ids {
+        return Err(
+            "Test262 execution selection does not exactly match its selected manifest".to_string(),
+        );
+    }
+    Ok(())
+}
+
 fn execute_cases(
     config: &SuiteConfig,
     manifest: &SuiteManifest,
     preludes: &PreludeStore,
     cases: &[TestCase],
     run_config: &RunConfig,
+    terminal_run_kind: &str,
+    terminal_matrix_path: &[String],
+    checkpoint_load_policy: ResumeCheckpointLoadPolicy,
 ) -> Result<Vec<TestResult>, String> {
     install_test262_panic_hook();
+    validate_manifest_execution_set(manifest, cases)?;
 
     let previous = if run_config.resume {
         load_previous_snapshot(
             config,
             &run_config.snapshot_name,
-            ResumeCheckpointIdentity::for_run(manifest, run_config),
+            ResumeCheckpointIdentity::for_resume(
+                manifest,
+                run_config,
+                terminal_run_kind,
+                terminal_matrix_path,
+            ),
+            checkpoint_load_policy,
         )?
     } else {
         None
@@ -19585,17 +20191,17 @@ fn execute_cases(
     if let Some(snapshot) = previous {
         for failure in snapshot.failures {
             completed.insert(
-                failure.test_path.clone(),
+                failure.test_id.clone(),
                 TestResult {
-                    test_path: failure.test_path.clone(),
+                    test_id: failure.test_id.clone(),
                     status: TestStatus::Failed(failure),
                     duration_ms: 0,
                 },
             );
         }
-        for path in snapshot.completed_paths {
-            completed.entry(path.clone()).or_insert(TestResult {
-                test_path: path,
+        for test_id in snapshot.completed_test_ids {
+            completed.entry(test_id.clone()).or_insert(TestResult {
+                test_id,
                 status: TestStatus::Passed,
                 duration_ms: 0,
             });
@@ -19610,6 +20216,7 @@ fn execute_cases(
         attempt_journal_path(config, &run_config.snapshot_name, manifest.manifest_hash),
         run_config.resume,
         CrashStrikeLimit::DEFAULT,
+        attempt_journal_identity(manifest, run_config)?,
     );
     let suspects = journal.charge_strikes_for_survivors()?;
     for suspect in &suspects {
@@ -19618,7 +20225,7 @@ fn execute_cases(
         // why identifying the batch-4 poison case needed a snapshot diff.
         eprintln!(
             "test262 attempt journal: {} was in flight when a previous process died (strike {} of {})",
-            suspect.path,
+            suspect.test_id,
             suspect.strikes,
             journal.limit()
         );
@@ -19626,7 +20233,7 @@ fn execute_cases(
 
     let remaining = cases
         .iter()
-        .filter(|case| !completed.contains_key(&case.path))
+        .filter(|case| !completed.contains_key(&case.execution_id))
         .cloned()
         .collect::<Vec<_>>();
     let remaining = if run_config.execution_backend == ExecutionBackend::WasmAot {
@@ -19644,7 +20251,7 @@ fn execute_cases(
         // `(snapshot_name, manifest_hash)` pair to inherit.
         journal.discard()?;
         let mut existing = completed.into_values().collect::<Vec<_>>();
-        existing.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+        existing.sort_by(|left, right| left.test_id.cmp(&right.test_id));
         return Ok(existing);
     }
 
@@ -19768,14 +20375,14 @@ fn execute_cases(
                                 }
                                 result
                             }
-                            CaseAdmission::Quarantined { path, strikes } => {
+                            CaseAdmission::Quarantined { test_id, strikes } => {
                                 eprintln!(
-                                    "test262 quarantine: {path} was in flight for {strikes} process death(s); recorded as outcome Crash and not run"
+                                    "test262 quarantine: {test_id} was in flight for {strikes} process death(s); recorded as outcome Crash and not run"
                                 );
                                 TestResult {
-                                    test_path: path.clone(),
+                                    test_id: test_id.clone(),
                                     status: TestStatus::Failed(quarantined_case_failure(
-                                        &path, strikes,
+                                        test_id, strikes,
                                     )),
                                     duration_ms: 0,
                                 }
@@ -19796,7 +20403,7 @@ fn execute_cases(
 
                         if let Some((completed_count, mut snapshot_results)) = checkpoint_snapshot {
                             snapshot_results
-                                .sort_by(|left, right| left.test_path.cmp(&right.test_path));
+                                .sort_by(|left, right| left.test_id.cmp(&right.test_id));
                             let mut last_written = last_checkpoint_count
                                 .lock()
                                 .expect("checkpoint count mutex poisoned");
@@ -19808,6 +20415,8 @@ fn execute_cases(
                                 manifest,
                                 &snapshot_results,
                                 run_config,
+                                terminal_run_kind,
+                                terminal_matrix_path,
                             ) {
                                 Ok(()) => {
                                     *last_written = completed_count;
@@ -19856,14 +20465,21 @@ fn execute_cases(
 
     let mut all_results = previously_completed;
     all_results.extend(results.lock().expect("results mutex poisoned").clone());
-    all_results.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+    all_results.sort_by(|left, right| left.test_id.cmp(&right.test_id));
 
     // Always write a final checkpoint on a normal (non-interrupted) exit so
     // resume runs never lose completed work to the checkpoint interval, even
     // when the last worker's write happened before its case count crossed a
     // boundary.
     if run_config.resume {
-        write_resume_case_checkpoint(config, manifest, &all_results, run_config)?;
+        write_resume_case_checkpoint(
+            config,
+            manifest,
+            &all_results,
+            run_config,
+            terminal_run_kind,
+            terminal_matrix_path,
+        )?;
     }
 
     // Last, and only on the success path: this run exited cleanly, so nothing
@@ -19894,7 +20510,7 @@ fn wasm_aot_case_should_run_before_cache_misses(case: &TestCase, preludes: &Prel
         return false;
     };
     let compile_options = compile_options_for_case(case);
-    if materialized.is_module {
+    if materialized.execution_mode().is_module() {
         wasm_aot_module_is_cached(&materialized.source, &compile_options)
     } else {
         wasm_aot_script_is_cached(&materialized.source, &compile_options)
@@ -19979,24 +20595,117 @@ fn compile_options_for_case(case: &TestCase) -> CompileOptions {
 
 /// The evidence dimensions a direct-run checkpoint must match before resume.
 ///
-/// Keeping the backend beside the manifest hash in one required argument makes
-/// it impossible to call the checkpoint loader with only the file-name
-/// identity. That former shape let a completed SpecExec checkpoint enter a
-/// Wasm-AOT run and skip every case before the result was rewritten with a
-/// Wasm-AOT label.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Keeping the pins, backend, exact selected ids, and intended terminal
+/// kind/path beside the manifest hash makes it impossible to call the loader
+/// with only a file-name identity. That former shape let foreign selections or
+/// a completed SpecExec checkpoint enter another run and skip cases before the
+/// result was relabelled.
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ResumeCheckpointIdentity {
     manifest_hash: u64,
+    manifest_filter: Option<String>,
     execution_backend: ExecutionBackend,
+    pinned_revisions: PinnedRevisions,
+    selected_test_ids: Vec<TestExecutionId>,
+    kind: DirectSnapshotKind,
+    expected_terminal_run_kind: String,
+    expected_matrix_path: Vec<String>,
 }
 
 impl ResumeCheckpointIdentity {
-    fn for_run(manifest: &SuiteManifest, run_config: &RunConfig) -> Self {
+    fn for_resume(
+        manifest: &SuiteManifest,
+        run_config: &RunConfig,
+        expected_terminal_run_kind: impl Into<String>,
+        expected_matrix_path: &[String],
+    ) -> Self {
         Self {
             manifest_hash: manifest.manifest_hash,
+            manifest_filter: manifest.filter.clone(),
             execution_backend: run_config.execution_backend,
+            pinned_revisions: manifest.pinned_revisions.clone(),
+            selected_test_ids: manifest
+                .cases
+                .iter()
+                .map(|case| case.execution_id.clone())
+                .collect(),
+            kind: DirectSnapshotKind::ResumeCheckpoint,
+            expected_terminal_run_kind: expected_terminal_run_kind.into(),
+            expected_matrix_path: expected_matrix_path.to_vec(),
         }
     }
+
+    fn for_single_case_child(manifest: &SuiteManifest, run_config: &RunConfig) -> Self {
+        let mut identity = Self::for_resume(manifest, run_config, "full", &[]);
+        identity.kind = DirectSnapshotKind::SingleCaseChild;
+        identity
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectSnapshotKind {
+    ResumeCheckpoint,
+    SingleCaseChild,
+}
+
+fn direct_snapshot_case_requirement(
+    kind: DirectSnapshotKind,
+    expected_terminal_run_kind: &str,
+    expected_matrix_path: &[String],
+    run_kind: &str,
+    checkpoint_identity: Option<&CheckpointRunIdentity>,
+    matrix_path: &[String],
+) -> Result<CaseSetRequirement, String> {
+    CheckpointRunIdentity::new(expected_terminal_run_kind, expected_matrix_path).validate()?;
+    if run_kind == "resume-case-checkpoint" {
+        if kind != DirectSnapshotKind::ResumeCheckpoint {
+            return Err(
+                "single-case child snapshot cannot be an in-progress resume checkpoint".to_string(),
+            );
+        }
+        let checkpoint_identity = checkpoint_identity.ok_or_else(|| {
+            "resume-case-checkpoint is missing its intended terminal run identity".to_string()
+        })?;
+        checkpoint_identity.validate()?;
+        if checkpoint_identity.terminal_run_kind != expected_terminal_run_kind {
+            return Err(format!(
+                "resume-case-checkpoint expected terminal run_kind {expected_terminal_run_kind}, found {}",
+                checkpoint_identity.terminal_run_kind
+            ));
+        }
+        if checkpoint_identity.matrix_path != expected_matrix_path {
+            return Err(format!(
+                "resume-case-checkpoint expected terminal matrix_path [{}], found [{}]",
+                expected_matrix_path.join(", "),
+                checkpoint_identity.matrix_path.join(", ")
+            ));
+        }
+        if !matrix_path.is_empty() {
+            return Err(format!(
+                "resume-case-checkpoint must keep terminal matrix_path only in checkpoint_identity, found snapshot matrix_path [{}]",
+                matrix_path.join(", ")
+            ));
+        }
+        return Ok(CaseSetRequirement::UniqueSubset);
+    }
+    if checkpoint_identity.is_some() {
+        return Err(format!(
+            "terminal snapshot run_kind {run_kind} must not contain checkpoint_identity"
+        ));
+    }
+    if run_kind != expected_terminal_run_kind {
+        return Err(format!(
+            "direct snapshot expected run_kind {expected_terminal_run_kind}, found {run_kind}"
+        ));
+    }
+    if matrix_path != expected_matrix_path {
+        return Err(format!(
+            "direct snapshot expected matrix_path [{}], found [{}]",
+            expected_matrix_path.join(", "),
+            matrix_path.join(", ")
+        ));
+    }
+    Ok(CaseSetRequirement::Exact)
 }
 
 fn write_resume_case_checkpoint(
@@ -20004,13 +20713,28 @@ fn write_resume_case_checkpoint(
     manifest: &SuiteManifest,
     results: &[TestResult],
     run_config: &RunConfig,
+    terminal_run_kind: &str,
+    terminal_matrix_path: &[String],
 ) -> Result<(), String> {
-    let snapshot = snapshot_from_summary(
+    let checkpoint_identity = CheckpointRunIdentity::new(terminal_run_kind, terminal_matrix_path);
+    checkpoint_identity.validate()?;
+    let mut snapshot = snapshot_from_summary(
         manifest,
         "resume-case-checkpoint".to_string(),
         &summarize_results(results),
         run_config.execution_backend,
     );
+    snapshot.checkpoint_identity = Some(checkpoint_identity);
+    validate_case_snapshot_contract(
+        &snapshot,
+        &manifest
+            .cases
+            .iter()
+            .map(|case| case.execution_id.clone())
+            .collect::<Vec<_>>(),
+        CaseSetRequirement::UniqueSubset,
+        "resume checkpoint being written",
+    )?;
     write_snapshot(config, &snapshot, &run_config.snapshot_name).map(|_| ())
 }
 
@@ -20051,6 +20775,17 @@ fn attempt_journal_path(config: &SuiteConfig, snapshot_name: &str, manifest_hash
         .with_extension("attempts")
 }
 
+fn attempt_journal_identity(
+    manifest: &SuiteManifest,
+    run_config: &RunConfig,
+) -> Result<AttemptJournalIdentity, String> {
+    AttemptJournalIdentity::new(
+        manifest.manifest_hash,
+        run_config.execution_backend,
+        manifest.cases.iter().map(|case| case.execution_id.clone()),
+    )
+}
+
 /// The failure record for a quarantined case.
 ///
 /// `OutcomeKind::Crash` is constructed **explicitly** here, never inferred.
@@ -20065,7 +20800,7 @@ fn attempt_journal_path(config: &SuiteConfig, snapshot_name: &str, manifest_hash
 /// happen inside compilation or execution of the emitted module, and
 /// `FailureOrigin::LocalHarness` because the *decision* not to run it is the
 /// harness's own.
-fn quarantined_case_failure(test_path: &str, strikes: CaseStrikes) -> FailureRecord {
+fn quarantined_case_failure(test_id: TestExecutionId, strikes: CaseStrikes) -> FailureRecord {
     let origin = FailureOrigin::LocalHarness;
     let detail = format!(
         "[origin:{}] process death while compiling or running this case ({} attempts); quarantined by report-all --resume",
@@ -20073,7 +20808,8 @@ fn quarantined_case_failure(test_path: &str, strikes: CaseStrikes) -> FailureRec
         strikes.get()
     );
     FailureRecord {
-        test_path: test_path.to_string(),
+        test_path: test_id.path().to_string(),
+        test_id,
         kind: FailureKind::WasmBackend,
         outcome: OutcomeKind::Crash,
         origin,
@@ -20088,8 +20824,8 @@ fn single_case_manifest(config: &SuiteConfig, case: &TestCase) -> SuiteManifest 
     let pinned = pinned_revisions(config);
     SuiteManifest {
         pinned_revisions: pinned.clone(),
-        manifest_hash: hash_manifest(&pinned, &cases, Some(case.path.as_str())),
-        filter: Some(case.path.clone()),
+        manifest_hash: hash_manifest(&pinned, &cases, Some(&case.execution_id.wire_key())),
+        filter: Some(case.execution_id.wire_key()),
         cases,
     }
 }
@@ -20099,24 +20835,24 @@ fn result_from_single_case_snapshot(
     snapshot: ProgressSnapshot,
     duration_ms: u128,
 ) -> Result<TestResult, String> {
-    if snapshot.total != 1 {
-        return Err(format!(
-            "single-case child snapshot for {} reported total {}",
-            case.path, snapshot.total
-        ));
-    }
+    validate_case_snapshot_contract(
+        &snapshot,
+        std::slice::from_ref(&case.execution_id),
+        CaseSetRequirement::Exact,
+        &format!("single-case child snapshot for {}", case.execution_id),
+    )?;
 
     if snapshot.passed == 1 && snapshot.failures.is_empty() {
         return Ok(TestResult {
-            test_path: case.path.clone(),
+            test_id: case.execution_id.clone(),
             status: TestStatus::Passed,
             duration_ms,
         });
     }
 
-    if snapshot.failures.len() == 1 {
+    if snapshot.passed == 0 && snapshot.failures.len() == 1 {
         return Ok(TestResult {
-            test_path: case.path.clone(),
+            test_id: case.execution_id.clone(),
             status: TestStatus::Failed(snapshot.failures[0].clone()),
             duration_ms,
         });
@@ -20169,7 +20905,7 @@ fn run_one_case_in_child_process(
     let child_snapshot_name = format!(
         "{}-case-{}",
         run_config.snapshot_name,
-        hash_case_path(&case.path)
+        hash_case_path(&case.execution_id.wire_key())
     );
     let child_config = SuiteConfig {
         snapshot_dir: child_snapshot_dir.clone(),
@@ -20188,7 +20924,7 @@ fn run_one_case_in_child_process(
             .arg(compilation_jobs().to_string())
             .arg("test262")
             .arg("run")
-            .arg(&case.path)
+            .arg(case.execution_id.wire_key())
             .arg("--suite-root")
             .arg(&config.suite_root)
             .arg("--snapshot-dir")
@@ -20247,9 +20983,9 @@ fn run_one_case_in_child_process(
         let duration_ms = start.elapsed().as_millis();
         if status.is_none() {
             return Ok(TestResult {
-                test_path: case.path.clone(),
+                test_id: case.execution_id.clone(),
                 status: TestStatus::Failed(classify_failure(
-                    &case.path,
+                    case.execution_id.clone(),
                     FailureKind::Runtime,
                     format!("timeout exceeded after {}ms", duration_ms),
                 )),
@@ -20260,7 +20996,8 @@ fn run_one_case_in_child_process(
         match load_previous_snapshot(
             &child_config,
             &child_snapshot_name,
-            ResumeCheckpointIdentity::for_run(&child_manifest, run_config),
+            ResumeCheckpointIdentity::for_single_case_child(&child_manifest, run_config),
+            ResumeCheckpointLoadPolicy::RequireExact,
         ) {
             Ok(Some(snapshot)) => result_from_single_case_snapshot(case, snapshot, duration_ms),
             Ok(None) => Err(format!(
@@ -20324,9 +21061,9 @@ fn run_case_entry(
     if use_child_runner {
         return run_one_case_in_child_process(config, case, run_config).unwrap_or_else(|detail| {
             TestResult {
-                test_path: case.path.clone(),
+                test_id: case.execution_id.clone(),
                 status: TestStatus::Failed(classify_failure(
-                    &case.path,
+                    case.execution_id.clone(),
                     FailureKind::HostHarness,
                     detail,
                 )),
@@ -20344,9 +21081,9 @@ fn run_case_entry(
         )
     }))
     .unwrap_or_else(|panic_payload| TestResult {
-        test_path: case.path.clone(),
+        test_id: case.execution_id.clone(),
         status: TestStatus::Failed(classify_failure(
-            &case.path,
+            case.execution_id.clone(),
             FailureKind::Runtime,
             format!("worker panic: {}", panic_message(&panic_payload)),
         )),
@@ -20406,7 +21143,7 @@ fn run_one_case_with_wasm_aot_execution(
         if execution_backend == ExecutionBackend::WasmAot {
             if let Some(feature) = wasm_aot_unsupported_feature(case) {
                 return Err(classify_failure(
-                    &case.path,
+                    case.execution_id.clone(),
                     FailureKind::Unsupported,
                     format!(
                         "unsupported in lila wasm-aot first slice: feature `{feature}` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm."
@@ -20415,8 +21152,9 @@ fn run_one_case_with_wasm_aot_execution(
             }
         }
 
-        let materialized = materialize_test(case, preludes)
-            .map_err(|detail| classify_failure(&case.path, FailureKind::HostHarness, detail))?;
+        let materialized = materialize_test(case, preludes).map_err(|detail| {
+            classify_failure(case.execution_id.clone(), FailureKind::HostHarness, detail)
+        })?;
 
         let async_output = (execution_backend == ExecutionBackend::WasmAot
             && case.flags.contains("async"))
@@ -20449,7 +21187,7 @@ fn run_one_case_with_wasm_aot_execution(
         if compile_only_negative || spec_exec_negative_preflight {
             let negative = case.negative.as_ref().expect("negative preflight exists");
             let negative_kind = classify_negative_phase(negative);
-            let compile_result = if materialized.is_module {
+            let compile_result = if materialized.execution_mode().is_module() {
                 engine.compile_module(&materialized.source, compile_options.clone())
             } else {
                 engine.compile_script(&materialized.source, compile_options.clone())
@@ -20461,14 +21199,14 @@ fn run_one_case_with_wasm_aot_execution(
                     }
                     if !compile_only_negative {
                         return Err(classify_failure(
-                            &case.path,
+                            case.execution_id.clone(),
                             classify_engine_error(&err),
                             err.to_string(),
                         ));
                     }
                     let detail = compile_negative_error_detail(&err);
                     return Err(classify_failure(
-                        &case.path,
+                        case.execution_id.clone(),
                         negative_kind,
                         format!(
                             "negative test error mismatch: expected {}, got {}",
@@ -20478,7 +21216,7 @@ fn run_one_case_with_wasm_aot_execution(
                 }
                 Ok(_) if execution_backend == ExecutionBackend::WasmAot => {
                     return Err(classify_failure(
-                        &case.path,
+                        case.execution_id.clone(),
                         negative_kind,
                         format!(
                             "negative test expected {} error but compile succeeded",
@@ -20498,7 +21236,7 @@ fn run_one_case_with_wasm_aot_execution(
         let run_options = RunOptions {
             backend: execution_backend,
             argv: Vec::new(),
-            module_root: if materialized.is_module {
+            module_root: if materialized.execution_mode().is_module() {
                 case.source_path
                     .parent()
                     .map(|path| path.display().to_string())
@@ -20520,14 +21258,14 @@ fn run_one_case_with_wasm_aot_execution(
             .then(|| {
                 let assert = preludes.get("assert.js").ok_or_else(|| {
                     classify_failure(
-                        &case.path,
+                        case.execution_id.clone(),
                         FailureKind::HostHarness,
                         "missing assert.js while materializing a Test262 agent",
                     )
                 })?;
                 let sta = preludes.get("sta.js").ok_or_else(|| {
                     classify_failure(
-                        &case.path,
+                        case.execution_id.clone(),
                         FailureKind::HostHarness,
                         "missing sta.js while materializing a Test262 agent",
                     )
@@ -20537,7 +21275,7 @@ fn run_one_case_with_wasm_aot_execution(
             .transpose()?;
 
         let run_result = if execution_backend == ExecutionBackend::WasmAot
-            && !materialized.is_module
+            && !materialized.execution_mode().is_module()
             && agent_prelude.is_some()
             && matches!(
                 wasm_aot_execution_stack,
@@ -20553,7 +21291,7 @@ fn run_one_case_with_wasm_aot_execution(
                     .expect("agent prelude was checked above"),
             )
         } else if execution_backend == ExecutionBackend::WasmAot
-            && !materialized.is_module
+            && !materialized.execution_mode().is_module()
             && agent_prelude.is_some()
         {
             engine.run_wasm_aot_script_with_agents(
@@ -20569,7 +21307,7 @@ fn run_one_case_with_wasm_aot_execution(
                 WasmAotExecutionStack::PersistentTest262Worker
             )
         {
-            if materialized.is_module {
+            if materialized.execution_mode().is_module() {
                 engine.run_wasm_aot_module_on_current_thread(
                     &materialized.source,
                     compile_options,
@@ -20584,7 +21322,7 @@ fn run_one_case_with_wasm_aot_execution(
                     run_options.can_block,
                 )
             }
-        } else if materialized.is_module {
+        } else if materialized.execution_mode().is_module() {
             engine.run_module(&materialized.source, compile_options, run_options)
         } else {
             engine.run_script(&materialized.source, compile_options, run_options)
@@ -20594,7 +21332,7 @@ fn run_one_case_with_wasm_aot_execution(
             let negative_kind = classify_negative_phase(negative);
             return match run_result {
                 Ok(_) => Err(classify_failure(
-                    &case.path,
+                    case.execution_id.clone(),
                     negative_kind,
                     format!(
                         "negative test expected {} error but execution succeeded",
@@ -20609,7 +21347,7 @@ fn run_one_case_with_wasm_aot_execution(
                         && (err.parse_diagnostic().is_some() || err.ir_diagnostic().is_some())
                     {
                         return Err(classify_failure(
-                            &case.path,
+                            case.execution_id.clone(),
                             classify_engine_error(&err),
                             err.to_string(),
                         ));
@@ -20620,7 +21358,7 @@ fn run_one_case_with_wasm_aot_execution(
                     if !compile_only_negative && classify_engine_error(&err) != FailureKind::Runtime
                     {
                         return Err(classify_failure(
-                            &case.path,
+                            case.execution_id.clone(),
                             classify_engine_error(&err),
                             err.to_string(),
                         ));
@@ -20630,7 +21368,7 @@ fn run_one_case_with_wasm_aot_execution(
                         Ok(())
                     } else {
                         Err(classify_failure(
-                            &case.path,
+                            case.execution_id.clone(),
                             negative_kind,
                             format!(
                                 "negative test error mismatch: expected {}, got {}",
@@ -20653,7 +21391,7 @@ fn run_one_case_with_wasm_aot_execution(
                         .find(|line| line.starts_with("Test262:AsyncTestFailure:"))
                     {
                         return Err(classify_failure(
-                            &case.path,
+                            case.execution_id.clone(),
                             FailureKind::Runtime,
                             failure.clone(),
                         ));
@@ -20664,14 +21402,14 @@ fn run_one_case_with_wasm_aot_execution(
                         .count();
                     if completions == 0 {
                         return Err(classify_failure(
-                            &case.path,
+                            case.execution_id.clone(),
                             FailureKind::HostHarness,
                             "host harness async $DONE was not called before the Wasm job queue drained",
                         ));
                     }
                     if completions != 1 {
                         return Err(classify_failure(
-                            &case.path,
+                            case.execution_id.clone(),
                             FailureKind::HostHarness,
                             format!(
                                 "host harness async $DONE must complete exactly once, observed {completions} completions"
@@ -20682,7 +21420,7 @@ fn run_one_case_with_wasm_aot_execution(
                 Ok(())
             }
             Err(err) => Err(classify_failure(
-                &case.path,
+                case.execution_id.clone(),
                 classify_engine_error(&err),
                 err.to_string(),
             )),
@@ -20697,9 +21435,9 @@ fn run_one_case_with_wasm_aot_execution(
     // and prevent the compiled module from reaching the cache.
     if execution_backend != ExecutionBackend::WasmAot && duration_ms > u128::from(timeout_ms) {
         return TestResult {
-            test_path: case.path.clone(),
+            test_id: case.execution_id.clone(),
             status: TestStatus::Failed(classify_failure(
-                &case.path,
+                case.execution_id.clone(),
                 FailureKind::Runtime,
                 format!("timeout exceeded after {}ms", duration_ms),
             )),
@@ -20709,12 +21447,12 @@ fn run_one_case_with_wasm_aot_execution(
 
     match outcome {
         Ok(()) => TestResult {
-            test_path: case.path.clone(),
+            test_id: case.execution_id.clone(),
             status: TestStatus::Passed,
             duration_ms,
         },
         Err(failure) => TestResult {
-            test_path: case.path.clone(),
+            test_id: case.execution_id.clone(),
             status: TestStatus::Failed(failure),
             duration_ms,
         },
@@ -20859,10 +21597,10 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
     let mut outcome_counts = empty_outcome_counts();
 
     let mut failures = Vec::new();
-    let mut completed_paths = Vec::new();
+    let mut completed_test_ids = Vec::new();
     let mut slowest = results
         .iter()
-        .map(|result| (result.test_path.clone(), result.duration_ms))
+        .map(|result| (result.test_id.clone(), result.duration_ms))
         .collect::<Vec<_>>();
     slowest.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
     slowest.truncate(10);
@@ -20870,7 +21608,7 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
     let mut timeouts = Vec::new();
     let mut passed = 0;
     for result in results {
-        completed_paths.push(result.test_path.clone());
+        completed_test_ids.push(result.test_id.clone());
         match &result.status {
             TestStatus::Passed => {
                 passed += 1;
@@ -20880,7 +21618,7 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
                 *counts.entry(failure.kind).or_insert(0) += 1;
                 *outcome_counts.entry(failure.outcome).or_insert(0) += 1;
                 if failure_is_timeout(failure) {
-                    timeouts.push(failure.test_path.clone());
+                    timeouts.push(failure.test_id.clone());
                 }
                 let mut failure = failure.clone();
                 failure.duration_ms = Some(result.duration_ms);
@@ -20897,7 +21635,7 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
         failures,
         timeouts,
         slowest_tests: slowest,
-        completed_paths,
+        completed_test_ids,
     }
 }
 
@@ -20905,6 +21643,7 @@ fn execute_matrix_node(
     config: &SuiteConfig,
     node: &RunMatrixNode,
     run_config: &RunConfig,
+    checkpoint_load_policy: ResumeCheckpointLoadPolicy,
 ) -> Result<(TopLevelRunSummary, RunSummary), String> {
     let manifest = discover_suite(config, Some(&node.filter))?;
     let preludes = load_preludes(config)?;
@@ -20912,14 +21651,14 @@ fn execute_matrix_node(
         .cases
         .iter()
         .cloned()
-        .map(|case| (case.path.clone(), case))
+        .map(|case| (case.execution_id.clone(), case))
         .collect::<BTreeMap<_, _>>();
-    let mut cases = Vec::with_capacity(node.case_paths.len());
-    for path in &node.case_paths {
-        let Some(case) = case_lookup.get(path) else {
+    let mut cases = Vec::with_capacity(node.case_ids.len());
+    for test_id in &node.case_ids {
+        let Some(case) = case_lookup.get(test_id) else {
             return Err(format!(
-                "matrix node {} references missing case {}",
-                node.node_id, path
+                "matrix node {} references missing execution {}",
+                node.node_id, test_id
             ));
         };
         cases.push(case.clone());
@@ -20928,9 +21667,10 @@ fn execute_matrix_node(
     let node_manifest = SuiteManifest {
         pinned_revisions: manifest.pinned_revisions.clone(),
         manifest_hash: matrix_node_manifest_hash(&manifest.pinned_revisions, node),
-        filter: Some(node.filter.clone()),
+        filter: Some(node.node_id.clone()),
         cases: cases.clone(),
     };
+    let terminal_run_kind = format!("matrix-{}", node.node_kind.as_str());
     let summary = summarize_results(&execute_cases(
         config,
         &node_manifest,
@@ -20949,25 +21689,18 @@ fn execute_matrix_node(
             execution_backend: run_config.execution_backend,
             max_matrix_nodes: None,
         },
+        &terminal_run_kind,
+        &node.matrix_path,
+        checkpoint_load_policy,
     )?);
 
     let mut snapshot = snapshot_from_summary(
         &node_manifest,
-        format!("matrix-{}", node.node_kind.as_str()),
+        terminal_run_kind,
         &summary,
         run_config.execution_backend,
     );
     snapshot.matrix_path = node.matrix_path.clone();
-    write_snapshot(
-        config,
-        &snapshot,
-        &format!(
-            "{}-{}",
-            run_config.snapshot_name,
-            sanitize_filter_for_snapshot(&node.node_id)
-        ),
-    )?;
-
     let entry = TopLevelRunSummary {
         node_id: node.node_id.clone(),
         node_kind: node.node_kind,
@@ -20981,6 +21714,16 @@ fn execute_matrix_node(
         counts_per_origin: counts_per_origin(&summary.failures),
         manifest_hash: node_manifest.manifest_hash,
     };
+    let node_snapshot_name = format!(
+        "{}-{}",
+        run_config.snapshot_name,
+        sanitize_filter_for_snapshot(&node.node_id)
+    );
+    let node_snapshot_path =
+        snapshot_paths_for_name(config, &node_snapshot_name, node_manifest.manifest_hash).json_path;
+    validate_complete_node_contract(&snapshot, node, &entry, &node_snapshot_path)?;
+    write_snapshot(config, &snapshot, &node_snapshot_name)?;
+
     Ok((entry, summary))
 }
 
@@ -20988,8 +21731,9 @@ fn run_matrix_node(
     config: &SuiteConfig,
     node: &RunMatrixNode,
     run_config: &RunConfig,
+    checkpoint_load_policy: ResumeCheckpointLoadPolicy,
 ) -> Result<TopLevelRunSummary, String> {
-    execute_matrix_node(config, node, run_config).map(|(entry, _)| entry)
+    execute_matrix_node(config, node, run_config, checkpoint_load_policy).map(|(entry, _)| entry)
 }
 
 fn counts_per_origin(failures: &[FailureRecord]) -> BTreeMap<FailureOrigin, usize> {
@@ -21082,6 +21826,7 @@ fn snapshot_from_summary(
         pinned_revisions: manifest.pinned_revisions.clone(),
         manifest_hash: manifest.manifest_hash,
         run_kind,
+        checkpoint_identity: None,
         total: summary.total,
         passed: summary.passed,
         counts_per_kind: summary.counts_per_kind.clone(),
@@ -21089,7 +21834,7 @@ fn snapshot_from_summary(
         slowest_tests: summary.slowest_tests.clone(),
         timeout_list: summary.timeouts.clone(),
         failures: summary.failures.clone(),
-        completed_paths: summary.completed_paths.clone(),
+        completed_test_ids: summary.completed_test_ids.clone(),
         matrix_path: Vec::new(),
         completed_nodes: Vec::new(),
         aggregate_counts_so_far: BTreeMap::new(),
@@ -21113,6 +21858,7 @@ fn aggregate_snapshot(
         pinned_revisions: pinned_revisions.clone(),
         manifest_hash,
         run_kind: run_kind.to_string(),
+        checkpoint_identity: None,
         total: summary.total,
         passed: summary.passed,
         counts_per_kind: summary.counts_per_kind.clone(),
@@ -21120,7 +21866,7 @@ fn aggregate_snapshot(
         slowest_tests: Vec::new(),
         timeout_list: Vec::new(),
         failures: Vec::new(),
-        completed_paths: Vec::new(),
+        completed_test_ids: Vec::new(),
         matrix_path,
         completed_nodes,
         aggregate_counts_so_far: summary.counts_per_kind.clone(),
@@ -21739,6 +22485,10 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
         },
         manifest_hash: snapshot.manifest_hash,
         run_kind: snapshot.run_kind.clone(),
+        checkpoint_identity: snapshot.checkpoint_identity.clone().map_or(
+            WireCheckpointIdentity::Absent,
+            WireCheckpointIdentity::present,
+        ),
         total: snapshot.total,
         passed: snapshot.passed,
         counts_per_kind: complete_kind_counts(&snapshot.counts_per_kind),
@@ -21746,16 +22496,19 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
         slowest_tests: snapshot
             .slowest_tests
             .iter()
-            .map(|(path, duration_ms)| SnapshotSlowTest {
-                path: path.clone(),
+            .map(|(test_id, duration_ms)| SnapshotSlowTest {
+                test_id: Some(test_id.clone()),
+                path: test_id.path().to_string(),
                 duration_ms: *duration_ms,
             })
             .collect(),
-        timeout_list: snapshot.timeout_list.clone(),
+        timeout_test_ids: WireIdentityList::present(snapshot.timeout_list.clone()),
+        timeout_list: WireIdentityList::Absent,
         failures: snapshot
             .failures
             .iter()
             .map(|failure| SnapshotFailureRecord {
+                test_id: Some(failure.test_id.clone()),
                 test_path: failure.test_path.clone(),
                 kind: failure.kind,
                 outcome: Some(failure.outcome),
@@ -21765,7 +22518,8 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
                 duration_ms: failure.duration_ms,
             })
             .collect(),
-        completed_paths: snapshot.completed_paths.clone(),
+        completed_test_ids: WireIdentityList::present(snapshot.completed_test_ids.clone()),
+        completed_paths: WireIdentityList::Absent,
         matrix_path: snapshot.matrix_path.clone(),
         completed_nodes: snapshot.completed_nodes.clone(),
         aggregate_counts_so_far: complete_kind_counts(&snapshot.aggregate_counts_so_far),
@@ -21789,8 +22543,82 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
     }
 }
 
+fn parse_snapshot_execution_backend(value: &str) -> Result<ExecutionBackend, String> {
+    match value {
+        "spec-exec" => Ok(ExecutionBackend::SpecExec),
+        "wasm-aot" => Ok(ExecutionBackend::WasmAot),
+        _ => Err(format!(
+            "snapshot contains unknown execution_backend `{value}`"
+        )),
+    }
+}
+
+fn validate_snapshot_checkpoint_identity(
+    file: &SnapshotFile,
+    artifact_kind: SnapshotArtifactKind,
+) -> Result<(), String> {
+    if !artifact_kind.is_current() {
+        if file.checkpoint_identity.is_absent() {
+            return Ok(());
+        }
+        return Err(format!(
+            "snapshot version {} contains checkpoint_identity; legacy data cannot acquire a v7 terminal execution context",
+            file.snapshot_version
+        ));
+    }
+
+    if file.run_kind == "resume-case-checkpoint" {
+        return match &file.checkpoint_identity {
+            WireCheckpointIdentity::Absent => Err(format!(
+                "snapshot version {SNAPSHOT_VERSION} resume-case-checkpoint is missing checkpoint_identity"
+            )),
+            WireCheckpointIdentity::Present(None) => Err(format!(
+                "snapshot version {SNAPSHOT_VERSION} resume-case-checkpoint has null checkpoint_identity"
+            )),
+            WireCheckpointIdentity::Present(Some(identity)) => identity.validate().map_err(|err| {
+                format!(
+                    "snapshot version {SNAPSHOT_VERSION} resume-case-checkpoint has invalid checkpoint_identity: {err}"
+                )
+            }),
+        };
+    }
+
+    if file.checkpoint_identity.is_absent() {
+        Ok(())
+    } else {
+        Err(format!(
+            "snapshot version {SNAPSHOT_VERSION} terminal run_kind {} must omit checkpoint_identity",
+            file.run_kind
+        ))
+    }
+}
+
 fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
     let artifact_kind = file.artifact_kind()?;
+    validate_snapshot_checkpoint_identity(&file, artifact_kind)?;
+    if artifact_kind.is_current() {
+        if !file.completed_paths.is_absent() || !file.timeout_list.is_absent() {
+            return Err(format!(
+                "snapshot version {SNAPSHOT_VERSION} contains path-only completion or timeout identity"
+            ));
+        }
+        if file.completed_test_ids.values().is_none() || file.timeout_test_ids.values().is_none() {
+            return Err(format!(
+                "snapshot version {SNAPSHOT_VERSION} is missing typed completion or timeout identity fields"
+            ));
+        }
+    } else if !file.failures.is_empty()
+        || !file.completed_test_ids.is_absent()
+        || !file.completed_paths.is_absent()
+        || !file.slowest_tests.is_empty()
+        || !file.timeout_test_ids.is_absent()
+        || !file.timeout_list.is_absent()
+    {
+        return Err(format!(
+            "snapshot version {} contains per-case evidence or checkpoint identity; legacy data cannot be upgraded or reinterpreted as a Test262 execution mode",
+            file.snapshot_version
+        ));
+    }
     let failures = file
         .failures
         .into_iter()
@@ -21802,7 +22630,20 @@ fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
                 failure.outcome,
                 &failure.detail,
             )?;
+            let test_id = failure.test_id.ok_or_else(|| {
+                format!(
+                    "snapshot version {SNAPSHOT_VERSION} failure {} is missing execution identity",
+                    failure.test_path
+                )
+            })?;
+            if test_id.path() != failure.test_path {
+                return Err(format!(
+                    "snapshot failure execution {} disagrees with physical path {}",
+                    test_id, failure.test_path
+                ));
+            }
             Ok(FailureRecord {
+                test_id,
                 test_path: failure.test_path,
                 kind: failure.kind,
                 outcome,
@@ -21851,16 +22692,14 @@ fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
     Ok(ProgressSnapshot {
         snapshot_version: file.snapshot_version,
         matrix_strategy_version: file.matrix_strategy_version,
-        execution_backend: match file.execution_backend.as_str() {
-            "wasm-aot" => ExecutionBackend::WasmAot,
-            _ => ExecutionBackend::SpecExec,
-        },
+        execution_backend: parse_snapshot_execution_backend(&file.execution_backend)?,
         pinned_revisions: PinnedRevisions {
             ecma262: file.pinned_revisions.ecma262,
             test262: file.pinned_revisions.test262,
         },
         manifest_hash: file.manifest_hash,
         run_kind: file.run_kind,
+        checkpoint_identity: file.checkpoint_identity.into_value(),
         total: file.total,
         passed: file.passed,
         counts_per_kind: complete_kind_counts(&file.counts_per_kind),
@@ -21868,11 +22707,25 @@ fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
         slowest_tests: file
             .slowest_tests
             .into_iter()
-            .map(|entry| (entry.path, entry.duration_ms))
-            .collect(),
-        timeout_list: file.timeout_list,
+            .map(|entry| {
+                let test_id = entry.test_id.ok_or_else(|| {
+                    format!(
+                        "snapshot version {SNAPSHOT_VERSION} slow-case record {} is missing execution identity",
+                        entry.path
+                    )
+                })?;
+                if test_id.path() != entry.path {
+                    return Err(format!(
+                        "snapshot slow-case execution {} disagrees with physical path {}",
+                        test_id, entry.path
+                    ));
+                }
+                Ok((test_id, entry.duration_ms))
+            })
+            .collect::<Result<Vec<_>, String>>()?,
+        timeout_list: file.timeout_test_ids.into_values().unwrap_or_default(),
         failures,
-        completed_paths: file.completed_paths,
+        completed_test_ids: file.completed_test_ids.into_values().unwrap_or_default(),
         matrix_path: file.matrix_path,
         completed_nodes: file.completed_nodes,
         aggregate_counts_so_far: complete_kind_counts(&file.aggregate_counts_so_far),
@@ -21892,13 +22745,16 @@ fn snapshot_failure_outcome(
         (SnapshotArtifactKind::LegacyV4, Some(_)) => Err(format!(
             "snapshot version {LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION} failure {test_path} must omit outcome data"
         )),
-        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::CurrentLilaV6, Some(outcome)) => {
-            Ok(outcome)
-        }
-        (SnapshotArtifactKind::LegacyV5, None) => Err(format!(
+        (
+            SnapshotArtifactKind::LegacyV5
+            | SnapshotArtifactKind::LegacyPathOnlyV6
+            | SnapshotArtifactKind::CurrentLilaV7,
+            Some(outcome),
+        ) => Ok(outcome),
+        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::LegacyPathOnlyV6, None) => Err(format!(
             "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
         )),
-        (SnapshotArtifactKind::CurrentLilaV6, None) => Err(format!(
+        (SnapshotArtifactKind::CurrentLilaV7, None) => Err(format!(
             "snapshot version {SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
         )),
     }
@@ -21924,13 +22780,15 @@ fn snapshot_outcome_counts(
             "snapshot version {LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION} {context} must omit outcome counts"
         )),
         (
-            SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::CurrentLilaV6,
+            SnapshotArtifactKind::LegacyV5
+                | SnapshotArtifactKind::LegacyPathOnlyV6
+                | SnapshotArtifactKind::CurrentLilaV7,
             Some(counts),
         ) => Ok(complete_outcome_counts(&counts)),
-        (SnapshotArtifactKind::LegacyV5, None) => Err(format!(
+        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::LegacyPathOnlyV6, None) => Err(format!(
             "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} {context} is missing required outcome counts"
         )),
-        (SnapshotArtifactKind::CurrentLilaV6, None) => Err(format!(
+        (SnapshotArtifactKind::CurrentLilaV7, None) => Err(format!(
             "snapshot version {SNAPSHOT_VERSION} {context} is missing required outcome counts"
         )),
     }
@@ -22027,7 +22885,13 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
         .unwrap();
     }
     if !snapshot.timeout_list.is_empty() {
-        writeln!(&mut out, "timeouts={}", snapshot.timeout_list.join(", ")).unwrap();
+        let timeouts = snapshot
+            .timeout_list
+            .iter()
+            .map(TestExecutionId::wire_key)
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(&mut out, "timeouts={timeouts}").unwrap();
     }
     if !snapshot.failures.is_empty() {
         writeln!(&mut out, "top_failures:").unwrap();
@@ -22035,7 +22899,7 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
             writeln!(
                 &mut out,
                 "- {} [{}] {}",
-                failure.test_path,
+                failure.test_id,
                 format!(
                     "{}/{}/{}",
                     failure.outcome.as_str(),
@@ -22055,8 +22919,15 @@ fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, String> {
         .map_err(|err| format!("failed to read snapshot {}: {err}", path.display()))?;
     let file: SnapshotFile = serde_json::from_str(&raw)
         .map_err(|err| format!("failed to parse snapshot {}: {err}", path.display()))?;
-    file.artifact_kind()
+    let artifact_kind = file
+        .artifact_kind()
         .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
+    validate_snapshot_checkpoint_identity(&file, artifact_kind)
+        .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
+    if artifact_kind.is_current() {
+        parse_snapshot_execution_backend(&file.execution_backend)
+            .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
+    }
     Ok(file)
 }
 
@@ -22221,43 +23092,118 @@ fn load_previous_snapshot(
     config: &SuiteConfig,
     snapshot_name: &str,
     identity: ResumeCheckpointIdentity,
+    checkpoint_load_policy: ResumeCheckpointLoadPolicy,
 ) -> Result<Option<ProgressSnapshot>, String> {
+    checkpoint_load_policy.resolve(load_previous_snapshot_checked(
+        config,
+        snapshot_name,
+        &identity,
+    ))
+}
+
+fn load_previous_snapshot_checked(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    identity: &ResumeCheckpointIdentity,
+) -> Result<Option<ProgressSnapshot>, ResumeCheckpointLoadError> {
     let path = config
         .snapshot_dir
         .join(format!("{snapshot_name}-{}.json", identity.manifest_hash));
-    if !path.exists() {
+    let exists = path.try_exists().map_err(|err| {
+        ResumeCheckpointLoadError::integrity(format!(
+            "failed to inspect resume checkpoint {}: {err}",
+            path.display()
+        ))
+    })?;
+    if !exists {
         return Ok(None);
     }
-    let file = read_snapshot_file(&path)?;
+    let file = read_snapshot_file(&path).map_err(ResumeCheckpointLoadError::integrity)?;
     // Resume merges new results into the snapshot, so a legacy artifact is a
     // hard boundary rather than an absent checkpoint. Treating it as absent
     // would let the next checkpoint overwrite evidence in place.
-    file.require_current(&path, "resume checkpoint")?;
-    if file.manifest_hash != identity.manifest_hash {
-        return Err(format!(
-            "resume checkpoint mismatch for manifest_hash in {}: expected {}, found {}",
-            path.display(),
-            identity.manifest_hash,
-            file.manifest_hash
-        ));
-    }
+    file.require_current(&path, "resume checkpoint")
+        .map_err(ResumeCheckpointLoadError::integrity)?;
     if file.execution_backend != identity.execution_backend.as_str() {
-        return Err(format!(
+        return Err(ResumeCheckpointLoadError::stale(format!(
             "resume checkpoint mismatch for execution_backend in {}: expected {}, found {}",
             path.display(),
             identity.execution_backend.as_str(),
             file.execution_backend
-        ));
+        )));
     }
     if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
-        return Err(format!(
+        return Err(ResumeCheckpointLoadError::stale(format!(
             "resume checkpoint mismatch for matrix_strategy_version in {}: expected {}, found {}",
             path.display(),
             MATRIX_STRATEGY_VERSION,
             file.matrix_strategy_version
-        ));
+        )));
     }
-    snapshot_from_file(file).map(Some)
+    if file.pinned_revisions.ecma262 != identity.pinned_revisions.ecma262 {
+        return Err(ResumeCheckpointLoadError::stale(format!(
+            "resume checkpoint mismatch for ecma262 revision in {}: expected {}, found {}",
+            path.display(),
+            identity.pinned_revisions.ecma262,
+            file.pinned_revisions.ecma262
+        )));
+    }
+    let recorded_pinned = PinnedRevisions {
+        ecma262: file.pinned_revisions.ecma262.clone(),
+        test262: file.pinned_revisions.test262.clone(),
+    };
+    if !test262_pins_equivalent(config, &recorded_pinned, &identity.pinned_revisions) {
+        return Err(ResumeCheckpointLoadError::stale(format!(
+            "resume checkpoint mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
+            path.display(),
+            identity.pinned_revisions.test262,
+            file.pinned_revisions.test262
+        )));
+    }
+    if file.manifest_hash != identity.manifest_hash {
+        return Err(ResumeCheckpointLoadError::integrity(format!(
+            "resume checkpoint mismatch for manifest_hash in {}: expected {}, found {}",
+            path.display(),
+            identity.manifest_hash,
+            file.manifest_hash
+        )));
+    }
+    let recomputed_manifest_hash = hash_manifest_execution_ids(
+        &recorded_pinned,
+        &identity.selected_test_ids,
+        identity.manifest_filter.as_deref(),
+    );
+    if file.manifest_hash != recomputed_manifest_hash {
+        return Err(ResumeCheckpointLoadError::integrity(format!(
+            "resume checkpoint integrity failure for manifest_hash in {}: accepted recorded pins and exact selected execution set recompute to {}, body records {}",
+            path.display(),
+            recomputed_manifest_hash,
+            file.manifest_hash
+        )));
+    }
+    let case_requirement = direct_snapshot_case_requirement(
+        identity.kind,
+        &identity.expected_terminal_run_kind,
+        &identity.expected_matrix_path,
+        &file.run_kind,
+        file.checkpoint_identity.value(),
+        &file.matrix_path,
+    )
+    .map_err(|err| {
+        ResumeCheckpointLoadError::integrity(format!(
+            "resume checkpoint mismatch in {}: {err}",
+            path.display()
+        ))
+    })?;
+    let snapshot = snapshot_from_file(file).map_err(ResumeCheckpointLoadError::integrity)?;
+    validate_case_snapshot_contract(
+        &snapshot,
+        &identity.selected_test_ids,
+        case_requirement,
+        &format!("resume checkpoint {}", path.display()),
+    )
+    .map_err(ResumeCheckpointLoadError::integrity)?;
+    Ok(Some(snapshot))
 }
 
 struct ResolvedAggregateSnapshot {
@@ -22470,61 +23416,58 @@ fn validate_summary_count_contract(
 /// discovery before trusting an aggregate built from that matrix.
 fn validate_run_matrix_contract(
     nodes: &[RunMatrixNode],
-    suite_case_paths: &[String],
+    suite_test_ids: &[TestExecutionId],
 ) -> Result<(), String> {
     let mut node_ids = BTreeSet::new();
-    let mut matrix_paths = BTreeSet::new();
+    let mut matrix_ids = BTreeSet::new();
     for node in nodes {
         if !node_ids.insert(node.node_id.as_str()) {
             return Err(format!("run matrix has duplicate node id {}", node.node_id));
         }
-        if node.total_cases != node.case_paths.len() {
+        if node.total_cases != node.case_ids.len() {
             return Err(format!(
-                "run matrix node {} declares {} cases but contains {} paths",
+                "run matrix node {} declares {} cases but contains {} execution ids",
                 node.node_id,
                 node.total_cases,
-                node.case_paths.len()
+                node.case_ids.len()
             ));
         }
-        let mut node_paths = BTreeSet::new();
-        for case_path in &node.case_paths {
-            if !node_paths.insert(case_path.as_str()) {
+        let mut node_test_ids = BTreeSet::new();
+        for test_id in &node.case_ids {
+            if !node_test_ids.insert(test_id) {
                 return Err(format!(
-                    "run matrix node {} contains duplicate case {}",
-                    node.node_id, case_path
+                    "run matrix node {} contains duplicate execution {}",
+                    node.node_id, test_id
                 ));
             }
-            if !matrix_paths.insert(case_path.as_str()) {
+            if !matrix_ids.insert(test_id) {
                 return Err(format!(
-                    "run matrix assigns case {} to more than one node",
-                    case_path
+                    "run matrix assigns execution {} to more than one node",
+                    test_id
                 ));
             }
         }
     }
 
-    let suite_paths = suite_case_paths
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    if suite_paths.len() != suite_case_paths.len() {
-        return Err("discovered Test262 manifest contains duplicate case paths".to_string());
+    let suite_ids = suite_test_ids.iter().collect::<BTreeSet<_>>();
+    if suite_ids.len() != suite_test_ids.len() {
+        return Err("discovered Test262 manifest contains duplicate execution ids".to_string());
     }
-    if matrix_paths != suite_paths {
-        let missing = suite_paths
-            .difference(&matrix_paths)
+    if matrix_ids != suite_ids {
+        let missing = suite_ids
+            .difference(&matrix_ids)
             .take(5)
-            .copied()
+            .map(|id| id.to_string())
             .collect::<Vec<_>>();
-        let extra = matrix_paths
-            .difference(&suite_paths)
+        let extra = matrix_ids
+            .difference(&suite_ids)
             .take(5)
-            .copied()
+            .map(|id| id.to_string())
             .collect::<Vec<_>>();
         return Err(format!(
             "run matrix does not cover the discovered Test262 manifest exactly: matrix={} suite={} missing=[{}] extra=[{}]",
-            matrix_paths.len(),
-            suite_paths.len(),
+            matrix_ids.len(),
+            suite_ids.len(),
             missing.join(", "),
             extra.join(", ")
         ));
@@ -22535,7 +23478,6 @@ fn validate_run_matrix_contract(
 fn validate_complete_aggregate_contract(
     snapshot: &ProgressSnapshot,
     nodes: &[RunMatrixNode],
-    current_artifact: bool,
     snapshot_path: &Path,
 ) -> Result<(), String> {
     let context = format!(
@@ -22549,7 +23491,7 @@ fn validate_complete_aggregate_contract(
         ));
     }
     if !snapshot.failures.is_empty()
-        || !snapshot.completed_paths.is_empty()
+        || !snapshot.completed_test_ids.is_empty()
         || !snapshot.slowest_tests.is_empty()
         || !snapshot.timeout_list.is_empty()
     {
@@ -22616,14 +23558,12 @@ fn validate_complete_aggregate_contract(
                 entry.node_id
             ));
         }
-        if current_artifact {
-            let expected_hash = matrix_node_manifest_hash(&snapshot.pinned_revisions, node);
-            if entry.manifest_hash != expected_hash {
-                return Err(format!(
-                    "{context}: aggregate entry {} has manifest hash {}, expected {}",
-                    entry.node_id, entry.manifest_hash, expected_hash
-                ));
-            }
+        let expected_hash = matrix_node_manifest_hash(&snapshot.pinned_revisions, node);
+        if entry.manifest_hash != expected_hash {
+            return Err(format!(
+                "{context}: aggregate entry {} has manifest hash {}, expected {}",
+                entry.node_id, entry.manifest_hash, expected_hash
+            ));
         }
         validate_summary_count_contract(
             &format!("{context}: node {}", entry.node_id),
@@ -22663,43 +23603,24 @@ fn validate_complete_aggregate_contract(
     )
 }
 
-fn validate_complete_node_contract(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaseSetRequirement {
+    UniqueSubset,
+    Exact,
+}
+
+struct SnapshotCaseCounts {
+    counts_per_kind: BTreeMap<FailureKind, usize>,
+    counts_per_outcome: BTreeMap<OutcomeKind, usize>,
+    counts_per_origin: BTreeMap<FailureOrigin, usize>,
+}
+
+fn validate_case_snapshot_contract(
     snapshot: &ProgressSnapshot,
-    node: &RunMatrixNode,
-    entry: &TopLevelRunSummary,
-    snapshot_path: &Path,
-) -> Result<(), String> {
-    let context = format!(
-        "matrix node snapshot integrity failure in {}",
-        snapshot_path.display()
-    );
-    if snapshot.total != node.total_cases || snapshot.completed_paths.len() != node.total_cases {
-        return Err(format!(
-            "{context}: node {} expected {} completed cases, found total={} completed_paths={}",
-            node.node_id,
-            node.total_cases,
-            snapshot.total,
-            snapshot.completed_paths.len()
-        ));
-    }
-    let is_complete_case_checkpoint = snapshot.run_kind == "resume-case-checkpoint"
-        && snapshot.completed_paths.len() == snapshot.total
-        && snapshot.total == node.total_cases;
-    if !is_complete_case_checkpoint {
-        let expected_run_kind = format!("matrix-{}", node.node_kind.as_str());
-        if snapshot.run_kind != expected_run_kind {
-            return Err(format!(
-                "{context}: expected run_kind {expected_run_kind}, found {}",
-                snapshot.run_kind
-            ));
-        }
-        if snapshot.matrix_path != node.matrix_path {
-            return Err(format!(
-                "{context}: matrix_path does not match node {}",
-                node.node_id
-            ));
-        }
-    }
+    allowed_test_ids: &[TestExecutionId],
+    requirement: CaseSetRequirement,
+    context: &str,
+) -> Result<SnapshotCaseCounts, String> {
     if !snapshot.completed_nodes.is_empty()
         || !snapshot.aggregate_entries.is_empty()
         || snapshot
@@ -22708,28 +23629,32 @@ fn validate_complete_node_contract(
             .any(|count| *count != 0)
     {
         return Err(format!(
-            "{context}: node snapshot contains aggregate-only fields"
+            "{context}: case snapshot contains aggregate-only fields"
         ));
     }
 
-    let expected_paths = node
-        .case_paths
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    let completed_paths = snapshot
-        .completed_paths
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    if completed_paths.len() != snapshot.completed_paths.len() || completed_paths != expected_paths
+    let allowed_ids = allowed_test_ids.iter().collect::<BTreeSet<_>>();
+    if allowed_ids.len() != allowed_test_ids.len() {
+        return Err(format!(
+            "{context}: selected execution set contains duplicates"
+        ));
+    }
+    let completed_ids = snapshot.completed_test_ids.iter().collect::<BTreeSet<_>>();
+    if snapshot.total != snapshot.completed_test_ids.len()
+        || completed_ids.len() != snapshot.completed_test_ids.len()
+        || !completed_ids.is_subset(&allowed_ids)
+        || (requirement == CaseSetRequirement::Exact && completed_ids != allowed_ids)
     {
         return Err(format!(
-            "{context}: completed_paths do not contain each node case exactly once"
+            "{context}: completed_test_ids must be a unique {} of the selected execution set",
+            match requirement {
+                CaseSetRequirement::UniqueSubset => "subset",
+                CaseSetRequirement::Exact => "exact copy",
+            }
         ));
     }
 
-    let mut failure_paths = BTreeSet::new();
+    let mut failure_ids = BTreeSet::new();
     let mut counts_per_kind = FailureKind::ALL
         .into_iter()
         .map(|kind| (kind, 0usize))
@@ -22741,16 +23666,22 @@ fn validate_complete_node_contract(
         .map(|origin| (origin, 0usize))
         .collect::<BTreeMap<_, _>>();
     for failure in &snapshot.failures {
-        if !completed_paths.contains(failure.test_path.as_str()) {
+        if failure.test_id.path() != failure.test_path {
             return Err(format!(
-                "{context}: failure names case outside node: {}",
-                failure.test_path
+                "{context}: failure execution {} disagrees with physical path {}",
+                failure.test_id, failure.test_path
             ));
         }
-        if !failure_paths.insert(failure.test_path.as_str()) {
+        if !completed_ids.contains(&failure.test_id) {
+            return Err(format!(
+                "{context}: failure names execution outside completed set: {}",
+                failure.test_id
+            ));
+        }
+        if !failure_ids.insert(&failure.test_id) {
             return Err(format!(
                 "{context}: duplicate failure record for {}",
-                failure.test_path
+                failure.test_id
             ));
         }
         *counts_per_kind.entry(failure.kind).or_insert(0) += 1;
@@ -22772,42 +23703,89 @@ fn validate_complete_node_contract(
         ));
     }
 
-    let timeout_paths = snapshot
-        .timeout_list
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    let expected_timeout_paths = snapshot
+    let timeout_ids = snapshot.timeout_list.iter().collect::<BTreeSet<_>>();
+    let expected_timeout_ids = snapshot
         .failures
         .iter()
         .filter(|failure| failure_is_timeout(failure))
-        .map(|failure| failure.test_path.as_str())
+        .map(|failure| &failure.test_id)
         .collect::<BTreeSet<_>>();
-    if timeout_paths.len() != snapshot.timeout_list.len() || timeout_paths != expected_timeout_paths
-    {
+    if timeout_ids.len() != snapshot.timeout_list.len() || timeout_ids != expected_timeout_ids {
         return Err(format!(
             "{context}: timeout_list must equal the failures classified as timeout"
         ));
     }
-    let slowest_paths = snapshot
+    let slowest_ids = snapshot
         .slowest_tests
         .iter()
-        .map(|(path, _)| path.as_str())
+        .map(|(test_id, _)| test_id)
         .collect::<BTreeSet<_>>();
-    if slowest_paths.len() != snapshot.slowest_tests.len()
-        || !slowest_paths.is_subset(&completed_paths)
-    {
+    if slowest_ids.len() != snapshot.slowest_tests.len() || !slowest_ids.is_subset(&completed_ids) {
         return Err(format!(
-            "{context}: slowest_tests must contain unique completed cases only"
+            "{context}: slowest_tests must contain unique completed executions only"
         ));
     }
+
+    Ok(SnapshotCaseCounts {
+        counts_per_kind,
+        counts_per_outcome,
+        counts_per_origin,
+    })
+}
+
+fn validate_complete_node_contract(
+    snapshot: &ProgressSnapshot,
+    node: &RunMatrixNode,
+    entry: &TopLevelRunSummary,
+    snapshot_path: &Path,
+) -> Result<(), String> {
+    let context = format!(
+        "matrix node snapshot integrity failure in {}",
+        snapshot_path.display()
+    );
+    if entry.node_id != node.node_id
+        || entry.node_kind != node.node_kind
+        || entry.filter != node.filter
+        || entry.matrix_path != node.matrix_path
+        || entry.total != node.total_cases
+        || entry.manifest_hash != snapshot.manifest_hash
+    {
+        return Err(format!(
+            "{context}: aggregate entry metadata does not match matrix node {} and its snapshot",
+            node.node_id
+        ));
+    }
+    if snapshot.total != node.total_cases || snapshot.completed_test_ids.len() != node.total_cases {
+        return Err(format!(
+            "{context}: node {} expected {} completed executions, found total={} completed_test_ids={}",
+            node.node_id,
+            node.total_cases,
+            snapshot.total,
+            snapshot.completed_test_ids.len()
+        ));
+    }
+    direct_snapshot_case_requirement(
+        DirectSnapshotKind::ResumeCheckpoint,
+        &format!("matrix-{}", node.node_kind.as_str()),
+        &node.matrix_path,
+        &snapshot.run_kind,
+        snapshot.checkpoint_identity.as_ref(),
+        &snapshot.matrix_path,
+    )
+    .map_err(|err| format!("{context}: {err}"))?;
+    let counts = validate_case_snapshot_contract(
+        snapshot,
+        &node.case_ids,
+        CaseSetRequirement::Exact,
+        &context,
+    )?;
 
     if entry.total != snapshot.total
         || entry.passed != snapshot.passed
         || entry.failed != snapshot.failures.len()
-        || entry.counts_per_kind != counts_per_kind
-        || entry.counts_per_outcome != counts_per_outcome
-        || entry.counts_per_origin != counts_per_origin
+        || entry.counts_per_kind != counts.counts_per_kind
+        || entry.counts_per_outcome != counts.counts_per_outcome
+        || entry.counts_per_origin != counts.counts_per_origin
     {
         return Err(format!(
             "{context}: aggregate entry {} does not equal its node evidence",
@@ -22832,15 +23810,14 @@ fn validate_complete_aggregate_evidence(
     snapshot: &ProgressSnapshot,
     nodes: &[RunMatrixNode],
     execution_backend: ExecutionBackend,
-    current_artifact: bool,
 ) -> Result<(), String> {
-    let suite_case_paths = discover_suite(config, None)?
+    let suite_test_ids = discover_suite(config, None)?
         .cases
         .into_iter()
-        .map(|case| case.path)
+        .map(|case| case.execution_id)
         .collect::<Vec<_>>();
-    validate_run_matrix_contract(nodes, &suite_case_paths)?;
-    validate_complete_aggregate_contract(snapshot, nodes, current_artifact, snapshot_path)?;
+    validate_run_matrix_contract(nodes, &suite_test_ids)?;
+    validate_complete_aggregate_contract(snapshot, nodes, snapshot_path)?;
 
     let entries = snapshot
         .aggregate_entries
@@ -22851,13 +23828,8 @@ fn validate_complete_aggregate_evidence(
         let entry = entries
             .get(node.node_id.as_str())
             .expect("aggregate contract proved one entry per node");
-        let Some((node_path, file)) = locate_node_snapshot(
-            config,
-            snapshot_name,
-            node,
-            execution_backend,
-            entry.manifest_hash,
-        )?
+        let Some((node_path, file)) =
+            locate_node_snapshot(config, snapshot_name, node, execution_backend, entry)?
         else {
             return Err(format!(
                 "aggregate snapshot integrity failure in {}: missing node evidence for {}",
@@ -22878,25 +23850,12 @@ fn load_and_validate_resolved_aggregate_evidence(
     nodes: &[RunMatrixNode],
     execution_backend: ExecutionBackend,
 ) -> Result<ProgressSnapshot, String> {
-    let artifact_kind = resolved
-        .file
-        .artifact_kind()
-        .expect("resolved snapshots have already passed schema validation");
-    let mut snapshot = snapshot_from_file(resolved.file.clone()).map_err(|err| {
+    let snapshot = snapshot_from_file(resolved.file.clone()).map_err(|err| {
         format!(
             "invalid snapshot data in {}: {err}",
             resolved.snapshot_paths.json_path.display()
         )
     })?;
-    if artifact_kind.needs_legacy_outcome_migration() {
-        migrate_legacy_aggregate_outcome_counts(
-            config,
-            &mut snapshot,
-            &resolved.snapshot_name,
-            execution_backend,
-            nodes,
-        )?;
-    }
     validate_complete_aggregate_evidence(
         config,
         &resolved.snapshot_name,
@@ -22904,17 +23863,15 @@ fn load_and_validate_resolved_aggregate_evidence(
         &snapshot,
         nodes,
         execution_backend,
-        artifact_kind.is_current(),
     )?;
     Ok(snapshot)
 }
 
-/// Loads a complete aggregate for read-only evidence workflows.
+/// Loads complete current aggregate and node evidence.
 ///
-/// "Verified" means its matrix, pins, backend, and completeness agree; it
-/// does not mean the producer is current. This entry point intentionally
-/// accepts version-4/version-5 evidence for comparison, triage, and backlog
-/// generation. Publication must use [`load_publishable_aggregate_summary`].
+/// Legacy envelopes remain available only through the explicitly metadata-only
+/// progress and pin-report workflows; complete evidence is never upgraded from
+/// a path-era schema.
 pub fn load_verified_aggregate_summary(
     config: &SuiteConfig,
     snapshot_name: &str,
@@ -22924,15 +23881,15 @@ pub fn load_verified_aggregate_summary(
         config,
         snapshot_name,
         execution_backend,
-        SnapshotUse::ReadOnlyEvidence,
+        SnapshotUse::CurrentState,
     )
 }
 
 /// Loads the only aggregate schema that may feed a new publication.
 ///
-/// Comparison, triage, backlog, and progress reports deliberately accept
-/// version-4/version-5 evidence. Publication does not: it must be based on a
-/// version-6 aggregate whose producer is the closed `Lila` identity.
+/// Publication rejects every legacy version: it must be based on a version-7
+/// aggregate whose producer is the closed `Lila` identity and whose cases
+/// carry execution identity.
 pub fn load_publishable_aggregate_summary(
     config: &SuiteConfig,
     snapshot_name: &str,
@@ -22942,6 +23899,19 @@ pub fn load_publishable_aggregate_summary(
         config,
         snapshot_name,
         publication_backend.as_execution_backend(),
+        SnapshotUse::CurrentState,
+    )
+}
+
+fn load_current_aggregate_summary(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<VerifiedAggregateSummary, String> {
+    load_verified_aggregate_summary_for_use(
+        config,
+        snapshot_name,
+        execution_backend,
         SnapshotUse::CurrentState,
     )
 }
@@ -23012,26 +23982,23 @@ pub fn load_aggregate_progress_summary(
         ecma262: resolved.file.pinned_revisions.ecma262.clone(),
         test262: resolved.file.pinned_revisions.test262.clone(),
     };
-    let needs_legacy_outcome_migration = resolved
+    if resolved
         .file
         .artifact_kind()
         .expect("resolved snapshots have already passed schema validation")
-        .needs_legacy_outcome_migration();
-    let mut snapshot = snapshot_from_file(resolved.file).map_err(|err| {
+        == SnapshotArtifactKind::LegacyV4
+    {
+        return Err(format!(
+            "aggregate progress snapshot {} uses legacy version {LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION}, which has no outcome counts; refusing to synthesize execution-aware progress from node evidence",
+            resolved.snapshot_paths.json_path.display()
+        ));
+    }
+    let snapshot = snapshot_from_file(resolved.file).map_err(|err| {
         format!(
             "invalid snapshot data in {}: {err}",
             resolved.snapshot_paths.json_path.display()
         )
     })?;
-    if needs_legacy_outcome_migration {
-        migrate_legacy_aggregate_outcome_counts(
-            config,
-            &mut snapshot,
-            &resolved.snapshot_name,
-            execution_backend,
-            &nodes,
-        )?;
-    }
     let completed_node_ids = snapshot
         .completed_nodes
         .iter()
@@ -23116,16 +24083,20 @@ pub fn load_matrix_failure_details(
         aggregate_manifest_hash,
         execution_backend,
         &expected_pinned,
-        SnapshotUse::ReadOnlyEvidence,
+        SnapshotUse::CurrentState,
         &nodes,
         AggregateEvidenceRequirement::Envelope,
     )?;
-    let node_manifest_hash = resolved
-        .file
+    let aggregate = snapshot_from_file(resolved.file.clone()).map_err(|err| {
+        format!(
+            "invalid snapshot data in {}: {err}",
+            resolved.snapshot_paths.json_path.display()
+        )
+    })?;
+    let entry = aggregate
         .aggregate_entries
         .iter()
         .find(|entry| entry.node_id == node.node_id)
-        .map(|entry| entry.manifest_hash)
         .ok_or_else(|| {
             format!(
                 "matrix node {} has no completed entry in aggregate snapshot {}; run that node first",
@@ -23133,12 +24104,12 @@ pub fn load_matrix_failure_details(
                 resolved.snapshot_paths.json_path.display()
             )
         })?;
-    let Some((path, file)) = locate_node_snapshot(
+    let Some(snapshot) = load_completed_node_snapshot(
         config,
         &resolved.snapshot_name,
         node,
         execution_backend,
-        node_manifest_hash,
+        entry,
     )?
     else {
         let node_snapshot_name = format!(
@@ -23148,12 +24119,10 @@ pub fn load_matrix_failure_details(
         );
         let path = config.snapshot_dir.join(format!(
             "{}-{}.json",
-            node_snapshot_name, node_manifest_hash
+            node_snapshot_name, entry.manifest_hash
         ));
         return Err(format!("missing matrix node snapshot {}", path.display()));
     };
-    let snapshot = snapshot_from_file(file)
-        .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))?;
 
     let groups = group_failures_by_detail_identity(&snapshot.failures);
 
@@ -23203,7 +24172,7 @@ fn group_failures_by_detail_identity(failures: &[FailureRecord]) -> Vec<FailureD
                 FailureDetailIdentity::of(&failure.detail).into_string(),
             ))
             .or_default()
-            .push((failure.test_path.clone(), failure.detail.clone()));
+            .push((failure.test_id.wire_key(), failure.detail.clone()));
     }
     let mut groups = grouped
         .into_iter()
@@ -23217,7 +24186,7 @@ fn group_failures_by_detail_identity(failures: &[FailureRecord]) -> Vec<FailureD
                     .expect("a grouping entry exists only because a failure was pushed into it");
                 let mut tests = tests
                     .into_iter()
-                    .map(|(test_path, _)| test_path)
+                    .map(|(test_id, _)| test_id)
                     .collect::<Vec<_>>();
                 tests.truncate(5);
                 FailureDetailGroup {
@@ -23247,26 +24216,26 @@ pub fn generate_backlog(
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
 ) -> Result<(BacklogArtifact, BacklogPaths), String> {
-    let verified = load_verified_aggregate_summary(config, snapshot_name, execution_backend)?;
+    let verified = load_current_aggregate_summary(config, snapshot_name, execution_backend)?;
     let nodes = load_or_build_run_matrix(config, execution_backend)?;
-    let cases_by_path = discover_suite(config, None)?
+    let cases_by_id = discover_suite(config, None)?
         .cases
         .into_iter()
-        .map(|case| (case.path.clone(), case))
+        .map(|case| (case.execution_id.clone(), case))
         .collect::<BTreeMap<_, _>>();
     let owner_rules = load_backlog_owner_rules(config)?;
-    let node_hashes = verified
+    let entries = verified
         .summary
         .entries
         .iter()
-        .map(|entry| (entry.node_id.as_str(), entry.manifest_hash))
+        .map(|entry| (entry.node_id.as_str(), entry))
         .collect::<BTreeMap<_, _>>();
 
     let mut records = Vec::new();
-    let mut duration_by_path = BTreeMap::new();
-    let mut timeout_paths = BTreeSet::new();
+    let mut duration_by_id = BTreeMap::new();
+    let mut timeout_ids = BTreeSet::new();
     for node in &nodes {
-        let Some(node_manifest_hash) = node_hashes.get(node.node_id.as_str()).copied() else {
+        let Some(entry) = entries.get(node.node_id.as_str()).copied() else {
             continue;
         };
         let Some(snapshot) = load_completed_node_snapshot(
@@ -23274,17 +24243,17 @@ pub fn generate_backlog(
             &verified.resolved_snapshot_name,
             node,
             execution_backend,
-            node_manifest_hash,
+            entry,
         )?
         else {
             continue;
         };
-        for (path, duration_ms) in snapshot.slowest_tests {
-            duration_by_path.insert(path, duration_ms);
+        for (test_id, duration_ms) in snapshot.slowest_tests {
+            duration_by_id.insert(test_id, duration_ms);
         }
-        timeout_paths.extend(snapshot.timeout_list);
+        timeout_ids.extend(snapshot.timeout_list);
         for failure in snapshot.failures {
-            let case = cases_by_path.get(&failure.test_path);
+            let case = cases_by_id.get(&failure.test_id);
             let features = sorted_set_values(case.map(|case| &case.features));
             let flags = sorted_set_values(case.map(|case| &case.flags));
             let includes = case
@@ -23304,6 +24273,7 @@ pub fn generate_backlog(
             let normalized_detail = normalize_backlog_detail(&failure.detail);
             let ownership = classify_backlog_owner(&failure, case, &owner_rules);
             records.push(BacklogRecord {
+                test_id: failure.test_id.clone(),
                 test_path: failure.test_path.clone(),
                 features,
                 flags,
@@ -23320,15 +24290,15 @@ pub fn generate_backlog(
                 normalized_detail,
                 duration_ms: failure
                     .duration_ms
-                    .or_else(|| duration_by_path.get(&failure.test_path).copied()),
-                timed_out: timeout_paths.contains(&failure.test_path)
+                    .or_else(|| duration_by_id.get(&failure.test_id).copied()),
+                timed_out: timeout_ids.contains(&failure.test_id)
                     || failure.detail.to_ascii_lowercase().contains("timeout"),
                 matrix_node: node.node_id.clone(),
                 ownership,
             });
         }
     }
-    records.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+    records.sort_by(|left, right| left.test_id.cmp(&right.test_id));
     if records.len() != verified.summary.failed {
         return Err(format!(
             "backlog record count mismatch for {snapshot_name}: expected {} failures from verified aggregate, collected {} from node snapshots",
@@ -23403,9 +24373,9 @@ pub fn compare_snapshots(
     candidate_snapshot_name: &str,
     execution_backend: ExecutionBackend,
 ) -> Result<SnapshotComparison, String> {
-    let base = load_verified_aggregate_summary(config, base_snapshot_name, execution_backend)?;
+    let base = load_current_aggregate_summary(config, base_snapshot_name, execution_backend)?;
     let candidate =
-        load_verified_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
+        load_current_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
     // Refuse to compare snapshots whose suite pins are not verifiably the
     // same suite content. Textual pin differences are accepted only when the
     // git object store proves the vendored suite trees are identical.
@@ -23447,19 +24417,19 @@ pub fn compare_snapshots(
     }
     let mut added_passes = base_failures
         .keys()
-        .filter(|path| !candidate_failures.contains_key(*path))
+        .filter(|test_id| !candidate_failures.contains_key(*test_id))
         .cloned()
         .collect::<Vec<_>>();
     added_passes.sort();
     let mut regressions = candidate_failures
         .keys()
-        .filter(|path| !base_failures.contains_key(*path))
+        .filter(|test_id| !base_failures.contains_key(*test_id))
         .cloned()
         .collect::<Vec<_>>();
     regressions.sort();
     let mut changed_failure_hashes = Vec::new();
-    for (path, base_failure) in &base_failures {
-        let Some(candidate_failure) = candidate_failures.get(path) else {
+    for (key, base_failure) in &base_failures {
+        let Some(candidate_failure) = candidate_failures.get(key) else {
             continue;
         };
         // Compare hashes of the *normalized* details so unstable data
@@ -23469,13 +24439,14 @@ pub fn compare_snapshots(
         let candidate_hash = hash_detail(&normalize_backlog_detail(&candidate_failure.detail));
         if base_hash != candidate_hash {
             changed_failure_hashes.push(ChangedFailureHash {
-                test_path: path.clone(),
+                test_id: base_failure.test_id.clone(),
+                test_path: base_failure.test_path.clone(),
                 base_hash,
                 candidate_hash,
             });
         }
     }
-    changed_failure_hashes.sort_by(|left, right| left.test_path.cmp(&right.test_path));
+    changed_failure_hashes.sort_by(|left, right| left.test_id.cmp(&right.test_id));
 
     Ok(SnapshotComparison {
         base_snapshot_name: base_snapshot_name.to_string(),
@@ -23516,9 +24487,7 @@ pub fn snapshot_pin_report(config: &SuiteConfig) -> Result<SnapshotPinReport, St
     let mut mismatched = 0;
     for file_name in file_names {
         let path = config.snapshot_dir.join(&file_name);
-        let Ok(file) = read_snapshot_file(&path) else {
-            continue;
-        };
+        let file = read_snapshot_file(&path)?;
         if file.run_kind != "aggregate-matrix" {
             continue;
         }
@@ -23557,17 +24526,17 @@ fn load_failure_map(
     config: &SuiteConfig,
     verified: &VerifiedAggregateSummary,
     execution_backend: ExecutionBackend,
-) -> Result<BTreeMap<String, FailureRecord>, String> {
+) -> Result<BTreeMap<TestExecutionId, FailureRecord>, String> {
     let nodes = load_or_build_run_matrix(config, execution_backend)?;
-    let node_hashes = verified
+    let entries = verified
         .summary
         .entries
         .iter()
-        .map(|entry| (entry.node_id.as_str(), entry.manifest_hash))
+        .map(|entry| (entry.node_id.as_str(), entry))
         .collect::<BTreeMap<_, _>>();
     let mut map = BTreeMap::new();
     for node in &nodes {
-        let Some(node_manifest_hash) = node_hashes.get(node.node_id.as_str()).copied() else {
+        let Some(entry) = entries.get(node.node_id.as_str()).copied() else {
             continue;
         };
         let Some(snapshot) = load_completed_node_snapshot(
@@ -23575,13 +24544,13 @@ fn load_failure_map(
             &verified.resolved_snapshot_name,
             node,
             execution_backend,
-            node_manifest_hash,
+            entry,
         )?
         else {
             continue;
         };
         for failure in snapshot.failures {
-            map.insert(failure.test_path.clone(), failure);
+            map.insert(failure.test_id.clone(), failure);
         }
     }
     Ok(map)
@@ -23594,14 +24563,14 @@ fn load_failure_map(
 /// only honest join key, because node manifest hashes are derived from the
 /// pin *string* and therefore changed with every legacy pin drift. The
 /// located file must still prove itself: its own recorded pin must reproduce
-/// the recorded manifest hash over the node's exact case paths, and the pin
+/// the recorded manifest hash over the node's exact execution ids, and the pin
 /// must verify as the current suite content.
 fn locate_node_snapshot(
     config: &SuiteConfig,
     snapshot_name: &str,
     node: &RunMatrixNode,
     execution_backend: ExecutionBackend,
-    node_manifest_hash: u64,
+    entry: &TopLevelRunSummary,
 ) -> Result<Option<(PathBuf, SnapshotFile)>, String> {
     let expected_pinned = pinned_revisions(config);
     let node_snapshot_name = format!(
@@ -23611,7 +24580,7 @@ fn locate_node_snapshot(
     );
     let path = config.snapshot_dir.join(format!(
         "{}-{}.json",
-        node_snapshot_name, node_manifest_hash
+        node_snapshot_name, entry.manifest_hash
     ));
     if !path.exists() {
         return Ok(None);
@@ -23622,16 +24591,8 @@ fn locate_node_snapshot(
         test262: file.pinned_revisions.test262.clone(),
     };
     let recomputed_hash = matrix_node_manifest_hash(&recorded_pinned, node);
-    // The recompute proof only holds for snapshots written by the current
-    // code: legacy snapshot versions may predate changes to the manifest hash
-    // inputs, so for them the join relies on the aggregate-recorded hash plus
-    // verified pin equivalence and the completeness checks below.
-    if file
-        .artifact_kind()
-        .expect("located snapshots have already passed schema validation")
-        .is_current()
-        && recomputed_hash != file.manifest_hash
-    {
+    file.require_current(&path, "current matrix node evidence")?;
+    if recomputed_hash != file.manifest_hash {
         return Err(format!(
             "node snapshot integrity failure in {}: recorded pin does not reproduce manifest hash {} over the current case set for {} (recomputed {})",
             path.display(),
@@ -23640,28 +24601,16 @@ fn locate_node_snapshot(
             recomputed_hash
         ));
     }
-    let summary_entry = TopLevelRunSummary {
-        node_id: node.node_id.clone(),
-        node_kind: node.node_kind,
-        filter: node.filter.clone(),
-        matrix_path: node.matrix_path.clone(),
-        total: node.total_cases,
-        passed: 0,
-        failed: 0,
-        counts_per_kind: BTreeMap::new(),
-        counts_per_outcome: empty_outcome_counts(),
-        counts_per_origin: BTreeMap::new(),
-        manifest_hash: node_manifest_hash,
-    };
     validate_resume_node_snapshot(
         config,
         &file,
         &path,
-        &summary_entry,
+        node,
+        entry.manifest_hash,
         execution_backend,
         &expected_pinned,
-        SnapshotUse::ReadOnlyEvidence,
-    )?;
+    )
+    .map_err(ResumeCheckpointLoadError::into_message)?;
     Ok(Some((path, file)))
 }
 
@@ -23670,91 +24619,18 @@ fn load_completed_node_snapshot(
     snapshot_name: &str,
     node: &RunMatrixNode,
     execution_backend: ExecutionBackend,
-    node_manifest_hash: u64,
+    entry: &TopLevelRunSummary,
 ) -> Result<Option<ProgressSnapshot>, String> {
-    let Some((path, file)) = locate_node_snapshot(
-        config,
-        snapshot_name,
-        node,
-        execution_backend,
-        node_manifest_hash,
-    )?
+    let Some((path, file)) =
+        locate_node_snapshot(config, snapshot_name, node, execution_backend, entry)?
     else {
         return Ok(None);
     };
-    if file.completed_paths.len() != node.case_paths.len() {
-        return Ok(None);
-    }
-    snapshot_from_file(file)
-        .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))
-        .map(Some)
-}
-
-/// Rebuild the outcome counts of a legacy (version 4) aggregate snapshot from
-/// its node snapshots, which record every failure's kind and detail.
-///
-/// Legacy aggregates predate outcome tracking and carry neither per-failure
-/// outcomes nor outcome counts. The node snapshots hold the full recorded
-/// failure data, so the outcome counts are *derived* from real recorded
-/// results — when a node snapshot is missing, migration refuses loudly
-/// instead of inventing counts.
-fn migrate_legacy_aggregate_outcome_counts(
-    config: &SuiteConfig,
-    snapshot: &mut ProgressSnapshot,
-    snapshot_name: &str,
-    execution_backend: ExecutionBackend,
-    nodes: &[RunMatrixNode],
-) -> Result<(), String> {
-    let nodes_by_id = nodes
-        .iter()
-        .map(|node| (node.node_id.as_str(), node))
-        .collect::<BTreeMap<_, _>>();
-    let mut total_counts = empty_outcome_counts();
-    for entry in &mut snapshot.aggregate_entries {
-        let Some(node) = nodes_by_id.get(entry.node_id.as_str()) else {
-            return Err(format!(
-                "legacy aggregate snapshot migration failed: matrix node {} is not part of the current run matrix",
-                entry.node_id
-            ));
-        };
-        let Some((path, file)) = locate_node_snapshot(
-            config,
-            snapshot_name,
-            node,
-            execution_backend,
-            entry.manifest_hash,
-        )?
-        else {
-            return Err(format!(
-                "legacy aggregate snapshot (version {LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION}) cannot derive outcome counts: missing node snapshot for {} under snapshot name {}; re-publish the matrix with the current tooling",
-                entry.node_id, snapshot_name
-            ));
-        };
-        let node_snapshot = snapshot_from_file(file)
-            .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))?;
-        if node_snapshot.passed != entry.passed || node_snapshot.failures.len() != entry.failed {
-            return Err(format!(
-                "legacy aggregate snapshot migration failed: node snapshot {} records passed={} failures={} but the aggregate entry {} records passed={} failed={}",
-                path.display(),
-                node_snapshot.passed,
-                node_snapshot.failures.len(),
-                entry.node_id,
-                entry.passed,
-                entry.failed
-            ));
-        }
-        let mut counts = empty_outcome_counts();
-        counts.insert(OutcomeKind::Success, node_snapshot.passed);
-        for failure in &node_snapshot.failures {
-            *counts.entry(failure.outcome).or_insert(0) += 1;
-        }
-        for (outcome, count) in &counts {
-            *total_counts.entry(*outcome).or_insert(0) += count;
-        }
-        entry.counts_per_outcome = counts;
-    }
-    snapshot.counts_per_outcome = total_counts;
-    Ok(())
+    file.require_current(&path, "completed matrix node evidence")?;
+    let snapshot = snapshot_from_file(file)
+        .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))?;
+    validate_complete_node_contract(&snapshot, node, entry, &path)?;
+    Ok(Some(snapshot))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24264,7 +25140,7 @@ fn scan_tests(
 
         let original_source = fs::read_to_string(&path)
             .map_err(|err| format!("failed to read test {}: {err}", path.display()))?;
-        cases.push(parse_test_case(rel, path, original_source));
+        cases.extend(parse_test_executions(rel, path, original_source)?);
     }
 
     Ok(())
@@ -24281,24 +25157,42 @@ fn filter_matches_directory(relative_dir: &str, filter: &str) -> bool {
         || filter.starts_with(&format!("{relative_dir}/"))
 }
 
-fn parse_test_case(path: String, source_path: PathBuf, original_source: String) -> TestCase {
+fn parse_test_executions(
+    path: String,
+    source_path: PathBuf,
+    original_source: String,
+) -> Result<Vec<TestCase>, String> {
     let frontmatter = parse_frontmatter_block(&original_source);
     let flags = parse_frontmatter_list(frontmatter.get("flags").map(String::as_str));
     let features = parse_frontmatter_list(frontmatter.get("features").map(String::as_str));
     let includes = parse_frontmatter_vec(frontmatter.get("includes").map(String::as_str));
-    let negative = parse_negative(frontmatter.get("negative").map(String::as_str));
-    let is_module = flags.iter().any(|flag| flag == "module");
+    let negative = parse_negative(frontmatter.get("negative").map(String::as_str)).map(Arc::new);
+    let plan = TestExecutionPlan::from_flags(&path, &flags)?;
+    let original_source: Arc<str> = original_source.into();
 
-    TestCase {
-        path,
-        source_path,
-        original_source,
-        flags,
-        features,
-        includes,
-        negative,
-        is_module,
-    }
+    Ok(plan
+        .modes()
+        .map(|execution_mode| TestCase {
+            execution_id: TestExecutionId::new(path.clone(), execution_mode),
+            source_path: source_path.clone(),
+            original_source: Arc::clone(&original_source),
+            flags: flags.clone(),
+            features: features.clone(),
+            includes: includes.clone(),
+            negative: negative.clone(),
+        })
+        .collect())
+}
+
+/// Test helper for source-shape tests that need one representative execution.
+/// Product discovery always uses `parse_test_executions` and keeps every mode.
+#[cfg(test)]
+fn parse_test_case(path: String, source_path: PathBuf, original_source: String) -> TestCase {
+    parse_test_executions(path, source_path, original_source)
+        .expect("test fixture flags should form a valid execution plan")
+        .into_iter()
+        .next()
+        .expect("every valid Test262 execution plan is non-empty")
 }
 
 fn parse_frontmatter_block(source: &str) -> BTreeMap<String, String> {
@@ -24656,27 +25550,27 @@ fn hash_manifest(
     cases: &[TestCase],
     filter: Option<&str>,
 ) -> u64 {
-    hash_manifest_case_paths(
+    hash_manifest_execution_ids(
         pinned_revisions,
         &cases
             .iter()
-            .map(|case| case.path.as_str())
+            .map(|case| case.execution_id.clone())
             .collect::<Vec<_>>(),
         filter,
     )
 }
 
-fn hash_manifest_case_paths(
+fn hash_manifest_execution_ids(
     pinned_revisions: &PinnedRevisions,
-    case_paths: &[impl AsRef<str>],
+    case_ids: &[TestExecutionId],
     filter: Option<&str>,
 ) -> u64 {
     let mut hasher = DefaultHasher::new();
     pinned_revisions.ecma262.hash(&mut hasher);
     pinned_revisions.test262.hash(&mut hasher);
     filter.hash(&mut hasher);
-    for case_path in case_paths {
-        case_path.as_ref().hash(&mut hasher);
+    for case_id in case_ids {
+        case_id.hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -24688,9 +25582,9 @@ fn hash_manifest_case_paths(
 /// resumable readers, and backlog readers from silently deriving different
 /// hashes for the same chunk.
 fn matrix_node_manifest_hash(pinned_revisions: &PinnedRevisions, node: &RunMatrixNode) -> u64 {
-    hash_manifest_case_paths(
+    hash_manifest_execution_ids(
         pinned_revisions,
-        &node.case_paths,
+        &node.case_ids,
         Some(node.node_id.as_str()),
     )
 }
@@ -24987,6 +25881,7 @@ mod tests {
 
     fn failure(test_path: &str, detail: &str, stored_detail_hash: u64) -> FailureRecord {
         FailureRecord {
+            test_id: TestExecutionId::new(test_path, TestExecutionMode::SloppyScript),
             test_path: test_path.to_string(),
             kind: FailureKind::Runtime,
             outcome: OutcomeKind::Bug,
@@ -25030,8 +25925,8 @@ mod tests {
         assert_eq!(
             groups[0].representative_tests,
             vec![
-                "intl402/Collator/this-value-ignored.js".to_string(),
-                "intl402/DateTimeFormat/this-value-ignored.js".to_string(),
+                "sloppy-script:intl402/Collator/this-value-ignored.js".to_string(),
+                "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js".to_string(),
             ]
         );
         assert!(
@@ -25204,14 +26099,13 @@ mod tests {
 
     fn synthetic_case(path: &str) -> TestCase {
         TestCase {
-            path: path.to_string(),
+            execution_id: TestExecutionId::new(path, TestExecutionMode::SloppyScript),
             source_path: PathBuf::from(path),
-            original_source: "0;".to_string(),
+            original_source: Arc::from("0;"),
             flags: BTreeSet::new(),
             features: BTreeSet::new(),
             includes: Vec::new(),
             negative: None,
-            is_module: false,
         }
     }
 
@@ -25393,14 +26287,233 @@ function $DONE(error) {
     fn discover_suite_parses_frontmatter() {
         let manifest =
             discover_suite(&fixture_config(), None).expect("fixture suite should discover");
-        assert_eq!(manifest.cases.len(), 190);
+        assert_eq!(manifest.cases.len(), 191);
         let module_case = manifest
             .cases
             .iter()
             .find(|case| case.path.ends_with("module-pass.js"))
             .expect("module case should exist");
-        assert!(module_case.is_module);
+        assert!(module_case.execution_mode().is_module());
         assert!(module_case.flags.contains("module"));
+    }
+
+    #[test]
+    fn unflagged_discovery_expands_shared_source_into_sloppy_and_strict_executions() {
+        let manifest = discover_suite(&fixture_config(), Some("language/fail/parse-negative.js"))
+            .expect("unflagged fake case should discover");
+        assert_eq!(manifest.cases.len(), 2);
+        let sloppy = manifest
+            .cases
+            .iter()
+            .find(|case| case.execution_mode() == TestExecutionMode::SloppyScript)
+            .expect("sloppy execution should exist");
+        let strict = manifest
+            .cases
+            .iter()
+            .find(|case| case.execution_mode() == TestExecutionMode::StrictScript)
+            .expect("strict execution should exist");
+
+        assert_eq!(sloppy.path(), strict.path());
+        assert_ne!(sloppy.execution_id(), strict.execution_id());
+        assert_ne!(
+            hash_manifest(
+                &manifest.pinned_revisions,
+                std::slice::from_ref(sloppy),
+                Some("single-execution")
+            ),
+            hash_manifest(
+                &manifest.pinned_revisions,
+                std::slice::from_ref(strict),
+                Some("single-execution")
+            ),
+            "execution mode is part of durable manifest identity"
+        );
+        assert!(Arc::ptr_eq(
+            &sloppy.original_source,
+            &strict.original_source
+        ));
+        assert!(Arc::ptr_eq(
+            sloppy
+                .negative
+                .as_ref()
+                .expect("negative metadata should exist"),
+            strict
+                .negative
+                .as_ref()
+                .expect("negative metadata should exist")
+        ));
+    }
+
+    #[test]
+    fn execution_selectors_are_exact_and_malformed_mode_prefixes_are_errors() {
+        let config = fixture_config();
+        let path = "language/fail/parse-negative.js";
+        let physical = discover_suite(&config, Some(path))
+            .expect("physical selector should expand its complete execution plan");
+        assert_eq!(physical.cases.len(), 2);
+
+        let strict = discover_suite(&config, Some(&format!("strict-script:{path}")))
+            .expect("known mode-qualified selector should resolve exactly");
+        assert_eq!(strict.cases.len(), 1);
+        assert_eq!(
+            strict.cases[0].execution_mode(),
+            TestExecutionMode::StrictScript
+        );
+
+        for invalid in [
+            format!("unknown-mode:{path}"),
+            format!(":{path}"),
+            "strict-script:".to_string(),
+        ] {
+            let err = discover_suite(&config, Some(&invalid))
+                .expect_err("malformed execution selector must not fall back to a path");
+            assert!(
+                err.contains("invalid Test262 execution selector"),
+                "selector {invalid}: {err}"
+            );
+        }
+
+        for unknown in [
+            "strict-script:language/fail/does-not-exist.js",
+            "raw-script:language/fail/parse-negative.js",
+        ] {
+            let err = discover_suite(&config, Some(unknown))
+                .expect_err("a well-formed execution selector must resolve exactly once");
+            assert!(err.contains("resolved to 0 cases"), "{unknown}: {err}");
+        }
+    }
+
+    #[test]
+    fn shard_manifests_and_state_paths_are_bound_to_the_exact_selected_execution_set() {
+        let config = fixture_config();
+        let discovered =
+            discover_suite(&config, None).expect("fixture suite should discover completely");
+        let first = manifest_for_selected_cases(
+            &discovered,
+            shard_cases(&discovered.cases, 0, 2).expect("first shard should select"),
+            "shard-1/2",
+        )
+        .expect("first shard manifest should build");
+        let second = manifest_for_selected_cases(
+            &discovered,
+            shard_cases(&discovered.cases, 1, 2).expect("second shard should select"),
+            "shard-2/2",
+        )
+        .expect("second shard manifest should build");
+        let one_of_one =
+            manifest_for_selected_cases(&discovered, discovered.cases.clone(), "shard-1/1")
+                .expect("one-of-one shard manifest should build");
+
+        let first_ids = first
+            .cases
+            .iter()
+            .map(TestCase::execution_id)
+            .collect::<BTreeSet<_>>();
+        let second_ids = second
+            .cases
+            .iter()
+            .map(TestCase::execution_id)
+            .collect::<BTreeSet<_>>();
+        assert!(first_ids.is_disjoint(&second_ids));
+        assert_eq!(first_ids.len() + second_ids.len(), discovered.cases.len());
+        assert_ne!(first.manifest_hash, second.manifest_hash);
+        assert_ne!(one_of_one.manifest_hash, discovered.manifest_hash);
+
+        let first_snapshot =
+            snapshot_paths_for_name(&config, "shared-name", first.manifest_hash).json_path;
+        let second_snapshot =
+            snapshot_paths_for_name(&config, "shared-name", second.manifest_hash).json_path;
+        assert_ne!(first_snapshot, second_snapshot);
+        assert_ne!(
+            attempt_journal_path(&config, "shared-name", first.manifest_hash),
+            attempt_journal_path(&config, "shared-name", second.manifest_hash)
+        );
+
+        let mut duplicate = first.cases.clone();
+        duplicate.push(first.cases[0].clone());
+        assert!(
+            manifest_for_selected_cases(&discovered, duplicate.clone(), "duplicate")
+                .expect_err("a shard manifest must reject duplicate execution ids")
+                .contains("unique executions")
+        );
+        assert!(validate_manifest_execution_set(&first, &duplicate)
+            .expect_err("dispatch must reject a duplicate selected execution")
+            .contains("duplicate ids"));
+        assert!(validate_manifest_execution_set(&discovered, &first.cases)
+            .expect_err("a shard selection must not run under the full-suite manifest")
+            .contains("does not exactly match"));
+    }
+
+    #[test]
+    fn execution_plan_exhaustively_maps_valid_flags_and_rejects_conflicts() {
+        let flags = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect::<BTreeSet<_>>()
+        };
+        let modes = |names: &[&str]| {
+            TestExecutionPlan::from_flags("case.js", &flags(names))
+                .expect("flag plan should be valid")
+                .modes()
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            modes(&[]),
+            vec![
+                TestExecutionMode::SloppyScript,
+                TestExecutionMode::StrictScript
+            ]
+        );
+        assert_eq!(
+            modes(&["onlyStrict"]),
+            vec![TestExecutionMode::StrictScript]
+        );
+        assert_eq!(modes(&["noStrict"]), vec![TestExecutionMode::SloppyScript]);
+        assert_eq!(modes(&["raw"]), vec![TestExecutionMode::RawScript]);
+        assert_eq!(modes(&["module"]), vec![TestExecutionMode::Module]);
+        assert_eq!(
+            modes(&["raw", "module"]),
+            vec![TestExecutionMode::RawModule]
+        );
+
+        for invalid in [
+            &["onlyStrict", "noStrict"][..],
+            &["raw", "onlyStrict"][..],
+            &["raw", "noStrict"][..],
+            &["module", "onlyStrict"][..],
+            &["module", "noStrict"][..],
+        ] {
+            assert!(TestExecutionPlan::from_flags("case.js", &flags(invalid)).is_err());
+        }
+    }
+
+    #[test]
+    fn strict_materialization_leads_the_entire_source_and_raw_is_byte_identical() {
+        let mut strict =
+            synthetic_case("built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js");
+        strict.execution_id = TestExecutionId::new(
+            "built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js",
+            TestExecutionMode::StrictScript,
+        );
+        let materialized = materialize_test(&strict, &PreludeStore::default())
+            .expect("strict self-contained case should materialize");
+        assert!(materialized.source.starts_with("\"use strict\";\n"));
+
+        let raw_bytes = "/*---\nflags: [raw]\n---*/\r\n$262.destroy();\n";
+        let raw = parse_test_executions(
+            "language/raw-byte-identity.js".to_string(),
+            PathBuf::from("language/raw-byte-identity.js"),
+            raw_bytes.to_string(),
+        )
+        .expect("raw plan should parse")
+        .pop()
+        .expect("raw plan should have one execution");
+        let materialized =
+            materialize_test(&raw, &wasm_aot_host_preludes()).expect("raw case should materialize");
+        assert_eq!(materialized.source.as_bytes(), raw_bytes.as_bytes());
+        assert!(materialized.used_preludes.is_empty());
     }
 
     #[test]
@@ -25459,31 +26572,39 @@ function $DONE(error) {
             exact
                 .cases
                 .iter()
-                .map(|case| case.path.as_str())
+                .map(|case| case.execution_id.wire_key())
                 .collect::<Vec<_>>(),
-            ["built-ins/RegExp/prototype/exec/exact.js"]
+            [
+                "sloppy-script:built-ins/RegExp/prototype/exec/exact.js",
+                "strict-script:built-ins/RegExp/prototype/exec/exact.js",
+            ]
         );
         assert_eq!(directory.cases, exact.cases);
         assert_eq!(
             partial
                 .cases
                 .iter()
-                .map(|case| case.path.as_str())
+                .map(|case| case.execution_id.wire_key())
                 .collect::<Vec<_>>(),
             [
-                "built-ins/RegExp/neighbor.js",
-                "built-ins/RegExp/prototype/exec/exact.js",
-                "built-ins/RegExpLegacy/legacy.js",
+                "sloppy-script:built-ins/RegExp/neighbor.js",
+                "strict-script:built-ins/RegExp/neighbor.js",
+                "sloppy-script:built-ins/RegExp/prototype/exec/exact.js",
+                "strict-script:built-ins/RegExp/prototype/exec/exact.js",
+                "sloppy-script:built-ins/RegExpLegacy/legacy.js",
+                "strict-script:built-ins/RegExpLegacy/legacy.js",
             ]
         );
         assert_eq!(
             zip.cases
                 .iter()
-                .map(|case| case.path.as_str())
+                .map(|case| case.execution_id.wire_key())
                 .collect::<Vec<_>>(),
             [
-                "built-ins/Iterator/zip/main.js",
-                "built-ins/Iterator/zip/prototype/next.js",
+                "sloppy-script:built-ins/Iterator/zip/main.js",
+                "strict-script:built-ins/Iterator/zip/main.js",
+                "sloppy-script:built-ins/Iterator/zip/prototype/next.js",
+                "strict-script:built-ins/Iterator/zip/prototype/next.js",
             ]
         );
         assert!(unfiltered.contains("invalid.js"));
@@ -25798,7 +26919,7 @@ function $DONE(error) {
             "$262.agent.report('done');",
         ] {
             let mut case = synthetic_case("harness/non-realm-host.js");
-            case.original_source = source.to_string();
+            case.original_source = Arc::from(source.to_string());
             let materialized =
                 materialize_test(&case, &preludes).expect("non-realm host case should materialize");
 
@@ -25829,7 +26950,7 @@ function $DONE(error) {
             "var host = $262; host.createRealm();",
         ] {
             let mut case = synthetic_case("harness/realm-host.js");
-            case.original_source = source.to_string();
+            case.original_source = Arc::from(source.to_string());
             let materialized =
                 materialize_test(&case, &preludes).expect("realm host case should materialize");
 
@@ -25844,7 +26965,7 @@ function $DONE(error) {
             PreludeOrigin::VendoredHarness,
         );
         let mut included_realm_case = synthetic_case("harness/included-realm-host.js");
-        included_realm_case.original_source = "$262.gc();".to_string();
+        included_realm_case.original_source = Arc::from("$262.gc();".to_string());
         included_realm_case.includes = vec!["realmBoundary.js".to_string()];
         let materialized = materialize_test(&included_realm_case, &preludes)
             .expect("included realm host case should materialize");
@@ -25919,7 +27040,7 @@ function $DONE(error) {
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source = source.to_string();
+            case.original_source = Arc::from( source.to_string());
 
             let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
             let TestStatus::Failed(failure) = result.status else {
@@ -25938,7 +27059,8 @@ function $DONE(error) {
     fn run_one_case_exposes_current_global_host_accessors() {
         let preludes = top_level_host_preludes();
         let mut case = synthetic_case("harness/current-global-accessors.js");
-        case.original_source = r#"
+        case.original_source = Arc::from(
+            r#"
 globalThis.__lilaHostAccessorSentinel = 13;
 if ($262.global !== globalThis) {
   throw new Error('$262.global should be the current global');
@@ -25947,7 +27069,8 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
   throw new Error('$262.getGlobal should read the current global');
 }
 "#
-        .to_string();
+            .to_string(),
+        );
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
         assert!(
@@ -25960,11 +27083,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
     fn run_one_case_matches_parse_negative_with_structured_diagnostic() {
         let preludes = PreludeStore::default();
         let mut case = synthetic_case("language/parse-negative-structured.js");
-        case.original_source = "let x = ;".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("let x = ;".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "parse".to_string(),
             error_type: "SyntaxError".to_string(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
         assert!(
@@ -25980,11 +27103,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
         let mut case = synthetic_case("language/parse-negative-compile-success.js");
         // This source compiles but would fail at runtime if the parse-negative
         // path accidentally fell through to execution.
-        case.original_source = "throw new Error('must not execute');".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("throw new Error('must not execute');".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "parse".to_string(),
             error_type: "SyntaxError".to_string(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
         let TestStatus::Failed(failure) = result.status else {
@@ -26019,11 +27142,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
     fn run_one_case_spec_exec_uses_oracle_after_compile_success() {
         let preludes = PreludeStore::default();
         let mut case = synthetic_case("language/parse-negative-spec-exec-oracle.js");
-        case.original_source = "throw new Error('SyntaxError');".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("throw new Error('SyntaxError');".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "parse".to_string(),
             error_type: "Error".to_string(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
         assert!(
@@ -26038,11 +27161,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
     fn run_one_case_spec_exec_runtime_negative_preserves_compile_diagnostic() {
         let preludes = PreludeStore::default();
         let mut case = synthetic_case("language/runtime-negative-compile-error.js");
-        case.original_source = "let x = ;".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("let x = ;".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "runtime".to_string(),
             error_type: String::new(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
         let TestStatus::Failed(failure) = result.status else {
@@ -26055,11 +27178,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
     fn run_one_case_rejects_early_negative_when_parser_reports_parse_phase() {
         let preludes = PreludeStore::default();
         let mut case = synthetic_case("language/early-negative-parse-mismatch.js");
-        case.original_source = "let x = ;".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("let x = ;".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "early".to_string(),
             error_type: "SyntaxError".to_string(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
         let TestStatus::Failed(failure) = result.status else {
@@ -26077,11 +27200,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
     fn run_one_case_matches_parser_sourced_early_negative() {
         let preludes = PreludeStore::default();
         let mut case = synthetic_case("language/early-negative-duplicate-proto.js");
-        case.original_source = "({ __proto__: null, __proto__: {} });".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("({ __proto__: null, __proto__: {} });".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "early".to_string(),
             error_type: "SyntaxError".to_string(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
         assert!(
@@ -26095,11 +27218,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
     fn run_one_case_matches_parse_negative_with_parser_early_diagnostic() {
         let preludes = PreludeStore::default();
         let mut case = synthetic_case("language/parse-negative-duplicate-proto.js");
-        case.original_source = "({ __proto__: null, __proto__: {} });".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("({ __proto__: null, __proto__: {} });".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "parse".to_string(),
             error_type: "SyntaxError".to_string(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
         assert!(
@@ -26113,11 +27236,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
     fn run_one_case_rejects_parse_negative_with_wrong_error_type() {
         let preludes = PreludeStore::default();
         let mut case = synthetic_case("language/parse-negative-wrong-type.js");
-        case.original_source = "({ __proto__: null, __proto__: {} });".to_string();
-        case.negative = Some(NegativeExpectation {
+        case.original_source = Arc::from("({ __proto__: null, __proto__: {} });".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
             phase: "parse".to_string(),
             error_type: "TypeError".to_string(),
-        });
+        }));
 
         let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
         let TestStatus::Failed(failure) = result.status else {
@@ -26140,7 +27263,7 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
         );
         let mut case = synthetic_case("harness/async-wrapper.js");
         case.flags.insert("async".to_string());
-        case.original_source = "$DONE();".to_string();
+        case.original_source = Arc::from("$DONE();".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
         let materialized_text = materialized.source.as_str();
@@ -26157,7 +27280,7 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
         let preludes = async_done_preludes();
         let mut passing = synthetic_case("harness/async-done-pass.js");
         passing.flags.insert("async".to_string());
-        passing.original_source = "$DONE();".to_string();
+        passing.original_source = Arc::from("$DONE();".to_string());
         let result = run_one_case(&passing, &preludes, 30_000, ExecutionBackend::SpecExec);
         assert!(
             matches!(result.status, TestStatus::Passed),
@@ -26187,7 +27310,7 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
         ] {
             let mut case = synthetic_case(path);
             case.flags.insert("async".to_string());
-            case.original_source = source.to_string();
+            case.original_source = Arc::from(source.to_string());
             let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
             let TestStatus::Failed(failure) = result.status else {
                 panic!("{path} should fail under the async $DONE contract");
@@ -26203,7 +27326,7 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
 
         let mut passing = synthetic_case("harness/wasm-async-done-pass.js");
         passing.flags.insert("async".to_string());
-        passing.original_source = "$DONE();".to_string();
+        passing.original_source = Arc::from("$DONE();".to_string());
         let result = run_one_case(&passing, &preludes, 30_000, ExecutionBackend::WasmAot);
         assert!(
             matches!(result.status, TestStatus::Passed),
@@ -26213,7 +27336,7 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
 
         let mut rejected = synthetic_case("harness/wasm-async-done-reject.js");
         rejected.flags.insert("async".to_string());
-        rejected.original_source = "$DONE('boom');".to_string();
+        rejected.original_source = Arc::from("$DONE('boom');".to_string());
         let result = run_one_case(&rejected, &preludes, 30_000, ExecutionBackend::WasmAot);
         let TestStatus::Failed(failure) = result.status else {
             panic!("async failure output should fail");
@@ -26233,11 +27356,13 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
 
         let mut repeated = synthetic_case("harness/wasm-async-done-repeated.js");
         repeated.flags.insert("async".to_string());
-        repeated.original_source = r#"
+        repeated.original_source = Arc::from(
+            r#"
 print('Test262:AsyncTestComplete');
 print('Test262:AsyncTestComplete');
 "#
-        .to_string();
+            .to_string(),
+        );
         let result = run_one_case(&repeated, &preludes, 30_000, ExecutionBackend::WasmAot);
         let TestStatus::Failed(failure) = result.status else {
             panic!("repeated async completion should fail");
@@ -26250,7 +27375,8 @@ print('Test262:AsyncTestComplete');
     #[test]
     fn wasm_aot_does_not_apply_async_output_protocol_to_synchronous_tests() {
         let mut case = synthetic_case("harness/wasm-sync-output.js");
-        case.original_source = "print('Test262:AsyncTestFailure:ignored sync output');".to_string();
+        case.original_source =
+            Arc::from("print('Test262:AsyncTestFailure:ignored sync output');".to_string());
 
         let result = run_one_case(
             &case,
@@ -26275,7 +27401,7 @@ print('Test262:AsyncTestComplete');
         );
         let mut case = synthetic_case("built-ins/Array/prototype/map/same-value-only.js");
         case.original_source =
-            "var value = true;\nassert.sameValue(value, true, 'value');\n".to_string();
+            Arc::from("var value = true;\nassert.sameValue(value, true, 'value');\n".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
         assert!(materialized.source.contains("__lilaAssertToString"));
@@ -26296,7 +27422,7 @@ print('Test262:AsyncTestComplete');
         let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/results.js");
         case.includes = vec!["testTypedArray.js".to_string()];
         case.original_source =
-            "assert.sameValue(new Uint8Array(1).slice().length, 1);\n".to_string();
+            Arc::from("assert.sameValue(new Uint8Array(1).slice().length, 1);\n".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -26323,7 +27449,7 @@ print('Test262:AsyncTestComplete');
         let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/tointeger-start.js");
         case.includes = vec!["compareArray.js".to_string()];
         case.original_source =
-            "assert(compareArray(new Uint8Array([1]), [1]), 'values');\n".to_string();
+            Arc::from("assert(compareArray(new Uint8Array([1]), [1]), 'values');\n".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
         let comparison = javascript_function(
@@ -26365,9 +27491,9 @@ print('Test262:AsyncTestComplete');
                 "propertyHelper.js".to_string(),
                 "deepEqual.js".to_string(),
             ];
-            case.original_source =
+            case.original_source = Arc::from(
                 "assert.deepEqual([[0, undefined]], [[0, undefined]]);\nverifyProperty({}, 'x', {});\n"
-                    .to_string();
+                    .to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -26438,7 +27564,7 @@ print('Test262:AsyncTestComplete');
             "propertyHelper.js".to_string(),
             "deepEqual.js".to_string(),
         ];
-        case.original_source = "neighboring body\n".to_string();
+        case.original_source = Arc::from("neighboring body\n".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -26461,7 +27587,8 @@ print('Test262:AsyncTestComplete');
     fn regexp_match_indices_compact_harness_checks_values_and_restores_properties() {
         let mut case =
             synthetic_case("built-ins/RegExp/match-indices/indices-array-non-unicode-match.js");
-        case.original_source = r#"
+        case.original_source = Arc::from(
+            r#"
 assert.sameValue(NaN, NaN);
 assert.sameValue(-0, -0);
 assert(!__lilaSameValue(0, -0), "SameValue must distinguish signed zero");
@@ -26486,7 +27613,8 @@ assert.sameValue(descriptor.writable, true);
 assert.sameValue(descriptor.enumerable, true);
 assert.sameValue(descriptor.configurable, true);
 "#
-        .to_string();
+            .to_string(),
+        );
 
         let result = run_one_case(
             &case,
@@ -26523,10 +27651,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
+            )
+            .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -26582,12 +27712,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = format!(
+        case.original_source = Arc::from(format!(
             "{}\n// Future upstream coverage.\n",
             include_str!(
                 "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
             )
-        );
+        ));
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -26620,7 +27750,7 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = "neighboring Iterator.zip body\n".to_string();
+        case.original_source = Arc::from("neighboring Iterator.zip body\n".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -26659,10 +27789,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-longest.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-longest.js"
+            )
+            .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -26702,12 +27834,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        changed_source.original_source = format!("{source}\n// changed\n");
+        changed_source.original_source = Arc::from(format!("{source}\n// changed\n"));
         assert!(rewrite_iterator_zip_basic_longest_case(&changed_source).is_none());
 
         let mut changed_includes = synthetic_case("built-ins/Iterator/zip/basic-longest.js");
         changed_includes.includes = vec!["assert.js".to_string()];
-        changed_includes.original_source = source.to_string();
+        changed_includes.original_source = Arc::from(source.to_string());
         assert!(rewrite_iterator_zip_basic_longest_case(&changed_includes).is_none());
     }
 
@@ -26732,10 +27864,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-strict.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-strict.js"
+            )
+            .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -26768,12 +27902,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        changed_source.original_source = format!("{source}\n// changed\n");
+        changed_source.original_source = Arc::from(format!("{source}\n// changed\n"));
         assert!(rewrite_iterator_zip_basic_strict_case(&changed_source).is_none());
 
         let mut changed_includes = synthetic_case("built-ins/Iterator/zip/basic-strict.js");
         changed_includes.includes = vec!["assert.js".to_string()];
-        changed_includes.original_source = source.to_string();
+        changed_includes.original_source = Arc::from(source.to_string());
         assert!(rewrite_iterator_zip_basic_strict_case(&changed_includes).is_none());
     }
 
@@ -26781,10 +27915,12 @@ assert.sameValue(descriptor.configurable, true);
     fn materialize_iterator_zip_result_is_iterator_uses_self_contained_rewrite() {
         let mut case = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
         case.includes = vec!["wellKnownIntrinsicObjects.js".to_string()];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/result-is-iterator.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/result-is-iterator.js"
+            )
+            .to_string(),
+        );
 
         let materialized =
             materialize_test(&case, &PreludeStore::default()).expect("materialization should work");
@@ -26805,7 +27941,7 @@ assert.sameValue(descriptor.configurable, true);
 
         let mut changed_source = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
         changed_source.includes = vec!["wellKnownIntrinsicObjects.js".to_string()];
-        changed_source.original_source = format!("{source}\n// changed\n");
+        changed_source.original_source = Arc::from(format!("{source}\n// changed\n"));
         let materialized = materialize_test(&changed_source, &PreludeStore::default())
             .expect("materialization should work");
         assert!(materialized.used_preludes.is_empty());
@@ -26815,7 +27951,7 @@ assert.sameValue(descriptor.configurable, true);
 
         let mut changed_includes = synthetic_case("built-ins/Iterator/zip/result-is-iterator.js");
         changed_includes.includes = vec!["assert.js".to_string()];
-        changed_includes.original_source = source.to_string();
+        changed_includes.original_source = Arc::from(source.to_string());
         let materialized = materialize_test(&changed_includes, &PreludeStore::default())
             .expect("materialization should work");
         assert!(materialized
@@ -26827,10 +27963,12 @@ assert.sameValue(descriptor.configurable, true);
     fn materialize_iterator_zip_result_is_iterator_leaves_adjacent_case_unmodified() {
         let mut case = synthetic_case("built-ins/Iterator/zip/result-is-iterator-extra.js");
         case.includes = vec!["wellKnownIntrinsicObjects.js".to_string()];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/result-is-iterator.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/result-is-iterator.js"
+            )
+            .to_string(),
+        );
 
         let materialized =
             materialize_test(&case, &PreludeStore::default()).expect("materialization should work");
@@ -26847,10 +27985,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-shortest.js"
+            )
+            .to_string(),
+        );
         let result = run_one_case(
             &case,
             &PreludeStore::default(),
@@ -26874,10 +28014,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-longest.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-longest.js"
+            )
+            .to_string(),
+        );
         let result = run_one_case(
             &case,
             &PreludeStore::default(),
@@ -26901,10 +28043,12 @@ assert.sameValue(descriptor.configurable, true);
             "propertyHelper.js".to_string(),
             "iteratorZipUtils.js".to_string(),
         ];
-        case.original_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-strict.js"
-        )
-        .to_string();
+        case.original_source = Arc::from(
+            include_str!(
+                "../../../test262/vendor/test262/test/built-ins/Iterator/zip/basic-strict.js"
+            )
+            .to_string(),
+        );
         let result = run_one_case(
             &case,
             &PreludeStore::default(),
@@ -27119,7 +28263,7 @@ assert.sameValue(descriptor.configurable, true);
             PreludeOrigin::LocalMerged,
         );
         let mut case = synthetic_case("built-ins/Array/prototype/map/same-value-sta.js");
-        case.original_source = "assert.sameValue(true, true, 'value');\n".to_string();
+        case.original_source = Arc::from("assert.sameValue(true, true, 'value');\n".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
         assert!(!materialized.source.contains("sta should be skipped"));
@@ -27136,8 +28280,9 @@ assert.sameValue(descriptor.configurable, true);
             PreludeOrigin::LocalMerged,
         );
         let mut case = synthetic_case("built-ins/Array/prototype/map/not-same-value.js");
-        case.original_source =
-            "var value = true;\nassert.notSameValue(value, false, 'value');\n".to_string();
+        case.original_source = Arc::from(
+            "var value = true;\nassert.notSameValue(value, false, 'value');\n".to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
         assert!(materialized.source.contains("full assert"));
@@ -27160,8 +28305,9 @@ assert.sameValue(descriptor.configurable, true);
             PreludeOrigin::LocalMerged,
         );
         let mut case = synthetic_case("built-ins/String/prototype/charAt/S9.4_A1.js");
-        case.original_source =
-            "if ('abc'.charAt(0) !== 'a') throw new Test262Error('charAt');\n".to_string();
+        case.original_source = Arc::from(
+            "if ('abc'.charAt(0) !== 'a') throw new Test262Error('charAt');\n".to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -27233,9 +28379,10 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/ArrayBuffer/prototype/byteLength/detached-buffer.js");
         case.includes = vec!["detachArrayBuffer.js".to_string()];
-        case.original_source =
+        case.original_source = Arc::from(
             "var ab = new ArrayBuffer(1); $DETACHBUFFER(ab); assert.sameValue(ab.byteLength, 0);"
-                .to_string();
+                .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -27462,11 +28609,17 @@ assert.sameValue(descriptor.configurable, true);
             .expect("some length case should exist");
 
         let mut changed_source = metadata_case.clone();
-        changed_source.original_source.push_str("\n// changed\n");
+        changed_source.original_source =
+            Arc::from(format!("{}\n// changed\n", changed_source.original_source));
         assert!(typed_array_literal_helper_plan(&changed_source).is_none());
 
-        let mut changed_path = metadata_case.clone();
-        changed_path.path.push_str(".near-miss");
+        let changed_path = TestCase {
+            execution_id: TestExecutionId::new(
+                format!("{}.near-miss", metadata_case.path()),
+                metadata_case.execution_mode(),
+            ),
+            ..metadata_case.clone()
+        };
         assert!(typed_array_literal_helper_plan(&changed_path).is_none());
 
         let mut changed_includes = metadata_case.clone();
@@ -27857,7 +29010,7 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["testTypedArray.js".to_string()];
-            case.original_source = original_source.to_string();
+            case.original_source = Arc::from( original_source.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -28358,7 +29511,7 @@ assert.sameValue(descriptor.configurable, true);
                 "built-ins/TypedArray/prototype/includes/compact-prelude-rejection.js",
             );
             case.includes = vec!["testTypedArray.js".to_string()];
-            case.original_source = original_source.to_string();
+            case.original_source = Arc::from( original_source.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -28384,7 +29537,7 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/TypedArray/prototype/slice/results-with-same-length.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = "testWithTypedArrayConstructors(function(TA, makeCtorArg) { return new TA(makeCtorArg([1])).slice(); });".to_string();
+        case.original_source = Arc::from( "testWithTypedArrayConstructors(function(TA, makeCtorArg) { return new TA(makeCtorArg([1])).slice(); });".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28412,7 +29565,7 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/TypedArray/prototype/slice/return-abrupt-from-start.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = "testWithTypedArrayConstructors(function(TA) { assert.throws(TypeError, function() { new TA().slice(Symbol()); }); }, null, [\"passthrough\"]);".to_string();
+        case.original_source = Arc::from( "testWithTypedArrayConstructors(function(TA) { assert.throws(TypeError, function() { new TA().slice(Symbol()); }); }, null, [\"passthrough\"]);".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28436,7 +29589,7 @@ assert.sameValue(descriptor.configurable, true);
         let store = vendored_test_typed_array_store();
         let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/stack-observation.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = "testWithTypedArrayConstructors(function(TA, makeCtorArg) { return new Error().stack; });".to_string();
+        case.original_source = Arc::from( "testWithTypedArrayConstructors(function(TA, makeCtorArg) { return new Error().stack; });".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28453,9 +29606,10 @@ assert.sameValue(descriptor.configurable, true);
         let store = vendored_test_typed_array_store();
         let mut case = synthetic_case("built-ins/TypedArray/prototype/slice/conversions.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source =
+        case.original_source = Arc::from(
             "testTypedArrayConversions(values, function(TA) { return new TA(1).slice(); });"
-                .to_string();
+                .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28476,14 +29630,20 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/TypedArray/prototype/includes/length-zero-returns-false.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source =
-            "testWithTypedArrayConstructors(function(TA) { return new TA(); });".to_string();
+        case.original_source = Arc::from(
+            "testWithTypedArrayConstructors(function(TA) { return new TA(); });".to_string(),
+        );
         assert!(wasm_aot_compact_test_typed_array_prelude(&case, prelude).is_some());
 
-        case.path = "built-ins/TypedArray/prototype/join/empty.js".to_string();
+        case.execution_id = TestExecutionId::new(
+            "built-ins/TypedArray/prototype/join/empty.js",
+            TestExecutionMode::SloppyScript,
+        );
         assert!(wasm_aot_compact_test_typed_array_prelude(&case, prelude).is_none());
-        case.path =
-            "built-ins/TypedArray/prototype/includes/length-zero-returns-false.js".to_string();
+        case.execution_id = TestExecutionId::new(
+            "built-ins/TypedArray/prototype/includes/length-zero-returns-false.js",
+            TestExecutionMode::SloppyScript,
+        );
         case.includes.push("detachArrayBuffer.js".to_string());
         assert!(wasm_aot_compact_test_typed_array_prelude(&case, prelude).is_none());
         case.includes.pop();
@@ -28505,7 +29665,7 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/TypedArray/prototype/join/empty-instance-empty-string.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = original_source.to_string();
+        case.original_source = Arc::from(original_source.to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28538,7 +29698,7 @@ assert.sameValue(descriptor.configurable, true);
             "testTypedArray.js".to_string(),
             "compareArray.js".to_string(),
         ];
-        case.original_source = original_source.clone();
+        case.original_source = Arc::from(original_source.clone());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28633,7 +29793,7 @@ assert.sameValue(descriptor.configurable, true);
     fn materialize_typed_array_to_reversed_receiver_validation_avoids_nested_arrow_capture() {
         let mut case =
             synthetic_case("built-ins/TypedArray/prototype/toReversed/this-value-invalid.js");
-        case.original_source = "Object.entries(invalidValues).forEach(value => { TypedArray.prototype.toReversed.call(value[1]); }); $DETACHBUFFER(sample.buffer);".to_string();
+        case.original_source = Arc::from( "Object.entries(invalidValues).forEach(value => { TypedArray.prototype.toReversed.call(value[1]); }); $DETACHBUFFER(sample.buffer);".to_string());
 
         let materialized =
             materialize_test(&case, &PreludeStore::default()).expect("materialization should work");
@@ -28646,7 +29806,10 @@ assert.sameValue(descriptor.configurable, true);
             .source
             .contains("Object.entries(invalidValues)"));
 
-        case.path = "built-ins/TypedArray/prototype/toReversed/neighbor.js".to_string();
+        case.execution_id = TestExecutionId::new(
+            "built-ins/TypedArray/prototype/toReversed/neighbor.js",
+            TestExecutionMode::SloppyScript,
+        );
         let neighboring = materialize_test(&case, &PreludeStore::default())
             .expect("neighboring materialization should work");
         assert!(neighboring.source.contains("Object.entries(invalidValues)"));
@@ -28656,7 +29819,7 @@ assert.sameValue(descriptor.configurable, true);
     fn materialize_typed_array_to_sorted_receiver_validation_avoids_nested_arrow_capture() {
         let mut case =
             synthetic_case("built-ins/TypedArray/prototype/toSorted/this-value-invalid.js");
-        case.original_source = "Object.entries(invalidValues).forEach(value => { TypedArray.prototype.toSorted.call(value[1]); }); $DETACHBUFFER(sample.buffer);".to_string();
+        case.original_source = Arc::from( "Object.entries(invalidValues).forEach(value => { TypedArray.prototype.toSorted.call(value[1]); }); $DETACHBUFFER(sample.buffer);".to_string());
 
         let materialized =
             materialize_test(&case, &PreludeStore::default()).expect("materialization should work");
@@ -28669,7 +29832,10 @@ assert.sameValue(descriptor.configurable, true);
             .source
             .contains("Object.entries(invalidValues)"));
 
-        case.path = "built-ins/TypedArray/prototype/toSorted/neighbor.js".to_string();
+        case.execution_id = TestExecutionId::new(
+            "built-ins/TypedArray/prototype/toSorted/neighbor.js",
+            TestExecutionMode::SloppyScript,
+        );
         let neighboring = materialize_test(&case, &PreludeStore::default())
             .expect("neighboring materialization should work");
         assert!(neighboring.source.contains("Object.entries(invalidValues)"));
@@ -28687,7 +29853,8 @@ assert.sameValue(descriptor.configurable, true);
                 "nativeFunctionMatcher.js".to_string(),
                 "wellKnownIntrinsicObjects.js".to_string(),
             ];
-            case.original_source = "WellKnownIntrinsicObjects.forEach(function() {});".to_string();
+            case.original_source =
+                Arc::from("WellKnownIntrinsicObjects.forEach(function() {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -28747,7 +29914,7 @@ assert.sameValue(descriptor.configurable, true);
                 vec![]
             };
             case.original_source =
-                "assert.sameValue(Function.prototype.toString.length, 0);".to_string();
+                Arc::from("assert.sameValue(Function.prototype.toString.length, 0);".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -28773,8 +29940,9 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/Function/prototype/toString/function-declaration.js");
         case.includes = vec!["nativeFunctionMatcher.js".to_string()];
-        case.original_source =
-            "function f() {}\nassertToStringOrNativeFunction(f, \"function f() {}\");".to_string();
+        case.original_source = Arc::from(
+            "function f() {}\nassertToStringOrNativeFunction(f, \"function f() {}\");".to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28812,7 +29980,8 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/TypedArrayConstructors/of/new-instance-from-zero.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+        case.original_source =
+            Arc::from("testWithTypedArrayConstructors(function(TA) {});".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28848,7 +30017,8 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-length.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+        case.original_source =
+            Arc::from("testWithTypedArrayConstructors(function(TA) {});".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28887,7 +30057,8 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/Array/prototype/map/callbackfn-resize-arraybuffer.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+        case.original_source =
+            Arc::from("testWithTypedArrayConstructors(function(TA) {});".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28924,7 +30095,8 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/Array/prototype/every/callbackfn-resize-arraybuffer.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+        case.original_source =
+            Arc::from("testWithTypedArrayConstructors(function(TA) {});".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -28990,7 +30162,8 @@ assert.sameValue(descriptor.configurable, true);
                 "built-ins/Array/prototype/{method}/callbackfn-resize-arraybuffer.js"
             ));
             case.includes = vec!["testTypedArray.js".to_string()];
-            case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+            case.original_source =
+                Arc::from("testWithTypedArrayConstructors(function(TA) {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29041,9 +30214,10 @@ assert.sameValue(descriptor.configurable, true);
         );
         let mut case = synthetic_case("built-ins/ArrayBuffer/isView/invoked-as-a-fn.js");
         case.includes = vec!["testTypedArray.js".to_string()];
-        case.original_source =
+        case.original_source = Arc::from(
             "var isView = ArrayBuffer.isView;\ntestWithTypedArrayConstructors(function(TA) {});"
-                .to_string();
+                .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -29099,7 +30273,8 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["testTypedArray.js".to_string()];
-            case.original_source = "testWithTypedArrayConstructors(function(TA) {});".to_string();
+            case.original_source =
+                Arc::from("testWithTypedArrayConstructors(function(TA) {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29128,7 +30303,7 @@ assert.sameValue(descriptor.configurable, true);
         );
 
         let mut case = synthetic_case("built-ins/String/prototype/charAt/S15.5.4.4_A1.1.js");
-        case.original_source = "throw new Test262Error('original');".to_string();
+        case.original_source = Arc::from("throw new Test262Error('original');".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -29145,9 +30320,10 @@ assert.sameValue(descriptor.configurable, true);
     fn materialize_string_slice_dynamic_source_case_uses_static_wasm_aot_rewrite() {
         let store = PreludeStore::default();
         let mut case = synthetic_case("built-ins/String/prototype/slice/S15.5.4.13_A1_T5.js");
-        case.original_source =
+        case.original_source = Arc::from(
             "Function.prototype.slice = String.prototype.slice;\nFunction().slice(__func, 5);"
-                .to_string();
+                .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -29229,9 +30405,9 @@ assert.sameValue(descriptor.configurable, true);
         );
 
         let mut case = synthetic_case("built-ins/String/prototype/charCodeAt/S15.5.4.5_A1.1.js");
-        case.original_source =
+        case.original_source = Arc::from(
             "if (__instance.charCodeAt(eval(\"1\"), true, null, {}) !== 0x69) throw new Test262Error();"
-                .to_string();
+                .to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -29255,9 +30431,9 @@ assert.sameValue(descriptor.configurable, true);
         );
 
         let mut case = synthetic_case("built-ins/String/prototype/indexOf/S15.5.4.7_A3_T2.js");
-        case.original_source =
+        case.original_source = Arc::from(
             "if (\"$$abcdabcd\".indexOf(\"ab\", eval(\"\\\"-99\\\"\")) !== 2) throw new Test262Error();"
-                .to_string();
+                .to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -29280,7 +30456,7 @@ assert.sameValue(descriptor.configurable, true);
         );
 
         let mut eval_case = synthetic_case("built-ins/String/prototype/match/S15.5.4.10_A1_T3.js");
-        eval_case.original_source = "match(eval(\"\\\"bj\\\"\"));".to_string();
+        eval_case.original_source = Arc::from("match(eval(\"\\\"bj\\\"\"));".to_string());
         let materialized =
             materialize_test(&eval_case, &store).expect("materialization should work");
         assert!(materialized.used_preludes.is_empty());
@@ -29430,8 +30606,9 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source =
-                "verifyProperty(RegExp.prototype[Symbol.search], 'name', {});".to_string();
+            case.original_source = Arc::from(
+                "verifyProperty(RegExp.prototype[Symbol.search], 'name', {});".to_string(),
+            );
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29461,9 +30638,10 @@ assert.sameValue(descriptor.configurable, true);
             "built-ins/String/prototype/matchAll/regexp-prototype-matchAll-v-u-flag.js",
         );
         case.includes = vec!["compareArray.js".to_string()];
-        case.original_source =
+        case.original_source = Arc::from(
             "assert.compareArray(Array.from(/./gu[Symbol.matchAll]('x')).map(m => m[0]), []);"
-                .to_string();
+                .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -29506,7 +30684,8 @@ assert.sameValue(descriptor.configurable, true);
                 "compareIterator.js".to_string(),
                 "regExpUtils.js".to_string(),
             ];
-            case.original_source = "assert.compareIterator(str.matchAll(null), []);".to_string();
+            case.original_source =
+                Arc::from("assert.compareIterator(str.matchAll(null), []);".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29554,7 +30733,7 @@ assert.sameValue(descriptor.configurable, true);
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
             case.original_source =
-                "verifyProperty(String.prototype.anchor, 'length', {});".to_string();
+                Arc::from("verifyProperty(String.prototype.anchor, 'length', {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29725,7 +30904,7 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = "verifyProperty(escape, 'length', {});".to_string();
+            case.original_source = Arc::from("verifyProperty(escape, 'length', {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29766,15 +30945,18 @@ assert.sameValue(descriptor.configurable, true);
         let mut case = synthetic_case(
             "built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
         );
-        case.is_module = true;
+        case.execution_id = TestExecutionId::new(
+            "built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
+            TestExecutionMode::Module,
+        );
         case.flags.insert("module".to_string());
         case.original_source =
-            "import * as ns from './trap-is-undefined-target-is-proxy.js';".to_string();
+            Arc::from("import * as ns from './trap-is-undefined-target-is-proxy.js';".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
         assert!(materialized.used_preludes.is_empty());
-        assert!(materialized.is_module);
+        assert!(materialized.execution_mode().is_module());
         assert!(!materialized.source.contains("import * as ns"));
         assert!(materialized.source.contains("Object.preventExtensions(ns)"));
         assert!(materialized
@@ -29804,7 +30986,7 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+            case.original_source = Arc::from("verifyProperty({}, 'x', {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29839,7 +31021,7 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+            case.original_source = Arc::from("verifyProperty({}, 'x', {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -29886,8 +31068,9 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["isConstructor.js".to_string()];
-            case.original_source =
-                "assert.throws(TypeError, function() {}); assert.sameValue(0, 0);".to_string();
+            case.original_source = Arc::from(
+                "assert.throws(TypeError, function() {}); assert.sameValue(0, 0);".to_string(),
+            );
             case.features.insert("Proxy".to_string());
 
             let materialized =
@@ -29998,9 +31181,9 @@ assert.sameValue(descriptor.configurable, true);
                 "isConstructor.js".to_string(),
                 "sta.js".to_string(),
             ];
-            case.original_source =
+            case.original_source = Arc::from(
                 "verifyProperty({}, 'x', {}); assert.sameValue(0, 0); isConstructor(function() {}); $262.createRealm();"
-                    .to_string();
+                    .to_string());
             case.features.insert("Proxy".to_string());
 
             let materialized =
@@ -30038,9 +31221,9 @@ assert.sameValue(descriptor.configurable, true);
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source =
+            case.original_source = Arc::from(
                 "var OProxy = $262.createRealm().global.Proxy; assert.throws(TypeError, function() {});"
-                    .to_string();
+                    .to_string());
             case.features.insert("cross-realm".to_string());
             case.features.insert("Proxy".to_string());
 
@@ -30069,8 +31252,9 @@ assert.sameValue(descriptor.configurable, true);
         );
 
         let mut case = synthetic_case("built-ins/Proxy/apply/arguments-realm.js");
-        case.original_source =
-            "var f = $262.createRealm().global.eval('new Proxy(function() {}, {})');".to_string();
+        case.original_source = Arc::from(
+            "var f = $262.createRealm().global.eval('new Proxy(function() {}, {})');".to_string(),
+        );
         case.features.insert("cross-realm".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
@@ -30099,8 +31283,9 @@ assert.sameValue(descriptor.configurable, true);
         );
 
         let mut case = synthetic_case("built-ins/Proxy/construct/arguments-realm.js");
-        case.original_source =
-            "var C = $262.createRealm().global.eval('new Proxy(function() {}, {})');".to_string();
+        case.original_source = Arc::from(
+            "var C = $262.createRealm().global.eval('new Proxy(function() {}, {})');".to_string(),
+        );
         case.features.insert("cross-realm".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
@@ -30131,7 +31316,7 @@ assert.sameValue(descriptor.configurable, true);
         let mut case = synthetic_case(
             "built-ins/Proxy/construct/trap-is-undefined-proto-from-cross-realm-newtarget.js",
         );
-        case.original_source = "var C = new other.Function();".to_string();
+        case.original_source = Arc::from("var C = new other.Function();".to_string());
         case.features.insert("cross-realm".to_string());
         case.features.insert("Proxy".to_string());
         case.features.insert("Reflect.construct".to_string());
@@ -30163,7 +31348,8 @@ assert.sameValue(descriptor.configurable, true);
         let mut case = synthetic_case(
             "built-ins/Proxy/construct/trap-is-undefined-proto-from-newtarget-realm.js",
         );
-        case.original_source = "var C = new other.Function(); C.prototype = null;".to_string();
+        case.original_source =
+            Arc::from("var C = new other.Function(); C.prototype = null;".to_string());
         case.features.insert("cross-realm".to_string());
         case.features.insert("Proxy".to_string());
         case.features.insert("Reflect.construct".to_string());
@@ -30196,9 +31382,9 @@ assert.sameValue(descriptor.configurable, true);
         for name in ["Infinity", "NaN", "undefined"] {
             let mut case = synthetic_case(&format!("built-ins/{name}/prop-desc.js"));
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = format!(
+            case.original_source = Arc::from( format!(
                 "verifyProperty(this, \"{name}\", {{ writable: false, enumerable: false, configurable: false }});"
-            );
+            ));
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -30226,7 +31412,7 @@ assert.sameValue(descriptor.configurable, true);
 
         let mut case = synthetic_case("built-ins/undefined/S15.1.1.3_A1.js");
         case.original_source =
-            "if (undefined !== eval(\"var x\")) throw new Test262Error();".to_string();
+            Arc::from("if (undefined !== eval(\"var x\")) throw new Test262Error();".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -30274,7 +31460,7 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = "verifyProperty({}, 'x', {});".to_string();
+            case.original_source = Arc::from("verifyProperty({}, 'x', {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -30340,7 +31526,8 @@ assert.sameValue(descriptor.configurable, true);
                 };
                 let mut case = synthetic_case(&format!("built-ins/Number/{name}/{file}"));
                 case.includes = vec!["propertyHelper.js".to_string()];
-                case.original_source = format!("verifyNotWritable(Number, \"{name}\", null, 1);");
+                case.original_source =
+                    Arc::from(format!("verifyNotWritable(Number, \"{name}\", null, 1);"));
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -30374,8 +31561,8 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(&format!("built-ins/Number/{file}"));
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source =
-                format!("verifyProperty(Number, \"{property}\", {{}}); verifyNotWritable(Number, \"{property}\");");
+            case.original_source = Arc::from(
+                format!("verifyProperty(Number, \"{property}\", {{}}); verifyNotWritable(Number, \"{property}\");"));
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -30412,8 +31599,8 @@ assert.sameValue(descriptor.configurable, true);
         for method in ["parseFloat", "parseInt"] {
             let mut case = synthetic_case(&format!("built-ins/Number/{method}.js"));
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source =
-                format!("assert.sameValue(Number.{method}, {method}); verifyProperty(Number, \"{method}\", {{}});");
+            case.original_source = Arc::from(
+                format!("assert.sameValue(Number.{method}, {method}); verifyProperty(Number, \"{method}\", {{}});"));
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -30454,7 +31641,8 @@ assert.sameValue(descriptor.configurable, true);
             ] {
                 let mut case = synthetic_case(&format!("built-ins/Number/{method}/{file}"));
                 case.includes = vec!["propertyHelper.js".to_string()];
-                case.original_source = format!("verifyProperty(Number.{method}, \"name\", {{}});");
+                case.original_source =
+                    Arc::from(format!("verifyProperty(Number.{method}, \"name\", {{}});"));
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -30510,8 +31698,9 @@ assert.sameValue(descriptor.configurable, true);
                 let mut case =
                     synthetic_case(&format!("built-ins/Number/prototype/{method}/{file}"));
                 case.includes = vec!["propertyHelper.js".to_string()];
-                case.original_source =
-                    format!("verifyProperty(Number.prototype.{method}, 'name', {{}});");
+                case.original_source = Arc::from(format!(
+                    "verifyProperty(Number.prototype.{method}, 'name', {{}});"
+                ));
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -30634,7 +31823,7 @@ assert.sameValue(descriptor.configurable, true);
                     "propertyHelper.js".to_string(),
                     "assert.js".to_string(),
                 ];
-                case.original_source = original;
+                case.original_source = Arc::from( original);
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -30665,7 +31854,8 @@ assert.sameValue(descriptor.configurable, true);
 
         let mut constructor_case = synthetic_case("built-ins/Boolean/prop-desc.js");
         constructor_case.includes = vec!["propertyHelper.js".to_string()];
-        constructor_case.original_source = "verifyProperty(this, \"Boolean\", {});".to_string();
+        constructor_case.original_source =
+            Arc::from("verifyProperty(this, \"Boolean\", {});".to_string());
 
         let materialized =
             materialize_test(&constructor_case, &store).expect("materialization should work");
@@ -30687,8 +31877,9 @@ assert.sameValue(descriptor.configurable, true);
                 let mut case =
                     synthetic_case(&format!("built-ins/Boolean/prototype/{method}/{file}"));
                 case.includes = vec!["propertyHelper.js".to_string()];
-                case.original_source =
-                    format!("verifyProperty(Boolean.prototype.{method}, \"name\", {{}});");
+                case.original_source = Arc::from(format!(
+                    "verifyProperty(Boolean.prototype.{method}, \"name\", {{}});"
+                ));
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -30716,9 +31907,9 @@ assert.sameValue(descriptor.configurable, true);
         );
 
         let mut case = synthetic_case("built-ins/Boolean/proto-from-ctor-realm.js");
-        case.original_source =
+        case.original_source = Arc::from(
             "var other = $262.createRealm().global; var C = new other.Function(); C.prototype = null;"
-                .to_string();
+                .to_string());
         case.features.insert("cross-realm".to_string());
         case.features.insert("Reflect.construct".to_string());
 
@@ -30764,7 +31955,8 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["assert.js".to_string()];
-            case.original_source = format!("assert.sameValue(Boolean({forbidden}), true);");
+            case.original_source =
+                Arc::from(format!("assert.sameValue(Boolean({forbidden}), true);"));
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -30820,8 +32012,9 @@ assert.sameValue(descriptor.configurable, true);
                 let mut case =
                     synthetic_case(&format!("built-ins/Array/prototype/{method}/{file}"));
                 case.includes = vec!["propertyHelper.js".to_string()];
-                case.original_source =
-                    format!("verifyProperty(Array.prototype.{method}, \"name\", {{}});");
+                case.original_source = Arc::from(format!(
+                    "verifyProperty(Array.prototype.{method}, \"name\", {{}});"
+                ));
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -30882,7 +32075,7 @@ assert.sameValue(descriptor.configurable, true);
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = original_source.to_string();
+            case.original_source = Arc::from( original_source.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -30910,9 +32103,10 @@ assert.sameValue(descriptor.configurable, true);
         let mut case =
             synthetic_case("built-ins/Array/prototype/toString/non-callable-join-string-tag.js");
         case.includes = vec!["assert.js".to_string()];
-        case.original_source =
+        case.original_source = Arc::from(
             "assert.sameValue(Array.prototype.toString.call({ join: null }), '[object Object]');"
-                .to_string();
+                .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -31005,9 +32199,10 @@ assert.sameValue(descriptor.configurable, true);
                 "resizableArrayBufferUtils.js".to_string(),
             ];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source =
+            case.original_source = Arc::from(
                 "for (let ctor of ctors) { throw 'original'; } assert.compareArray([], []);"
-                    .to_string();
+                    .to_string(),
+            );
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -31066,8 +32261,9 @@ assert.sameValue(descriptor.configurable, true);
             let mut case = synthetic_case(path);
             case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source =
-                "for (let ctor of ctors) { throw 'original'; } MayNeedBigInt();".to_string();
+            case.original_source = Arc::from(
+                "for (let ctor of ctors) { throw 'original'; } MayNeedBigInt();".to_string(),
+            );
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -31275,7 +32471,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "testTypedArray.js".to_string(),
                 "detachArrayBuffer.js".to_string(),
             ];
-            case.original_source = original_source.to_string();
+            case.original_source = Arc::from( original_source.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -31306,7 +32502,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             synthetic_case("built-ins/Array/prototype/at/typed-array-resizable-buffer.js");
         case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
         case.features.insert("resizable-arraybuffer".to_string());
-        case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+        case.original_source =
+            Arc::from("for (let ctor of ctors) { throw 'original'; }".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -31334,7 +32531,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut case = synthetic_case("built-ins/Array/prototype/at/coerced-index-resize.js");
         case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
         case.features.insert("resizable-arraybuffer".to_string());
-        case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+        case.original_source =
+            Arc::from("for (let ctor of ctors) { throw 'original'; }".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -31812,7 +33010,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     .iter()
                     .map(|include| (*include).to_string())
                     .collect();
-                case.original_source = original_source.clone();
+                case.original_source = Arc::from(original_source.clone());
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -31844,7 +33042,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             .into_iter()
             .map(str::to_string)
             .collect();
-        case.original_source = original_source.clone();
+        case.original_source = Arc::from(original_source.clone());
 
         let materialized = materialize_test(&case, &wasm_aot_host_preludes())
             .expect("materialization should work");
@@ -31881,9 +33079,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "resizableArrayBufferUtils.js".to_string(),
         ];
         case.features.insert("resizable-arraybuffer".to_string());
-        case.original_source =
+        case.original_source = Arc::from(
             "for (let ctor of ctors) { throw 'original'; } assert.compareArray([], []);"
-                .to_string();
+                .to_string(),
+        );
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -31939,9 +33138,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "resizableArrayBufferUtils.js".to_string(),
             ];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source =
+            case.original_source = Arc::from(
                 "for (let ctor of ctors) { throw 'original'; } assert.compareArray([], []);"
-                    .to_string();
+                    .to_string(),
+            );
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -31999,9 +33199,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "resizableArrayBufferUtils.js".to_string(),
             ];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source =
+            case.original_source = Arc::from(
                 "TestIterationAndResize(iterator, [], rab, 2, 3); assert.compareArray([], []);"
-                    .to_string();
+                    .to_string(),
+            );
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32073,9 +33274,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "resizableArrayBufferUtils.js".to_string(),
             ];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source =
+            case.original_source = Arc::from(
                 "TestIterationAndResize(iterator, [], rab, 2, 3); assert.compareArray([], []);"
-                    .to_string();
+                    .to_string(),
+            );
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32243,9 +33445,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "resizableArrayBufferUtils.js".to_string(),
             ];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source =
+            case.original_source = Arc::from(
                 "CollectValuesAndResize(0, [], rab, 1, 2); assert.compareArray([], []);"
-                    .to_string();
+                    .to_string(),
+            );
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32342,7 +33545,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "resizableArrayBufferUtils.js".to_string(),
             ];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source = "heavy helper source should be replaced".to_string();
+            case.original_source = Arc::from("heavy helper source should be replaced".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32394,7 +33597,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             let mut case = synthetic_case(path);
             case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+            case.original_source =
+                Arc::from("for (let ctor of ctors) { throw 'original'; }".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32428,7 +33632,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         );
         let mut case = synthetic_case("built-ins/Array/prototype/sort/comparefn-grow.js");
         case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
-        case.original_source = "ctors.length;".to_string();
+        case.original_source = Arc::from("ctors.length;".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -32469,7 +33673,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let mut case = synthetic_case(path);
             case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+            case.original_source =
+                Arc::from("for (let ctor of ctors) { throw 'original'; }".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32508,7 +33713,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let mut case = synthetic_case(path);
             case.includes = vec!["resizableArrayBufferUtils.js".to_string()];
             case.features.insert("resizable-arraybuffer".to_string());
-            case.original_source = "for (let ctor of ctors) { throw 'original'; }".to_string();
+            case.original_source =
+                Arc::from("for (let ctor of ctors) { throw 'original'; }".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32552,7 +33758,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             if !path.ends_with("receiver-is-not-object.js") {
                 case.includes = vec!["propertyHelper.js".to_string()];
             }
-            case.original_source = "verifyProperty(Reflect.set, \"name\", {});".to_string();
+            case.original_source =
+                Arc::from("verifyProperty(Reflect.set, \"name\", {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32590,7 +33797,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
             case.original_source =
-                "verifyProperty(Reflect.setPrototypeOf, \"name\", {});".to_string();
+                Arc::from("verifyProperty(Reflect.setPrototypeOf, \"name\", {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32613,9 +33820,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         let mut case = synthetic_case("built-ins/Error/isError/prop-desc.js");
         case.includes = vec!["propertyHelper.js".to_string()];
-        case.original_source =
+        case.original_source = Arc::from(
             "verifyProperty(Error, \"isError\", { writable: true, enumerable: false, configurable: true });"
-                .to_string();
+                .to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -32671,7 +33878,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = "verifyProperty(ThrowTypeError, \"length\", {});".to_string();
+            case.original_source =
+                Arc::from("verifyProperty(ThrowTypeError, \"length\", {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32693,9 +33901,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     fn materialize_error_is_error_errors_other_realm_uses_static_wasm_aot_rewrite() {
         let store = PreludeStore::default();
         let mut case = synthetic_case("built-ins/Error/isError/errors-other-realm.js");
-        case.original_source =
+        case.original_source = Arc::from(
             "var other = $262.createRealm().global; assert.sameValue(Error.isError(new other.EvalError()), true);"
-                .to_string();
+                .to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -32763,7 +33971,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = original.to_string();
+            case.original_source = Arc::from( original.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -32889,7 +34097,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = original.to_string();
+            case.original_source = Arc::from(original.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33013,7 +34221,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = original.to_string();
+            case.original_source = Arc::from(original.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33064,9 +34272,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ] {
             let mut case = synthetic_case(path);
             case.includes = vec!["propertyHelper.js".to_string()];
-            case.original_source = format!(
+            case.original_source = Arc::from( format!(
                 "verifyProperty(Error.prototype, \"{property}\", {{ writable: true, enumerable: false, configurable: true }});"
-            );
+            ));
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33097,7 +34305,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let mut case = synthetic_case(&format!("built-ins/Error/prototype/toString/{file}"));
             case.includes = vec!["propertyHelper.js".to_string()];
             case.original_source =
-                "verifyProperty(Error.prototype.toString, \"length\", {});".to_string();
+                Arc::from("verifyProperty(Error.prototype.toString, \"length\", {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33257,7 +34465,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ] {
             let mut case = synthetic_case(path);
             case.includes = includes;
-            case.original_source = source.to_string();
+            case.original_source = Arc::from( source.to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33503,9 +34711,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 "propertyHelper.js".to_string(),
                 "detachArrayBuffer.js".to_string(),
             ];
-            case.original_source =
+            case.original_source = Arc::from(
                 "verifyProperty(DataView, 'length', {}); $DETACHBUFFER(buffer); assert.throws(TypeError, function () {});"
-                    .to_string();
+                    .to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33540,7 +34748,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 let mut case =
                     synthetic_case(&format!("built-ins/DataView/prototype/{property}/{file}"));
                 case.includes = vec!["propertyHelper.js".to_string()];
-                case.original_source = "verifyProperty({}, 'x', {});".to_string();
+                case.original_source = Arc::from("verifyProperty({}, 'x', {});".to_string());
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -33576,7 +34784,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ] {
                 let mut case =
                     synthetic_case(&format!("built-ins/DataView/prototype/{property}/{file}"));
-                case.original_source = "assert.throws(TypeError, function () {});".to_string();
+                case.original_source =
+                    Arc::from("assert.throws(TypeError, function () {});".to_string());
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -33622,7 +34831,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 let mut case =
                     synthetic_case(&format!("built-ins/DataView/prototype/{method}/{file}"));
                 case.includes = vec!["propertyHelper.js".to_string()];
-                case.original_source = "verifyProperty({}, 'x', {});".to_string();
+                case.original_source = Arc::from("verifyProperty({}, 'x', {});".to_string());
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -33651,7 +34860,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             for file in ["this-is-not-object.js", "this-has-no-dataview-internal.js"] {
                 let mut case =
                     synthetic_case(&format!("built-ins/DataView/prototype/{method}/{file}"));
-                case.original_source = "assert.throws(TypeError, function () {});".to_string();
+                case.original_source =
+                    Arc::from("assert.throws(TypeError, function () {});".to_string());
 
                 let materialized =
                     materialize_test(&case, &store).expect("materialization should work");
@@ -33677,7 +34887,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let mut sab_case = synthetic_case(
             "built-ins/DataView/prototype/getInt32/this-has-no-dataview-internal-sab.js",
         );
-        sab_case.original_source = "assert.throws(TypeError, function () {});".to_string();
+        sab_case.original_source =
+            Arc::from("assert.throws(TypeError, function () {});".to_string());
 
         let materialized =
             materialize_test(&sab_case, &store).expect("materialization should work");
@@ -33734,7 +34945,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source = "assert.throws(TypeError, function () {});".to_string();
+            case.original_source = Arc::from( "assert.throws(TypeError, function () {});".to_string());
 
             let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -33794,7 +35005,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source = "assert.throws(RangeError, function () {});".to_string();
+            case.original_source =
+                Arc::from("assert.throws(RangeError, function () {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33853,9 +35065,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source =
+            case.original_source = Arc::from(
                 "assert.sameValue(sample.getBigInt64({}), 0n); assert.throws(TypeError, function () {});"
-                    .to_string();
+                    .to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33897,7 +35109,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ));
             case.includes = vec!["byteConversionValues.js".to_string()];
             case.original_source =
-                "byteConversionValues.values.forEach(function () {});".to_string();
+                Arc::from("byteConversionValues.values.forEach(function () {});".to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -33972,9 +35184,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source =
+            case.original_source = Arc::from(
                 "assert.sameValue(sample.getInt16(0), 0); assert.throws(TypeError, function () {});"
-                    .to_string();
+                    .to_string());
 
             let materialized =
                 materialize_test(&case, &store).expect("materialization should work");
@@ -34118,8 +35330,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ..RunConfig::default()
         };
         let summary = run_full(&config, run_config).expect("run should complete");
-        assert_eq!(summary.total, 190);
-        assert_eq!(summary.completed_paths.len(), 190);
+        assert_eq!(summary.total, 191);
+        assert_eq!(summary.completed_test_ids.len(), 191);
         let files = fs::read_dir(config.snapshot_dir)
             .expect("snapshot dir should exist")
             .count();
@@ -34144,7 +35356,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .expect("resume run should complete");
         assert_eq!(first.total, second.total);
-        assert_eq!(second.completed_paths.len(), first.completed_paths.len());
+        assert_eq!(
+            second.completed_test_ids.len(),
+            first.completed_test_ids.len()
+        );
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -34158,8 +35373,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         };
         let summary = run_full(&config, run_config).expect("run should complete");
         let report = baseline_report(&summary);
-        assert_eq!(report.total, 190);
-        assert_eq!(report.passed, 190);
+        assert_eq!(report.total, 191);
+        assert_eq!(report.passed, 191);
         assert!(report.buckets.iter().all(|bucket| bucket.total == 0));
     }
 
@@ -34176,8 +35391,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             },
         )
         .expect("aggregate run should complete");
-        assert_eq!(summary.total, 190);
-        assert_eq!(summary.passed, 190);
+        assert_eq!(summary.total, 191);
+        assert_eq!(summary.passed, 191);
         assert_eq!(summary.failed, 0);
         assert!(summary.entries.len() >= TOP_LEVEL_FILTERS.len());
         assert!(summary
@@ -34218,7 +35433,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[cfg(feature = "spec-exec-oracle")]
     #[test]
-    fn report_all_resume_reloads_completed_node_snapshot_summaries() {
+    fn report_all_resume_rejects_node_evidence_that_disagrees_with_aggregate() {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-refresh".to_string(),
@@ -34242,10 +35457,21 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         ));
         let mut file =
             read_snapshot_file(&node_snapshot_path).expect("node snapshot file should parse");
+        let failed_test_id = file
+            .completed_test_ids
+            .values()
+            .and_then(|test_ids| test_ids.first())
+            .cloned()
+            .expect("completed node should contain an execution id");
         file.passed = file.total.saturating_sub(1);
         file.counts_per_kind.insert(FailureKind::Runtime, 1);
+        let mut counts_per_outcome = empty_outcome_counts();
+        counts_per_outcome.insert(OutcomeKind::Success, file.passed);
+        counts_per_outcome.insert(OutcomeKind::Bug, 1);
+        file.counts_per_outcome = Some(counts_per_outcome);
         file.failures = vec![SnapshotFailureRecord {
-            test_path: "language/pass/runtime-refresh.js".to_string(),
+            test_id: Some(failed_test_id.clone()),
+            test_path: failed_test_id.path().to_string(),
             kind: FailureKind::Runtime,
             outcome: Some(OutcomeKind::Bug),
             origin: FailureOrigin::SpecExecHost,
@@ -34259,41 +35485,19 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .expect("mutated node snapshot should write");
 
-        let resumed = run_top_level_matrix(
+        let err = run_top_level_matrix(
             &config,
             RunConfig {
                 resume: true,
                 ..run_config
             },
         )
-        .expect("resume matrix run should work");
-        let resumed_entry = resumed
-            .entries
-            .iter()
-            .find(|entry| entry.node_id == "language/pass")
-            .expect("resumed language/pass entry should exist");
-        assert_eq!(resumed.failed, 1);
-        assert_eq!(resumed_entry.failed, 1);
-        assert_eq!(
-            resumed_entry
-                .counts_per_kind
-                .get(&FailureKind::Runtime)
-                .copied()
-                .unwrap_or(0),
-            1
-        );
-        assert_eq!(
-            resumed_entry
-                .counts_per_origin
-                .get(&FailureOrigin::SpecExecHost)
-                .copied()
-                .unwrap_or(0),
-            1
-        );
+        .expect_err("resume must reject node evidence that disagrees with its aggregate entry");
+        assert!(err.contains("aggregate entry language/pass does not equal its node evidence"));
     }
 
     #[test]
-    fn report_all_low_ram_resume_trusts_aggregate_entries() {
+    fn report_all_low_ram_resume_rejects_foreign_node_execution_ids() {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-low-ram".to_string(),
@@ -34320,6 +35524,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         file.passed = file.total.saturating_sub(1);
         file.counts_per_kind.insert(FailureKind::Runtime, 1);
         file.failures = vec![SnapshotFailureRecord {
+            test_id: Some(TestExecutionId::new(
+                "language/pass/runtime-refresh.js",
+                TestExecutionMode::SloppyScript,
+            )),
             test_path: "language/pass/runtime-refresh.js".to_string(),
             kind: FailureKind::Runtime,
             outcome: Some(OutcomeKind::Bug),
@@ -34334,21 +35542,246 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .expect("mutated node snapshot should write");
 
-        let resumed = run_top_level_matrix(
+        let err = run_top_level_matrix(
             &config,
             RunConfig {
                 resume: true,
                 ..run_config
             },
         )
-        .expect("low-ram resume matrix run should work");
-        let resumed_entry = resumed
-            .entries
+        .expect_err("low-ram resume must reject a foreign node execution id");
+        assert!(err.contains("failure names execution outside completed set"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn low_ram_resume_reexecutes_and_replaces_a_known_stale_node_checkpoint() {
+        let (runner_path, sentinel_path) = recording_case_runner("low-ram-stale-node");
+        let mut config = fixture_config();
+        config.worker_count = 1;
+        config.case_runner_bin = Some(runner_path);
+        let run_config = RunConfig {
+            snapshot_name: "low-ram-stale-node".to_string(),
+            max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let mut seeded = run_top_level_matrix(&config, run_config.clone())
+            .expect("the first matrix node should be seeded through the product flow");
+        let entry = loop {
+            if let Some(entry) = seeded.entries.iter().find(|entry| entry.total > 0) {
+                break entry.clone();
+            }
+            assert!(
+                seeded.entries.len() < nodes.len(),
+                "fixture matrix must contain a nonempty node"
+            );
+            seeded = run_top_level_matrix(
+                &config,
+                RunConfig {
+                    resume: true,
+                    ..run_config.clone()
+                },
+            )
+            .expect("low-RAM seeding should advance to the next matrix node");
+        };
+        let node = nodes
+            .into_iter()
+            .find(|node| node.node_id == entry.node_id)
+            .expect("seeded entry should identify its matrix node");
+        assert!(!node.case_ids.is_empty());
+        let node_snapshot_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&node.node_id),
+            entry.manifest_hash
+        ));
+        fs::write(&sentinel_path, "").expect("seed dispatch sentinel should clear");
+
+        let mut stale =
+            read_snapshot_file(&node_snapshot_path).expect("seeded node snapshot should parse");
+        stale.run_kind = "resume-case-checkpoint".to_string();
+        stale.checkpoint_identity = WireCheckpointIdentity::present(CheckpointRunIdentity::new(
+            format!("matrix-{}", node.node_kind.as_str()),
+            &node.matrix_path,
+        ));
+        stale.matrix_path.clear();
+        stale.execution_backend = ExecutionBackend::WasmAot.as_str().to_string();
+        write_snapshot_file_for_test(&node_snapshot_path, &stale);
+        let stale_bytes =
+            fs::read(&node_snapshot_path).expect("stale checkpoint bytes should read");
+
+        let exact_err = run_selected_matrix_node(
+            &config,
+            &node.node_id,
+            RunConfig {
+                resume: true,
+                ..run_config.clone()
+            },
+        )
+        .expect_err("a public matrix-node resume must require an exact checkpoint envelope");
+        assert!(
+            exact_err.contains("resume checkpoint mismatch for execution_backend"),
+            "{exact_err}"
+        );
+        assert!(
+            recorded_execution_ids(&sentinel_path).is_empty(),
+            "RequireExact must reject before dispatch"
+        );
+        assert_eq!(
+            fs::read(&node_snapshot_path).expect("rejected checkpoint should remain readable"),
+            stale_bytes,
+            "RequireExact must preserve rejected evidence"
+        );
+
+        let resumed = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config.clone()
+            },
+        )
+        .expect("low-RAM resume should treat the known stale envelope as absent work");
+        assert!(
+            resumed
+                .entries
+                .iter()
+                .any(|resumed_entry| resumed_entry.node_id == node.node_id),
+            "the re-executed node must re-enter the aggregate"
+        );
+        let mut expected_execution_ids = node
+            .case_ids
             .iter()
-            .find(|candidate| candidate.node_id == entry.node_id)
-            .expect("resumed entry should exist");
-        assert_eq!(resumed.failed, 0);
-        assert_eq!(resumed_entry.failed, 0);
+            .map(TestExecutionId::wire_key)
+            .collect::<Vec<_>>();
+        expected_execution_ids.sort();
+        assert_eq!(
+            recorded_execution_ids(&sentinel_path),
+            expected_execution_ids,
+            "the stale node must be executed, not promoted or skipped"
+        );
+
+        let replaced =
+            read_snapshot_file(&node_snapshot_path).expect("replacement node should parse");
+        assert_eq!(
+            replaced.execution_backend,
+            ExecutionBackend::SpecExec.as_str()
+        );
+        assert_eq!(replaced.matrix_strategy_version, MATRIX_STRATEGY_VERSION);
+        assert_eq!(replaced.manifest_hash, entry.manifest_hash);
+        assert_eq!(
+            replaced.run_kind,
+            format!("matrix-{}", node.node_kind.as_str())
+        );
+        assert_eq!(replaced.matrix_path, node.matrix_path);
+        assert!(replaced.checkpoint_identity.is_absent());
+        assert_ne!(
+            fs::read(&node_snapshot_path).expect("replacement bytes should read"),
+            stale_bytes,
+            "the successful node run must replace stale evidence at the canonical path"
+        );
+        let node_snapshot_name = format!(
+            "{}-{}",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&node.node_id)
+        );
+        assert!(
+            !attempt_journal_path(&config, &node_snapshot_name, entry.manifest_hash).exists(),
+            "a clean replacement run must leave no attempt journal"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn low_ram_resume_propagates_unknown_backend_and_manifest_integrity_errors() {
+        let (runner_path, sentinel_path) = recording_case_runner("low-ram-integrity-node");
+        let mut config = fixture_config();
+        config.worker_count = 1;
+        config.case_runner_bin = Some(runner_path);
+        let run_config = RunConfig {
+            snapshot_name: "low-ram-integrity-node".to_string(),
+            max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let mut seeded = run_top_level_matrix(&config, run_config.clone())
+            .expect("the first matrix node should be seeded through the product flow");
+        let entry = loop {
+            if let Some(entry) = seeded.entries.iter().find(|entry| entry.total > 0) {
+                break entry.clone();
+            }
+            assert!(
+                seeded.entries.len() < nodes.len(),
+                "fixture matrix must contain a nonempty node"
+            );
+            seeded = run_top_level_matrix(
+                &config,
+                RunConfig {
+                    resume: true,
+                    ..run_config.clone()
+                },
+            )
+            .expect("low-RAM seeding should advance to the next matrix node");
+        };
+        let node = nodes
+            .into_iter()
+            .find(|node| node.node_id == entry.node_id)
+            .expect("seeded entry should identify its matrix node");
+        assert!(!node.case_ids.is_empty());
+        let node_snapshot_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&node.node_id),
+            entry.manifest_hash
+        ));
+        fs::write(&sentinel_path, "").expect("seed dispatch sentinel should clear");
+        let original =
+            read_snapshot_file(&node_snapshot_path).expect("seeded node snapshot should parse");
+
+        let mut unknown_backend = original.clone();
+        unknown_backend.execution_backend = "future-backend".to_string();
+        write_snapshot_file_for_test(&node_snapshot_path, &unknown_backend);
+        let unknown_bytes =
+            fs::read(&node_snapshot_path).expect("unknown-backend bytes should read");
+        let err = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config.clone()
+            },
+        )
+        .expect_err("an unknown current-v7 backend is schema corruption, not stale evidence");
+        assert!(
+            err.contains("unknown execution_backend `future-backend`"),
+            "{err}"
+        );
+        assert!(recorded_execution_ids(&sentinel_path).is_empty());
+        assert_eq!(
+            fs::read(&node_snapshot_path).expect("unknown-backend bytes should remain"),
+            unknown_bytes
+        );
+
+        let mut mismatched_body = original;
+        mismatched_body.manifest_hash = mismatched_body.manifest_hash.wrapping_add(1);
+        write_snapshot_file_for_test(&node_snapshot_path, &mismatched_body);
+        let mismatched_bytes =
+            fs::read(&node_snapshot_path).expect("mismatched body bytes should read");
+        let err = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                ..run_config
+            },
+        )
+        .expect_err("a canonical node file with a mismatched body hash must abort low-RAM resume");
+        assert!(err.contains("filename/selection expects"), "{err}");
+        assert!(recorded_execution_ids(&sentinel_path).is_empty());
+        assert_eq!(
+            fs::read(&node_snapshot_path).expect("mismatched body bytes should remain"),
+            mismatched_bytes
+        );
     }
 
     #[test]
@@ -34438,17 +35871,17 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-rebuild-stale-nodes".to_string(),
-            max_matrix_nodes: Some(4),
+            max_matrix_nodes: Some(5),
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         let summary = run_top_level_matrix(&config, run_config.clone())
             .expect("matrix checkpoint should write node snapshots");
-        assert_eq!(summary.entries.len(), 4);
+        assert_eq!(summary.entries.len(), 5);
 
         let nodes = build_run_matrix(&config).expect("matrix should build");
         let pinned = pinned_revisions(&config);
-        for (index, entry) in summary.entries.iter().take(3).enumerate() {
+        for (index, entry) in summary.entries.iter().take(4).enumerate() {
             let prefix = format!(
                 "{}-{}-",
                 run_config.snapshot_name,
@@ -34477,6 +35910,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     0 => file.pinned_revisions.test262 = "stale-test262".to_string(),
                     1 => file.execution_backend = ExecutionBackend::WasmAot.as_str().to_string(),
                     2 => file.matrix_strategy_version = MATRIX_STRATEGY_VERSION.saturating_sub(1),
+                    3 => file.pinned_revisions.ecma262 = "stale-ecma262".to_string(),
                     _ => unreachable!(),
                 }
                 fs::write(
@@ -34494,14 +35928,89 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &nodes,
             ExecutionBackend::SpecExec,
             &pinned,
+            ResumeCheckpointLoadPolicy::TreatStaleEnvelopeAsAbsent,
         )
         .expect("rebuild from node snapshots should work");
         assert_eq!(rebuilt.len(), 1);
-        assert_eq!(rebuilt[0].node_id, nodes[3].node_id);
+        assert_eq!(rebuilt[0].node_id, nodes[4].node_id);
     }
 
     #[test]
-    fn rebuild_resume_entries_ignores_incomplete_case_checkpoint_snapshots() {
+    fn rebuild_resume_entries_rejects_current_manifest_corruption() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-rebuild-corrupt-node".to_string(),
+            max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let summary = run_top_level_matrix(&config, run_config.clone())
+            .expect("matrix checkpoint should write one node snapshot");
+        let entry = summary.entries.first().expect("one node should complete");
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let pinned = pinned_revisions(&config);
+        let path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&entry.node_id),
+            entry.manifest_hash
+        ));
+        let original = read_snapshot_file(&path).expect("node snapshot should parse");
+
+        let mut mismatched_body = original.clone();
+        mismatched_body.manifest_hash = mismatched_body.manifest_hash.wrapping_add(1);
+        write_snapshot_file_for_test(&path, &mismatched_body);
+        let err = rebuild_resume_entries_from_node_snapshots(
+            &config,
+            &run_config.snapshot_name,
+            &nodes,
+            ExecutionBackend::SpecExec,
+            &pinned,
+            ResumeCheckpointLoadPolicy::TreatStaleEnvelopeAsAbsent,
+        )
+        .expect_err("a canonical node file with a mismatched body hash is corrupt");
+        assert!(err.contains("filename/selection expects"), "{err}");
+
+        write_snapshot_file_for_test(&path, &original);
+        if !is_full_hex_oid(&pinned.test262) {
+            return;
+        }
+        let Some(head_commit) = git_capture(&repo_root(), &["rev-parse", "HEAD"]) else {
+            return;
+        };
+        assert_ne!(
+            pinned.test262, head_commit,
+            "fixture pin must be its content tree, not the enclosing repository commit"
+        );
+        let equivalent_pin = PinnedRevisions {
+            ecma262: pinned.ecma262.clone(),
+            test262: head_commit.clone(),
+        };
+        assert!(
+            test262_pins_equivalent(&config, &equivalent_pin, &pinned),
+            "enclosing commit must resolve to the same fixture-suite tree"
+        );
+
+        let mut unreproducible = original;
+        unreproducible.pinned_revisions.test262 = head_commit;
+        write_snapshot_file_for_test(&path, &unreproducible);
+        let err = rebuild_resume_entries_from_node_snapshots(
+            &config,
+            &run_config.snapshot_name,
+            &nodes,
+            ExecutionBackend::SpecExec,
+            &pinned,
+            ResumeCheckpointLoadPolicy::TreatStaleEnvelopeAsAbsent,
+        )
+        .expect_err("accepted recorded pins must still reproduce the node manifest hash");
+        assert!(
+            err.contains("accepted recorded pins and exact node execution set recompute"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rebuild_resume_entries_ignores_coherent_incomplete_but_rejects_foreign_identity() {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-rebuild-ignore-checkpoint".to_string(),
@@ -34511,15 +36020,25 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let nodes = build_run_matrix(&config).expect("matrix should build");
         let non_empty_nodes = nodes
             .iter()
-            .filter(|node| node.total_cases > 0)
+            .filter(|node| node.total_cases > 1)
             .take(2)
             .cloned()
             .collect::<Vec<_>>();
         assert_eq!(non_empty_nodes.len(), 2);
-        let first_summary = run_matrix_node(&config, &non_empty_nodes[0], &run_config)
-            .expect("first node snapshot should write");
-        let second_summary = run_matrix_node(&config, &non_empty_nodes[1], &run_config)
-            .expect("second node snapshot should write");
+        let first_summary = run_matrix_node(
+            &config,
+            &non_empty_nodes[0],
+            &run_config,
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect("first node snapshot should write");
+        let second_summary = run_matrix_node(
+            &config,
+            &non_empty_nodes[1],
+            &run_config,
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect("second node snapshot should write");
         let pinned = pinned_revisions(&config);
         let prefix = format!(
             "{}-{}-",
@@ -34543,16 +36062,50 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "node snapshot should exist for {}",
             second_summary.node_id
         );
-        for path in paths {
-            let mut file = read_snapshot_file(&path).expect("node snapshot should parse");
-            file.run_kind = "resume-case-checkpoint".to_string();
-            file.completed_paths.clear();
-            fs::write(
-                &path,
-                serde_json::to_string_pretty(&file).expect("node checkpoint json should serialize"),
+        assert_eq!(paths.len(), 1, "one canonical node snapshot should exist");
+        let path = paths.into_iter().next().expect("node path should exist");
+        let original = read_snapshot_file(&path).expect("node snapshot should parse");
+        let mut incomplete = original.clone();
+        incomplete.run_kind = "resume-case-checkpoint".to_string();
+        incomplete.checkpoint_identity =
+            WireCheckpointIdentity::present(CheckpointRunIdentity::new(
+                format!("matrix-{}", non_empty_nodes[1].node_kind.as_str()),
+                &non_empty_nodes[1].matrix_path,
+            ));
+        incomplete.matrix_path.clear();
+        incomplete.total = 1;
+        incomplete.passed = 1;
+        incomplete
+            .completed_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed completion ids")
+            .truncate(1);
+        incomplete.slowest_tests.clear();
+        incomplete
+            .timeout_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed timeout ids")
+            .clear();
+        incomplete.failures.clear();
+        incomplete.counts_per_kind = complete_kind_counts(&BTreeMap::new());
+        let mut counts_per_outcome = empty_outcome_counts();
+        counts_per_outcome.insert(OutcomeKind::Success, 1);
+        incomplete.counts_per_outcome = Some(counts_per_outcome);
+        incomplete.aggregate_counts_so_far = complete_kind_counts(&BTreeMap::new());
+        write_snapshot_file_for_test(&path, &incomplete);
+
+        assert!(
+            load_resume_matrix_node_summary_for_node(
+                &config,
+                &run_config.snapshot_name,
+                &non_empty_nodes[1],
+                ExecutionBackend::SpecExec,
+                &pinned,
             )
-            .expect("incomplete checkpoint snapshot should write");
-        }
+            .expect("a coherent partial checkpoint should validate")
+            .is_none(),
+            "an incomplete node checkpoint must not be promoted"
+        );
 
         let rebuilt = rebuild_resume_entries_from_node_snapshots(
             &config,
@@ -34560,6 +36113,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &nodes,
             ExecutionBackend::SpecExec,
             &pinned,
+            ResumeCheckpointLoadPolicy::TreatStaleEnvelopeAsAbsent,
         )
         .expect("rebuild from node snapshots should work");
         assert_eq!(rebuilt.len(), 1);
@@ -34567,6 +36121,27 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert!(!rebuilt
             .iter()
             .any(|entry| entry.node_id == second_summary.node_id));
+
+        let mut foreign = original;
+        foreign
+            .completed_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed completion ids")[0] =
+            TestExecutionId::new(
+                "language/foreign-to-node.js",
+                TestExecutionMode::SloppyScript,
+            );
+        write_snapshot_file_for_test(&path, &foreign);
+        let err = rebuild_resume_entries_from_node_snapshots(
+            &config,
+            &run_config.snapshot_name,
+            &nodes,
+            ExecutionBackend::SpecExec,
+            &pinned,
+            ResumeCheckpointLoadPolicy::TreatStaleEnvelopeAsAbsent,
+        )
+        .expect_err("foreign complete node evidence must remain a hard integrity error");
+        assert!(err.contains("selected execution set"), "{err}");
     }
 
     #[test]
@@ -34688,6 +36263,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             pinned_revisions: pinned_revisions(&config),
             manifest_hash: aggregate_hash.saturating_add(1),
             run_kind: "aggregate-matrix".to_string(),
+            checkpoint_identity: None,
             total: 0,
             passed: 0,
             counts_per_kind: BTreeMap::new(),
@@ -34695,7 +36271,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             slowest_tests: Vec::new(),
             timeout_list: Vec::new(),
             failures: Vec::new(),
-            completed_paths: Vec::new(),
+            completed_test_ids: Vec::new(),
             matrix_path: Vec::new(),
             completed_nodes: Vec::new(),
             aggregate_counts_so_far: BTreeMap::new(),
@@ -34722,49 +36298,72 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn report_all_resume_ignores_incomplete_node_case_checkpoint_snapshot() {
+    fn report_all_resume_rejects_incomplete_node_case_checkpoint_snapshot() {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-ignore-checkpoint".to_string(),
-            max_matrix_nodes: Some(1),
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
-        let first = run_top_level_matrix(&config, run_config.clone())
-            .expect("checkpointed aggregate run should complete");
-        assert_eq!(first.entries.len(), 1);
-
-        let first_entry = first
-            .entries
-            .first()
-            .expect("checkpointed aggregate should contain one node entry");
+        let node = build_run_matrix(&config)
+            .expect("matrix should build")
+            .into_iter()
+            .find(|node| node.total_cases > 1)
+            .expect("fixture matrix should contain a node with multiple executions");
+        let entry = run_matrix_node(
+            &config,
+            &node,
+            &run_config,
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect("complete node snapshot should write");
         let node_snapshot_path = config.snapshot_dir.join(format!(
             "{}-{}-{}.json",
             run_config.snapshot_name,
-            sanitize_filter_for_snapshot(&first_entry.node_id),
-            first_entry.manifest_hash
+            sanitize_filter_for_snapshot(&entry.node_id),
+            entry.manifest_hash
         ));
         let mut file =
             read_snapshot_file(&node_snapshot_path).expect("node snapshot file should parse");
         file.run_kind = "resume-case-checkpoint".to_string();
-        file.completed_paths.clear();
-        fs::write(
-            &node_snapshot_path,
-            serde_json::to_string_pretty(&file).expect("node checkpoint json should serialize"),
-        )
-        .expect("node checkpoint snapshot should write");
+        file.checkpoint_identity = WireCheckpointIdentity::present(CheckpointRunIdentity::new(
+            format!("matrix-{}", node.node_kind.as_str()),
+            &node.matrix_path,
+        ));
+        file.matrix_path.clear();
+        file.total = 1;
+        file.passed = 1;
+        file.completed_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed completion ids")
+            .truncate(1);
+        file.slowest_tests.clear();
+        file.timeout_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed timeout ids")
+            .clear();
+        file.failures.clear();
+        file.counts_per_kind = complete_kind_counts(&BTreeMap::new());
+        let mut counts_per_outcome = empty_outcome_counts();
+        counts_per_outcome.insert(OutcomeKind::Success, 1);
+        file.counts_per_outcome = Some(counts_per_outcome);
+        file.aggregate_counts_so_far = complete_kind_counts(&BTreeMap::new());
+        write_snapshot_file_for_test(&node_snapshot_path, &file);
 
-        let mut expected_entry = first_entry.clone();
-        expected_entry.total += 1;
-        let resumed_entry = load_resume_matrix_node_summary(
+        let err = load_resume_matrix_node_summary(
             &config,
             &run_config.snapshot_name,
-            &expected_entry,
+            &node,
+            Some(&entry),
             ExecutionBackend::SpecExec,
             &pinned_revisions(&config),
         )
-        .expect("resume node summary load should work");
-        assert!(resumed_entry.is_none());
+        .expect_err("partial node checkpoint must not be promoted")
+        .into_message();
+        assert!(
+            err.contains("aggregate entry marks node") && err.contains("checkpoint contains 1 of"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -34772,20 +36371,42 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "aggregate-promote-checkpoint".to_string(),
-            max_matrix_nodes: Some(1),
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
-        let first = run_top_level_matrix(&config, run_config.clone())
-            .expect("checkpointed aggregate run should complete");
-        assert_eq!(first.entries.len(), 1);
+        let first_node = build_run_matrix(&config)
+            .expect("matrix should build")
+            .into_iter()
+            .find(|node| node.total_cases > 0)
+            .expect("fixture matrix should contain a non-empty node");
+        let entry = run_matrix_node(
+            &config,
+            &first_node,
+            &run_config,
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect("complete node snapshot should write");
+        let node_snapshot_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&first_node.node_id),
+            entry.manifest_hash
+        ));
+        let mut checkpoint =
+            read_snapshot_file(&node_snapshot_path).expect("node snapshot should parse");
+        checkpoint.run_kind = "resume-case-checkpoint".to_string();
+        checkpoint.checkpoint_identity =
+            WireCheckpointIdentity::present(CheckpointRunIdentity::new(
+                format!("matrix-{}", first_node.node_kind.as_str()),
+                &first_node.matrix_path,
+            ));
+        checkpoint.matrix_path.clear();
+        write_snapshot_file_for_test(&node_snapshot_path, &checkpoint);
 
-        let nodes = build_run_matrix(&config).expect("matrix should build");
-        let first_node = nodes.first().expect("matrix should have first node");
         let resumed_entry = load_resume_matrix_node_summary_for_node(
             &config,
             &run_config.snapshot_name,
-            first_node,
+            &first_node,
             ExecutionBackend::SpecExec,
             &pinned_revisions(&config),
         )
@@ -34795,7 +36416,162 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             resumed_entry
                 .expect("completed checkpoint should load")
                 .passed,
-            first.entries[0].passed
+            entry.passed
+        );
+
+        checkpoint.checkpoint_identity =
+            WireCheckpointIdentity::present(CheckpointRunIdentity::new("full", &[]));
+        write_snapshot_file_for_test(&node_snapshot_path, &checkpoint);
+        let err = load_resume_matrix_node_summary_for_node(
+            &config,
+            &run_config.snapshot_name,
+            &first_node,
+            ExecutionBackend::SpecExec,
+            &pinned_revisions(&config),
+        )
+        .expect_err("a full checkpoint must not be promoted as a matrix node")
+        .into_message();
+        assert!(err.contains("expected terminal run_kind matrix-"), "{err}");
+
+        checkpoint.checkpoint_identity =
+            WireCheckpointIdentity::present(CheckpointRunIdentity::new(
+                format!("matrix-{}", first_node.node_kind.as_str()),
+                &["wrong-node-path".to_string()],
+            ));
+        write_snapshot_file_for_test(&node_snapshot_path, &checkpoint);
+        let err = load_resume_matrix_node_summary_for_node(
+            &config,
+            &run_config.snapshot_name,
+            &first_node,
+            ExecutionBackend::SpecExec,
+            &pinned_revisions(&config),
+        )
+        .expect_err("complete checkpoint with a wrong node path must not be promoted")
+        .into_message();
+        assert!(err.contains("expected terminal matrix_path"), "{err}");
+    }
+
+    #[test]
+    fn report_all_resume_rejects_jointly_tampered_aggregate_and_node_hash() {
+        let config = fixture_config();
+        let run_config = RunConfig {
+            snapshot_name: "aggregate-forged-node-hash".to_string(),
+            max_matrix_nodes: Some(1),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let first = run_top_level_matrix(&config, run_config.clone())
+            .expect("one-node aggregate checkpoint should complete");
+        let entry = first.entries.first().expect("one node should complete");
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        let aggregate_hash = hash_matrix_nodes(&nodes, ExecutionBackend::SpecExec);
+        let aggregate_path = config.snapshot_dir.join(format!(
+            "{}-aggregate-{aggregate_hash}.json",
+            run_config.snapshot_name
+        ));
+        let mut aggregate =
+            read_snapshot_file(&aggregate_path).expect("aggregate snapshot should parse");
+        let forged_hash = entry.manifest_hash.wrapping_add(1);
+        aggregate.aggregate_entries[0].manifest_hash = forged_hash;
+        write_snapshot_file_for_test(&aggregate_path, &aggregate);
+
+        let original_node_path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&entry.node_id),
+            entry.manifest_hash
+        ));
+        let mut node_file =
+            read_snapshot_file(&original_node_path).expect("node snapshot should parse");
+        node_file.manifest_hash = forged_hash;
+        let forged_node_path = config.snapshot_dir.join(format!(
+            "{}-{}-{forged_hash}.json",
+            run_config.snapshot_name,
+            sanitize_filter_for_snapshot(&entry.node_id)
+        ));
+        write_snapshot_file_for_test(&forged_node_path, &node_file);
+
+        let err = run_top_level_matrix(
+            &config,
+            RunConfig {
+                resume: true,
+                max_matrix_nodes: None,
+                ..run_config
+            },
+        )
+        .expect_err("aggregate and node hashes must be reproduced from recorded pins and ids");
+        assert!(
+            err.contains("recorded pins and exact node execution set recompute"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn complete_node_contract_rejects_a_same_length_duplicate_missing_sibling_set() {
+        let cases = vec![
+            synthetic_case("matrix/exact-a.js"),
+            synthetic_case("matrix/exact-b.js"),
+        ];
+        let pinned = PinnedRevisions {
+            ecma262: "ecma262-test".to_string(),
+            test262: "test262-test".to_string(),
+        };
+        let node = RunMatrixNode {
+            node_id: "matrix/exact".to_string(),
+            node_kind: MatrixNodeKind::FilterLeaf,
+            filter: "matrix/exact".to_string(),
+            matrix_path: vec!["matrix".to_string(), "exact".to_string()],
+            total_cases: cases.len(),
+            case_ids: cases.iter().map(|case| case.execution_id.clone()).collect(),
+        };
+        let manifest = SuiteManifest {
+            pinned_revisions: pinned.clone(),
+            manifest_hash: matrix_node_manifest_hash(&pinned, &node),
+            filter: Some(node.node_id.clone()),
+            cases: cases.clone(),
+        };
+        let results = cases
+            .iter()
+            .map(|case| TestResult {
+                test_id: case.execution_id.clone(),
+                status: TestStatus::Passed,
+                duration_ms: 1,
+            })
+            .collect::<Vec<_>>();
+        let mut snapshot = snapshot_from_summary(
+            &manifest,
+            "matrix-filter-leaf".to_string(),
+            &summarize_results(&results),
+            ExecutionBackend::SpecExec,
+        );
+        snapshot.matrix_path = node.matrix_path.clone();
+        let entry = TopLevelRunSummary {
+            node_id: node.node_id.clone(),
+            node_kind: node.node_kind,
+            filter: node.filter.clone(),
+            matrix_path: node.matrix_path.clone(),
+            total: snapshot.total,
+            passed: snapshot.passed,
+            failed: 0,
+            counts_per_kind: snapshot.counts_per_kind.clone(),
+            counts_per_outcome: snapshot.counts_per_outcome.clone(),
+            counts_per_origin: counts_per_origin(&snapshot.failures),
+            manifest_hash: manifest.manifest_hash,
+        };
+        validate_complete_node_contract(&snapshot, &node, &entry, Path::new("exact-node.json"))
+            .expect("the exact unique node evidence should validate");
+
+        snapshot.completed_test_ids[1] = snapshot.completed_test_ids[0].clone();
+        let err = validate_complete_node_contract(
+            &snapshot,
+            &node,
+            &entry,
+            Path::new("duplicate-node.json"),
+        )
+        .expect_err("equal length cannot hide a duplicate and missing sibling");
+        assert!(
+            err.contains("completed_test_ids must be a unique exact copy"),
+            "{err}"
         );
     }
 
@@ -34808,7 +36584,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let mut queue =
             schedule_cases_for_lifo_queue(cases, |case| case.path.starts_with("priority-"));
         let execution_order = std::iter::from_fn(|| queue.pop())
-            .map(|case| case.path)
+            .map(|case| case.path().to_string())
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -34828,24 +36604,28 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
         let cases = vec![
             TestCase {
-                path: "resume/case-1.js".to_string(),
+                execution_id: TestExecutionId::new(
+                    "resume/case-1.js",
+                    TestExecutionMode::SloppyScript,
+                ),
                 source_path: PathBuf::from("resume/case-1.js"),
-                original_source: "1;".to_string(),
+                original_source: Arc::from("1;"),
                 flags: BTreeSet::new(),
                 features: BTreeSet::new(),
                 includes: Vec::new(),
                 negative: None,
-                is_module: false,
             },
             TestCase {
-                path: "resume/case-2.js".to_string(),
+                execution_id: TestExecutionId::new(
+                    "resume/case-2.js",
+                    TestExecutionMode::SloppyScript,
+                ),
                 source_path: PathBuf::from("resume/case-2.js"),
-                original_source: "2;".to_string(),
+                original_source: Arc::from("2;"),
                 flags: BTreeSet::new(),
                 features: BTreeSet::new(),
                 includes: Vec::new(),
                 negative: None,
-                is_module: false,
             },
         ];
         let manifest = SuiteManifest {
@@ -34864,11 +36644,13 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &config,
             &manifest,
             &[TestResult {
-                test_path: cases[0].path.clone(),
+                test_id: cases[0].execution_id.clone(),
                 status: TestStatus::Passed,
                 duration_ms: 7,
             }],
             &run_config,
+            "full",
+            &[],
         )
         .expect("partial checkpoint should write");
 
@@ -34878,23 +36660,27 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("resume execute_cases should work");
         assert_eq!(results.len(), 2);
         let first = results
             .iter()
-            .find(|result| result.test_path == cases[0].path)
+            .find(|result| result.test_id == cases[0].execution_id)
             .expect("first case should exist");
         assert_eq!(first.duration_ms, 0);
 
         let resumed_snapshot = load_previous_snapshot(
             &config,
             &run_config.snapshot_name,
-            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("snapshot load should work")
         .expect("snapshot should exist");
-        assert_eq!(resumed_snapshot.completed_paths.len(), 2);
+        assert_eq!(resumed_snapshot.completed_test_ids.len(), 2);
         assert_eq!(resumed_snapshot.manifest_hash, manifest.manifest_hash);
         assert_eq!(
             resumed_snapshot.execution_backend,
@@ -34927,11 +36713,13 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &config,
             &manifest,
             &[TestResult {
-                test_path: cases[0].path.clone(),
+                test_id: cases[0].execution_id.clone(),
                 status: TestStatus::Passed,
                 duration_ms: 7,
             }],
             &spec_run,
+            "full",
+            &[],
         )
         .expect("SpecExec checkpoint should write");
         let checkpoint_path =
@@ -34949,6 +36737,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &wasm_run,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect_err("SpecExec evidence must not enter a Wasm-AOT resume");
 
@@ -34958,7 +36749,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         );
         assert!(error.contains("expected wasm-aot, found spec-exec"));
         assert!(
-            recorded_case_paths(&sentinel_path).is_empty(),
+            recorded_execution_ids(&sentinel_path).is_empty(),
             "backend mismatch must fail before any case reaches dispatch"
         );
         assert_eq!(
@@ -34984,11 +36775,13 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &config,
             &manifest,
             &[TestResult {
-                test_path: cases[0].path.clone(),
+                test_id: cases[0].execution_id.clone(),
                 status: TestStatus::Passed,
                 duration_ms: 7,
             }],
             &run_config,
+            "full",
+            &[],
         )
         .expect("checkpoint should write");
 
@@ -35003,7 +36796,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let error = load_previous_snapshot(
             &config,
             &run_config.snapshot_name,
-            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect_err("the body manifest hash must agree with its checkpoint identity");
         assert!(
@@ -35021,7 +36815,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let error = load_previous_snapshot(
             &config,
             &run_config.snapshot_name,
-            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect_err("the checkpoint must use the current matrix strategy");
         assert!(
@@ -35032,6 +36827,358 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "expected {MATRIX_STRATEGY_VERSION}, found {}",
             file.matrix_strategy_version
         )));
+
+        if !is_full_hex_oid(&manifest.pinned_revisions.test262) {
+            return;
+        }
+        let Some(head_commit) = git_capture(&repo_root(), &["rev-parse", "HEAD"]) else {
+            return;
+        };
+        let equivalent_pin = PinnedRevisions {
+            ecma262: manifest.pinned_revisions.ecma262.clone(),
+            test262: head_commit.clone(),
+        };
+        assert!(
+            test262_pins_equivalent(&config, &equivalent_pin, &manifest.pinned_revisions),
+            "enclosing commit must resolve to the same fixture-suite tree"
+        );
+        file.matrix_strategy_version = MATRIX_STRATEGY_VERSION;
+        file.pinned_revisions.test262 = head_commit;
+        write_snapshot_file_for_test(&checkpoint_path, &file);
+        let error = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("accepted recorded pins must reproduce the direct manifest hash");
+        assert!(
+            error.contains("accepted recorded pins and exact selected execution set recompute"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn resume_checkpoint_rejects_duplicate_and_foreign_execution_ids_before_import() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = vec![
+            synthetic_case("resume/exact-set-a.js"),
+            synthetic_case("resume/exact-set-b.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "resume-exact-set", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "resume-exact-set".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let results = cases
+            .iter()
+            .map(|case| TestResult {
+                test_id: case.execution_id.clone(),
+                status: TestStatus::Passed,
+                duration_ms: 1,
+            })
+            .collect::<Vec<_>>();
+        write_resume_case_checkpoint(&config, &manifest, &results, &run_config, "full", &[])
+            .expect("complete checkpoint should write");
+
+        let checkpoint_path =
+            snapshot_paths_for_name(&config, &run_config.snapshot_name, manifest.manifest_hash)
+                .json_path;
+        let original =
+            read_snapshot_file(&checkpoint_path).expect("checkpoint snapshot should parse");
+
+        let mut duplicate = original.clone();
+        let duplicate_ids = duplicate
+            .completed_test_ids
+            .values_mut()
+            .expect("current checkpoint should contain typed completion ids");
+        duplicate_ids[1] = duplicate_ids[0].clone();
+        write_snapshot_file_for_test(&checkpoint_path, &duplicate);
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("duplicate execution ids must not enter completed state");
+        assert!(err.contains("completed_test_ids must be a unique"), "{err}");
+
+        let mut foreign = original.clone();
+        foreign
+            .completed_test_ids
+            .values_mut()
+            .expect("current checkpoint should contain typed completion ids")[1] =
+            TestExecutionId::new("resume/not-selected.js", TestExecutionMode::SloppyScript);
+        write_snapshot_file_for_test(&checkpoint_path, &foreign);
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("foreign execution ids must not enter completed state");
+        assert!(err.contains("selected execution set"), "{err}");
+    }
+
+    #[test]
+    fn direct_terminal_and_checkpoint_identity_are_exactly_bound() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = vec![
+            synthetic_case("resume/terminal-a.js"),
+            synthetic_case("resume/terminal-b.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "resume-terminal", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "resume-terminal".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let results = cases
+            .iter()
+            .map(|case| TestResult {
+                test_id: case.execution_id.clone(),
+                status: TestStatus::Passed,
+                duration_ms: 1,
+            })
+            .collect::<Vec<_>>();
+        let mut terminal = snapshot_from_summary(
+            &manifest,
+            "full".to_string(),
+            &summarize_results(&results),
+            run_config.execution_backend,
+        );
+        write_snapshot(&config, &terminal, &run_config.snapshot_name)
+            .expect("terminal snapshot should write");
+        assert_eq!(
+            load_previous_snapshot(
+                &config,
+                &run_config.snapshot_name,
+                ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+                ResumeCheckpointLoadPolicy::RequireExact,
+            )
+            .expect("complete terminal snapshot should validate")
+            .expect("terminal snapshot should exist")
+            .completed_test_ids,
+            results
+                .iter()
+                .map(|result| result.test_id.clone())
+                .collect::<Vec<_>>()
+        );
+
+        terminal.completed_test_ids.pop();
+        terminal.total -= 1;
+        terminal.passed -= 1;
+        terminal.slowest_tests.pop();
+        write_snapshot(&config, &terminal, &run_config.snapshot_name)
+            .expect("tampered terminal fixture should write");
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("a terminal snapshot must cover the exact selected set");
+        assert!(err.contains("exact copy"), "{err}");
+
+        for (run_kind, matrix_path) in [
+            ("full", Vec::new()),
+            ("shard-1/2", Vec::new()),
+            ("matrix-filter-leaf", vec!["matrix".to_string()]),
+            ("matrix-chunk-leaf", vec!["matrix".to_string()]),
+        ] {
+            assert_eq!(
+                direct_snapshot_case_requirement(
+                    DirectSnapshotKind::ResumeCheckpoint,
+                    run_kind,
+                    &matrix_path,
+                    run_kind,
+                    None,
+                    &matrix_path,
+                ),
+                Ok(CaseSetRequirement::Exact)
+            );
+            let checkpoint_identity = CheckpointRunIdentity::new(run_kind, &matrix_path);
+            assert_eq!(
+                direct_snapshot_case_requirement(
+                    DirectSnapshotKind::ResumeCheckpoint,
+                    run_kind,
+                    &matrix_path,
+                    "resume-case-checkpoint",
+                    Some(&checkpoint_identity),
+                    &[],
+                ),
+                Ok(CaseSetRequirement::UniqueSubset)
+            );
+        }
+        assert!(direct_snapshot_case_requirement(
+            DirectSnapshotKind::ResumeCheckpoint,
+            "shard-1/2",
+            &[],
+            "shard-2/2",
+            None,
+            &[],
+        )
+        .is_err());
+        assert!(direct_snapshot_case_requirement(
+            DirectSnapshotKind::ResumeCheckpoint,
+            "shard-1/2",
+            &[],
+            "shard-01/02",
+            None,
+            &[],
+        )
+        .is_err());
+        assert!(direct_snapshot_case_requirement(
+            DirectSnapshotKind::SingleCaseChild,
+            "full",
+            &[],
+            "matrix-filter-leaf",
+            None,
+            &[],
+        )
+        .is_err());
+
+        write_resume_case_checkpoint(&config, &manifest, &results[..1], &run_config, "full", &[])
+            .expect("full checkpoint should write");
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "shard-1/2", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("a full checkpoint must not enter a shard run");
+        assert!(
+            err.contains("expected terminal run_kind shard-1/2"),
+            "{err}"
+        );
+
+        let matrix_path = vec!["matrix".to_string(), "leaf".to_string()];
+        write_resume_case_checkpoint(
+            &config,
+            &manifest,
+            &results[..1],
+            &run_config,
+            "matrix-filter-leaf",
+            &matrix_path,
+        )
+        .expect("matrix checkpoint should write");
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(
+                &manifest,
+                &run_config,
+                "matrix-filter-leaf",
+                &["matrix".to_string(), "wrong".to_string()],
+            ),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("a matrix checkpoint must not cross matrix paths");
+        assert!(err.contains("expected terminal matrix_path"), "{err}");
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("a matrix checkpoint must not enter a full run");
+        assert!(err.contains("expected terminal run_kind full"), "{err}");
+
+        let mut cross_kind = snapshot_from_summary(
+            &manifest,
+            "shard-1/2".to_string(),
+            &summarize_results(&results),
+            run_config.execution_backend,
+        );
+        write_snapshot(&config, &cross_kind, &run_config.snapshot_name)
+            .expect("cross-kind fixture should write");
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "shard-2/2", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("one shard must not import another shard's terminal evidence");
+        assert!(err.contains("expected run_kind shard-2/2"), "{err}");
+
+        cross_kind.run_kind = "shard-01/02".to_string();
+        write_snapshot(&config, &cross_kind, &run_config.snapshot_name)
+            .expect("noncanonical shard fixture should write");
+        let err = load_previous_snapshot(
+            &config,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "shard-1/2", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect_err("a noncanonical shard label must not alias the expected terminal kind");
+        assert!(err.contains("found shard-01/02"), "{err}");
+    }
+
+    #[test]
+    fn case_evidence_contract_rejects_nested_failure_timeout_and_slow_id_drift() {
+        let requested = synthetic_case("child/requested.js");
+        let foreign = synthetic_case("child/foreign.js");
+        let manifest = SuiteManifest {
+            pinned_revisions: PinnedRevisions {
+                ecma262: "ecma262-test".to_string(),
+                test262: "test262-test".to_string(),
+            },
+            manifest_hash: 1,
+            filter: Some(requested.execution_id.wire_key()),
+            cases: vec![requested.clone()],
+        };
+        let failure = classify_failure(
+            requested.execution_id.clone(),
+            FailureKind::Runtime,
+            "timeout exceeded after 1ms",
+        );
+        let result = TestResult {
+            test_id: requested.execution_id.clone(),
+            status: TestStatus::Failed(failure),
+            duration_ms: 1,
+        };
+        let snapshot = snapshot_from_summary(
+            &manifest,
+            "full".to_string(),
+            &summarize_results(&[result]),
+            ExecutionBackend::SpecExec,
+        );
+        result_from_single_case_snapshot(&requested, snapshot.clone(), 1)
+            .expect("coherent single-case failure should decode");
+
+        let mut nested = snapshot.clone();
+        nested.failures[0].test_id = foreign.execution_id.clone();
+        nested.failures[0].test_path = foreign.path().to_string();
+        let err = result_from_single_case_snapshot(&requested, nested, 1)
+            .expect_err("a child failure must name the requested execution");
+        assert!(err.contains("outside completed set"), "{err}");
+
+        let mut timeout = snapshot.clone();
+        timeout.timeout_list[0] = foreign.execution_id.clone();
+        let err = validate_case_snapshot_contract(
+            &timeout,
+            std::slice::from_ref(requested.execution_id()),
+            CaseSetRequirement::Exact,
+            "timeout drift",
+        )
+        .expect_err("timeouts must agree with timeout-classified failures");
+        assert!(err.contains("timeout_list"), "{err}");
+
+        let mut slow = snapshot;
+        slow.slowest_tests[0].0 = foreign.execution_id.clone();
+        let err = validate_case_snapshot_contract(
+            &slow,
+            std::slice::from_ref(requested.execution_id()),
+            CaseSetRequirement::Exact,
+            "slow drift",
+        )
+        .expect_err("slow records must name selected completed executions");
+        assert!(err.contains("slowest_tests"), "{err}");
     }
 
     #[test]
@@ -35058,6 +37205,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("first run should complete");
         assert_eq!(results.len(), 11);
@@ -35067,9 +37217,21 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let checkpoint = read_snapshot_file(&paths.json_path)
             .expect("periodic first-run checkpoint should parse");
         assert_eq!(checkpoint.run_kind, "resume-case-checkpoint");
+        assert_eq!(
+            checkpoint.checkpoint_identity,
+            WireCheckpointIdentity::present(CheckpointRunIdentity::new("full", &[]))
+        );
+        assert!(
+            read_snapshot_value_for_test(&paths.json_path)["checkpoint_identity"].is_object(),
+            "checkpoint serialization must emit a non-null identity object"
+        );
         assert_eq!(checkpoint.total, RESUME_CASE_CHECKPOINT_INTERVAL);
         assert_eq!(
-            checkpoint.completed_paths.len(),
+            checkpoint
+                .completed_test_ids
+                .values()
+                .expect("current checkpoint should contain typed completion ids")
+                .len(),
             RESUME_CASE_CHECKPOINT_INTERVAL
         );
     }
@@ -35078,9 +37240,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     fn execute_cases_runs_wasm_aot_cases_on_persistent_workers() {
         let config = fixture_config();
         let mut first_case = synthetic_case("persistent-worker/first.js");
-        first_case.original_source = "40 + 2;".to_string();
+        first_case.original_source = Arc::from("40 + 2;".to_string());
         let mut second_case = synthetic_case("persistent-worker/second.js");
-        second_case.original_source = "6 * 7;".to_string();
+        second_case.original_source = Arc::from("6 * 7;".to_string());
         let cases = vec![first_case, second_case];
         let manifest = SuiteManifest {
             pinned_revisions: pinned_revisions(&config),
@@ -35103,6 +37265,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("Wasm-AOT cases should run on persistent workers");
 
@@ -35172,6 +37337,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &manifest.cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("resume child-runner execution should work");
 
@@ -35190,11 +37358,15 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let resumed_snapshot = load_previous_snapshot(
             &config,
             &run_config.snapshot_name,
-            ResumeCheckpointIdentity::for_run(&manifest, &run_config),
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("snapshot load should work")
         .expect("snapshot should exist");
-        assert_eq!(resumed_snapshot.completed_paths, vec![case.path.clone()]);
+        assert_eq!(
+            resumed_snapshot.completed_test_ids,
+            vec![case.execution_id.clone()]
+        );
         assert_eq!(resumed_snapshot.failures.len(), 1);
     }
 
@@ -35255,7 +37427,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let runner_path = unique_temp_path(&format!("{label}-runner"));
         let sentinel_path = unique_temp_path(&format!("{label}-sentinel"));
         // `run_one_case_in_child_process` spawns
-        // `<bin> --jobs <n> test262 run <case path> ...`, so `$5` is the case.
+        // `<bin> --jobs <n> test262 run <execution id> ...`, so `$5` is the
+        // mode-qualified execution selector.
         fs::write(
             &runner_path,
             format!(
@@ -35274,7 +37447,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[cfg(unix)]
-    fn recorded_case_paths(sentinel_path: &Path) -> Vec<String> {
+    fn recorded_execution_ids(sentinel_path: &Path) -> Vec<String> {
         let mut recorded = fs::read_to_string(sentinel_path)
             .unwrap_or_default()
             .lines()
@@ -35313,6 +37486,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         // One case was in flight when the previous process died.
         attempt_journal::simulate_process_death_with_cases_in_flight(
             journal_path.clone(),
+            attempt_journal_identity(&manifest, &run_config)
+                .expect("journal identity should be unique"),
             std::slice::from_ref(&cases[0]),
         )
         .expect("seeded death should write the journal");
@@ -35323,6 +37498,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("resume run should complete");
 
@@ -35351,10 +37529,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         // ... and one strike is not a quarantine, so the case still ran.
         assert_eq!(
-            recorded_case_paths(&sentinel_path),
+            recorded_execution_ids(&sentinel_path),
             vec![
-                "quarantine/bystander.js".to_string(),
-                "quarantine/suspect.js".to_string()
+                "sloppy-script:quarantine/bystander.js".to_string(),
+                "sloppy-script:quarantine/suspect.js".to_string()
             ]
         );
         assert_eq!(results.len(), 2);
@@ -35409,16 +37587,24 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         };
         let journal_path =
             attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        let journal_identity = attempt_journal_identity(&manifest, &run_config)
+            .expect("journal identity should be unique");
 
         for _ in 0..CrashStrikeLimit::DEFAULT.get() {
             attempt_journal::simulate_process_death_with_cases_in_flight(
                 journal_path.clone(),
+                journal_identity.clone(),
                 std::slice::from_ref(&cases[0]),
             )
             .expect("seeded death should write the journal");
-            AttemptJournal::open(journal_path.clone(), true, CrashStrikeLimit::DEFAULT)
-                .charge_strikes_for_survivors()
-                .expect("charging should work");
+            AttemptJournal::open(
+                journal_path.clone(),
+                true,
+                CrashStrikeLimit::DEFAULT,
+                journal_identity.clone(),
+            )
+            .charge_strikes_for_survivors()
+            .expect("charging should work");
         }
 
         let results = execute_cases(
@@ -35427,6 +37613,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("resume run should complete");
         (config, manifest, run_config, cases, results, sentinel_path)
@@ -35441,7 +37630,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(results.len(), 2);
         let quarantined = results
             .iter()
-            .find(|result| result.test_path == cases[0].path)
+            .find(|result| result.test_id == cases[0].execution_id)
             .expect("the quarantined case must still produce a result");
         let TestStatus::Failed(failure) = &quarantined.status else {
             panic!("a quarantined case is a failure, never a pass");
@@ -35464,7 +37653,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         let summary = summarize_results(&results);
         assert!(
-            summary.completed_paths.contains(&cases[0].path),
+            summary.completed_test_ids.contains(&cases[0].execution_id),
             "a quarantine is never a silent skip"
         );
         assert_eq!(
@@ -35475,23 +37664,23 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         // The sentinel is the proof that dispatch never happened: the healthy
         // case reached the runner and the quarantined one did not.
         assert_eq!(
-            recorded_case_paths(&sentinel_path),
-            vec!["quarantine/healthy.js".to_string()]
+            recorded_execution_ids(&sentinel_path),
+            vec!["sloppy-script:quarantine/healthy.js".to_string()]
         );
     }
 
     #[test]
     #[cfg(unix)]
-    fn a_quarantined_case_keeps_the_node_snapshot_resumable() {
+    fn a_quarantined_case_keeps_the_direct_checkpoint_resumable() {
         let (config, manifest, run_config, cases, results, _sentinel_path) =
             run_resume_with_a_quarantined_case("quarantine-resumable");
 
         let summary = summarize_results(&results);
         assert_eq!(summary.total, cases.len());
-        assert_eq!(summary.completed_paths.len(), summary.total);
+        assert_eq!(summary.completed_test_ids.len(), summary.total);
 
         // The final checkpoint the resume path wrote must still validate as a
-        // complete node snapshot. This is what catches the tempting wrong fix
+        // complete direct-run checkpoint. This is what catches the tempting wrong fix
         // of dropping the quarantined case from `total`: `entry.total` is the
         // node's declared case count, and a `resume-case-checkpoint` whose own
         // total no longer equals it is refused.
@@ -35500,31 +37689,23 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let file = read_snapshot_file(&paths.json_path).expect("resume checkpoint should parse");
         assert_eq!(file.run_kind, "resume-case-checkpoint");
         assert_eq!(file.total, cases.len());
-        assert_eq!(file.completed_paths.len(), cases.len());
+        assert_eq!(
+            file.completed_test_ids
+                .values()
+                .expect("current checkpoint should contain typed completion ids")
+                .len(),
+            cases.len()
+        );
 
-        let entry = TopLevelRunSummary {
-            node_id: "quarantine-node".to_string(),
-            node_kind: MatrixNodeKind::ChunkLeaf,
-            filter: "quarantine".to_string(),
-            matrix_path: Vec::new(),
-            total: cases.len(),
-            passed: summary.passed,
-            failed: summary.total.saturating_sub(summary.passed),
-            counts_per_kind: summary.counts_per_kind.clone(),
-            counts_per_outcome: summary.counts_per_outcome.clone(),
-            counts_per_origin: counts_per_origin(&summary.failures),
-            manifest_hash: manifest.manifest_hash,
-        };
-        validate_resume_node_snapshot(
+        let resumed = load_previous_snapshot(
             &config,
-            &file,
-            &paths.json_path,
-            &entry,
-            ExecutionBackend::SpecExec,
-            &pinned_revisions(&config),
-            SnapshotUse::CurrentState,
+            &run_config.snapshot_name,
+            ResumeCheckpointIdentity::for_resume(&manifest, &run_config, "full", &[]),
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
-        .expect("a node snapshot containing a quarantined case must stay resumable");
+        .expect("a direct checkpoint containing a quarantined case must stay resumable")
+        .expect("the checkpoint should exist");
+        assert_eq!(resumed.completed_test_ids.len(), cases.len());
     }
 
     #[test]
@@ -35539,16 +37720,28 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let manifest = attempt_journal_manifest(&config, "narrow-two-suspects", &cases);
         let journal_path =
             attempt_journal_path(&config, "narrow-two-suspects", manifest.manifest_hash);
+        let journal_identity = AttemptJournalIdentity::new(
+            manifest.manifest_hash,
+            ExecutionBackend::SpecExec,
+            manifest.cases.iter().map(|case| case.execution_id.clone()),
+        )
+        .expect("journal identity should be unique");
 
         // A `--threads 2` process died with two cases in flight, so the journal
         // names two suspects and neither is yet distinguishable.
         attempt_journal::simulate_process_death_with_cases_in_flight(
             journal_path.clone(),
+            journal_identity.clone(),
             &[cases[0].clone(), cases[2].clone()],
         )
         .expect("seeded death should write the journal");
 
-        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT);
+        let journal = AttemptJournal::open(
+            journal_path,
+            true,
+            CrashStrikeLimit::DEFAULT,
+            journal_identity,
+        );
         let suspects = journal
             .charge_strikes_for_survivors()
             .expect("charging should work");
@@ -35565,14 +37758,25 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             1,
             "the suspects must run serially, or the next death names two cases again"
         );
-        let mut serial_paths = phases[0].case_paths();
+        let mut serial_paths = phases[0]
+            .test_ids()
+            .into_iter()
+            .map(|test_id| test_id.path().to_string())
+            .collect::<Vec<_>>();
         serial_paths.sort();
         assert_eq!(
             serial_paths,
             vec!["narrow/first.js".to_string(), "narrow/third.js".to_string()]
         );
         assert_eq!(phases[1].worker_count().get(), 8);
-        assert_eq!(phases[1].case_paths(), vec!["narrow/second.js".to_string()]);
+        assert_eq!(
+            phases[1]
+                .test_ids()
+                .into_iter()
+                .map(|test_id| test_id.path().to_string())
+                .collect::<Vec<_>>(),
+            vec!["narrow/second.js".to_string()]
+        );
     }
 
     /// The plan above is inert unless `execute_cases` actually runs each phase
@@ -35632,6 +37836,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
         attempt_journal::simulate_process_death_with_cases_in_flight(
             journal_path,
+            attempt_journal_identity(&manifest, &run_config)
+                .expect("journal identity should be unique"),
             &[cases[0].clone(), cases[2].clone()],
         )
         .expect("seeded death should write the journal");
@@ -35642,6 +37848,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("resume run should complete");
         assert_eq!(results.len(), 3);
@@ -35662,12 +37871,15 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(
             suspects_dispatched,
             vec![
-                "narrow-run/first.js".to_string(),
-                "narrow-run/third.js".to_string()
+                "sloppy-script:narrow-run/first.js".to_string(),
+                "sloppy-script:narrow-run/third.js".to_string()
             ],
             "the suspects must be dispatched before anything else: {dispatched:?}"
         );
-        assert_eq!(dispatched[2], "narrow-run/second.js", "{dispatched:?}");
+        assert_eq!(
+            dispatched[2], "sloppy-script:narrow-run/second.js",
+            "{dispatched:?}"
+        );
     }
 
     /// # What this does and does not cover
@@ -35706,6 +37918,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("run should complete");
         assert_eq!(results.len(), 3);
@@ -35722,7 +37937,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         //
         // One assertion, and it is the whole invariant: **the journal exists
         // if and only if the previous process died**. The pair this used to end
-        // on (`in_flight_paths().is_empty()` and `charge_strikes_for_survivors()`
+        // on (`in_flight_test_ids().is_empty()` and `charge_strikes_for_survivors()`
         // empty) is implied by the file's absence -- `read_journal` answers
         // `fresh()` for a missing file -- so they would read as two more checks
         // while checking nothing.
@@ -35794,6 +38009,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &PreludeStore::default(),
             &cases,
             &run_config,
+            "full",
+            &[],
+            ResumeCheckpointLoadPolicy::RequireExact,
         )
         .expect("resume run should complete");
         assert_eq!(results.len(), 1);
@@ -35802,20 +38020,36 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         // What the journal said while the child was running. A journal that
         // recorded nothing fails here; a journal that recorded the case twice,
         // or that charged a strike at dispatch, fails on the counts.
-        let observed = fs::read_to_string(&sentinel_path)
+        let observed_raw = fs::read_to_string(&sentinel_path)
             .expect("the child must have been able to read the journal it was dispatched under");
+        let observed: serde_json::Value = serde_json::from_str(observed_raw.trim())
+            .expect("the child must observe one valid journal-v3 document");
+        let selected_test_ids = observed["selected_test_ids"]
+            .as_array()
+            .expect("journal v3 must carry its selected execution set");
+        let expected_test_id = cases[0].execution_id.wire_key();
+        assert_eq!(selected_test_ids.len(), 1);
         assert_eq!(
-            observed.matches(&cases[0].path).count(),
+            selected_test_ids[0].as_str(),
+            Some(expected_test_id.as_str())
+        );
+
+        let in_flight = observed["in_flight"]
+            .as_array()
+            .expect("journal v3 must carry its in-flight entries separately");
+        assert_eq!(
+            in_flight.len(),
             1,
-            "the journal must name the in-flight case exactly once while its child runs: \
-             {observed}"
+            "the journal must contain exactly one admitted in-flight entry: {observed}"
+        );
+        assert_eq!(
+            in_flight[0]["test_id"].as_str(),
+            Some(expected_test_id.as_str())
         );
         assert!(
-            observed.contains("\"in_flight\""),
-            "the child read something that is not an attempt journal: {observed}"
-        );
-        assert!(
-            !observed.contains("\"strikes\":{\""),
+            observed["strikes"]
+                .as_object()
+                .is_some_and(|strikes| strikes.is_empty()),
             "dispatching a case must not charge it a strike; only a process death does: {observed}"
         );
 
@@ -35858,7 +38092,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let child_snapshot_name = format!(
             "{}-case-{}",
             run_config.snapshot_name,
-            hash_case_path(&case.path)
+            hash_case_path(&case.execution_id.wire_key())
         );
         let existing_snapshot_paths =
             snapshot_paths_for_name(&config, &child_snapshot_name, child_manifest.manifest_hash);
@@ -35868,13 +38102,16 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .expect("pre-existing JSON snapshot should write");
         fs::write(&existing_snapshot_paths.txt_path, existing_txt)
             .expect("pre-existing text snapshot should write");
-        let expected_failure =
-            classify_failure(&case.path, FailureKind::Runtime, "sentinel child failure");
+        let expected_failure = classify_failure(
+            case.execution_id.clone(),
+            FailureKind::Runtime,
+            "sentinel child failure",
+        );
         let child_snapshot = snapshot_from_summary(
             &child_manifest,
-            "single-case-child".to_string(),
+            "full".to_string(),
             &summarize_results(&[TestResult {
-                test_path: case.path.clone(),
+                test_id: case.execution_id.clone(),
                 status: TestStatus::Failed(expected_failure.clone()),
                 duration_ms: 7,
             }]),
@@ -35952,7 +38189,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         };
         let mut case = synthetic_case("staging/sm/expressions/nullish-coalescing.js");
         case.features.insert("IsHTMLDDA".to_string());
-        case.original_source = "$262.evalScript('0;');".to_string();
+        case.original_source = Arc::from("$262.evalScript('0;');".to_string());
         let run_config = RunConfig {
             execution_backend: ExecutionBackend::WasmAot,
             ..RunConfig::default()
@@ -35988,7 +38225,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             },
         )
         .expect("checkpointed aggregate run should complete");
-        assert!(first.total < 190);
+        assert!(first.total < 191);
 
         let resumed = run_top_level_matrix(
             &config,
@@ -36000,8 +38237,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             },
         )
         .expect("resumed aggregate run should complete");
-        assert_eq!(resumed.total, 190);
-        assert_eq!(resumed.passed, 190);
+        assert_eq!(resumed.total, 191);
+        assert_eq!(resumed.passed, 191);
         assert_eq!(resumed.failed, 0);
     }
 
@@ -36041,6 +38278,38 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             nodes[0].node_id,
             "built-ins/RegExp/property-escapes@chunk-0001-of-0004"
         );
+    }
+
+    #[test]
+    fn matrix_residual_partition_preserves_both_unflagged_execution_siblings() {
+        let sloppy = synthetic_case("built-ins/Array/top-level.js");
+        let mut strict = sloppy.clone();
+        strict.execution_id = TestExecutionId::new(
+            "built-ins/Array/top-level.js",
+            TestExecutionMode::StrictScript,
+        );
+        let cases = vec![
+            sloppy.clone(),
+            strict.clone(),
+            synthetic_case("built-ins/Array/prototype/a.js"),
+            synthetic_case("built-ins/Array/prototype/b.js"),
+        ];
+
+        let nodes = build_matrix_nodes_for_root("built-ins", &cases, 3, 10);
+        let residual = nodes
+            .iter()
+            .find(|node| node.filter == "built-ins/Array")
+            .expect("top-level Array executions should form a residual leaf");
+        assert_eq!(
+            residual.case_ids.iter().collect::<BTreeSet<_>>(),
+            BTreeSet::from([sloppy.execution_id(), strict.execution_id()]),
+            "residual subtraction is over execution ids, so siblings cannot collapse"
+        );
+        let all_ids = nodes
+            .iter()
+            .flat_map(|node| node.case_ids.iter())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(all_ids.len(), cases.len());
     }
 
     #[test]
@@ -36089,7 +38358,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 filter: "language".to_string(),
                 matrix_path: vec!["language".to_string()],
                 total_cases: 0,
-                case_paths: Vec::new(),
+                case_ids: Vec::new(),
             })
             .expect("run matrix node should serialize");
             let expected_cache_spelling = match node_kind {
@@ -36125,7 +38394,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 filter: "built-ins/Promise".to_string(),
                 matrix_path: vec!["built-ins".to_string(), "Promise".to_string()],
                 total_cases: 58,
-                case_paths: Vec::new(),
+                case_ids: Vec::new(),
             },
             RunMatrixNode {
                 node_id: "language/statements@chunk-0001-of-0002".to_string(),
@@ -36133,7 +38402,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 filter: "language/statements".to_string(),
                 matrix_path: vec!["language".to_string(), "statements".to_string()],
                 total_cases: 2,
-                case_paths: Vec::new(),
+                case_ids: Vec::new(),
             },
         ];
 
@@ -36157,7 +38426,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 filter: "built-ins/Array".to_string(),
                 matrix_path: vec!["built-ins".to_string(), "Array".to_string()],
                 total_cases: 2,
-                case_paths: Vec::new(),
+                case_ids: Vec::new(),
             })
             .collect::<Vec<_>>();
 
@@ -36181,17 +38450,20 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             filter: "built-ins/Array/prototype".to_string(),
             matrix_path: vec!["built-ins".to_string(), "Array".to_string()],
             total_cases: 2,
-            case_paths: vec!["a.js".to_string(), "b.js".to_string()],
+            case_ids: vec![
+                TestExecutionId::new("a.js", TestExecutionMode::SloppyScript),
+                TestExecutionId::new("b.js", TestExecutionMode::StrictScript),
+            ],
         };
 
         let writer_hash = matrix_node_manifest_hash(&pinned, &node);
         assert_eq!(
             writer_hash,
-            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.node_id.as_str()))
+            hash_manifest_execution_ids(&pinned, &node.case_ids, Some(node.node_id.as_str()))
         );
         assert_ne!(
             writer_hash,
-            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.filter.as_str())),
+            hash_manifest_execution_ids(&pinned, &node.case_ids, Some(node.filter.as_str())),
             "siblings share a filter, so the filter cannot identify persisted chunk evidence"
         );
     }
@@ -36204,7 +38476,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             filter: "language".to_string(),
             matrix_path: vec!["language".to_string()],
             total_cases: 1,
-            case_paths: vec!["language/pass.js".to_string()],
+            case_ids: vec![TestExecutionId::new(
+                "language/pass.js",
+                TestExecutionMode::SloppyScript,
+            )],
         };
         let pinned = PinnedRevisions {
             ecma262: "ecma262-current-draft".to_string(),
@@ -36249,7 +38524,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         validate_complete_aggregate_contract(
             &snapshot,
             std::slice::from_ref(&node),
-            true,
             Path::new("aggregate.json"),
         )
         .expect("coherent aggregate should validate");
@@ -36259,7 +38533,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let err = validate_complete_aggregate_contract(
             &duplicate,
             std::slice::from_ref(&node),
-            true,
             Path::new("aggregate.json"),
         )
         .expect_err("duplicate entries must be rejected");
@@ -36270,7 +38543,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let err = validate_complete_aggregate_contract(
             &bad_total,
             std::slice::from_ref(&node),
-            true,
             Path::new("aggregate.json"),
         )
         .expect_err("aggregate totals must equal node evidence");
@@ -36469,9 +38741,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .expect("tiny run matrix should build")
             .into_iter()
             .find(|node| {
-                node.case_paths
+                node.case_ids
                     .iter()
-                    .any(|path| path == "built-ins/Array/intentional-failure.js")
+                    .any(|test_id| test_id.path() == "built-ins/Array/intentional-failure.js")
             })
             .expect("tiny run matrix should contain the intentional failure");
         let manifest_hash = matrix_node_manifest_hash(&pinned_revisions(config), &node);
@@ -36514,19 +38786,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         snapshot_from_file(file)
     }
 
-    fn set_snapshot_version_for_test(value: &mut serde_json::Value, version: u32) {
-        value["snapshot_version"] = serde_json::json!(version);
-        let object = value.as_object_mut().expect("snapshot should be an object");
-        if version == SNAPSHOT_VERSION {
-            object.insert(
-                "producer".to_string(),
-                serde_json::json!(ArtifactProducer::CURRENT.as_str()),
-            );
-        } else {
-            object.remove("producer");
-        }
-    }
-
     fn assert_json_count_key_order(json: &str, field: &str, occurrence: usize, expected: &[&str]) {
         let marker = format!(r#""{field}": {{"#);
         let start = json
@@ -36565,7 +38824,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
 
         let mut wrong_path = original.clone();
-        wrong_path.completed_paths[0] = "built-ins/Array/not-in-node.js".to_string();
+        wrong_path
+            .completed_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed completion ids")[0] =
+            TestExecutionId::new(
+                "built-ins/Array/not-in-node.js",
+                TestExecutionMode::SloppyScript,
+            );
         write_snapshot_file_for_test(&node_path, &wrong_path);
         let err = load_verified_aggregate_summary(
             &config,
@@ -36573,7 +38839,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ExecutionBackend::SpecExec,
         )
         .expect_err("wrong completed path must be rejected");
-        assert!(err.contains("completed_paths"));
+        assert!(err.contains("completed_test_ids"));
 
         let mut wrong_run_kind = original.clone();
         wrong_run_kind.run_kind = format!("matrix-{}-extra", node.node_kind.as_str());
@@ -36624,8 +38890,15 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         let mut extra_timeout = original.clone();
         extra_timeout
-            .timeout_list
-            .push(original.failures[0].test_path.clone());
+            .timeout_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed timeout ids")
+            .push(
+                original.failures[0]
+                    .test_id
+                    .clone()
+                    .expect("current failure should carry execution identity"),
+            );
         write_snapshot_file_for_test(&node_path, &extra_timeout);
         let err = load_verified_aggregate_summary(
             &config,
@@ -36736,146 +39009,222 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn snapshot_version_four_accepts_only_omitted_outcome_data() {
-        let config = tiny_failing_suite_config("legacy-outcome-shape");
+    fn legacy_path_only_snapshot_versions_are_never_reinterpreted_as_execution_modes() {
+        let config = tiny_failing_suite_config("legacy-execution-identity");
         let run_config = RunConfig {
-            snapshot_name: "legacy-outcome-shape".to_string(),
+            snapshot_name: "legacy-execution-identity".to_string(),
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
-        let verified = load_verified_aggregate_summary(
-            &config,
-            &run_config.snapshot_name,
-            ExecutionBackend::SpecExec,
-        )
-        .expect("original aggregate should verify");
         let (_, node_path, _) =
             intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
-        let original_node = read_snapshot_value_for_test(&node_path);
-        let original_aggregate = read_snapshot_value_for_test(&verified.snapshot_paths.json_path);
+        let current = read_snapshot_value_for_test(&node_path);
 
-        let mut omitted = original_node.clone();
-        set_snapshot_version_for_test(&mut omitted, LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
-        omitted
-            .as_object_mut()
-            .expect("snapshot should be an object")
-            .remove("counts_per_outcome");
-        omitted["failures"][0]
-            .as_object_mut()
-            .expect("failure should be an object")
-            .remove("outcome");
-        let migrated = decode_snapshot_value_for_test(&omitted)
-            .expect("version 4 may omit outcome fields for read-only migration");
-        assert_eq!(migrated.failures[0].outcome, OutcomeKind::Bug);
-        assert_eq!(
-            migrated
-                .counts_per_outcome
-                .get(&OutcomeKind::Success)
-                .copied(),
-            Some(migrated.passed)
-        );
-        assert_eq!(
-            migrated.counts_per_outcome.get(&OutcomeKind::Bug).copied(),
-            Some(1)
-        );
-
-        let mut present_failure = original_node.clone();
-        set_snapshot_version_for_test(&mut present_failure, LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
-        present_failure
-            .as_object_mut()
-            .expect("snapshot should be an object")
-            .remove("counts_per_outcome");
-        let err = decode_snapshot_value_for_test(&present_failure)
-            .expect_err("version 4 must not carry per-failure outcome data");
+        let checkpoint_identity = serde_json::json!({
+            "terminal_run_kind": current["run_kind"].clone(),
+            "matrix_path": current["matrix_path"].clone(),
+        });
         assert!(
-            err.contains("must omit outcome data"),
-            "unexpected error: {err}"
+            current.get("checkpoint_identity").is_none(),
+            "terminal v7 serialization must omit checkpoint_identity"
         );
-
-        let mut present_counts = original_node.clone();
-        set_snapshot_version_for_test(&mut present_counts, LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
-        present_counts["failures"][0]
-            .as_object_mut()
-            .expect("failure should be an object")
-            .remove("outcome");
-        let err = decode_snapshot_value_for_test(&present_counts)
-            .expect_err("version 4 must not carry outcome counts");
-        assert!(
-            err.contains("must omit outcome counts"),
-            "unexpected error: {err}"
-        );
-
-        let mut null_failure = omitted.clone();
-        null_failure["failures"][0]["outcome"] = serde_json::Value::Null;
-        let err = decode_snapshot_value_for_test(&null_failure)
-            .expect_err("explicit null is not an omitted version 4 outcome");
-        assert!(
-            err.contains("invalid type: null"),
-            "unexpected error: {err}"
-        );
-
-        let mut null_counts = omitted.clone();
-        null_counts["counts_per_outcome"] = serde_json::Value::Null;
-        let err = decode_snapshot_value_for_test(&null_counts)
-            .expect_err("explicit null is not an omitted version 4 count map");
-        assert!(
-            err.contains("invalid type: null"),
-            "unexpected error: {err}"
-        );
-
-        let mut omitted_entry_counts = original_aggregate.clone();
-        set_snapshot_version_for_test(
-            &mut omitted_entry_counts,
-            LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION,
-        );
-        omitted_entry_counts
-            .as_object_mut()
-            .expect("snapshot should be an object")
-            .remove("counts_per_outcome");
-        for entry in omitted_entry_counts["aggregate_entries"]
-            .as_array_mut()
-            .expect("aggregate entries should be an array")
-        {
-            entry
-                .as_object_mut()
-                .expect("aggregate entry should be an object")
-                .remove("counts_per_outcome");
+        for value in [serde_json::Value::Null, checkpoint_identity.clone()] {
+            let mut terminal_with_key = current.clone();
+            terminal_with_key["checkpoint_identity"] = value;
+            let err = decode_snapshot_value_for_test(&terminal_with_key)
+                .expect_err("terminal v7 snapshots must reject any checkpoint_identity key");
+            assert!(err.contains("must omit checkpoint_identity"), "{err}");
         }
-        decode_snapshot_value_for_test(&omitted_entry_counts)
-            .expect("version 4 may omit aggregate-entry outcome counts");
 
-        let mut present_entry_counts = original_aggregate.clone();
-        set_snapshot_version_for_test(
-            &mut present_entry_counts,
+        let mut checkpoint = current.clone();
+        checkpoint["run_kind"] = serde_json::json!("resume-case-checkpoint");
+        checkpoint["matrix_path"] = serde_json::json!([]);
+        checkpoint["checkpoint_identity"] = checkpoint_identity.clone();
+        decode_snapshot_value_for_test(&checkpoint)
+            .expect("a v7 checkpoint must accept one canonical non-null identity object");
+        assert!(
+            checkpoint["checkpoint_identity"].is_object(),
+            "checkpoint serialization must emit a non-null identity object"
+        );
+
+        for (label, value) in [
+            ("omitted", None),
+            ("null", Some(serde_json::Value::Null)),
+            (
+                "noncanonical",
+                Some(serde_json::json!({
+                    "terminal_run_kind": "shard-01/02",
+                    "matrix_path": [],
+                })),
+            ),
+        ] {
+            let mut invalid = checkpoint.clone();
+            let object = invalid
+                .as_object_mut()
+                .expect("checkpoint should be an object");
+            match value {
+                Some(value) => {
+                    object.insert("checkpoint_identity".to_string(), value);
+                }
+                None => {
+                    object.remove("checkpoint_identity");
+                }
+            }
+            let err = decode_snapshot_value_for_test(&invalid)
+                .expect_err("a v7 checkpoint requires a present canonical identity object");
+            assert!(err.contains("checkpoint_identity"), "{label}: {err}");
+        }
+
+        for version in [
             LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION,
-        );
-        present_entry_counts
-            .as_object_mut()
-            .expect("snapshot should be an object")
-            .remove("counts_per_outcome");
-        let err = decode_snapshot_value_for_test(&present_entry_counts)
-            .expect_err("version 4 must not carry aggregate-entry outcome counts");
-        assert!(
-            err.contains("aggregate entry") && err.contains("must omit outcome counts"),
-            "unexpected error: {err}"
-        );
+            LEGACY_PRE_LILA_SNAPSHOT_VERSION,
+            LEGACY_PATH_ONLY_SNAPSHOT_VERSION,
+        ] {
+            let mut legacy = current.clone();
+            legacy["snapshot_version"] = serde_json::json!(version);
+            legacy["failures"] = serde_json::json!([]);
+            legacy["slowest_tests"] = serde_json::json!([]);
+            let object = legacy
+                .as_object_mut()
+                .expect("snapshot should be an object");
+            for field in [
+                "checkpoint_identity",
+                "completed_test_ids",
+                "timeout_test_ids",
+                "completed_paths",
+                "timeout_list",
+            ] {
+                object.remove(field);
+            }
+            if version == LEGACY_PATH_ONLY_SNAPSHOT_VERSION {
+                object.insert(
+                    "producer".to_string(),
+                    serde_json::json!(ArtifactProducer::CURRENT.as_str()),
+                );
+            } else {
+                object.remove("producer");
+            }
+            if version == LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION {
+                object.remove("counts_per_outcome");
+            }
+            decode_snapshot_value_for_test(&legacy)
+                .unwrap_or_else(|err| panic!("legacy v{version} omitted-key fixture: {err}"));
 
-        let mut null_entry_counts = omitted_entry_counts;
-        null_entry_counts["aggregate_entries"][0]["counts_per_outcome"] = serde_json::Value::Null;
-        let err = decode_snapshot_value_for_test(&null_entry_counts)
-            .expect_err("explicit null is not an omitted version 4 aggregate-entry count map");
-        assert!(
-            err.contains("invalid type: null"),
-            "unexpected error: {err}"
-        );
+            for value in [serde_json::Value::Null, checkpoint_identity.clone()] {
+                let mut mixed = legacy.clone();
+                mixed["checkpoint_identity"] = value;
+                let err = decode_snapshot_value_for_test(&mixed).expect_err(
+                    "legacy snapshots must reject checkpoint_identity even when it is null",
+                );
+                assert!(err.contains("checkpoint_identity"), "v{version}: {err}");
+            }
+        }
+
+        for version in [
+            LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION,
+            LEGACY_PRE_LILA_SNAPSHOT_VERSION,
+            LEGACY_PATH_ONLY_SNAPSHOT_VERSION,
+        ] {
+            let mut legacy = current.clone();
+            legacy["snapshot_version"] = serde_json::json!(version);
+            let object = legacy
+                .as_object_mut()
+                .expect("snapshot should be an object");
+            if version == LEGACY_PATH_ONLY_SNAPSHOT_VERSION {
+                object.insert(
+                    "producer".to_string(),
+                    serde_json::json!(ArtifactProducer::CURRENT.as_str()),
+                );
+            } else {
+                object.remove("producer");
+            }
+            object.remove("completed_test_ids");
+            object.insert(
+                "completed_paths".to_string(),
+                serde_json::json!(["built-ins/Array/intentional-failure.js"]),
+            );
+            for failure in object
+                .get_mut("failures")
+                .and_then(serde_json::Value::as_array_mut)
+                .expect("node failures should be an array")
+            {
+                failure
+                    .as_object_mut()
+                    .expect("failure should be an object")
+                    .remove("test_id");
+            }
+
+            let err = decode_snapshot_value_for_test(&legacy)
+                .expect_err("path-only evidence must never acquire an execution mode");
+            assert!(
+                err.contains("per-case evidence"),
+                "unexpected version {version} rejection: {err}"
+            );
+        }
+
+        for field in [
+            "completed_test_ids",
+            "timeout_test_ids",
+            "completed_paths",
+            "timeout_list",
+        ] {
+            for value in [serde_json::json!([]), serde_json::Value::Null] {
+                let mut mixed = current.clone();
+                mixed["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
+                mixed["producer"] = serde_json::json!(ArtifactProducer::CURRENT.as_str());
+                mixed["failures"] = serde_json::json!([]);
+                mixed["slowest_tests"] = serde_json::json!([]);
+                let object = mixed.as_object_mut().expect("snapshot should be an object");
+                for identity_field in [
+                    "completed_test_ids",
+                    "timeout_test_ids",
+                    "completed_paths",
+                    "timeout_list",
+                ] {
+                    object.remove(identity_field);
+                }
+                object.insert(field.to_string(), value.clone());
+
+                let err = decode_snapshot_value_for_test(&mixed).expect_err(
+                    "legacy schema must reject empty or null mixed-version identity fields",
+                );
+                assert!(err.contains("per-case evidence"), "field {field}: {err}");
+            }
+        }
+
+        for field in ["completed_test_ids", "timeout_test_ids"] {
+            let mut absent = current.clone();
+            absent
+                .as_object_mut()
+                .expect("snapshot should be an object")
+                .remove(field);
+            let err = decode_snapshot_value_for_test(&absent)
+                .expect_err("current schema requires typed identity fields even when empty");
+            assert!(err.contains("missing typed completion or timeout"), "{err}");
+
+            let mut null = current.clone();
+            null[field] = serde_json::Value::Null;
+            let err = decode_snapshot_value_for_test(&null)
+                .expect_err("null is not a current typed identity list");
+            assert!(err.contains("missing typed completion or timeout"), "{err}");
+        }
+
+        let mut missing_id = current;
+        missing_id["failures"][0]
+            .as_object_mut()
+            .expect("failure should be an object")
+            .remove("test_id");
+        let err = decode_snapshot_value_for_test(&missing_id)
+            .expect_err("current failures require execution identity");
+        assert!(err.contains("missing execution identity"));
     }
 
     #[test]
-    fn snapshot_versions_five_and_six_require_outcome_data_in_every_location() {
-        let config = tiny_failing_suite_config("required-outcome-evidence");
+    fn complete_consumers_reject_legacy_aggregates_and_mixed_legacy_nodes() {
+        let config = tiny_failing_suite_config("legacy-complete-boundary");
         let run_config = RunConfig {
-            snapshot_name: "required-outcome-evidence".to_string(),
+            snapshot_name: "legacy-complete-boundary".to_string(),
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
@@ -36885,92 +39234,122 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &run_config.snapshot_name,
             ExecutionBackend::SpecExec,
         )
-        .expect("original aggregate should verify");
+        .expect("current aggregate should verify before tampering");
+        let aggregate_path = verified.snapshot_paths.json_path;
+        let current_aggregate = read_snapshot_value_for_test(&aggregate_path);
+
+        let mut legacy_aggregate = current_aggregate.clone();
+        legacy_aggregate["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
+        legacy_aggregate["producer"] = serde_json::json!(ArtifactProducer::CURRENT.as_str());
+        let object = legacy_aggregate
+            .as_object_mut()
+            .expect("aggregate should be an object");
+        for field in [
+            "completed_test_ids",
+            "timeout_test_ids",
+            "completed_paths",
+            "timeout_list",
+        ] {
+            object.remove(field);
+        }
+        write_snapshot_value_for_test(&aggregate_path, &legacy_aggregate);
+
+        load_aggregate_progress_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("the explicitly metadata-only progress workflow may read a legacy envelope");
+        let mut v4_aggregate = legacy_aggregate.clone();
+        v4_aggregate["snapshot_version"] = serde_json::json!(LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
+        v4_aggregate
+            .as_object_mut()
+            .expect("aggregate should be an object")
+            .remove("producer");
+        write_snapshot_value_for_test(&aggregate_path, &v4_aggregate);
+        let err = load_aggregate_progress_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("v4 has no outcome metadata and must not synthesize it from nodes");
+        assert!(err.contains("refusing to synthesize"), "{err}");
+        write_snapshot_value_for_test(&aggregate_path, &legacy_aggregate);
+
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("complete evidence must require a current aggregate");
+        assert!(err.contains("current aggregate snapshot"), "{err}");
+        let err = generate_backlog(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("backlog generation must require a current aggregate");
+        assert!(err.contains("current aggregate snapshot"), "{err}");
+        let err = compare_snapshots(
+            &config,
+            &run_config.snapshot_name,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("comparison must require current aggregate evidence");
+        assert!(err.contains("current aggregate snapshot"), "{err}");
+
+        write_snapshot_value_for_test(&aggregate_path, &current_aggregate);
         let (_, node_path, _) =
             intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
-        let original_node = read_snapshot_value_for_test(&node_path);
-        let original_aggregate = read_snapshot_value_for_test(&verified.snapshot_paths.json_path);
+        let mut legacy_node = read_snapshot_value_for_test(&node_path);
+        legacy_node["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
+        legacy_node["producer"] = serde_json::json!(ArtifactProducer::CURRENT.as_str());
+        write_snapshot_value_for_test(&node_path, &legacy_node);
 
-        for version in [LEGACY_PRE_LILA_SNAPSHOT_VERSION, SNAPSHOT_VERSION] {
-            let mut valid_node = original_node.clone();
-            set_snapshot_version_for_test(&mut valid_node, version);
-            decode_snapshot_value_for_test(&valid_node)
-                .unwrap_or_else(|err| panic!("valid version {version} node should decode: {err}"));
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("a current aggregate must not promote a legacy node");
+        assert!(err.contains("current matrix node evidence"), "{err}");
+    }
 
-            let mut missing_failure_outcome = valid_node.clone();
-            missing_failure_outcome["failures"][0]
-                .as_object_mut()
-                .expect("failure should be an object")
-                .remove("outcome");
-            let err = decode_snapshot_value_for_test(&missing_failure_outcome)
-                .expect_err("versions 5 and 6 require every failure outcome");
-            assert!(
-                err.contains(&format!("snapshot version {version}"))
-                    && err.contains("missing required outcome data"),
-                "unexpected rejection: {err}"
-            );
+    #[test]
+    fn failure_details_revalidates_the_actual_aggregate_entry_against_node_evidence() {
+        let config = tiny_failing_suite_config("failure-details-entry-node-contract");
+        let run_config = RunConfig {
+            snapshot_name: "failure-details-entry-node-contract".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("current aggregate should verify before tampering");
+        let (node, _, _) = intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
+        let mut aggregate = read_snapshot_value_for_test(&verified.snapshot_paths.json_path);
+        let entry = aggregate["aggregate_entries"]
+            .as_array_mut()
+            .expect("aggregate entries should be an array")
+            .iter_mut()
+            .find(|entry| entry["node_id"].as_str() == Some(node.node_id.as_str()))
+            .expect("aggregate should contain the failing node");
+        entry["passed"] = serde_json::json!(1);
+        write_snapshot_value_for_test(&verified.snapshot_paths.json_path, &aggregate);
 
-            let mut null_failure_outcome = valid_node.clone();
-            null_failure_outcome["failures"][0]["outcome"] = serde_json::Value::Null;
-            let err = decode_snapshot_value_for_test(&null_failure_outcome)
-                .expect_err("explicit null must not satisfy a required failure outcome");
-            assert!(
-                err.contains("invalid type: null"),
-                "unexpected error: {err}"
-            );
-
-            let mut missing_outcome_counts = valid_node.clone();
-            missing_outcome_counts
-                .as_object_mut()
-                .expect("snapshot should be an object")
-                .remove("counts_per_outcome");
-            let err = decode_snapshot_value_for_test(&missing_outcome_counts)
-                .expect_err("versions 5 and 6 require outcome counts");
-            assert!(
-                err.contains(&format!("snapshot version {version}"))
-                    && err.contains("missing required outcome counts"),
-                "unexpected rejection: {err}"
-            );
-
-            let mut null_outcome_counts = valid_node;
-            null_outcome_counts["counts_per_outcome"] = serde_json::Value::Null;
-            let err = decode_snapshot_value_for_test(&null_outcome_counts)
-                .expect_err("explicit null must not satisfy required outcome counts");
-            assert!(
-                err.contains("invalid type: null"),
-                "unexpected error: {err}"
-            );
-
-            let mut valid_aggregate = original_aggregate.clone();
-            set_snapshot_version_for_test(&mut valid_aggregate, version);
-            decode_snapshot_value_for_test(&valid_aggregate).unwrap_or_else(|err| {
-                panic!("valid version {version} aggregate should decode: {err}")
-            });
-
-            let mut missing_entry_counts = valid_aggregate.clone();
-            missing_entry_counts["aggregate_entries"][0]
-                .as_object_mut()
-                .expect("aggregate entry should be an object")
-                .remove("counts_per_outcome");
-            let err = decode_snapshot_value_for_test(&missing_entry_counts)
-                .expect_err("versions 5 and 6 require aggregate-entry outcome counts");
-            assert!(
-                err.contains(&format!("snapshot version {version}"))
-                    && err.contains("aggregate entry")
-                    && err.contains("missing required outcome counts"),
-                "unexpected rejection: {err}"
-            );
-
-            let mut null_entry_counts = valid_aggregate;
-            null_entry_counts["aggregate_entries"][0]["counts_per_outcome"] =
-                serde_json::Value::Null;
-            let err = decode_snapshot_value_for_test(&null_entry_counts)
-                .expect_err("explicit null must not satisfy aggregate-entry outcome counts");
-            assert!(
-                err.contains("invalid type: null"),
-                "unexpected error: {err}"
-            );
-        }
+        let err = load_matrix_failure_details(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+            &node.node_id,
+        )
+        .expect_err("aggregate-entry counts must be checked against the loaded node");
+        assert!(err.contains("does not equal its node evidence"), "{err}");
     }
 
     #[test]
@@ -36990,7 +39369,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         let (_, corrupt_node_path, mut corrupt_node) =
             intentional_failure_node_snapshot(&config, &corrupt.snapshot_name);
-        corrupt_node.completed_paths[0] = "built-ins/Array/not-in-node.js".to_string();
+        corrupt_node
+            .completed_test_ids
+            .values_mut()
+            .expect("current node snapshot should contain typed completion ids")[0] =
+            TestExecutionId::new(
+                "built-ins/Array/not-in-node.js",
+                TestExecutionMode::SloppyScript,
+            );
         write_snapshot_file_for_test(&corrupt_node_path, &corrupt_node);
 
         let resolved = load_verified_aggregate_summary(
@@ -37122,9 +39508,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let node = nodes
             .iter()
             .find(|node| {
-                node.case_paths
+                node.case_ids
                     .iter()
-                    .any(|path| path == "built-ins/Array/intentional-failure.js")
+                    .any(|test_id| test_id.path() == "built-ins/Array/intentional-failure.js")
             })
             .expect("matrix should include failing node");
         let pinned = pinned_revisions(&config);
@@ -37181,7 +39567,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         .expect("pass comparison should work");
         assert_eq!(
             pass_comparison.added_passes,
-            vec!["built-ins/Array/intentional-failure.js".to_string()]
+            vec![TestExecutionId::new(
+                "built-ins/Array/intentional-failure.js",
+                TestExecutionMode::RawScript,
+            )]
         );
 
         let stale_verified = load_verified_aggregate_summary(
@@ -37374,118 +39763,48 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[cfg(feature = "spec-exec-oracle")]
     #[test]
-    fn backlog_legacy_snapshot_version_migrates_outcomes_from_recorded_details() {
-        let config = tiny_failing_suite_config("backlog-legacy-migration");
+    fn backlog_refuses_legacy_path_only_node_evidence() {
+        let config = tiny_failing_suite_config("backlog-legacy-identity");
         let run_config = RunConfig {
-            snapshot_name: "legacy-migrate".to_string(),
+            snapshot_name: "backlog-legacy-identity".to_string(),
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
         run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
 
-        // Rewrite every snapshot to the legacy pre-outcome format: version 4,
-        // no per-failure outcomes, no outcome counts anywhere.
-        for entry in fs::read_dir(&config.snapshot_dir).expect("snapshot dir should read") {
-            let path = entry.expect("dir entry should read").path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let raw = fs::read_to_string(&path).expect("snapshot should read");
-            let mut value: serde_json::Value =
-                serde_json::from_str(&raw).expect("snapshot should parse");
-            let Some(object) = value.as_object_mut() else {
-                continue;
-            };
-            if !object.contains_key("run_kind") {
-                continue;
-            }
-            object.insert("snapshot_version".to_string(), serde_json::json!(4));
-            object.remove("producer");
-            object.remove("counts_per_outcome");
-            if let Some(failures) = object.get_mut("failures").and_then(|v| v.as_array_mut()) {
-                for failure in failures {
-                    if let Some(failure) = failure.as_object_mut() {
-                        failure.remove("outcome");
-                    }
-                }
-            }
-            if let Some(entries) = object
-                .get_mut("aggregate_entries")
-                .and_then(|v| v.as_array_mut())
-            {
-                for entry in entries {
-                    if let Some(entry) = entry.as_object_mut() {
-                        entry.remove("counts_per_outcome");
-                    }
-                }
-            }
-            fs::write(
-                &path,
-                serde_json::to_string_pretty(&value).expect("snapshot should serialize"),
-            )
-            .expect("legacy snapshot should write");
+        let (_, node_path, _) =
+            intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
+        let mut value = read_snapshot_value_for_test(&node_path);
+        value["snapshot_version"] = serde_json::json!(LEGACY_PATH_ONLY_SNAPSHOT_VERSION);
+        let object = value.as_object_mut().expect("snapshot should be an object");
+        object.insert(
+            "producer".to_string(),
+            serde_json::json!(ArtifactProducer::CURRENT.as_str()),
+        );
+        object.remove("completed_test_ids");
+        object.insert(
+            "completed_paths".to_string(),
+            serde_json::json!(["built-ins/Array/intentional-failure.js"]),
+        );
+        for failure in object
+            .get_mut("failures")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("node failures should be an array")
+        {
+            failure
+                .as_object_mut()
+                .expect("failure should be an object")
+                .remove("test_id");
         }
+        write_snapshot_value_for_test(&node_path, &value);
 
-        // PublicationBackend deliberately cannot represent SpecExec, so test
-        // the shared current-state gate on the actual oracle aggregate rather
-        // than asking the Wasm publication path to resolve a different matrix.
-        let verified = load_verified_aggregate_summary(
+        let err = generate_backlog(
             &config,
             &run_config.snapshot_name,
             ExecutionBackend::SpecExec,
         )
-        .expect("legacy evidence should remain readable");
-        let file = read_snapshot_file(&verified.snapshot_paths.json_path)
-            .expect("legacy aggregate should parse");
-        let publish_err = file
-            .require_current(&verified.snapshot_paths.json_path, "current publication")
-            .expect_err("legacy evidence must never feed a current publication");
-        assert!(publish_err.contains("read-only legacy evidence"));
-
-        // Outcomes must be derived from the recorded failure kinds/details of
-        // the node snapshots — real recorded data, not invented counts.
-        let progress = load_aggregate_progress_summary(
-            &config,
-            &run_config.snapshot_name,
-            ExecutionBackend::SpecExec,
-        )
-        .expect("legacy aggregate should load with derived outcome counts");
-        assert_eq!(
-            progress
-                .summary
-                .counts_per_outcome
-                .get(&OutcomeKind::Bug)
-                .copied()
-                .unwrap_or(0),
-            1
-        );
-        assert_eq!(
-            progress
-                .summary
-                .counts_per_outcome
-                .get(&OutcomeKind::Success)
-                .copied()
-                .unwrap_or(0),
-            progress.summary.passed
-        );
-
-        let triage = load_matrix_triage_entries(
-            &config,
-            &run_config.snapshot_name,
-            ExecutionBackend::SpecExec,
-        )
-        .expect("legacy triage should load");
-        assert_eq!(triage.len(), 1);
-        assert_eq!(triage[0].bug, 1);
-
-        let (artifact, _paths) = generate_backlog(
-            &config,
-            &run_config.snapshot_name,
-            ExecutionBackend::SpecExec,
-        )
-        .expect("legacy backlog should generate");
-        assert_eq!(artifact.records.len(), 1);
-        assert_eq!(artifact.records[0].outcome, OutcomeKind::Bug);
+        .expect_err("legacy path-only evidence must not feed the current backlog");
+        assert!(err.contains("current matrix node evidence"), "{err}");
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -37524,6 +39843,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(report.entries[0].status, SnapshotPinStatus::Mismatch);
         assert_eq!(report.entries[0].recorded_test262, "inconsistent-pin");
         assert_eq!(report.mismatched, 1);
+
+        file.execution_backend = "future-backend".to_string();
+        write_snapshot_file_for_test(&verified.snapshot_paths.json_path, &file);
+        let err = snapshot_pin_report(&config)
+            .expect_err("pin reports must not classify an unknown current backend as exact");
+        assert!(err.contains("unknown execution_backend"), "{err}");
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -37574,7 +39899,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         .expect("comparison should work");
         assert_eq!(
             comparison.regressions,
-            vec!["built-ins/Array/regression-probe.js".to_string()]
+            vec![TestExecutionId::new(
+                "built-ins/Array/regression-probe.js",
+                TestExecutionMode::RawScript,
+            )]
         );
         assert!(comparison.added_passes.is_empty());
     }
@@ -37600,9 +39928,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let node = nodes
             .iter()
             .find(|node| {
-                node.case_paths
+                node.case_ids
                     .iter()
-                    .any(|path| path == "built-ins/Array/intentional-failure.js")
+                    .any(|test_id| test_id.path() == "built-ins/Array/intentional-failure.js")
             })
             .expect("matrix should include failing node");
         let pinned = pinned_revisions(&config);
@@ -37695,14 +40023,20 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "checked-in ownership map should cover the suite subtrees"
         );
         let failure = classify_failure(
-            "totally/unknown/subtree/case.js",
+            TestExecutionId::new(
+                "totally/unknown/subtree/case.js",
+                TestExecutionMode::SloppyScript,
+            ),
             FailureKind::Runtime,
             "boom",
         );
         let ownership = classify_backlog_owner(&failure, None, &rules);
         assert_eq!(ownership, BacklogOwnership::Unclassified);
         let array_failure = classify_failure(
-            "built-ins/Array/prototype/map/callable.js",
+            TestExecutionId::new(
+                "built-ins/Array/prototype/map/callable.js",
+                TestExecutionMode::SloppyScript,
+            ),
             FailureKind::Runtime,
             "boom",
         );
@@ -37777,18 +40111,19 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         .expect("source file should write");
 
         let case = TestCase {
-            path: "language/module-code/resolution-negative.js".to_string(),
+            execution_id: TestExecutionId::new(
+                "language/module-code/resolution-negative.js",
+                TestExecutionMode::Module,
+            ),
             source_path: source_path.clone(),
-            original_source: "import './does-not-exist.mjs';\nexport const value = 1;\n"
-                .to_string(),
+            original_source: Arc::from("import './does-not-exist.mjs';\nexport const value = 1;\n"),
             flags: BTreeSet::from(["module".to_string()]),
             features: BTreeSet::new(),
             includes: Vec::new(),
-            negative: Some(NegativeExpectation {
+            negative: Some(Arc::new(NegativeExpectation {
                 phase: "resolution".to_string(),
                 error_type: String::new(),
-            }),
-            is_module: true,
+            })),
         };
 
         let result = run_one_case(
@@ -38748,59 +41083,64 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     #[test]
     fn wasm_aot_routes_all_dynamic_source_identities_past_lexical_gates() {
         let mut case = synthetic_case("built-ins/Number/proto-from-ctor-realm.js");
-        case.original_source = "assert.sameValue(eval('1 + 2'), 3);".to_string();
+        case.original_source = Arc::from("assert.sameValue(eval('1 + 2'), 3);".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
-        case.original_source = "(async function* eval() {});".to_string();
+        case.original_source = Arc::from("(async function* eval() {});".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
-        case.original_source = "$262.evalScript('var x;');".to_string();
+        case.original_source = Arc::from("$262.evalScript('var x;');".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
         let indirect_eval_case =
             synthetic_case("annexB/language/eval-code/indirect/function-declaration.js");
         assert_eq!(wasm_aot_unsupported_feature(&indirect_eval_case), None);
 
-        case.original_source = "$262.IsHTMLDDA;".to_string();
+        case.original_source = Arc::from("$262.IsHTMLDDA;".to_string());
         case.features.insert("IsHTMLDDA".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
-        case.original_source = "eval('$262.IsHTMLDDA');".to_string();
+        case.original_source = Arc::from("eval('$262.IsHTMLDDA');".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
         case.features.remove("IsHTMLDDA");
 
-        case.original_source =
-            "var other = $262.createRealm().global; var C = new other.Function();".to_string();
+        case.original_source = Arc::from(
+            "var other = $262.createRealm().global; var C = new other.Function();".to_string(),
+        );
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
-        case.original_source =
+        case.original_source = Arc::from(
             "var other = $262.createRealm().global; var C = new other.Function('return 1');"
-                .to_string();
+                .to_string(),
+        );
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
         let mut array_buffer_case =
             synthetic_case("built-ins/ArrayBuffer/proto-from-ctor-realm.js");
-        array_buffer_case.original_source =
-            "var other = $262.createRealm().global; var C = new other.Function();".to_string();
+        array_buffer_case.original_source = Arc::from(
+            "var other = $262.createRealm().global; var C = new other.Function();".to_string(),
+        );
         assert_eq!(wasm_aot_unsupported_feature(&array_buffer_case), None);
 
-        array_buffer_case.original_source =
+        array_buffer_case.original_source = Arc::from(
             "var other = $262.createRealm().global; var C = new other.Function('return 1');"
-                .to_string();
+                .to_string(),
+        );
         assert_eq!(wasm_aot_unsupported_feature(&array_buffer_case), None);
 
-        case.original_source =
+        case.original_source = Arc::from(
             "let GeneratorFunction = Object.getPrototypeOf(function*(){}).constructor; let g = GeneratorFunction('yield 1');"
-                .to_string();
+                .to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
-        case.original_source =
+        case.original_source = Arc::from(
             "async function f() {} var AsyncFunction = f.constructor; var g = AsyncFunction('return 1');"
-                .to_string();
+                .to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
 
-        case.original_source =
-            "// eval(); Function() in a comment\nvar C = function Functionish() {};".to_string();
+        case.original_source = Arc::from(
+            "// eval(); Function() in a comment\nvar C = function Functionish() {};".to_string(),
+        );
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
     }
 
@@ -38838,11 +41178,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "Object.seal(new (Object.getPrototypeOf(async () => {}).constructor)());",
             "Object.seal(new (Object.getPrototypeOf(async function * () {}).constructor)());",
         ] {
-            case.original_source = source.to_string();
+            case.original_source = Arc::from(source.to_string());
             assert_eq!(wasm_aot_unsupported_feature(&case), None, "{source}");
         }
 
-        case.original_source = "Object.seal(new ordinary.constructor());".to_string();
+        case.original_source = Arc::from("Object.seal(new ordinary.constructor());".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
     }
 
@@ -38850,14 +41190,16 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     fn wasm_aot_does_not_preclassify_ordinary_cross_realm_function_roots() {
         let mut is_error_case =
             synthetic_case("built-ins/Error/isError/non-error-objects-other-realm.js");
-        is_error_case.original_source =
+        is_error_case.original_source = Arc::from(
             "var other = $262.createRealm().global; Error.isError(new other.Function(''));"
-                .to_string();
+                .to_string(),
+        );
         assert_eq!(wasm_aot_unsupported_feature(&is_error_case), None);
 
         let mut prototype_case = synthetic_case("built-ins/Error/proto-from-ctor-realm.js");
-        prototype_case.original_source =
-            "var other = $262.createRealm().global; var C = new other.Function();".to_string();
+        prototype_case.original_source = Arc::from(
+            "var other = $262.createRealm().global; var C = new other.Function();".to_string(),
+        );
         assert_eq!(wasm_aot_unsupported_feature(&prototype_case), None);
     }
 
@@ -38890,7 +41232,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ),
         ] {
             let mut case = synthetic_case(path);
-            case.original_source = source.to_string();
+            case.original_source = Arc::from( source.to_string());
 
             assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
         }
@@ -38911,12 +41253,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "built-ins/SuppressedError/newtarget-proto-fallback.js",
         ] {
             let mut case = synthetic_case(path);
-            case.original_source = if path.ends_with("proto-from-ctor-realm.js") {
+            case.original_source = Arc::from(if path.ends_with("proto-from-ctor-realm.js") {
                 "var other = $262.createRealm().global; var newTarget = new other.Function();"
                     .to_string()
             } else {
                 "const NewTarget = new Function();".to_string()
-            };
+            });
 
             assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
         }
@@ -38997,7 +41339,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         }
 
         let mut direct_case = synthetic_case("built-ins/Atomics/notify/direct-agent.js");
-        direct_case.original_source = "$262.agent.start('');".to_string();
+        direct_case.original_source = Arc::from("$262.agent.start('');".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&direct_case), None);
     }
 
@@ -39013,7 +41355,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         let mut case = synthetic_case("annexB/language/global-code/global-init.js");
         case.includes.push("fnGlobalObject.js".to_string());
-        case.original_source = "assert.sameValue(fnGlobalObject(), globalThis);".to_string();
+        case.original_source =
+            Arc::from("assert.sameValue(fnGlobalObject(), globalThis);".to_string());
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
@@ -39034,7 +41377,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     #[test]
     fn classify_failure_tags_origin() {
         let failure = classify_failure(
-            "language/example.js",
+            TestExecutionId::new("language/example.js", TestExecutionMode::SloppyScript),
             FailureKind::Runtime,
             "ReferenceError: boom",
         );
@@ -39094,6 +41437,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             },
             manifest_hash: 1,
             run_kind: "aggregate-matrix".to_string(),
+            checkpoint_identity: None,
             total: 0,
             passed: 0,
             counts_per_kind: BTreeMap::new(),
@@ -39101,7 +41445,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             slowest_tests: Vec::new(),
             timeout_list: Vec::new(),
             failures: Vec::new(),
-            completed_paths: Vec::new(),
+            completed_test_ids: Vec::new(),
             matrix_path: vec!["top-level".to_string()],
             completed_nodes: vec!["language".to_string()],
             aggregate_counts_so_far: BTreeMap::new(),
@@ -39227,8 +41571,15 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             Ok(SnapshotArtifactKind::LegacyV5)
         );
         assert_eq!(
+            SnapshotArtifactKind::decode(
+                LEGACY_PATH_ONLY_SNAPSHOT_VERSION,
+                Some(ArtifactProducer::CURRENT)
+            ),
+            Ok(SnapshotArtifactKind::LegacyPathOnlyV6)
+        );
+        assert_eq!(
             SnapshotArtifactKind::decode(SNAPSHOT_VERSION, Some(ArtifactProducer::CURRENT)),
-            Ok(SnapshotArtifactKind::CurrentLilaV6)
+            Ok(SnapshotArtifactKind::CurrentLilaV7)
         );
         assert!(SnapshotArtifactKind::decode(SNAPSHOT_VERSION, None)
             .expect_err("current snapshots require an explicit producer")
@@ -39237,6 +41588,42 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .expect_err("unknown snapshot versions must fail")
             .contains("unsupported snapshot_version"));
         assert!(serde_json::from_str::<ArtifactProducer>(r#""other""#).is_err());
+        assert_eq!(
+            parse_snapshot_execution_backend("spec-exec"),
+            Ok(ExecutionBackend::SpecExec)
+        );
+        assert_eq!(
+            parse_snapshot_execution_backend("wasm-aot"),
+            Ok(ExecutionBackend::WasmAot)
+        );
+        assert!(parse_snapshot_execution_backend("future-backend")
+            .expect_err("snapshot backend spellings form a closed domain")
+            .contains("unknown execution_backend"));
+        let case = synthetic_case("schema/backend.js");
+        let manifest = SuiteManifest {
+            pinned_revisions: PinnedRevisions {
+                ecma262: "ecma262-test".to_string(),
+                test262: "test262-test".to_string(),
+            },
+            manifest_hash: 1,
+            filter: Some(case.execution_id.wire_key()),
+            cases: vec![case.clone()],
+        };
+        let result = TestResult {
+            test_id: case.execution_id.clone(),
+            status: TestStatus::Passed,
+            duration_ms: 1,
+        };
+        let mut file = snapshot_to_file(&snapshot_from_summary(
+            &manifest,
+            "full".to_string(),
+            &summarize_results(&[result]),
+            ExecutionBackend::WasmAot,
+        ));
+        file.execution_backend = "future-backend".to_string();
+        assert!(snapshot_from_file(file)
+            .expect_err("current snapshots must reject unknown backend spellings")
+            .contains("unknown execution_backend"));
         assert_eq!(
             PublicationBackend::try_from(ExecutionBackend::WasmAot),
             Ok(PublicationBackend::WasmAot)

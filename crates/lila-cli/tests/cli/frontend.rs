@@ -799,7 +799,9 @@ fn test262_list_works_with_fixture_suite() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("count: 190"));
+    assert!(stdout.contains("count: 191"));
+    assert!(stdout.contains("sloppy-script:language/fail/parse-negative.js"));
+    assert!(stdout.contains("strict-script:language/fail/parse-negative.js"));
 }
 
 #[cfg(feature = "spec-exec-oracle")]
@@ -822,8 +824,8 @@ fn test262_run_writes_summary() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("execution_backend: spec-exec"));
-    assert!(stdout.contains("total: 190"));
-    assert!(stdout.contains("passed: 190"));
+    assert!(stdout.contains("total: 191"));
+    assert!(stdout.contains("passed: 191"));
     assert!(stdout.contains("Unsupported: 0"));
 }
 
@@ -1034,7 +1036,7 @@ fn test262_report_groups_failures_by_bucket() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("execution_backend: spec-exec"));
-    assert!(stdout.contains("passed: 190"));
+    assert!(stdout.contains("passed: 191"));
     assert!(stdout.contains("failed: 0"));
 }
 
@@ -1058,8 +1060,8 @@ fn test262_report_all_aggregates_fixture_suite() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("execution_backend: spec-exec"));
-    assert!(stdout.contains("total: 190"));
-    assert!(stdout.contains("passed: 190"));
+    assert!(stdout.contains("total: 191"));
+    assert!(stdout.contains("passed: 191"));
     assert!(stdout.contains("targets:"));
 }
 
@@ -1113,7 +1115,7 @@ fn test262_backlog_and_snapshot_compare_read_completed_matrix_snapshots() {
     );
     let stdout = String::from_utf8_lossy(&backlog.stdout);
     assert!(stdout.contains("execution_backend: spec-exec"));
-    assert!(stdout.contains("total: 190"));
+    assert!(stdout.contains("total: 191"));
     assert!(stdout.contains("records: 0"));
     assert!(stdout.contains("backlog_json:"));
     assert!(stdout.contains("backlog_txt:"));
@@ -1316,7 +1318,7 @@ fn test262_progress_status_reports_incomplete_aggregate_without_publishing() {
     assert!(stdout.contains("matrix_nodes_completed: 1"));
     assert!(stdout.contains("matrix_nodes_total:"));
     assert!(stdout.contains("observed_total:"));
-    assert!(stdout.contains("target_total: 190"));
+    assert!(stdout.contains("target_total: 191"));
     assert!(stdout.contains("unobserved_total:"));
     assert!(stdout.contains("current_success:"));
     assert!(stdout.contains("current_success_full:"));

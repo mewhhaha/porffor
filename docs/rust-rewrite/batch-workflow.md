@@ -37,7 +37,7 @@ Pick the cheapest rung that can answer the question in front of you.
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
 | 1c | the whole CLI suite, run as resumable area chunks by `scripts/rung1c-chunks.sh` (recount the current partition and tests; see below) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
-| 2 | fake fixture suite (190 cases) | 10–60 s warm | the runner itself | conformance; it is green by construction |
+| 2 | fake fixture suite (current denominator derived as 191 executions from 190 physical files; execution-aware rerun pending) | 10–60 s warm | the runner itself | conformance beyond the fixture corpus |
 | 3 | `shard 1/25` on the real suite | est. 15 min–3 h | broad cross-subtree regressions | families smaller than ~25 cases |
 | 4 | the lane's own ownership-map prefix | 2–40 min | the lane's own family | anything outside the lane |
 | 5 | `report-all --resume`, 498 nodes | ~15 h | everything | nothing; too slow to iterate on |
@@ -304,9 +304,11 @@ cargo test --workspace --quiet
 Three sharp edges, all verified in the source:
 
 - **Shard indices are 1-based.** `shard 0/25` silently means shard 1.
-- **Each shard needs its own `--snapshot-name`.** Snapshots key on the
-  whole-manifest hash, which is identical across shards, and resume state is not
-  filtered by the shard's case set — two shards under one name cross-contaminate.
+- **Shard state is selection-specific.** The exact selected execution ids and
+  shard tag are hashed into the manifest, so two shards under one
+  `--snapshot-name` still receive different snapshot, checkpoint, and journal
+  paths. Distinct names remain useful for operators, but are not a correctness
+  requirement.
 - **A shard is process-green only when it selected at least one case and every
   selected case passed.** Failed shards still write their diagnostic snapshot,
   then exit non-zero; a zero-case selection is `NoEvidence`, not `0/0` green.
