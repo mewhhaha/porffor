@@ -12,17 +12,17 @@ produced each count is given so the dry-runner can re-derive it.
 
 Owned area files:
 
-- `crates/porffor-ir/src/operations.rs`
-- `crates/porffor-ir/src/iterator_obligations.rs` (new)
+- `crates/lila-ir/src/operations.rs`
+- `crates/lila-ir/src/iterator_obligations.rs` (new)
 - `docs/rust-rewrite/contracts/spec-operations.md` (new; redirect to this file)
 - `docs/rust-rewrite/contracts/iterator-protocol.md` (new; redirect to this file)
 
 Files this contract also requires touching, and which are **not** batch-2 files
 (`intl_datetimeformat.rs`, `temporal*.rs`, `emitted_function.rs`,
 `runtime_helpers.rs` are untouched throughout):
-`crates/porffor-ir/src/ir.rs`, `crates/porffor-ir/src/lib.rs`,
-`crates/porffor-ir/src/lowering.rs`, `crates/porffor-aot-wasm/src/control_flow.rs`,
-`crates/porffor-aot-wasm/src/emit.rs`, `crates/porffor-aot-wasm/src/emission_sites.rs` (new).
+`crates/lila-ir/src/ir.rs`, `crates/lila-ir/src/lib.rs`,
+`crates/lila-ir/src/lowering.rs`, `crates/lila-aot-wasm/src/control_flow.rs`,
+`crates/lila-aot-wasm/src/emit.rs`, `crates/lila-aot-wasm/src/emission_sites.rs` (new).
 
 ---
 
@@ -223,7 +223,7 @@ Every number below was counted, not estimated.
 | Rows with `SharedRustModel` | **17** | Type, IntegerIndexedConversion, IsLessThan, CreateDataProperty, DefinePropertyOrThrow, ToPropertyDescriptor, FromPropertyDescriptor, OrdinaryCreateFromConstructor, SpeciesConstructor, ArraySpeciesCreate, GetIterator, IteratorStep, IteratorValue, IteratorClose, AsyncIteratorClose, Completion, UpdateEmpty |
 | Rows with `CatalogOnly` | **0** — and the test at `operations.rs:1323` *panics* if one ever appears | `operations.rs:1323-1328` |
 | Catalog/enum join today | one `&'static str` compare at runtime | `find_spec_operation`, `operations.rs:1217-1221` |
-| Product call sites of `SPEC_OPERATION_CATALOG`, `spec_operation_catalog`, `find_spec_operation` | **0** outside `porffor-ir/src/operations.rs`; the only mention is the `pub use` at `lib.rs:85,93` | workspace-wide grep |
+| Product call sites of `SPEC_OPERATION_CATALOG`, `spec_operation_catalog`, `find_spec_operation` | **0** outside `lila-ir/src/operations.rs`; the only mention is the `pub use` at `lib.rs:85,93` | workspace-wide grep |
 | Spec-record types with **zero** call sites outside `operations.rs` (their sole mention being the `pub use` at `lib.rs:86-93`) | **9** | `PropertyDescriptorIr`, `PropertyDescriptorKind`, `IteratorRecordIr`, `CreateDataPropertyIr`, `DefinePropertyIr`, `OrdinaryCreateFromConstructorIr`, `SpeciesConstructorIr`, `ArraySpeciesCreateIr` (the brief's seven) **plus** `IntegerIndexedConversionIr`/`IntegerIndexedElementType` and `AbstractRelationalComparisonResult` |
 | `ValueKind::known_ecmascript_type` (the "Type" model) product call sites | **0** — its 8 call sites are all inside `#[cfg(test)] mod tests`, which starts at `ir.rs:3280` | grep + module boundary |
 | `StatementIr::abrupt_completion_record` product call sites | **0** — called only by `is_abrupt_completion_statement` (`ir.rs:2026`), which is itself called only from tests | grep + module boundary |
@@ -236,7 +236,7 @@ Every number below was counted, not estimated.
 | Total `ForOf*` mention sites workspace-wide | **83** (`control_flow.rs` 10, `data.rs` 3, `emit.rs` 11, `planning.rs` 24, `early_errors.rs` 3, `ir.rs` 6, `lib.rs` 19, `lowering.rs` 7) | grep, excluding `AsyncForOf*PlanIr` lines |
 | Of those, patterns that list **every** field with no `..` (so adding a field breaks them) | **6**, all in `control_flow.rs`: `:3022`, `:3053`, `:3068`, `:3368`, `:3399`, `:3414` | inspection |
 | `AsyncForOfPlanIr` construction sites | **0**. The type is defined (`ir.rs:1754`), used as `ForOfArray.async_plan: Option<AsyncForOfPlanIr>` (`ir.rs:1930`), imported (`control_flow.rs:5`) and consumed by `compile_async_for_of_array` (`control_flow.rs:5283-5731`, ~449 lines) — which is therefore **unreachable from the product path**. The only `ForOfArray` construction sets `async_plan: None` (`lowering.rs:13424`). | grep |
-| `AsyncForOfIteratorPlanIr` binding-name field reads in the backend | **3** (`control_flow.rs:6268`, `:6273`, `:6283`), plus **1** for the dead array plan (`:5371`), plus **6** in `porffor-ir/src/lib.rs` tests | grep |
+| `AsyncForOfIteratorPlanIr` binding-name field reads in the backend | **3** (`control_flow.rs:6268`, `:6273`, `:6283`), plus **1** for the dead array plan (`:5371`), plus **6** in `lila-ir/src/lib.rs` tests | grep |
 | Tests in `operations.rs` | **21** | `grep -c '#\[test\]'` |
 | `for-of` files in the pinned corpus | **183** | `ls test262/vendor/test262/test/language/statements/for-of/` |
 
@@ -257,7 +257,8 @@ Two derived facts that matter more than any single number:
 
 ## 3. Type mapping, Part A — the catalog becomes evidence
 
-New and changed items all live in `crates/porffor-ir/src/operations.rs`.
+The task domain lives in `crates/lila-ir/src/task.rs`; the catalog types and
+rows live in `crates/lila-ir/src/operations.rs`.
 
 ### A1. `OperationLoweringStatus` — closed, evidence-carrying, no free variants
 
@@ -265,13 +266,13 @@ New and changed items all live in `crates/porffor-ir/src/operations.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationLoweringStatus {
     /// Emitted by the shared `SpecOperationIr` emitter arm in
-    /// `porffor-aot-wasm/src/operations.rs`. The evidence names the variant.
+    /// `lila-aot-wasm/src/operations.rs`. The evidence names the variant.
     SharedWasmEmitter(EmitterEvidence),
     /// Emitted, but by a statement-shaped emitter arm rather than a
     /// `SpecOperationIr` arm. The evidence names which arm.
     StatementEmission(EmissionSite),
     /// Not implemented. Both fields are closed/validated; neither is free text.
-    TrackedGap { reason: TrackedGapReason, owner: OwnerTaskId },
+    TrackedGap { reason: TrackedGapReason, owner: TaskId },
 }
 ```
 
@@ -306,30 +307,25 @@ impl EmitterEvidence {
 pub enum TrackedGapReason {
     /// No `SpecOperationIr` variant and no emitter arm implements it.
     NoImplementation,
-    /// A Rust model type exists in `porffor-ir` but nothing on the product path
+    /// A Rust model type exists in `lila-ir` but nothing on the product path
     /// constructs it.
     ModelWithoutCallSite,
 }
 
-/// A backlog task id. The only constructor validates, in `const`, so a
-/// malformed owner is a compile error rather than an assertion in a test.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct OwnerTaskId(&'static str);
-
-impl OwnerTaskId {
-    pub const fn new(id: &'static str) -> Self {
-        let bytes = id.as_bytes();
-        assert!(bytes.len() == 3, "owner task id must be T + two digits");
-        assert!(bytes[0] == b'T', "owner task id must start with T");
-        assert!(bytes[1] >= b'0' && bytes[1] <= b'9');
-        assert!(bytes[2] >= b'0' && bytes[2] <= b'9');
-        Self(id)
-    }
-    pub const fn as_str(self) -> &'static str { self.0 }
+// `task.rs` generates the enum, `ALL`, `as_str`, `Display` and `FromStr` from
+// this one registry. The generated `as_str` match is exhaustive.
+define_task_ids! {
+    T00 = 0 => "T00",
+    // ...one row for every task in ledger order...
+    T29 = 29 => "T29",
 }
 ```
 
-This deletes the runtime `assert_eq!(task, "T04", …)` at `operations.rs:1321`.
+The generated `TaskId` enum is the only task-owner domain. A row uses
+`TaskId::T04`; a nonexistent `TaskId::T30` is `E0599`, while an external
+`"T30"` fails `FromStr` before a `TaskId` exists. Its stable text remains
+`T00`–`T29`. `T26-unclassified` remains a Test262 classification fallback and
+is deliberately rejected by the task-id parser.
 
 ### A2. `NormalResult` — the codomain stops being a string
 
@@ -417,7 +413,7 @@ pub struct TrackedGapRow {
     pub normal_result: NormalResult,
     pub abrupt: &'static [CompletionAbruptKind],
     pub reason: TrackedGapReason,
-    pub owner: OwnerTaskId,
+    pub owner: TaskId,
 }
 
 pub const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[ /* the 12 rows of §3.6 */ ];
@@ -499,7 +495,8 @@ purpose is J3, not lookup.
   `SpecOperationIr::ALL`; hand-written rows can only be `TrackedGapRow`, whose
   type has no field capable of holding an implementation status.
 - *Add a row that duplicates an existing name.* **Compile error** (J1).
-- *Give a gap row a malformed owner.* **Compile error** (`OwnerTaskId::new`).
+- *Give a gap row a nonexistent owner.* **Compile error** (`TaskId::T30` has no
+  such variant); untrusted text fails `TaskId::from_str` before construction.
 - *Add a variant, add all four arms, and forget to list it in `ALL`.* **Not
   caught at compile time** — see ledger entry **L1**. Stable Rust has no
   `variant_count`, and no arrangement of const asserts can observe a variant that
@@ -546,7 +543,7 @@ close at `control_flow.rs:6813-6900+`.
 
 ## 4. Type mapping, Part B — the iterator-protocol obligation witness
 
-New file: `crates/porffor-ir/src/iterator_obligations.rs`, re-exported from
+New file: `crates/lila-ir/src/iterator_obligations.rs`, re-exported from
 `lib.rs`.
 
 ### B1. The obligation and its discharge
@@ -810,7 +807,7 @@ what cannot be a type and why.
 | id | Invariant | Why no type can carry it | The check that replaces it |
 |---|---|---|---|
 | **L1** | Every `SpecOperationIr` variant appears in `SpecOperationIr::ALL`. | Stable Rust has no `variant_count`. A variant absent from every list is invisible to every const expression. (Harm is bounded: rows are *derived* from `catalog_entry`, so a variant missing from `ALL` yields an incomplete enumeration, never a false claim.) | One test in `operations.rs`: `SPEC_OPERATION_CATALOG.len() == SPEC_OPERATION_ROW_COUNT` **and** each `ALL` entry round-trips `catalog_index`. Its failure message must name `ALL`. This is the only surviving catalog test, and it is not vacuous because it checks the assembly, not the table's own contents. |
-| **L2** | A row's `abrupt` set matches what the emitter arm actually emits. | `porffor-ir` cannot see `porffor-aot-wasm`; the dependency runs the other way, and the emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm emits a throw path". | **Not checked in this area.** Recorded as an open defect of the same class as `ca09433c1`. Proposed follow-up lane: change the emitter arm's success type to a `Emitted::{MayThrow, NoAbrupt}` that the caller must match, and const-assert it against `SpecOperationIr::abrupt()`. Out of scope here because it lives in `porffor-aot-wasm/src/operations.rs` and would touch the emitted-code path. |
+| **L2** | A row's `abrupt` set matches what the emitter arm actually emits. | `lila-ir` cannot see `lila-aot-wasm`; the dependency runs the other way, and the emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm emits a throw path". | **Not checked in this area.** Recorded as an open defect of the same class as `ca09433c1`. Proposed follow-up lane: change the emitter arm's success type to a `Emitted::{MayThrow, NoAbrupt}` that the caller must match, and const-assert it against `SpecOperationIr::abrupt()`. Out of scope here because it lives in `lila-aot-wasm/src/operations.rs` and would touch the emitted-code path. |
 | **L3** | An `IntactnessPremise` is *true* of the program being compiled. | The premise is a statement about the user's source, not about our code. No type can prove it; only a lowering-time guard can, and building that guard is a separate lane by scope. | **Nothing.** Deliberately. The witness makes the premise *nameable and greppable*; it does not make it true. §9's adversarial traces record the exact programs for which `ArrayIteratorIntact` is false today. |
 | **L4** | `static_object_iterator_iife_source_values` (`lowering.rs:35919-35944`) picks a specialization on a **substring of whitespace-stripped source text** (`"[Symbol.iterator]:null"`, `"[Symbol.iterator]:undefined"`, `"=>{name}.next()"`). Reformatting the program changes which specialization fires. | It is a source-text oracle, not a semantic one; typing it would mean rewriting it. Out of scope by the area definition. | **Named unsound guard.** Recorded here so it is not rediscovered as a mystery. Must be cited by any future lane that touches for-of specialization. |
 | **L5** | `KindSet::EMPTY.is_subset_of(KindSet::from_kind(ValueKind::Array))` is `true` (`ir.rs:339`). A value with an *empty* `possible_kinds` therefore selects `ForOfArray` at `lowering.rs:13413`. | The subset test is correct set theory; the *use* of it as "is definitely an Array" is the bug. Fixing it changes which specialization fires, i.e. changes emitted bytes — out of scope. | **Recorded, not fixed.** The `ARRAY_INDEX_WALK` witness's premises are stated as holding "for a value whose inferred kind set is exactly `{Array}`"; whether the guard actually establishes that is L5's business. Flagged for the lane that closes L3. |
@@ -825,7 +822,7 @@ what cannot be a type and why.
 | 2a | Add a `SpecOperationIr` variant, forget its catalog row. | Silently absent; `find_spec_operation` returns `None` at runtime. | **`E0004` × 4** — `SpecOperationIr::{family, normal_result, abrupt, catalog_index}` are exhaustive matches with no catch-all. |
 | 2b | Add a catalog row with no variant (e.g. `"ToNumericString"`). | Compiles; joins to nothing. | Only expressible as a `TrackedGapRow`, i.e. **an honest gap**. To claim implementation you must add the variant, which lands you in 2a's four matches. |
 | 3 | Record the wrong `abrupt` set on an implemented row (`MAY_THROW` vs `NO_ABRUPT`). | Free per-row argument at `operations.rs:1201`. | **No parameter exists.** `emitter_row`'s only input is the variant; `abrupt` comes from `SpecOperationIr::abrupt()`. (Whether that function itself is right is **ledger L2**.) |
-| 4 | Give a row an owner that is not a backlog task id. | Runtime `assert_eq!(task, "T04")` in a test (`operations.rs:1321`). | **Compile error** in `OwnerTaskId::new`'s `const` asserts. |
+| 4 | Give a row an owner that is not a backlog task id. | Runtime `assert_eq!(task, "T04")` in a test (`operations.rs:1321`). | **`E0599`** for a nonexistent `TaskId` variant. Text crosses the boundary only through `FromStr`, which returns an error without constructing a task id. |
 | 5 | Leave a `CatalogOnly` row in the table. | Test `panic!`s (`operations.rs:1325`). | **`E0599`/`E0433`** — the variant does not exist. |
 | 6 | A correctly-typed spec record survives with no call site because it is `pub`. Nine measured instances. | No warning; `pub` suppresses dead-code detection. | Eight are **deleted** (§8); `IteratorRecordIr` acquires a real call site inside `AsyncForOfIteratorPlanIr`. Deleting the last user of any of them now produces `E0432 unresolved import` at `lib.rs`, which is a build failure. |
 | 7 | Transpose `[[Iterator]]` and `[[NextMethod]]` in the `for await` plan. | Both are `String`; compiles; miscompiles every `for await`. | **`E0308`** — `IteratorSlot` vs `NextMethodSlot`. |
@@ -833,7 +830,7 @@ what cannot be a type and why.
 | 9 | Over-claim in the witness: mark a specialization as closing on *every* abrupt exit, when `continue` targeting this loop must not close. | Nothing represents the close predicate at all. | Partly. The witness records *whether* close is emitted, not the predicate. The predicate lives in `emit_iterator_close_condition_i32` (`control_flow.rs:9018`) and was **verified correct** by dry run (§9.1): it excludes exactly `continue` whose aux equals this loop's continue frame. The contract's job here is to have read it and recorded it, so a future edit to that function has a stated spec obligation to violate. |
 | 10 | Add a 34th `StatementIr` variant that is an abrupt completion and forget to say so. | `_ => None` at `ir.rs:2021` silently answers "not abrupt". | **`E0004`** — the catch-all is gone. |
 | 11 | Reformat a program and change which for-of specialization fires. | Real, live (`lowering.rs:35919-35944`). | **Not fixed.** Ledger **L4**. Named so the next reader does not have to rediscover it. |
-| 12 | Rename or delete an emitter function that an `EmissionSite` claims to name. | `EmissionSite` does not exist. | **`E0599`** — R7 puts a `let _ = FunctionBuilder::compile_for_of_iterator;`-style path reference behind an exhaustive `match site` in `porffor-aot-wasm`. (Guarantee: the *name* resolves. Not the signature.) |
+| 12 | Rename or delete an emitter function that an `EmissionSite` claims to name. | `EmissionSite` does not exist. | **`E0599`** — R7 puts a `let _ = FunctionBuilder::compile_for_of_iterator;`-style path reference behind an exhaustive `match site` in `lila-aot-wasm`. (Guarantee: the *name* resolves. Not the signature.) |
 | 13 | Vacuous green: a test asserting the table's own contents, or a status label nothing backs. | Two live instances (`operations.rs:1285`, `:1307`), one of which asserts `rust_modeled.contains("IteratorClose")` while no Rust model has a call site. | **Deleted** (§8). Their non-vacuous content moves into const asserts J1/J3 and the derived-row design. One test survives, L1, and it checks assembly rather than contents. |
 
 ---
@@ -843,14 +840,14 @@ what cannot be a type and why.
 Ordered. Each step must leave the tree `cargo check`-clean before the next
 begins; this is the whole verification strategy for the area.
 
-**R0 — `crates/porffor-ir/src/iterator_obligations.rs` (new, self-contained).**
-All of §4 B1–B3. Depends on nothing. `cargo check -p porffor-ir` after adding
+**R0 — `crates/lila-ir/src/iterator_obligations.rs` (new, self-contained).**
+All of §4 B1–B3. Depends on nothing. `cargo check -p lila-ir` after adding
 `mod iterator_obligations;` and the `pub use`.
 
-**R1 — `operations.rs`, Part A types.** `NormalResult`, `TrackedGapReason`,
-`OwnerTaskId`, `EmitterEvidence`, the new `OperationLoweringStatus`,
-`TrackedGapRow`, `str_eq`. Delete `CatalogOnly` and `SharedRustModel`. Not yet
-wired to the catalog.
+**R1 — `task.rs` plus `operations.rs`, Part A types.** The single-source
+`TaskId` registry; `NormalResult`, `TrackedGapReason`, `EmitterEvidence`, the new
+`OperationLoweringStatus`, `TrackedGapRow`, `str_eq`. Delete `CatalogOnly` and
+`SharedRustModel`. Not yet wired to the catalog.
 
 **R2 — `operations.rs`, the four exhaustive `const fn`s and the assembly.**
 `family`, `normal_result`, `abrupt`, `catalog_index`, `emitter_evidence`,
@@ -882,7 +879,7 @@ compile — that is the point (mistake class 6).
 `ir.rs:1765-1775`, `lowering.rs:13471-13501` (construction),
 `control_flow.rs:6268`, `:6273`, `:6283` (reads — mechanical
 `plan.iterator_binding` → `plan.record.iterator().as_str()`), and six assertions
-in `porffor-ir/src/lib.rs` tests (`:7508`, `:7512`, `:7516`, `:7556`, and the
+in `lila-ir/src/lib.rs` tests (`:7508`, `:7512`, `:7516`, `:7556`, and the
 `async_plan: Some(...)` destructurings at `:6734`, `:6788`, `:7493`, `:7541`,
 `:7597` — these keep working, only the field reads change).
 
@@ -899,11 +896,11 @@ which AGENTS.md says should fail to build. Delete: the `async_plan` field on
 if the batch is running long, drop it and record it as an open item rather than
 half-doing it.
 
-**R7 — `crates/porffor-aot-wasm/src/emission_sites.rs` (new).** Close the
+**R7 — `crates/lila-aot-wasm/src/emission_sites.rs` (new).** Close the
 `EmissionSite` → real-function join:
 
 ```rust
-use porffor_ir::EmissionSite;
+use lila_ir::EmissionSite;
 use crate::control_flow::FunctionBuilder;   // or wherever it is re-exported
 
 /// Not called. Exists so that renaming or deleting an emitter arm that an
@@ -920,7 +917,7 @@ fn emission_sites_are_backed(site: EmissionSite) {
 ```
 
 `FunctionBuilder` is `pub(crate)` (`emit.rs:137`), so this file must live inside
-`porffor-aot-wasm`. Guarantee is name resolution, not signature — stated so
+`lila-aot-wasm`. Guarantee is name resolution, not signature — stated so
 nobody over-reads it.
 
 **R8 — the two redirect docs.** `docs/rust-rewrite/contracts/spec-operations.md`
@@ -930,7 +927,7 @@ one document because Part A's `StatementEmission` rows are witnessed by Part B's
 
 ### Untouched, deliberately
 
-- `crates/porffor-aot-wasm/src/abi.rs` — the completion ABI. Its real join is
+- `crates/lila-aot-wasm/src/abi.rs` — the completion ABI. Its real join is
   already a compile-time `const` (`CompletionKindIr::abi_code()`); out of scope.
 - Every emitted byte. No emitter reads `protocol`; `EmissionSite` is only
   referenced by a function that is never called; `IteratorRecordIr` changes field
@@ -940,7 +937,7 @@ one document because Part A's `StatementEmission` rows are witnessed by Part B's
   what the decision assumed; it does not change the decision. The
   `Array.prototype[@@iterator]` hole is still open after this area lands.
 - `lowering.rs:35919-35944`, the source-text oracle. Ledger L4.
-- `crates/porffor-aot-wasm/src/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs`
+- `crates/lila-aot-wasm/src/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs`
   — batch 2's files. Not referenced by any step above.
 
 ---
@@ -984,7 +981,7 @@ Tests deleted (13 of 21 in `operations.rs`):
 |---|---|---|
 | `:1285` | `operations_catalog_covers_t04_required_operations` | Vacuous: `REQUIRED_T04_OPERATIONS` (`:1236-1283`) is a transcription of the table's own `name` column. |
 | `:1295` | `operations_catalog_names_are_unique` | Replaced by const assert J1. |
-| `:1307` | `operations_catalog_tracks_every_gap_or_shared_lowering` | Vacuous *and* false: 46 lines asserting that labels the table declares are the labels the table declares, including `rust_modeled.contains("IteratorClose")` while no Rust model of `IteratorClose` has a call site. Its four real fragments are replaced by: `NormalResult` (non-emptiness), `OwnerTaskId` (owner shape), variant deletion (`CatalogOnly`), and derived rows (the 46 `contains` lines). |
+| `:1307` | `operations_catalog_tracks_every_gap_or_shared_lowering` | Vacuous *and* false: 46 lines asserting that labels the table declares are the labels the table declares, including `rust_modeled.contains("IteratorClose")` while no Rust model of `IteratorClose` has a call site. Its four real fragments are replaced by: `NormalResult` (non-emptiness), `TaskId` (closed owner membership), variant deletion (`CatalogOnly`), and derived rows (the 46 `contains` lines). |
 | `:1617` | `operations_catalog_marks_abrupt_capable_operations` | Becomes an assertion about `abrupt()`'s own match once `abrupt` is derived. |
 | `:1379`, `:1438` | the two `IteratorRecordIr` tests | Replaced by tests of the non-generic form (slot newtypes, `kind`). |
 | `:1395`, `:1419` | `AbstractRelationalComparisonResult`, `IntegerIndexedConversionIr` tests | Types deleted. |
@@ -1115,7 +1112,7 @@ The `ForOfIterator` control case. Establishes the reference trace against which
 The area is done when all of these hold. Each is checkable at rung 0 or rung G;
 none needs the real suite.
 
-1. `cargo check -p porffor-ir` and `cargo check -p porffor-aot-wasm` are clean.
+1. `cargo check -p lila-ir` and `cargo check -p lila-aot-wasm` are clean.
 2. `SPEC_OPERATION_CATALOG` has **46** rows: 29 `SharedWasmEmitter`, 5
    `StatementEmission`, 12 `TrackedGap`. **Zero** rows claim an implementation
    that does not exist.
@@ -1170,15 +1167,16 @@ integrator runs the gate.
 
 ### 12.1 Landed in the owned files
 
-- `crates/porffor-ir/src/operations.rs` — Part A in full: `NormalResult`,
-  `TrackedGapReason`, `OwnerTaskId`, `EmitterEvidence`, the three-variant
+- `crates/lila-ir/src/task.rs` and `operations.rs` — Part A in full:
+  the closed `TaskId` registry, `NormalResult`, `TrackedGapReason`,
+  `EmitterEvidence`, the three-variant
   `OperationLoweringStatus`, `StatementEmissionRow`, `TrackedGapRow`, `str_eq`,
   the five exhaustive `const fn`s on `SpecOperationIr` (`family`,
   `normal_result`, `abrupt`, `catalog_index`, plus `name`), `ALL`,
   `catalog_entry`, `build_catalog`, `SPEC_OPERATION_CATALOG`, const asserts
   J1/J3/J4/J5. Plus B5's `IteratorRecordIr` retrofit. Eight types and thirteen
   tests deleted; three tests remain plus L1 and the record test.
-- `crates/porffor-ir/src/iterator_obligations.rs` — Part B in full.
+- `crates/lila-ir/src/iterator_obligations.rs` — Part B in full.
 
 ### 12.2 Deviations, each strictly stricter or a correction
 
@@ -1227,7 +1225,7 @@ the tree. Where §§1–12 and this section disagree, this section is correct.
 ## 13.1 The integration steps were not applied; they now are
 
 §12.1 and §7 said Part A and Part B had "landed", and §10 item 1 said
-`cargo check -p porffor-ir` was clean. Neither was true: `lib.rs` had no
+`cargo check -p lila-ir` was clean. Neither was true: `lib.rs` had no
 `mod iterator_obligations;` (so `operations.rs`'s
 `use crate::iterator_obligations::EmissionSite;` was `E0433`) and still exported
 eleven types the rewrite had deleted (`E0432` ×11). Measured across
@@ -1237,14 +1235,14 @@ outside their own two files — the stale `pub use` line. Part B had zero
 construction sites, i.e. it was the "survival by `pub`" defect this area exists
 to delete.
 
-Applied, in `porffor-ir` unless stated: `mod iterator_obligations;`; the export
+Applied, in `lila-ir` unless stated: `mod iterator_obligations;`; the export
 block replaced (eleven dead names dropped, `iterator_obligations`'s surface
 added); `ir.rs` retrofitted (`AsyncForOfIteratorPlanIr::record`, `protocol` on
 the three `ForOf*` variants, `abrupt_completion_record` exhaustive over all 33
 variants with no catch-all); `lowering.rs` construction sites; the six
-full-field `ForOf*` patterns in `porffor-aot-wasm/src/control_flow.rs` gained
+full-field `ForOf*` patterns in `lila-aot-wasm/src/control_flow.rs` gained
 `..`; `compile_array_destructure_from_value_locals` widened to `pub(crate)`; and
-`porffor-aot-wasm/src/emission_sites.rs` created and declared. **I7 (deleting
+`lila-aot-wasm/src/emission_sites.rs` created and declared. **I7 (deleting
 the dead `ForOfArray` async path) was not applied** and remains an open item —
 `AsyncForOfPlanIr` still has zero construction sites.
 
@@ -1271,11 +1269,15 @@ invariant: a 30th variant with all four exhaustive arms and no `ALL` row passed
 J1, J3, J4 and J5 *and* passed the test, whose final assertion was the
 hardcoded `ALL.len() == 29` that the omission preserves — and J4 cemented it.
 
-`SpecOperationIr`, `ALL` and `name()` are now three expansions of one
-`spec_operations!` row list, so the omission is unrepresentable. The test is
-deleted. `catalog_index` and const assert **J3** are deleted with it (density
-became definitional); **J5** is restated as a real check on `build_catalog`'s
-row order. §12.3 addition 16 no longer applies.
+`SpecOperationIr`, `ALL` and the complete `OperationDescriptor` are now
+expansions of one `spec_operations!` row list, so the omission is
+unrepresentable. The descriptor makes name, family, operand domain, normal
+result and abrupt capability mandatory columns; the former parallel
+`family`/`normal_result`/`abrupt` matches are deleted. The test is deleted.
+`catalog_index` and const assert **J3** are deleted with it (density became
+definitional); **J5** is restated as a real check on `build_catalog`'s row
+order. §12.3 addition 16 no longer applies. The descriptor extension and its
+bounded backend consumers are specified in `../operation-descriptors.md`.
 
 ## 13.4 Mistake class 7 / §10 item 7 were false as stated
 
@@ -1372,20 +1374,32 @@ written, §3 A6 read as if `for await` performed no `GetIterator`.
 **J7** rejects an empty one. `EmissionSite::ArrayDestructuring` thereby gains
 construction sites and **ledger L6 is retired**.
 
-## 13.10 Mistake class 4 was false: `OwnerTaskId` validated the wrong property
+## 13.10 Mistake class 4 is closed by the task enum
 
-Shape validation accepted every `T` + two digits, including every nonexistent
-id. `OwnerTaskId::new` now validates **membership** in `BACKLOG_TASK_IDS`, a
-28-row list transcribed from `tasks/` (`T00`–`T27`), so `T99` is a const-eval
-failure. Note for the record: T04 *is* a real backlog task
-(`tasks/04-spec-operations-and-completion-abi.md`); the dry run's claim that it
-does not exist came from checking `test262/backlog/ownership-map.tsv`, which
-maps Test262 path prefixes to tasks and so legitimately omits a task that owns
-no prefix. The twelve gap rows keep `T04` and it is correct.
+The first revision validated only shape and therefore accepted every `T` plus
+two digits. The §13 dry run replaced that with an intermediate
+`OwnerTaskId`/`BACKLOG_TASK_IDS` membership scan covering the then-current
+T00–T27 ledger. That fixed `T99`, but duplicated the ledger as strings and fell
+out of date when T28 and T29 landed.
+
+The current implementation replaces both with a macro-generated, `#[repr(u8)]`
+`TaskId` enum in `task.rs`. One registry generates its T00–T29 variants,
+numeric discriminants, `ALL`, stable strings and parser. Catalog rows therefore
+write `TaskId::T04`; `TaskId::T99` is an unknown variant and external text must
+parse successfully before a task value exists. Matches over the task domain can
+be exhaustive without a catch-all. `T26-unclassified` is explicitly not a
+task: it remains a Test262 ownership fallback bucket and parsing it as `TaskId`
+fails.
+
+Note for the record: T04 *is* a real backlog task
+(`tasks/04-spec-operations-and-completion-abi.md`); the original dry run's claim
+that it did not exist came from checking `test262/backlog/ownership-map.tsv`,
+which maps Test262 path prefixes to tasks and so legitimately omits a task that
+owns no prefix. The twelve gap rows keep `TaskId::T04` and it is correct.
 
 ## 13.11 What `EmitterEvidence` proves, and how L2 must be scoped
 
-Verified good news: both `porffor-aot-wasm` matches on `SpecOperationIr` are
+Verified good news: both `lila-aot-wasm` matches on `SpecOperationIr` are
 exhaustive with no top-level catch-all (the three `_ =>` arms in that range are
 nested operand matches), so "add a variant, forget an arm" really is `E0004`.
 But `emitter_evidence` is total on the variant, so the evidence proves only that
@@ -1394,10 +1408,14 @@ matches with `Err(EmitError::unsupported(..))` and the catalog still reads
 `SharedWasmEmitter`. §3 A1/A3 and mistake class 1 are amended accordingly, and
 the doc comment on `emitter_evidence` now says so.
 
-**L2 is rescoped**: the follow-up lane must make the arm's success type
-`Emitted::{MayThrow, NoAbrupt}` *and* make `EmitError::unsupported`
-unconstructible inside a `SpecOperationIr` arm. "Add a return type" alone would
-leave the hole open.
+**L2 is rescoped**: the descriptor now gives each operation a closed
+`AbruptCapability`, and the backend has a const-checked private
+`MayThrowOperation` routing seam. That seam currently covers only `GetV` inside
+`GetMethod` and the `ToNumber` of the `Number.prototype.toFixed` argument; it
+does not prove the other arms. Closing L2 still requires making every arm's
+success value carry its capability *and* making `EmitError::unsupported`
+unconstructible inside a `SpecOperationIr` arm. A descriptive capability alone
+would leave the hole open.
 
 ## 13.12 The "emitter must not read `protocol`" rule is now a type
 
@@ -1434,7 +1452,8 @@ four newtypes, so the constants are built per-obligation and swapping two is
 - **I7.** `AsyncForOfPlanIr` still has zero construction sites and
   `compile_async_for_of_array` (449 lines) is still unreachable from the product
   path, which AGENTS.md says should fail to build.
-- **L2**, rescoped as in 13.11.
+- **L2**, rescoped as in 13.11; two backend uses consume the typed capability,
+  while the remaining operation arms still do not.
 - **L3**, with the corrected statement in 13.7 — one conjunct, but it moves
   emitted bytes.
 - **L4/L5**, untouched; L4 restated as in 13.8.
@@ -1443,7 +1462,7 @@ four newtypes, so the constants are built per-obligation and swapping two is
 ## 14. Integration record — the compile gate, and what it caught
 
 This section is the integrator's, written after actually running the gate that
-§10 item 1 and §13.1 could only assert. Commands run: `cargo check -p porffor-ir
+§10 item 1 and §13.1 could only assert. Commands run: `cargo check -p lila-ir
 --all-targets`, `cargo xc` (`check --workspace --all-targets`), `cargo fmt --all
 -- --check`. No tests, no golden capture, no Test262.
 
@@ -1486,20 +1505,20 @@ reader is a `const fn`:
   code: a plausible mistake did not become a compile error, so it was
   decoration.
 
-Result: `porffor-ir` goes from 12 warnings to 6, and the 6 that remain are all
+Result: `lila-ir` goes from 12 warnings to 6, and the 6 that remain are all
 in files this campaign never opened (`analysis.rs`, `lowering_helpers.rs`, and
 four pre-existing clusters in `lowering.rs`, the largest being 27 callerless
 generated-iterator and static-generator-folding helpers). Measured, not assumed:
 the campaign's diff mentions none of those names.
 
 §13.12 stands, strengthened — the readers still cannot be called from
-`porffor-aot-wasm`, and now they are not dead either.
+`lila-aot-wasm`, and now they are not dead either.
 
 ### 14.3 I7 was deliberately not applied
 
 `AsyncForOfPlanIr` still has zero construction sites. I7 was left undone for two
 reasons that are about this batch, not about the merit of the deletion: it is a
-449-line deletion in `porffor-aot-wasm`, the crate batch 2 is verifying in
+449-line deletion in `lila-aot-wasm`, the crate batch 2 is verifying in
 concurrently, and a deletion claimed to be behaviour-neutral wants the rung-G
 golden diff that this pass is not permitted to spend. It stays open exactly as
 13.15 states it, and it is still the right change.
@@ -1510,3 +1529,20 @@ golden diff that this pass is not permitted to spend. It stays open exactly as
 is uncalled *by design* — being uncalled is the whole mechanism, since its only
 job is to make an `EmissionSite` variant name a real function or fail to
 resolve. Recorded here so the allow is a decision rather than a leftover.
+
+## 15. Raw catalog-input visibility closure (2026-08-13)
+
+The assembled catalog is the API; its hand-written inputs are not.
+`AbruptDiscipline`, `StatementEmissionRow`, `TrackedGapRow`,
+`STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` are now crate-private and are
+absent from `lila-ir`'s public re-export block. The public
+`SPEC_OPERATION_CATALOG`, `SpecOperationCatalogEntry`, `RowSource`,
+`OperationLoweringStatus`, `TrackedGapReason`, and the catalog lookup functions
+remain unchanged.
+
+The durable boundary is Rust visibility: another crate attempting to import a
+raw row or table gets `E0603`, while `operations.rs` remains the sole assembly
+site. This closes the callerless-public-surface residue without changing the 46
+catalog rows, any lowering decision or emitted Wasm. No Cargo or Test262 command
+ran in this follow-up; the central verifier owns `cargo check -p lila-ir` and
+the rustdoc gate.

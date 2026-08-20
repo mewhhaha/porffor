@@ -12,7 +12,7 @@ The legacy JavaScript Porffor product implementation was retired from the
 working tree. Its final recovery point is Git commit
 `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`; Git history is the sole archive.
 The supported development and product surfaces are the Rust workspace and its
-`porf` binary.
+`lila` binary.
 
 JavaScript remains only where it is data owned by the Rust project: pinned
 Test262 content, embedded Test262 harness assets, Rust test fixtures, focused
@@ -43,7 +43,7 @@ product. Make that boundary permanent and leave one honest Rust-first project.
 
 The local Test262 overlays formerly stored at `test262/harness.js` and
 `test262/harness-wasm-aot.js` moved into embedded assets owned by
-`porffor-test262`; installed binaries no longer infer a repository-root harness
+`lila-test262`; installed binaries no longer infer a repository-root harness
 path.
 
 ## Repository contract
@@ -60,10 +60,10 @@ path.
 
 ## Out of scope
 
-- Renaming the existing `porffor-*` crates, `porf` binary, `PORFFOR_*`
-  environment variables, caches, diagnostics, or host ABI. T29 owns that
-  coordinated migration.
-- Deleting the feature-gated Rust `porffor-spec-exec` differential oracle or
+- The later coordinated clean-break rename of the Rust crates, binary,
+  environment variables, persisted namespaces and diagnostics. T29 owns that
+  cutover and its remaining persisted-snapshot verification.
+- Deleting the feature-gated Rust `lila-spec-exec` differential oracle or
   vendored Boa crates.
 - Publishing replacement packages or native releases.
 - Changing ECMAScript semantics or generated Test262 status counts.
@@ -90,11 +90,11 @@ cargo fmt --all -- --check
 ./scripts/check-no-legacy-js.sh
 ./scripts/check-task-plan.sh
 cargo xc
-cargo test -p porffor-test262 --lib load_preludes -- --test-threads=2
-cargo test -p porffor-test262 --lib wasm_agents_run_test262_wait_until_with_exact_assertions -- --test-threads=2
-cargo test -p porffor-cli parse_test262_args -- --test-threads=2
-cargo tree -p porffor-cli
+cargo test -p lila-test262 --lib load_preludes -- --test-threads=2
+cargo test -p lila-test262 --lib wasm_agents_run_test262_wait_until_with_exact_assertions -- --test-threads=2
+cargo test -p lila-cli parse_test262_args -- --test-threads=2
+cargo tree -p lila-cli
 ```
 
 Also run both fake Test262 suites through the Rust binary and verify that
-`porf --help` exposes no Node-oracle command.
+`lila --help` exposes no Node-oracle command.

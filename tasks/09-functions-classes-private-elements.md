@@ -10,10 +10,57 @@
 
 The IR and Wasm backend contain explicit function metadata, call/construct
 lowering, closures, bound functions, classes and private-element support, with
-many focused fixtures. Cross-realm Function construction remains an explicit
-dynamic-source exclusion, and complete Function/class/private-element
-subtrees have not been verified against the current pin without
-materializations. This remains an active foundation task.
+many focused fixtures. Class element definitions now carry the closed
+`ClassMethodKindIr::{Method, Getter, Setter}` domain: a constructor or a
+no-class-role function cannot enter a public/private method row, and the Wasm
+definition emitter consumes the three cases exhaustively instead of rejecting
+an impossible kind at runtime. The function lifecycle is now also a closed
+`FunctionProtocolIr`: analysis, lowering signatures, `FunctionIr` and Wasm
+metadata carry one of the reachable ordinary/arrow/resumable/class roles rather
+than independently combining flavor, execution kind, constructability and
+class role. Generated accessors cannot become resumable or constructable,
+class constructors cannot lose `[[Construct]]`, and the backend derives its
+runtime flags exhaustively from the same protocol. Backend prototype
+materialization is a separate policy, so realm bootstrap no longer lies about
+the constructability of GeneratorFunction, AsyncFunction or
+AsyncGeneratorFunction while suppressing their automatically generated
+`prototype` object. The exact matrix and boundary choices are recorded in
+`docs/rust-rewrite/contracts/function-protocol.md`.
+
+Private-element heap storage now has the closed five-row
+`PrivateElementHeapKind` protocol. Receiver rows are either a brand or a field;
+shared definition rows are a setter, method or getter. The entry writer accepts
+only legal row variants instead of independently combining an optional
+receiver, a raw integer kind and an optional value, and definition lookup has
+the narrower three-kind domain. Private read and write trap compiler-owned
+corrupt rows rather than treating an unknown kind as a brand. The stable wire
+words and backend/spec boundary are recorded in
+`docs/rust-rewrite/contracts/private-element-entry-protocol.md`.
+
+Arguments-object construction now has the closed backend protocol
+`Absent | Present(Unmapped | Mapped(plan))`. Arrow functions have no own
+binding; strict or non-simple ordinary functions are unmapped; sloppy simple
+ordinary functions carry a prevalidated argument-index-to-environment-slot
+plan. Missing mapped storage is rejected as malformed lowered IR instead of
+silently changing the function to unmapped, duplicate names retain only their
+last occurrence, and an empty simple list remains `Mapped(empty)`. The semantic
+and storage boundaries are recorded in
+`docs/rust-rewrite/contracts/arguments-object-construction-protocol.md`.
+
+Bound-function creation now preserves `[[BoundThis]]` as the exact tagged
+ECMAScript value supplied to `bind`. A private two-source domain admits only
+builtin argument zero and the compiler-owned Proxy revocation Object; sibling
+modules cannot call the raw payload/tag allocator. Strict preservation and
+sloppy substitution/boxing remain centralized in the target-call path, so a
+strict primitive is not boxed during binding and a sloppy primitive receives a
+fresh wrapper on each invocation. The boundary and its cross-realm nonclaim are
+recorded in
+`docs/rust-rewrite/contracts/bound-function-this-capture.md`.
+
+Cross-realm Function construction remains an explicit dynamic-source
+exclusion, and complete Function/class/private-element subtrees have not been
+verified against the current pin without materializations. This remains an
+active foundation task.
 
 ## Objective
 
@@ -75,10 +122,10 @@ Implement shared `[[Call]]`/`[[Construct]]` paths with:
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir function_ --quiet
-cargo test -p porffor-aot-wasm function_ --quiet
-cargo test -p porffor-cli wasm_function --quiet
-cargo test -p porffor-cli wasm_class --quiet
+cargo test -p lila-ir function_ --quiet
+cargo test -p lila-aot-wasm function_ --quiet
+cargo test -p lila-cli wasm_function --quiet
+cargo test -p lila-cli wasm_class --quiet
 ```
 
 Run real filters under `language/expressions/function`, `arrow-function`, `class`, `language/statements/function`, `built-ins/Function`, `Function/prototype`, and private-element feature groups.

@@ -12,11 +12,11 @@ oracle the dry-runner checks against. No source code is edited in this stage.
 
 Owned files:
 
-- `crates/porffor-ir/src/binding_names.rs` (new)
-- `crates/porffor-ir/src/names.rs` (only the region at lines 19–125)
-- `crates/porffor-ir/src/lib.rs` (only the `pub use modules::{…}` block at
+- `crates/lila-ir/src/binding_names.rs` (new)
+- `crates/lila-ir/src/names.rs` (only the region at lines 19–125)
+- `crates/lila-ir/src/lib.rs` (only the `pub use modules::{…}` block at
   lines 76–83 and the `mod`/`pub use` lines for the new module)
-- `crates/porffor-ir/src/modules/{mod,record,link,graph,namespace,source,dynamic,early}.rs`
+- `crates/lila-ir/src/modules/{mod,record,link,graph,namespace,source,dynamic,early}.rs`
 - `docs/rust-rewrite/contracts/Module binding-name domains: [[LocalName]] vs [[ExportName]] vs merged storage name.md` (this file)
 
 The area brief names this file `docs/rust-rewrite/contracts/module-binding-names.md`.
@@ -43,9 +43,9 @@ corrections, all load-bearing. **The encoder must work from the numbers here.**
 | C1 | "the nine name-minting functions currently at `names.rs:35-125`" implement the source-name → merged-storage-name map, which "must be applied exactly once" | **`module_storage_prefix` is not that map.** It is applied to a *source-spelled* name in exactly **one** place workspace-wide — `graph.rs:631`, `format!("{}{name}", module_storage_prefix(*module))` — and that value feeds a field the product path never reads (§0/C4). The real `[[LocalName]]` → merged-name map is `modules::record::module_binding_reference` (`record.rs:251`), which applies **no prefix**: it is the identity except for `*default*`, which becomes `$d{unit}$`. Its 3 product call sites are `link.rs:495`, `link.rs:635`, `namespace.rs:244`. | `grep -rn "module_storage_prefix\|module_binding_reference" crates/ --include=*.rs`; `link.rs:20-27` and `link.rs:59-66` state the design: "the importer's name and the exporter's name are the same binding". |
 | C2 | Nine minting functions to be given directional signatures | **Four of the nine have zero product call sites and one more writes a value nothing reads.** `module_function_id` (`names.rs:119`) has **0** callers workspace-wide; `module_function_id_prefix` (`names.rs:60`) and `is_user_function_id` (`names.rs:113`) are reached only from it; `module_import_meta_cell_name` (`names.rs:95`) has **0** callers. `module_component_completion_cell_name` (`names.rs:104`) has 1 caller (`dynamic.rs:244`) which writes `DynamicComponentIr::completion_cell`, a field with **0** readers. All five are `pub`, so none produces a dead-code warning. | `grep -rn "\bmodule_function_id\b" crates/ --include=*.rs` → 1 hit (the definition). Same for `module_import_meta_cell_name`. `grep -rn "completion_cell" crates/ --include=*.rs` → 4 hits: 2 doc comments, 1 declaration, 1 construction. |
 | C3 | `module_import_meta_cell_name` is one of six per-unit cell minters to be retyped | It is not merely dead, it is **unusable**. It returns `$m{unit}$import.meta`, whose minimum length is 15 bytes; `rewrite_import_meta` (`record.rs:487-489`) must fit the replacement inside the `import.meta` span, minimum 11 bytes. It also contains `.`, so it is not an `IdentifierReference` and `namespace::is_binding_identifier` (`namespace.rs:211`) rejects it. The live function is `record::import_meta_binding_name` (`record.rs:386`), returning `$m{unit}$meta` (minimum 8 bytes). Two functions for one job, with different suffixes, one of them broken. | `record.rs:386-388` vs `names.rs:94-97`; length check at `record.rs:483-489`. |
-| C4 | Three name domains | **Four.** There are two disjoint generators of merged names, and separately an *IR-level* cell name that is not a merged name at all. `ModuleNamespaceExportIr::cell` (`namespace.rs:100-109`) is documented in the source as "the *IR-level* cell name (`$m0$value`) … the generated namespace source reads `Self::target` through `namespace_target_reference` and never this field". Its only reader is `ModuleNamespaceIr::cell_for` (`namespace.rs:163`), whose only call site is a test (`namespace.rs:899`). See §1.3 and §5.2. | `grep -n "cell_for\|\.cell\b" crates/porffor-ir/src/modules/namespace.rs` |
-| C5 | "All 16 call sites of the module name-minting functions … (link.rs 5, record.rs 4, namespace.rs 3, graph.rs 2, source.rs 1, dynamic.rs 1)" | **19** product call sites of the `names.rs` minters, distributed `namespace.rs` 10, `graph.rs` 3, `dynamic.rs` 3, `record.rs` 2, `link.rs` 1, `source.rs` 0, `early.rs` 0. Plus **5** product call sites of the two minters that live in `modules/record.rs` (`module_binding_reference` 3, `import_meta_binding_name` 2). **24 total.** Full table in §5.3. The containment claim itself is confirmed: zero call sites in `lowering.rs`, zero outside `crates/porffor-ir/src/modules/`. | §5.3, produced by splitting each file at its `#[cfg(test)]` line and excluding `use` lines and doc comments. |
-| C6 | Commit `e27c01b1e` is a module-linking fix | Confirmed, as a **sub-item**. `e27c01b1e` is "Fix the unhandled-rejection swallow that scored failures as passes"; its message states verbatim: "`export default`, renamed import bindings and `export * from` all link. These were capped by module bodies being merged on source text, so same-named top-level bindings collided and a renamed binding had no distinct storage; fixing the storage naming closed all three." The `names.rs` diff in that commit is exactly the 16 lines that added `module_default_binding_name`. | `git show e27c01b1e -- crates/porffor-ir/src/names.rs` |
+| C4 | Three name domains | **Four.** There are two disjoint generators of merged names, and separately an *IR-level* cell name that is not a merged name at all. `ModuleNamespaceExportIr::cell` (`namespace.rs:100-109`) is documented in the source as "the *IR-level* cell name (`$m0$value`) … the generated namespace source reads `Self::target` through `namespace_target_reference` and never this field". Its only reader is `ModuleNamespaceIr::cell_for` (`namespace.rs:163`), whose only call site is a test (`namespace.rs:899`). See §1.3 and §5.2. | `grep -n "cell_for\|\.cell\b" crates/lila-ir/src/modules/namespace.rs` |
+| C5 | "All 16 call sites of the module name-minting functions … (link.rs 5, record.rs 4, namespace.rs 3, graph.rs 2, source.rs 1, dynamic.rs 1)" | **19** product call sites of the `names.rs` minters, distributed `namespace.rs` 10, `graph.rs` 3, `dynamic.rs` 3, `record.rs` 2, `link.rs` 1, `source.rs` 0, `early.rs` 0. Plus **5** product call sites of the two minters that live in `modules/record.rs` (`module_binding_reference` 3, `import_meta_binding_name` 2). **24 total.** Full table in §5.3. The containment claim itself is confirmed: zero call sites in `lowering.rs`, zero outside `crates/lila-ir/src/modules/`. | §5.3, produced by splitting each file at its `#[cfg(test)]` line and excluding `use` lines and doc comments. |
+| C6 | Commit `e27c01b1e` is a module-linking fix | Confirmed, as a **sub-item**. `e27c01b1e` is "Fix the unhandled-rejection swallow that scored failures as passes"; its message states verbatim: "`export default`, renamed import bindings and `export * from` all link. These were capped by module bodies being merged on source text, so same-named top-level bindings collided and a renamed binding had no distinct storage; fixing the storage naming closed all three." The `names.rs` diff in that commit is exactly the 16 lines that added `module_default_binding_name`. | `git show e27c01b1e -- crates/lila-ir/src/names.rs` |
 
 Two further facts the brief did not have, both strengthening the case:
 
@@ -269,8 +269,8 @@ it worth writing.
 
 ## 2. The types
 
-One new file, `crates/porffor-ir/src/binding_names.rs`, declared in
-`crates/porffor-ir/src/lib.rs` next to `mod names;` (lib.rs:64) with
+One new file, `crates/lila-ir/src/binding_names.rs`, declared in
+`crates/lila-ir/src/lib.rs` next to `mod names;` (lib.rs:64) with
 `mod binding_names;` and `pub use binding_names::*;` next to
 `pub use names::*;` (lib.rs:109).
 
@@ -520,12 +520,12 @@ a type; the dry-runner must confirm each reason still holds.
 
 | # | Invariant | Where | Why no type carries it | What must check it |
 |---|---|---|---|---|
-| **R1** | **L3**, "this merged name is an `IdentifierReference`". | `namespace::is_binding_identifier` (`namespace.rs:211`), called at `namespace.rs:244-246`, `namespace.rs:472`, `namespace.rs:686`. | After the retype the remaining inputs are `MergedName::of_local` results, i.e. arbitrary source-spelled identifiers *as the source wrote them*. boa has already accepted them as `BindingIdentifier`s, so the predicate is nearly always true — but "nearly" is not "always": a `\u`-escaped identifier and an astral-plane identifier both parse and neither is ASCII-spellable by the current emitter. Encoding that in a type would mean a `SpellableName` newtype whose constructor runs a full `IdentifierPart` scan, duplicating boa. The honest operation is the predicate. **What the retype does buy:** the `AnonymousDefault` case can no longer reach it, because `merged_in` has already replaced it — so the predicate's `*default*` branch (its documented purpose, `namespace.rs:206-210`) becomes dead and the encoder must delete that sentence from its doc comment. | `cargo test -p porffor-ir` (rung 1); the existing `namespace.rs` unsupported-diagnostic tests |
+| **R1** | **L3**, "this merged name is an `IdentifierReference`". | `namespace::is_binding_identifier` (`namespace.rs:211`), called at `namespace.rs:244-246`, `namespace.rs:472`, `namespace.rs:686`. | After the retype the remaining inputs are `MergedName::of_local` results, i.e. arbitrary source-spelled identifiers *as the source wrote them*. boa has already accepted them as `BindingIdentifier`s, so the predicate is nearly always true — but "nearly" is not "always": a `\u`-escaped identifier and an astral-plane identifier both parse and neither is ASCII-spellable by the current emitter. Encoding that in a type would mean a `SpellableName` newtype whose constructor runs a full `IdentifierPart` scan, duplicating boa. The honest operation is the predicate. **What the retype does buy:** the `AnonymousDefault` case can no longer reach it, because `merged_in` has already replaced it — so the predicate's `*default*` branch (its documented purpose, `namespace.rs:206-210`) becomes dead and the encoder must delete that sentence from its doc comment. | `cargo test -p lila-ir` (rung 1); the existing `namespace.rs` unsupported-diagnostic tests |
 | **R2** | **M3**, injectivity of `merged` over the graph. | `link.rs:471-504` (`report_cross_unit_binding_collisions`), `link.rs:625-644` (`merged_lexical_names`), `namespace.rs:437-449`. | Injectivity is a property of a *set* of units, not of one name. No per-value type can carry it; a typestate that refused to emit until the whole graph was checked is possible in principle but would have to thread the whole `ModuleGraphIr` through every `MergedName` construction, which is not worth it while the resolution is "report as unsupported" rather than "rename". **This is the invariant that becomes a real typestate obligation when the renaming pass lands**, and the contract records that now so the encoder does not build the wrong thing first. | the existing collision tests in `link.rs`'s `#[cfg(test)]` block; test262 `language/module-code/instn-*` |
 | **R3** | **B1/B2** at run time for a unit id above the cap. | `graph.rs:669`, `let id = ModuleUnitId::try_from(graph.units.len()).unwrap_or(ModuleUnitId::MAX);` | `ModuleUnitId` stays `pub type ModuleUnitId = u32` (§6). Newtyping it with a bounded constructor would ripple into `ir.rs:1345,1349,1353,1846` and `lib.rs:81`, which are not owned by this area. So the cap is enforced at the one place ids are minted, not in the type. **The current line is worse than unchecked**: it *saturates* to `u32::MAX`, whose decimal length is 10, which violates B1 and B2 silently and then fails downstream with a confusing `StripError`. The encoder replaces the `unwrap_or` with a `ModuleLinkErrorIr`-shaped rejection at `> MAX_LINKABLE_MODULE_UNIT_ID`. | one new unit test in `graph.rs` asserting the rejection; V2/V4 carry the *format* half of B1/B2 at compile time |
 | **R4** | boa's `private_name()` accessor means `[[LocalName]]` in `ExportDeclaration::List` and `[[ImportName]]` in `ReExportKind::Named`. | `record.rs:838` vs `record.rs:862`. | The accessor is boa's, on a foreign type; its return is a `Sym`. This contract cannot change boa's naming. **What the retype buys:** the two sites now convert through `SourceName::new(..)` and `ExportName::new(..)` respectively, so the *conversion* names the domain even though the accessor does not, and swapping the two conversions is `E0308` one line later at the struct literal. | trace T3 (§7) |
 | **R5** | **L2's second half**: `SourceName::new` rejecting the *empty* spelling. | `SourceName::new` (`binding_names.rs`). | **Encoder deviation from §2.1, recorded rather than hidden.** §2.1 asked `new` to return `None` for `*default*` *and* for the empty string. Two rejection reasons make `None` ambiguous at a call site, and — decisively — they make the classifier total only by accident: every product conversion site is a BoundNames position, so the classification must be *total*, and `LocalName::from_bound_name` can only be total if `None` means exactly one thing. `new` therefore rejects `*default*` and nothing else, and `from_bound_name` reads that single `None` as "this is the anonymous default". The empty spelling is not a domain question — it is a spellability question, and `is_binding_identifier` already rejects it (its first act is `chars.next()` returning `None`). No product path can produce it: boa's interner never resolves a `BindingIdentifier` to `""`. | `is_binding_identifier`'s empty-name arm; `binding_names.rs`'s `source_name_rejects_only_the_reserved_spelling` |
-| **R6** | **The 24 minting call sites and every field retype are load-bearing for byte-identical output**, and this lane ran no compiler. | whole area. | Not an invariant a type can carry: it is the claim that a mechanical retype changed no emitted byte. Every rewrite in §5.3 is spelling-preserving by construction (`MergedName::minted(u, r)` is `format!("$m{u}${suffix}")`, the same literal the deleted function built), and `merged_in` is `module_binding_reference` verbatim — but "by construction" is an argument, not a measurement. | `cargo check -p porffor-ir`, `cargo test -p porffor-ir --lib`, and **rung G** (`diff -r target/golden/before target/golden/after` empty). §8. |
+| **R6** | **The 24 minting call sites and every field retype are load-bearing for byte-identical output**, and this lane ran no compiler. | whole area. | Not an invariant a type can carry: it is the claim that a mechanical retype changed no emitted byte. Every rewrite in §5.3 is spelling-preserving by construction (`MergedName::minted(u, r)` is `format!("$m{u}${suffix}")`, the same literal the deleted function built), and `merged_in` is `module_binding_reference` verbatim — but "by construction" is an argument, not a measurement. | `cargo check -p lila-ir`, `cargo test -p lila-ir --lib`, and **rung G** (`diff -r target/golden/before target/golden/after` empty). §8. |
 
 ---
 
@@ -552,14 +552,14 @@ a type; the dry-runner must confirm each reason still holds.
 Strictly this order. Steps 1, 2 and 6 leave the tree compiling; steps 3–5 do
 not, and must land as one edit.
 
-1. **Add `crates/porffor-ir/src/binding_names.rs`** with all five types, the
+1. **Add `crates/lila-ir/src/binding_names.rs`** with all five types, the
    constants and V1–V6. Add `mod binding_names;` / `pub use binding_names::*;`
    to `lib.rs`. Nothing consumes it yet.
-   **`cargo check -p porffor-ir` here validates V1–V6 before any call site
+   **`cargo check -p lila-ir` here validates V1–V6 before any call site
    depends on the types.** This is the cheapest possible confirmation that B1
    and B2 as derived in §1.4 are arithmetically right.
 2. **Delete the five dead functions** (§5.2). Independent of everything else;
-   `cargo check -p porffor-ir` must stay green, which is itself the proof that
+   `cargo check -p lila-ir` must stay green, which is itself the proof that
    they were dead.
 3. **Retype the record fields** (§5.4) and fix `modules/record.rs`,
    `modules/early.rs` in the same edit.
@@ -740,7 +740,7 @@ message → `.spec_name()`.
 `DynamicComponentIr::completion_cell` deleted. `component_resolution_cell`
 (`:433`) returns `MergedName`.
 
-### 5.5 `crates/porffor-ir/src/lib.rs`
+### 5.5 `crates/lila-ir/src/lib.rs`
 
 The `pub use modules::{…}` block at lines 76–83 keeps every name it lists
 except none — no exported type is removed, only fields and one method. Add
@@ -777,7 +777,7 @@ D4 mapping and would otherwise be deleted silently.
 ## 6. What stays untouched, and why
 
 - **`pub type FunctionId = String` (`ir.rs:17`).** Newtyping it reaches
-  `crates/porffor-aot-wasm`, outside this campaign's crate scope. Nothing in
+  `crates/lila-aot-wasm`, outside this campaign's crate scope. Nothing in
   this contract touches it: `UserFunctionId` is not built (K8).
 - **`pub type ModuleUnitId = u32` (`record.rs:25`).** It appears in `ir.rs` at
   lines 1345, 1349, 1353, 1846 and in the `lib.rs` re-export at line 81.
@@ -796,10 +796,10 @@ D4 mapping and would otherwise be deleted silently.
   (a *module* name, not a *binding* name) and out of scope. `StarExportEntryIr`
   holds no binding name at all — which is itself evidence for the domain split
   and is why it is one of the corpus traces.
-- **`crates/porffor-aot-wasm`.** Zero consumers: `ImportEntryIr`,
+- **`crates/lila-aot-wasm`.** Zero consumers: `ImportEntryIr`,
   `LocalExportEntryIr`, `IndirectExportEntryIr`, `ImportNameIr`,
   `StarExportEntryIr`, `ModuleEnvBindingIr`, `ModuleNamespaceExportIr` and all
-  eleven minting functions appear only in `crates/porffor-ir`. Verified by
+  eleven minting functions appear only in `crates/lila-ir`. Verified by
   `grep -rn … crates/ --include=*.rs`. The batch-2 files
   (`intl_datetimeformat.rs`, `temporal*.rs`, `emitted_function.rs`,
   `runtime_helpers.rs`) are not reached.
@@ -838,14 +838,14 @@ Additional obligations recorded above: **D4** (§5.2, K8, T12), **D5** (§2.5),
 
 | After | Command | Expected |
 |---|---|---|
-| §5.1 step 1 | `cargo check -p porffor-ir` | green; V1–V6 evaluated |
-| §5.1 step 2 | `cargo check -p porffor-ir` | green — this *is* the proof the five functions were dead |
-| §5.1 steps 3–5 | `cargo check -p porffor-ir` | green |
-| §5.1 step 6 | `cargo test -p porffor-ir --lib` | no new failures against the pre-batch count |
-| whole area | `cargo check -p porffor-aot-wasm` | green with **zero** edits in that crate — the containment claim (§6) |
+| §5.1 step 1 | `cargo check -p lila-ir` | green; V1–V6 evaluated |
+| §5.1 step 2 | `cargo check -p lila-ir` | green — this *is* the proof the five functions were dead |
+| §5.1 steps 3–5 | `cargo check -p lila-ir` | green |
+| §5.1 step 6 | `cargo test -p lila-ir --lib` | no new failures against the pre-batch count |
+| whole area | `cargo check -p lila-aot-wasm` | green with **zero** edits in that crate — the containment claim (§6) |
 
 Rung G (`emit_golden`) is **required** before this is called done: this is a
-pure refactor of `porffor-ir`, so `diff -r target/golden/before
+pure refactor of `lila-ir`, so `diff -r target/golden/before
 target/golden/after` must be empty. `batch-workflow.md` §"Rung G — the
 refactor gate". Note the untracked-file caveat there: `binding_names.rs` must
 be moved aside, not stashed, when capturing the baseline.
@@ -860,7 +860,7 @@ where it departs from §2–§6 it says so.
 
 ### 9.1 What was built
 
-`crates/porffor-ir/src/binding_names.rs`, declared as `mod binding_names;` next
+`crates/lila-ir/src/binding_names.rs`, declared as `mod binding_names;` next
 to `mod analysis;` in `lib.rs` and re-exported by `pub use binding_names::*;`
 next to `pub use names::*;`. A second, `pub(crate) use binding_names::{…}` line
 carries the seven `pub(crate)` spelling constants to `modules::source` and
@@ -972,7 +972,7 @@ quantifier ranges over what the *compiler* mints, not over what *source text*
 may spell: `merged_in` is the identity on a source name, and `$m0$namespace`,
 `$m1$meta` and `$d0$` are all legal `BindingIdentifier`s. Nothing checked it —
 `check_linkable`'s collision map holds only per-unit bindings, and the one
-prefix guard that existed covers `LINKER_NAME_PREFIX` (`$porffor$module$`), a
+prefix guard that existed covers `LINKER_NAME_PREFIX` (`$lila$module$`), a
 different family. A module that *declares* `$m0$namespace` produced a
 duplicate-declaration SyntaxError from the merged script for a legal module; a
 module that merely *reads* one had the read silently captured by the prelude's
@@ -1120,12 +1120,12 @@ would actually be written.
 ## 11. Integration record — the compile gate
 
 Integrator's section, written after running the gate. Commands: `cargo check -p
-porffor-ir --all-targets`, `cargo xc`, `cargo fmt --all -- --check`.
+lila-ir --all-targets`, `cargo xc`, `cargo fmt --all -- --check`.
 
 **Green, with zero integrator edits to this area.** §9's containment claim held
 under the compiler, which is the first real test it has had: retyping the seven
 module IR types and deleting the eleven minting functions required **no** edit
-in `porffor-aot-wasm` or any other crate. The encoder's §6.2 worry — a fourth
+in `lila-aot-wasm` or any other crate. The encoder's §6.2 worry — a fourth
 `is_binding_identifier` call site that grep missed — did not materialise; there
 are three, all passing merged names.
 
@@ -1149,3 +1149,28 @@ only `*default*`, not the empty string — the deviation stands, with the
 encoder's reasoning), **R8** (§10.6, nothing forces an emitted identifier to be
 a `MergedName`), and the R3 unit test that builds 10,001 module records, which
 was not run here and may still want `#[ignore]`.
+
+## 12. Follow-up: host-normalized module identity
+
+The binding-name split exposed one adjacent string-domain seam outside this
+contract's original scope. A `ModuleRequestIr::specifier` is source spelling
+interpreted relative to its referrer; a module-map key is the stable identity
+the host returns after resolution. The engine previously unwrapped and rebuilt
+its `ModuleKey` as `String` at the `ModuleSourceIr` boundary, IR stored graph and
+record keys as `String`, and `DynamicComponentIr` placed `key: String` beside
+`specifier: String`. Swapping the two compiled. More seriously,
+`ModuleGraphIr::resolve_request` fell back from a missing host resolution to a
+raw lookup of the request spelling in the normalized-key map.
+
+`ModuleKey` is now one opaque type owned by `lila-ir` and minted only through
+the host boundary constructor. It remains typed through the engine's parse-once
+discovery map, `ModuleSourceIr`, `SourceTextModuleRecordIr`,
+`ModuleGraphIr::keys`, `ModuleLinkErrorIr::InconsistentLoad` and
+`DynamicComponentIr`. The raw-spelling fallback is deleted: a request without a
+host resolution is unresolved even when its spelling happens to equal a key.
+This does not change parse-once sharing or evaluation order; it makes the host
+resolution table the sole authority those mechanisms already document.
+
+This follow-up does **not** close ledger R8. Generated Script emitters still
+accumulate raw `String`, so an identifier position is not yet forced to accept
+only `MergedName`; that remains a separate rung-G emitter refactor.

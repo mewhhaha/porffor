@@ -10,10 +10,51 @@
 
 Environment, reference-adjacent lowering and structured control-flow emitters
 now support substantial lexical scope, closure, loop, destructuring and
-try/finally behavior. The parse-once prerequisite remains open, several
-environment/control-flow files are still large shared hotspots, and the
-language subtrees assigned to this task have not been proven zero-failure on a
-current complete Wasm-AOT matrix.
+try/finally behavior. Destructuring identifier writes use one typed, validated
+Reference across lowering and emission: it closes the former name-plus-boolean
+flag convention, carries global `[[Strict]]`, and defers TDZ and immutable
+failures until PutValue. Synchronous plain-generator and `yield*` property
+assignments now carry one private `SuspendedPropertyReferenceIr` containing the
+evaluated ordinary base/receiver, normalized key and `[[Strict]]`; one
+exhaustive AOT consumer persists its operands before suspension and spends its
+strictness only on normal resume. In supported class and lexical-class
+home-object contexts, `delete super.x` and `delete super[key]` now use a
+private, consuming `DeleteSuperReferencePlan`: it sequences current
+`this`, the raw computed-key value, and the unconditional ReferenceError through
+nested abrupt-propagating materializations, with no key coercion or property
+deletion. Plain identifier `=` inside `with` now uses analyzed `WithObject`
+environment cursors, stable hidden capture slots, an ordered current/captured
+resolution chain and a consuming `WithEnvironmentReferencePlan`. Declarative
+records cut off outer objects at their exact position; nested strict functions
+carry surrounding objects through the existing closure capture machinery. The
+selected object re-runs `HasProperty` after the RHS so strict absence is a
+ReferenceError and sloppy Set still observes the recheck. Direct value-position
+identifier reads now locate their declarative fallback first and consume the
+same typed non-empty Object Environment selection. Resolution continues from
+inner to outer, the selected record performs GetBindingValue's second
+`HasProperty`, and deletion during `@@unscopables` returns `undefined` in
+sloppy code or throws `ReferenceError` in a captured strict function. The raw
+innermost-object/read accessors are private or deleted, so lowering cannot
+bypass declarative cutoff, outer chaining or the recheck. Object-literal
+methods still lack the required home-object context
+and remain explicit unsupported debt. Async-generator property assignment remains an explicit
+activation-ABI gap, as do private and `super` yield-assignment targets. The
+parse-once boundary is landed, several environment/control-flow files remain
+large shared hotspots, and the language subtrees assigned to this task have not
+been proven zero-failure on a current complete Wasm-AOT matrix.
+
+The earlier focused IR contract and Wasm execution covering TDZ/default order,
+strict and sloppy unresolved writes, and immutable assignment are green. The
+suspended-property Reference IR contract is also covered by the central
+feature-enabled CLI compile, and its exact generator-suspension Wasm fixture is
+green. The delete-super and Object Environment Record read/write structural
+units and Wasm fixtures are present, while their Cargo and pinned Test262
+execution gates remain deferred to the current integration checkpoint. The
+Object Environment seam is intentionally limited to plain assignment and direct
+identifier GetValue (including `typeof` operands) in scripts and ordinary
+source functions. Identifier-call `WithBaseObject`, compound/logical/update/
+destructuring/delete operations, generated class/helper contexts and resumable
+captured WithObject environments remain explicit debt.
 
 ## Objective
 
@@ -80,10 +121,10 @@ Wasm branch depth must be derived from a structured control stack, never patched
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir environment_ --quiet
-cargo test -p porffor-aot-wasm control_flow_ --quiet
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli wasm_ --quiet
+cargo test -p lila-ir environment_ --quiet
+cargo test -p lila-aot-wasm control_flow_ --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli wasm_ --quiet
 ```
 
 Run focused real filters for lexical declarations, destructuring, `for-in`, `for-of`, `try`, labels, `with`, global code and closure capture.

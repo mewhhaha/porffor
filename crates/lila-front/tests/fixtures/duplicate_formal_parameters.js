@@ -1,0 +1,1 @@
+function duplicate(a, a) {}

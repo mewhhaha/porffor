@@ -1,10 +1,10 @@
 # Contract: Numeric conversion codomains — pointer
 
 The contract for the area *Numeric conversion codomains: ToIntegerOrInfinity /
-ToUint32 / ToUint16 as closed types in `porffor-ir`, with one const reference
+ToUint32 / ToUint16 as closed types in `lila-ir`, with one const reference
 algorithm for the five divergent backend hand-rolls* lives at:
 
-`docs/rust-rewrite/contracts/Numeric conversion codomains - ToIntegerOrInfinity, ToUint32, ToUint16 as closed types in porffor-ir, with one const reference algorithm for the five divergent backend hand-rolls.md`
+`docs/rust-rewrite/contracts/Numeric conversion codomains - ToIntegerOrInfinity, ToUint32, ToUint16 as closed types in lila-ir, with one const reference algorithm for the five divergent backend hand-rolls.md`
 
 This file exists for two reasons. First, the area brief names
 `numeric-conversion-codomains.md` in its `files_owned` list while the campaign's
@@ -34,7 +34,7 @@ followed verbatim:
   the lone-surrogate one must stay: five CLI fixtures depend on it.
 - **§5.5** — `static_to_integer_or_zero_expr` has three defects, not one. The
   `value.trunc() as i32` saturation is the same mechanism as the backend's N1,
-  inside `porffor-ir`.
+  inside `lila-ir`.
 - **§5.6** — the "latent, not shipped" claim is confirmed, and the three
   independent accidents that make it latent are enumerated so the claim is not
   taken on trust.
@@ -50,8 +50,47 @@ Structural summary of what lands:
 | `residue_pow2_i64`, `reference_to_{int32,uint32,uint16,length,index}` + `const _: () = assert!` tables | the normative algorithm the five backend emitters must match | build time, plus `residue_of_number` at run time |
 
 `ToInt32`, `ToLength` and `ToIndex` deliberately get **no** newtype (§1.8 C4):
-there is no construction site for them in `porffor-ir`, and round 1 deleted two
+there is no construction site for them in `lila-ir`, and round 1 deleted two
 type pairs for exactly that.
+
+## Integrator amendment: one exact runtime residue boundary
+
+The backend must not convert a binary64 operand to `i64` before applying the
+modulo-2^32 step. `i64.trunc_sat_f64_s` destroys the residue for finite values
+outside the signed-64-bit interval and maps positive infinity to `i64::MAX`.
+That makes expressions such as `Infinity | 0`, `(2 ** 63) | 0`, and
+`1 << Infinity` observably wrong.
+
+One `FunctionBuilder::emit_to_uint32_i64_from_number_payload` implementation is
+therefore authoritative for Array length conversion, String split limits,
+`String.fromCharCode`'s low-16-bit projection, and the Number arms of unary and
+binary bitwise operators. It computes
+
+`trunc(n) - floor(trunc(n) / 2^32) * 2^32`
+
+in binary64 before the final unsigned conversion. The intermediate is always
+in `[0, 2^32)` for finite input; NaN and either infinity naturally produce NaN
+at the subtraction and Wasm's saturating unsigned conversion maps that to zero,
+as ECMA-262 requires. The power-of-two division is exact, and values whose
+binary64 spacing is at least `2^32` are already multiples of the modulus.
+
+No codomain wrapper is added at the Wasm-local boundary: both payloads and
+locals are encoder indices, so wrapping an arbitrary `u32` at each call site
+would not validate anything. The invariant is instead the single consumed
+emitter plus removal of the two family-local copies and of every
+`i64.trunc_sat_f64_s` conversion in the binary bitwise Number path.
+
+Unary complement is not represented as a binary XOR with a Number `-1`:
+that spelling changes `~1n` into a mixed-numeric TypeError. A dedicated
+`UnaryBitwiseOp::Complement` keeps one evaluated operand across one ToNumeric
+boundary, then an exhaustive Number/BigInt match selects this shared residue
+emitter or the exact arbitrary-precision BigInt XOR-with-`-1n` operation.
+
+`String.fromCharCode` stores the converted Number payload, consumes this same
+modulo-2^32 emitter, and only then masks to 16 bits. Its former
+`i64.trunc_sat_f64_s & 0xffff` sequence mapped `Infinity` and large finite
+inputs to the signed-64-bit endpoints before the modulus and was observably
+wrong.
 
 The out-of-lane half — the two defective backend emitters, the acceptance gate,
 and the three follow-ups this lane could not take — is in
@@ -79,11 +118,11 @@ what the types are, and none was discovered by a test.
 4. **§7.10 is false as written, in our favour.**
    `"Number.prototype.toPrecision precision out of range"` is **not** a new
    string: it is already what the runtime path throws
-   (`porffor-aot-wasm/src/data.rs:1470`, `src/operations.rs:9236`, `:9251`,
+   (`lila-aot-wasm/src/data.rs:1470`, `src/operations.rs:9236`, `:9251`,
    `:9274`). The grep returns 5 source sites. The fold and the runtime now
    throw textually identical messages, which is strictly better than the
    criterion assumed. Read §7.10 as "matches the runtime message exactly".
-5. **§7.7 needs a qualifier.** `grep -rn "rem_euclid" crates/porffor-ir/src/`
+5. **§7.7 needs a qualifier.** `grep -rn "rem_euclid" crates/lila-ir/src/`
    returns 7 lines; exactly **one** is code (`numeric_conversions.rs`, inside
    `residue_of_number`). The rest name the operation in doc comments.
 6. **The LN1 test also pins `IntegerOrInfinity::of_number`'s five arms.** §3's

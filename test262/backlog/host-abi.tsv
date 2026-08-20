@@ -1,7 +1,10 @@
-# Porffor Test262 host ABI contract.
-# Target profile: core-3-nonweb, wasm32, little-endian, single Porffor heap unless a row says host-managed shared state.
-# ABI name: porffor-test262-host
+# Lila Test262 host ABI contract.
+# Target profile: core-3-nonweb, wasm32, little-endian, single Lila heap unless a row says host-managed shared state.
+# ABI name: lila-test262-host
 # ABI version: 0.1
+# Wasm agent_call transport: lila-runtime::AgentHostOperation is the closed wire authority.
+# Stable i64 operations: 1 Start; 2 Broadcast; 3 ReceiveBroadcast; 4 Report; 5 ReportLength; 6 ReportCopy; 7 Sleep; 8 MonotonicNow; 9 Leaving; 10 RegisterAsyncWaiter; 11 PollAsyncWaiter; 12 NotifyAsyncWaiters; 13 CancelAsyncWaiter.
+# Operations 5 and 6 implement one agent.getReport surface transaction; operations 10 through 13 are internal cross-instance Atomics.waitAsync/notify transport, not additional ECMAScript methods.
 # Fields:
 # operation	ecmascript_surface	spec_exec_contract	wasm_aot_contract	missing_behavior_failure	owner_task	notes
 global	$262.global	Return the current realm global object.	Expose the current compiled program global object; must not allocate a fake realm.	HostHarness	T06	Aliases only the current realm; cross-realm access uses createRealm.

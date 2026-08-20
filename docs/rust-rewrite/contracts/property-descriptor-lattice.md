@@ -17,15 +17,15 @@ obligations are first split apart, which is what
 
 | Item | File |
 |---|---|
-| `DescriptorField`, `DescriptorSide`, `TO_PROPERTY_DESCRIPTOR_ORDER` | `crates/porffor-ir/src/property_descriptor.rs` |
+| `DescriptorField`, `DescriptorSide`, `TO_PROPERTY_DESCRIPTOR_ORDER` | `crates/lila-ir/src/property_descriptor.rs` |
 | `Presence<T, R>`, `KnownPresence` | same |
 | `DescriptorCarrier`, `SourceText` | same |
 | `PartialDescriptor<C>`, `ValidatedDescriptor<C>`, `ValidateError`, `BothDataAndAccessor` | same |
 | `PropertyDescriptorKind`, `DescriptorClassification<C>`, `KindTerms<C>`, `classify` | same |
 | `CompleteDescriptor<C>`, `CompletionDefaults<C>`, `complete_property_descriptor` | same |
 | `DescriptorSourceText<DataSide \| AccessorSide>` | same |
-| `DescriptorBit`, `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot` | `crates/porffor-aot-wasm/src/heap.rs` |
-| `TaggedLocals`, `WasmLocals`, `StoredDescriptorKind`, `AttributeBit`, `DescriptorKindLocal<K>`, `DescriptorKindWord` | `crates/porffor-aot-wasm/src/objects.rs` |
+| `DescriptorBit`, `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot` | `crates/lila-aot-wasm/src/heap.rs` |
+| `TaggedLocals`, `WasmLocals`, `StoredDescriptorKind`, `AttributeBit`, `DescriptorKindLocal<K>`, `DescriptorKindWord` | `crates/lila-aot-wasm/src/objects.rs` |
 
 ## The six rules a later change must not break
 
@@ -69,3 +69,35 @@ obligations are first split apart, which is what
 `target/lane-notes/The Property Descriptor lattice: one closed 6.2.6 type and one derived ValidateAndApplyPropertyDescriptor, replacing a raw u64 bitfield re-derived at eight sites-theory-integration.md`,
 which also carries the per-site retrofit instructions for the files this lane
 does not own.
+
+## Current retrofit status
+
+The contract's historical LN6 routing is now closed for array named
+properties. `emit_array_define_named_data_descriptor` and
+`emit_array_define_named_accessor_descriptor` build one
+`ValidatedDescriptor<WasmLocals>` at the boundary, and
+`emit_validate_array_named_descriptor` consumes that value directly. Its
+6.2.6.1–3 decision comes only from `classify`/`KindTerms`; the parallel
+`requested_data_descriptor: bool`, six positional field fragments and the
+hand-written four-field presence fold have been deleted.
+
+Arguments `length` now retains the same distinction through storage and use.
+Its descriptor kind is updated from `PropertyDescriptorKind`, the observable
+value remains a tagged value, and getter/setter identity is preserved across a
+generic or one-sided accessor update. Reads, writes and descriptor
+materialization match the stored data/accessor kind exhaustively; a genuine
+kind transition supplies `undefined` for omitted fields rather than exposing a
+stale value from the previous kind.
+
+The arguments `callee` and `length` attribute-update tables now transport
+`DescriptorMask` as well. Their `[[Writable]]`, `[[Enumerable]]` and
+`[[Configurable]]` operands can no longer be replaced with a raw descriptor
+word without a Rust type error; conversion to the Wasm `i64` encoding occurs
+only where the instruction is emitted.
+
+This does not close T10 or the rest of the ledger. Array application/index
+paths and arguments/exotic emitters still contain derived word operations, and
+LN10's `Presence::Present` step-4 exemption remains explicit in both the
+ordinary and array consumers. The full contract's note-routed LN6 text is kept
+as the historical design record; its current-state supersession is recorded in
+the appended integration section there.

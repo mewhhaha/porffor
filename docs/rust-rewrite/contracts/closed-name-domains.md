@@ -11,8 +11,8 @@ oracle the dry-runner checks against. Source code is not edited in this stage.
 
 Owned files:
 
-- `crates/porffor-ir/src/native_error.rs` (new)
-- `crates/porffor-ir/src/well_known.rs` (new)
+- `crates/lila-ir/src/native_error.rs` (new)
+- `crates/lila-ir/src/well_known.rs` (new)
 - `docs/rust-rewrite/contracts/closed-name-domains.md` (this file)
 
 Every count in this document was produced by a command, not an estimate.
@@ -34,7 +34,7 @@ numbers and one fact. The encoder must work from the numbers here.
 | 69 `"Symbol.…"` sites in `lowering.rs` | **66** exact well-known-symbol string literals, **+2** bare `"Symbol."` prefix literals = 68 tokens matching `"Symbol\.[A-Za-z]*"` | see §6.3 |
 | 334 literals / 36 files workspace-wide | **334** tokens matching `"Symbol\.[A-Za-z]*"`, of which **324** in **34** files are one of the 15 legal spellings; the other 10 are `"Symbol."`×7, `"Symbol.prototype"`, `"Symbol.for"`, `"Symbol.keyFor"` | `grep -rnoE '"Symbol\.(asyncIterator\|…)"' crates/ --include=*.rs \| wc -l` |
 | `builtins/standard.rs` 28, `data.rs` 24 | `builtins/standard.rs` **22**, `data.rs` **18** | same |
-| "all 16 construction sites in lowering.rs" | **14** `ExprIr::RuntimeThrow { … }` constructions; the other two `RuntimeThrow` tokens are the consumer match at 12106 and a `matches!(…, ExprIr::RuntimeThrow { .. })` at 12409 | `grep -n "RuntimeThrow" crates/porffor-ir/src/lowering.rs` |
+| "all 16 construction sites in lowering.rs" | **14** `ExprIr::RuntimeThrow { … }` constructions; the other two `RuntimeThrow` tokens are the consumer match at 12106 and a `matches!(…, ExprIr::RuntimeThrow { .. })` at 12409 | `grep -n "RuntimeThrow" crates/lila-ir/src/lowering.rs` |
 | "SuppressedError … the first `RuntimeThrow` with either name types as base `Error` and every downstream inference is silently wrong" | The defect is **latent and armed, not currently firing.** All 14 construction sites use only `TYPE_ERROR_NAME` (8), `REFERENCE_ERROR_NAME` (3), `RANGE_ERROR_NAME` (3) — all three are handled by the 6-arm match. The wrong arms (`AggregateError`, `SuppressedError`) have no producer yet. `ERROR_NAME` also falls through, but to `ErrorConstructor`, which is correct. | §5.3 |
 
 Two facts the brief did not have, both of which strengthen the case:
@@ -52,7 +52,7 @@ Two facts the brief did not have, both of which strengthen the case:
   five hand-kept nine-row lists and it is unreachable from the product path.
   See §5.2 and §8.4.
 
-The brief's claim that `crates/porffor-aot-wasm/src/builtins/temporal.rs`
+The brief's claim that `crates/lila-aot-wasm/src/builtins/temporal.rs`
 (batch-2 excluded) has exactly one `_ERROR_NAME` use is **confirmed**:
 `RANGE_ERROR_NAME` at line 6629, and nothing else.
 
@@ -108,7 +108,7 @@ URIError, AggregateError, SuppressedError
   In this repository the constructor side is `StandardBuiltinId::{Error,
   EvalError, AggregateError, SuppressedError, RangeError, SyntaxError,
   TypeError, URIError, ReferenceError}Constructor` — nine variants, verified
-  at `crates/porffor-ir/src/builtins.rs:1393-1402`.
+  at `crates/lila-ir/src/builtins.rs:1393-1402`.
 - **E4 (prototype totality).** For every one of the nine, `%X.prototype%`
   exists and is distinct. Consequently a name-to-prototype map must be
   **total on the domain**. A partial map with a fallback is a spec violation
@@ -216,7 +216,7 @@ not a symbol. That is why `built-ins/Symbol/` has 18 subdirectories and not 15.
 
 ## 2. The two types
 
-Both types live in new files in `crates/porffor-ir`, are re-exported through
+Both types live in new files in `crates/lila-ir`, are re-exported through
 the crate's existing `pub use names::*;`-style surface, and are generated
 from a **single row list each** by a declarative macro. The macro is not
 decoration: it is what makes "add to one table and not the other"
@@ -224,7 +224,7 @@ decoration: it is what makes "add to one table and not the other"
 stronger property than the `INTL_NAMESPACE_CONSTRUCTORS` const-slice pattern
 at `names.rs:206` achieved.
 
-### 2.1 `crates/porffor-ir/src/native_error.rs`
+### 2.1 `crates/lila-ir/src/native_error.rs`
 
 ```rust
 //! The closed domain of ECMA-262 error intrinsic names.
@@ -305,7 +305,7 @@ gets its own copy rather than a shared `pub` helper, because a `pub const fn
 str_eq` in a public module is exactly the kind of no-call-site-in-product
 surface AGENTS.md warns about.
 
-### 2.2 `crates/porffor-ir/src/well_known.rs`
+### 2.2 `crates/lila-ir/src/well_known.rs`
 
 ```rust
 //! ECMA-262 §6.1.5.1 Table 1, *Well-Known Symbols*, plus the two rows added
@@ -403,7 +403,7 @@ from the same row.
 | Invariant | Rust construct | Why it holds |
 |---|---|---|
 | **E1** closure at nine | `enum NativeErrorKind`, macro-generated from one row list | a tenth requires editing the row list, which regenerates every table at once |
-| **E2** one spelling | `const fn as_str`, the only place a name literal appears in `porffor-ir`; the nine `*_ERROR_NAME` consts defined *from* it (§4.2) | there is one literal per name in the crate |
+| **E2** one spelling | `const fn as_str`, the only place a name literal appears in `lila-ir`; the nine `*_ERROR_NAME` consts defined *from* it (§4.2) | there is one literal per name in the crate |
 | **E3** name↔constructor bijection | `constructor` / `from_constructor` + const assert **N6** | round-trip in `const` proves injectivity on `ALL` |
 | **E4** prototype map totality | exhaustive `match` on `NativeErrorKind` with **no catch-all** at `lowering.rs:12106` | omitting an arm is `E0004` |
 | **E5** the spec-exact six | `is_native_error()` + `NATIVE_ERRORS` + const asserts **N2/N7** | the six cannot silently become five or seven |
@@ -421,10 +421,10 @@ inventing a type; the dry-runner must confirm each reason still holds.
 
 | # | Invariant | Where | Why no type carries it | What must check it |
 |---|---|---|---|---|
-| **R1** | **S4**, symbol keys are not string keys. | `ObjectShape.properties: BTreeMap<String, ObjectShapeProperty>` (`ir.rs:440`), `ArrayShape.properties` (`ir.rs:448`) | The key domain is *all* JS property keys — an open, unbounded set of arbitrary strings. Well-known symbols are an encoded subset of it. Retyping the map key to a closed enum is false; retyping it to an `enum { String(String), WellKnown(WellKnownSymbol) }` is a distinct, much larger refactor with observable ordering consequences (`BTreeMap` iteration order feeds shape comparison), and is **out of scope**. The type carries *construction* (`description()`, `shape_namespace_key()`), not the key type. | existing lowering tests, notably `crates/porffor-ir/src/lib.rs:4497-4695`, which assert that a JS object with the *string* key `"Symbol.iterator"` is not treated as symbol-keyed |
+| **R1** | **S4**, symbol keys are not string keys. | `ObjectShape.properties: BTreeMap<String, ObjectShapeProperty>` (`ir.rs:440`), `ArrayShape.properties` (`ir.rs:448`) | The key domain is *all* JS property keys — an open, unbounded set of arbitrary strings. Well-known symbols are an encoded subset of it. Retyping the map key to a closed enum is false; retyping it to an `enum { String(String), WellKnown(WellKnownSymbol) }` is a distinct, much larger refactor with observable ordering consequences (`BTreeMap` iteration order feeds shape comparison), and is **out of scope**. The type carries *construction* (`description()`, `shape_namespace_key()`), not the key type. | existing lowering tests, notably `crates/lila-ir/src/lib.rs:4497-4695`, which assert that a JS object with the *string* key `"Symbol.iterator"` is not treated as symbol-keyed |
 | **R2** | `is_symbol_description(&str)` is total over an open domain. | `lowering.rs:29262`, `lowering.rs:35151` | Both sites test whether an arbitrary lowered `ExprIr::String` lies in the symbol-value namespace. The input is a `String` from the shape/IR layer, not a `WellKnownSymbol`. A prefix test is the honest operation. It is *guarded* at both sites by `lowered.kind == ValueKind::Symbol`, which is the real invariant — but `ValueKind` is not parameterised by the string. | §7 trace T7; plus the `debug_assert!` specified in §6.5 |
-| **R3** | Consumer `match`es over `WellKnownSymbol` that are genuinely partial. | `lowering.rs:20986-21004` (five specialization arms keyed on receiver kind) | This match answers "does this receiver+symbol pair have a static fast path?" Its domain is `WellKnownSymbol × ValueKind`, and most cells legitimately have no fast path. Forcing exhaustiveness here would mean writing ten `=> None` arms that carry no information and that a future symbol addition would mechanically extend without thought — decoration, by AGENTS.md's own test. It keeps a `_ => None` arm, **but** the arm gets a comment naming the symbols that deliberately have no fast path, and the `WellKnownSymbol` type ensures the listed arms name real variants. | rung 1 `cargo test -p porffor-ir`; the CLI area suites for iterator/regexp |
-| **R4** | The `error_prototype_global_index` / `error_realm_prototype_offset` / `error_realm_prototype_entries` / `operations.rs:142-151` tables in `crates/porffor-aot-wasm`. | `module.rs:1730-1743`, `1745-1758`, `1760`, `operations.rs:142-151` | **Deferred by scope**, not by impossibility. They remain `&str`-keyed with `_ => OBJECT_PROTOTYPE_GLOBAL_INDEX` / `_ => None` fallbacks. This contract does **not** close the "unrecognised name yields `%Object.prototype%`" hole; it only makes the *producer* incapable of emitting an unrecognised name (§5). The residual risk after this area is that a *hand-written* `&str` reaching those tables still falls through. | the deferred consumer lane, gated on batch 2 reporting done. Recorded here so no reader concludes this area closed it. |
+| **R3** | Consumer `match`es over `WellKnownSymbol` that are genuinely partial. | `lowering.rs:20986-21004` (five specialization arms keyed on receiver kind) | This match answers "does this receiver+symbol pair have a static fast path?" Its domain is `WellKnownSymbol × ValueKind`, and most cells legitimately have no fast path. Forcing exhaustiveness here would mean writing ten `=> None` arms that carry no information and that a future symbol addition would mechanically extend without thought — decoration, by AGENTS.md's own test. It keeps a `_ => None` arm, **but** the arm gets a comment naming the symbols that deliberately have no fast path, and the `WellKnownSymbol` type ensures the listed arms name real variants. | rung 1 `cargo test -p lila-ir`; the CLI area suites for iterator/regexp |
+| **R4 (discharged)** | The former `error_prototype_global_index` / `error_realm_prototype_offset` / `error_realm_prototype_entries` / `operations.rs` string tables in `crates/lila-aot-wasm`. | `module.rs`, `operations.rs`, `builtins/errors.rs`; see §13 | T24 replaced them with one exhaustive `NativeErrorKind -> ErrorPrototypeLocation` authority. Realm entries derive from `NativeErrorKind::ALL`; the `instanceof` fast path consumes the same typed mapping; raw emitter names are validated before either lookup. There is no `%Object.prototype%` or `None` catch-all left. | `cargo check -p lila-aot-wasm --lib`, then the focused all-nine realm/prototype contract named in §13. |
 
 ---
 
@@ -433,12 +433,12 @@ inventing a type; the dry-runner must confirm each reason still holds.
 ### 4.1 Order of operations
 
 Strictly this order. Each step leaves the tree compiling, so
-`cargo check -p porffor-ir` after each is a real gate.
+`cargo check -p lila-ir` after each is a real gate.
 
-1. Add `crates/porffor-ir/src/native_error.rs`; `mod native_error;` and
-   `pub use native_error::*;` in `crates/porffor-ir/src/lib.rs` alongside the
+1. Add `crates/lila-ir/src/native_error.rs`; `mod native_error;` and
+   `pub use native_error::*;` in `crates/lila-ir/src/lib.rs` alongside the
    existing `mod names;` / `pub use names::*;` (lib.rs:64, 109). Nothing
-   consumes it yet. **`cargo check -p porffor-ir` here validates every const
+   consumes it yet. **`cargo check -p lila-ir` here validates every const
    assertion N1–N7 before any call site depends on the type.**
 2. Redefine the nine `*_ERROR_NAME` consts (§4.2). Everything still compiles;
    this is the step whose risk is spelled out below.
@@ -450,12 +450,12 @@ Strictly this order. Each step leaves the tree compiling, so
 
 ### 4.2 `names.rs:241-249` — kept, redefined
 
-The nine consts stay, because `crates/porffor-aot-wasm/src/builtins/temporal.rs`
+The nine consts stay, because `crates/lila-aot-wasm/src/builtins/temporal.rs`
 is on the batch-2 exclusion list, uses `RANGE_ERROR_NAME` at line 6629, and
 must continue to compile **with zero edits**. Eight other out-of-scope files
 also import them (`module.rs`, `operations.rs`, `data.rs`, `lib.rs`,
-`builtins/bootstrap.rs`, `builtins/host.rs` in `porffor-aot-wasm`;
-`builtins.rs` in `porffor-ir`).
+`builtins/bootstrap.rs`, `builtins/host.rs` in `lila-aot-wasm`;
+`builtins.rs` in `lila-ir`).
 
 **Primary form** — makes the enum the single spelling authority even for the
 deferred lane:
@@ -473,7 +473,7 @@ item depends on its *type* being structural-match, not on how it was
 computed, and `&'static str` is structural-match. The primary form is
 therefore expected to work. It has **not** been compiled in this stage.
 
-**Fallback, if `cargo check -p porffor-aot-wasm` rejects the primary form
+**Fallback, if `cargo check -p lila-aot-wasm` rejects the primary form
 for any reason:** revert the nine consts to their literals exactly as they
 stand today, and add the nine **N8** const assertions
 `const _: () = assert!(str_eq(TYPE_ERROR_NAME, NativeErrorKind::TypeError.as_str()));`
@@ -535,8 +535,8 @@ obligation moves to the row list, where it belongs. `AggregateError` and
 `SuppressedError` become correct by construction, and the `Error` case —
 which fell through to `ErrorConstructor` and was *right* to — stays right.
 
-**Consumers in `crates/porffor-aot-wasm`.** The retype cannot be confined to
-`porffor-ir`: `ExprIr` is the backend's input. Three edits, none of them on
+**Consumers in `crates/lila-aot-wasm`.** The retype cannot be confined to
+`lila-ir`: `ExprIr` is the backend's input. Three edits, none of them on
 the batch-2 exclusion list (`intl_datetimeformat.rs`, `temporal*.rs`,
 `emitted_function.rs`, `runtime_helpers.rs`):
 
@@ -549,13 +549,13 @@ the batch-2 exclusion list (`intl_datetimeformat.rs`, `temporal*.rs`,
 `emit_throw_runtime_error` (`builtins/errors.rs:476`) keeps its `name: &str`
 parameter — it is on the deferred-lane side of the boundary, and widening it
 to `NativeErrorKind` would pull `error_prototype_global_index` in with it.
-That is R4, deferred deliberately.
+That was R4, deferred deliberately at this stage and discharged later by §13.
 
 Untouched, because they bind `{ .. }`: `planning.rs:2938, 3503, 4882, 6044,
 6707, 6888, 7920`; `early_errors.rs:267`; `ir.rs:3079`;
 `lowering.rs:12409`; `lib.rs:2797, 10832`.
 
-**12 test patterns in `crates/porffor-ir/src/lib.rs`** — `lib.rs:5022, 7151,
+**12 test patterns in `crates/lila-ir/src/lib.rs`** — `lib.rs:5022, 7151,
 7209, 7276, 8164, 8259, 8319, 9168, 10860, 10899, 10934` bind
 `name: REFERENCE_ERROR_NAME` or `name: TYPE_ERROR_NAME` inside `matches!`;
 each becomes `name: NativeErrorKind::ReferenceError` /
@@ -564,10 +564,10 @@ convenience; but note that this is exactly the case where a `&str` const in
 a pattern silently matched and an enum variant in a pattern must be spelled
 correctly or fail to compile.
 
-### 4.4 The four remaining nine-row lists in `porffor-ir`
+### 4.4 The four remaining nine-row lists in `lila-ir`
 
 The brief counted five NativeError tables (one in `lowering.rs`, four in
-`porffor-aot-wasm`). There are four *more*, all inside `lowering.rs`, all
+`lila-aot-wasm`). There are four *more*, all inside `lowering.rs`, all
 currently complete, all hand-kept, and all of them route through
 `NativeErrorKind::ALL` after this change:
 
@@ -588,7 +588,7 @@ currently complete, all hand-kept, and all of them route through
    Becomes
    `NativeErrorKind::ALL.iter().any(|k| self.is_builtin_reference_expr(expr, k.as_str()))`.
 
-**Untouched in `crates/porffor-ir/src/builtins.rs`.** The four
+**Untouched in `crates/lila-ir/src/builtins.rs`.** The four
 `StandardBuiltinId` → name mappings at `1497-1498`, `1796-1801`,
 `3176-3183`, `8185-8192` are already exhaustive `match`es over
 `StandardBuiltinId`; they carry their own compile-time obligation and are
@@ -632,16 +632,14 @@ improved by overstating it: "a `_ =>` arm that is wrong for two of its
 members and has no producer yet" is exactly the omission AGENTS.md describes
 as shipped-here-before.
 
-### 5.4 Not fixed
+### 5.4 Consumer side fixed by the T24 follow-up
 
-R4. An unrecognised or misspelt `&str` reaching
-`error_prototype_global_index` (`module.rs:1742`) still yields
-`OBJECT_PROTOTYPE_GLOBAL_INDEX` — a thrown value that is not an `Error`, for
-which `catch (e) { e instanceof TypeError }` is `false` and `e.message` is
-`undefined`, with no diagnostic. This area makes the *`RuntimeThrow`
-producer* incapable of emitting such a name. It does not close the hole for
-hand-written `&str` arguments to `emit_throw_runtime_error`. Closing it is
-the deferred consumer lane's job, gated on batch 2 reporting done.
+Section 13 discharges R4. A hand-written `&str` still exists at the broad
+emitter API because hundreds of callers supply error-name constants, but it is
+now validated exactly once into `NativeErrorKind` before any prototype lookup.
+The lookup itself is total on that closed domain and has no fallback. An
+unrecognised spelling therefore becomes an internal `EmitError`; it cannot
+silently allocate an object with `%Object.prototype%`.
 
 ---
 
@@ -654,7 +652,7 @@ This compiler represents a well-known symbol **value** as an
 `ExprIr::String("Symbol.iterator")` with `kind == ValueKind::Symbol`
 (`lowering.rs:28353-28356`, `lowering.rs:17151-17152`). The `ValueKind` is
 what distinguishes it from an ordinary string; the text is the
-[[Description]] of §6.1.5.1 Table 1. `crates/porffor-aot-wasm/src/data.rs`
+[[Description]] of §6.1.5.1 Table 1. `crates/lila-aot-wasm/src/data.rs`
 interns that text.
 
 The contract therefore does **not** replace the string encoding. It replaces
@@ -826,7 +824,7 @@ the `ValueKind::Symbol` check — the runtime half of ledger entry **R2**.
 
 ### 6.6 Deliberately left as `&str`, and why that is the point
 
-- **`crates/porffor-ir/src/lib.rs`, 10 sites** — `4497, 4536, 4539, 4577,
+- **`crates/lila-ir/src/lib.rs`, 10 sites** — `4497, 4536, 4539, 4577,
   4599, 4610, 4643, 4655, 4672, 4695`. These are JS *source text* fixtures
   and assertions for tests that verify a program using the literal string key
   `"Symbol.iterator"` is **not** treated as symbol-keyed. They must stay
@@ -835,7 +833,7 @@ the `ValueKind::Symbol` check — the runtime half of ledger entry **R2**.
   change, `"Symbol.iterator"`-as-a-string-key and
   `WellKnownSymbol::Iterator` are different Rust types, so a future edit
   cannot confuse them by accident.
-- **`crates/porffor-ir/src/modules/namespace.rs:1046, 1052, 1391`** — generated
+- **`crates/lila-ir/src/modules/namespace.rs:1046, 1052, 1391`** — generated
   JS source text (`Object.defineProperty($ns, Symbol.toStringTag, …)`) and
   assertions over it. Source text, not a domain value. Stays.
 - **`lowering.rs:29262` and `lowering.rs:35151`** — `starts_with("Symbol.")`.
@@ -844,21 +842,21 @@ the `ValueKind::Symbol` check — the runtime half of ledger entry **R2**.
 
 ### 6.7 Explicitly out of scope
 
-The **247** exact-literal well-known-symbol sites outside `crates/porffor-ir`
-(324 total minus the 77 in `porffor-ir`), across 31 files — `builtins/host.rs`
+The **247** exact-literal well-known-symbol sites outside `crates/lila-ir`
+(324 total minus the 77 in `lila-ir`), across 31 files — `builtins/host.rs`
 40, `builtins/standard.rs` 22, `builtins/bootstrap.rs` 21, `data.rs` 18,
 `intrinsics/symbol.rs` 17, `builtins/string.rs` 16, `objects.rs` 15,
 `builtins/array.rs` 13, and 23 more — are **not** migrated here. They are one
 follow-up consumer lane, gated on batch 2 reporting done. Note
-`crates/porffor-aot-wasm/src/intrinsics/temporal.rs` (8 literals) is on the
+`crates/lila-aot-wasm/src/intrinsics/temporal.rs` (8 literals) is on the
 batch-2 exclusion list and must not be touched by that lane until batch 2
 reports done either.
 
 Also out of scope, restated: `Symbol.for` / `Symbol.keyFor` registry symbols
 (an open domain, §19.4.2.2/19.4.2.6); `Symbol.prototype`;
-`crates/porffor-runtime/src/lib.rs:147-150`'s
+`crates/lila-runtime/src/lib.rs:147-150`'s
 `IntrinsicPropertyKey::WellKnownSymbol(&'static str)`, which is a different
-crate with no dependency edge to `porffor-ir` — migrating it would either
+crate with no dependency edge to `lila-ir` — migrating it would either
 invert the dependency or duplicate the enum, and neither is worth doing until
 the consumer lane runs.
 
@@ -880,9 +878,9 @@ the suite. Each has a specific question.
 | **T7** | `built-ins/Symbol/toPrimitive/prop-desc.js` | Trace the §6.3 `ToPrimitiveLookupKey` change through `lowering.rs:33879-33894`. Confirm the §7.1.1 lookup **order** is preserved exactly for both hints. Confirm this area's `WellKnownSymbol::ToPrimitive` and area A's `ToPrimitiveHint` do not collide in naming or ownership. |
 | **T8** | `built-ins/Symbol/unscopables/prop-desc.js` | `@@unscopables` appears in the whitelist and at exactly one site (`lowering.rs:17152`, a producer). Determine whether **any consumer reads it** — i.e. whether §9.1.1.2.1's `with`-scope `HasBinding` filtering actually consults it. If no consumer exists, the producer emits a value nothing reads, and the contract must say so. |
 | **T9** | `built-ins/Symbol/asyncDispose/prop-desc.js` | Confirm `@@asyncDispose` and `@@dispose` are the two rows that make the set 15 rather than 13, that both come from Explicit Resource Management and not from ES2024 Table 1, and that const assertion **W2** names them as a separate array rather than burying them in `ALL`. |
-| **T10** | `built-ins/Symbol/isConcatSpreadable/prop-desc.js` | The longest spelling, and its consumers are in `crates/porffor-aot-wasm/src/builtins/array.rs` (13 literals) — outside this lane. Trace it to fix the exact boundary: producer inside `porffor-ir` becomes typed; consumer in `array.rs` stays `&str` and is joined to the producer only through `description()`. State what remains uncheckable across that seam until the consumer lane runs. |
+| **T10** | `built-ins/Symbol/isConcatSpreadable/prop-desc.js` | The longest spelling, and its consumers are in `crates/lila-aot-wasm/src/builtins/array.rs` (13 literals) — outside this lane. Trace it to fix the exact boundary: producer inside `lila-ir` becomes typed; consumer in `array.rs` stays `&str` and is joined to the producer only through `description()`. State what remains uncheckable across that seam until the consumer lane runs. |
 | **T11** | **Adversarial, compile-time.** | (a) Add a 16th spelling `"unscopable"` to the whitelist at `lowering.rs:34017` and confirm **nothing fails** — it compiles, produces `"Symbol.unscopable"`, and no consumer reads it. (b) Re-trace against `WellKnownSymbol`: adding a 16th row makes `ALL.len() == 15` (**W1**) a build failure, and adding a variant *without* a row makes the generated exhaustive `member_name` match fail with `E0004`. (c) Remove `"species"` from the whitelist while leaving its 10 `lowering.rs` sites (7 producers: 2922, 3483, 3507, 3556, 3946, 3974, 4212; 3 consumers: 25604, 27467, 27528): today the parse stops recognising `Symbol.species` and all three consumers become silently dead fast paths, with the seven producers still writing the key. After the change this edit has **no analogue** — there is no whitelist separate from the row list. Deleting the *row* instead makes all 10 sites `error[E0599]`. State (c) precisely: the enum does not make "removing a spelling" an error, it makes the whitelist-versus-domain distinction *cease to exist*, which is the stronger result. |
-| **T12** | **Adversarial, compile-time.** | Construct `ExprIr::RuntimeThrow { name: SUPPRESSED_ERROR_NAME, .. }` at a lowering site; trace to `lowering.rs:12106` and confirm it silently yields `StandardBuiltinId::ErrorConstructor`. Re-trace against `name.constructor()` (§4.3) and confirm it yields `SuppressedErrorConstructor`. Then verify the edit requires **zero** changes to `crates/porffor-aot-wasm/src/builtins/temporal.rs` — batch-2 excluded, one `_ERROR_NAME` use at line 6629, which §4.2 keeps compiling. |
+| **T12** | **Adversarial, compile-time.** | Construct `ExprIr::RuntimeThrow { name: SUPPRESSED_ERROR_NAME, .. }` at a lowering site; trace to `lowering.rs:12106` and confirm it silently yields `StandardBuiltinId::ErrorConstructor`. Re-trace against `name.constructor()` (§4.3) and confirm it yields `SuppressedErrorConstructor`. Then verify the edit requires **zero** changes to `crates/lila-aot-wasm/src/builtins/temporal.rs` — batch-2 excluded, one `_ERROR_NAME` use at line 6629, which §4.2 keeps compiling. |
 
 Additional dry-run obligations, not tied to a corpus file:
 
@@ -907,12 +905,12 @@ Each row: the mistake, what happens today, and the exact compile error after.
 | **M4** | Add a 16th well-known symbol as an enum variant but forget the row list. | n/a — no enum today. | `error[E0004]: non-exhaustive patterns: 'WellKnownSymbol::NewOne' not covered` in the generated `member_name`/`description` match. |
 | **M5** | Add a 16th row but leave `ALL` at fifteen (or hand-edit `ALL`). | n/a. | `error[E0080]: evaluation of constant value failed` on const assertion **W1** (`ALL.len() == 15`) or **W3** (`ALL[i] as u8 == i`). |
 | **M6** | Let a member name and its description drift, e.g. `("ToStringTag", "toStringTag", "Symbol.toStringtag")`. | Compiles. The parse accepts source `Symbol.toStringTag` and emits a description no consumer matches — worse than M1, because it is *self*-consistent within the row. | `error[E0080]` on const assertion **W6** (`description == "Symbol." ++ member_name`). |
-| **M7** | Add a NativeError to one of the nine-row tables and not the others. **There are eight such tables: five in `lowering.rs` (§4.4, §4.3) and four in `porffor-aot-wasm` (R4).** | Compiles. Live example today: `infer_expr_throw_info` (`lowering.rs:12106-12114`) matches six of nine and falls through `_ => StandardBuiltinId::ErrorConstructor`; `AggregateError` and `SuppressedError` are absent (§5.3). | For the five in `porffor-ir`: **unrepresentable** — they all derive from `NativeErrorKind::ALL` or from `constructor()`, and a tenth kind is `error[E0004]` in the generated matches. For the four in `porffor-aot-wasm`: **still open**, ledger **R4**, deferred lane. |
+| **M7** | Add a NativeError to one of the former nine-row tables and not the others. | Compiled before the retrofit. | **Unrepresentable on both sides.** `lila-ir` derives from `NativeErrorKind::ALL` / `constructor()`. T24 replaced the four AOT copies with one exhaustive `ErrorPrototypeLocation` match and derived the realm entries and `instanceof` lookup from it (§13); a tenth kind is `E0004`. |
 | **M8** | Add a tenth error intrinsic to the enum but not to the row list. | n/a. | `error[E0004]: non-exhaustive patterns` in the generated `as_str`, `constructor`, and `is_native_error` matches — three separate failures. |
 | **M9** | Two error kinds mapped to the same `StandardBuiltinId` (e.g. copy-paste `SuppressedError => AggregateErrorConstructor`). | Compiles. Two distinct error types share a prototype; `e instanceof AggregateError` is true for a `SuppressedError`. | `error[E0080]` on const assertion **N6** — `from_constructor(constructor(k)) == Some(k)` cannot round-trip both. |
 | **M10** | Two error kinds sharing an `as_str()`. | Compiles; the second is unreachable through `from_str`. | `error[E0080]` on const assertion **N5** (pairwise distinct). |
 | **M11** | `is_native_error()` drifting from §20.5.5's six — e.g. someone "helpfully" makes `AggregateError` a native error. | n/a today (the distinction is not represented at all). | `error[E0080]` on const assertion **N7** (exactly six). |
-| **M12** | An `ExprIr::RuntimeThrow` constructed with a name outside the nine, or a typo'd one. | `name: "TyepError"` compiles. Reaches `error_prototype_global_index` (`module.rs:1742`), falls to `OBJECT_PROTOTYPE_GLOBAL_INDEX`, and the thrown value is not an `Error` — `catch (e) { e instanceof TypeError }` is `false`, `e.message` is `undefined`. Silent wrong answer, no diagnostic. | `error[E0308]: mismatched types — expected 'NativeErrorKind', found '&str'`. **The producer side is closed.** The consumer side (`module.rs:1742` reached by a hand-written `&str` from elsewhere) is **not** closed by this area — ledger **R4**, §5.4. |
+| **M12** | An `ExprIr::RuntimeThrow` constructed with a name outside the nine, or a typo'd hand-written emitter name. | `name: "TyepError"` compiled and ultimately fell back to `OBJECT_PROTOTYPE_GLOBAL_INDEX`. | The IR producer is `E0308` because it requires `NativeErrorKind`. The remaining hand-written AOT string boundary returns an internal `EmitError` before lookup; the typed lookup cannot represent the fallback (§13). |
 | **M13** | A consumer compares against a spelling no producer emits — dead code that looks live. Enabled today by `try_well_known_symbol_key_name` returning `Option<String>`. | Compiles, allocates a `String` per query, hands the consumer an unchecked value. | The producer returns `Option<WellKnownSymbol>`; a consumer naming a 16th value is `error[E0599]`. A consumer naming a *real* variant that no producer path reaches is still not caught — that is a reachability question, not a domain question, and is out of this area's reach. |
 | **M14** | Confusing the three strings — writing `description()` where `member_name()` or `shape_namespace_key()` was meant (§6.4). | n/a today; the strings are written as literals and the confusion is *already present* between intrinsic shapes (bare description) and object-literal shapes (`@@` prefixed) — see obligation **D5**. | Not a compile error, and the contract says so honestly: all three are `&str`/`String`. What the type buys is that each has a *name at the call site*, and that `Display`/`AsRef`/`Deref` are absent so no site can stringify without choosing. Newtyping all three (`MemberName`, `Description`, `ShapeKey`) was considered and **rejected**: the map keys stay `String` (ledger **R1**), so the newtypes would be unwrapped at every boundary and would be decoration by AGENTS.md's own test. |
 
@@ -920,34 +918,33 @@ Each row: the mistake, what happens today, and the exact compile error after.
 
 ## 9. Summary of what stays untouched
 
-- `crates/porffor-aot-wasm/src/builtins/intl_datetimeformat.rs`,
+- `crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs`,
   `temporal*.rs`, `emitted_function.rs`, `runtime_helpers.rs` — batch-2
   exclusion list. Zero edits. §4.2 exists to guarantee this for
   `temporal.rs`'s single `RANGE_ERROR_NAME` use.
-- The four NativeError tables in `crates/porffor-aot-wasm`
-  (`module.rs:1730-1743`, `1745-1758`, `1760-…`, `operations.rs:142-151`) —
-  ledger **R4**, deferred consumer lane.
-- The 247 well-known-symbol literals outside `crates/porffor-ir`, in 31 files
+- The four NativeError tables in `crates/lila-aot-wasm` were untouched by the
+  original lane, then replaced by the T24 follow-up in §13.
+- The 247 well-known-symbol literals outside `crates/lila-ir`, in 31 files
   — same lane.
-- `crates/porffor-runtime/src/lib.rs:147-150` — different crate, no
+- `crates/lila-runtime/src/lib.rs:147-150` — different crate, no
   dependency edge.
 - The four `StandardBuiltinId` → name mappings in
-  `crates/porffor-ir/src/builtins.rs` — already exhaustive over the enum.
+  `crates/lila-ir/src/builtins.rs` — already exhaustive over the enum.
 - `ObjectShape.properties` / `ArrayShape.properties` key type — ledger **R1**.
 - `emit_throw_runtime_error`'s `name: &str` parameter
   (`builtins/errors.rs:476`) — the seam between this area and the deferred
   lane.
-- The 10 JS-source-text symbol literals in `crates/porffor-ir/src/lib.rs` and
+- The 10 JS-source-text symbol literals in `crates/lila-ir/src/lib.rs` and
   the 3 in `modules/namespace.rs` — source text, not domain values, §6.6.
 
 ### Verification ladder for the encoder
 
 | Step | Command | Expected |
 |---|---|---|
-| after §4.1 step 1 | `cargo check -p porffor-ir` | clean; **this is where N1–N7 and W1–W8 are proved** |
-| after §4.1 step 2 | `cargo check -p porffor-aot-wasm` | clean; **this is obligation D7** — on failure, take §4.2's fallback |
-| after §4.1 steps 3–5 and §6 | `cargo check -p porffor-ir && cargo check -p porffor-aot-wasm` | clean |
-| whole area | `cargo test -p porffor-ir` (rung 1) | as baseline |
+| after §4.1 step 1 | `cargo check -p lila-ir` | clean; **this is where N1–N7 and W1–W8 are proved** |
+| after §4.1 step 2 | `cargo check -p lila-aot-wasm` | clean; **this is obligation D7** — on failure, take §4.2's fallback |
+| after §4.1 steps 3–5 and §6 | `cargo check -p lila-ir && cargo check -p lila-aot-wasm` | clean |
+| whole area | `cargo test -p lila-ir` (rung 1) | as baseline |
 | whole area | rung G golden capture + `diff -r` | **empty**, given obligation **D8** resolves as expected (§6.5). A non-empty diff is a defect in the encoding, not an expected consequence. |
 
 Rung G matters here specifically because every change in this contract is a
@@ -966,7 +963,7 @@ No cargo or rustc command was run (batch 2 holds the build lock). The only
 check performed was `rustfmt --edition 2021 --check` on copies of the touched
 files in a scratchpad: they parse and are rustfmt-clean. That proves syntax and
 proves nothing about types. Integration instructions, including the three
-required `porffor-aot-wasm` edits this lane did not make, are in
+required `lila-aot-wasm` edits this lane did not make, are in
 `target/lane-notes/Closed spec name domains: NativeErrorKind and WellKnownSymbol-theory-integration.md`.
 
 ### 10.1 Mistake classes discharged as compile errors
@@ -977,12 +974,12 @@ required `porffor-aot-wasm` edits this lane did not make, are in
 | **M2** | `E0599` on a misspelt shape producer | as promised. All 42 producers are `WellKnownSymbol::X.description().to_string()`. |
 | **M3** | unrepresentable | as promised, and stronger than expected: both fifteen-element whitelists *and* both copies of the four-clause "is this the real builtin `Symbol`?" guard are gone. The guard is now one `expression_is_builtin_symbol_intrinsic`; the parse is one `WellKnownSymbol::from_member_name`. |
 | **M4** | `E0004` on a variant without a row | **unrepresentable instead.** The variants *are* generated from the rows, so a variant without a row cannot be written. |
-| **M7** | unrepresentable in `porffor-ir`; open in `porffor-aot-wasm` (R4) | as promised. Five `porffor-ir` tables collapsed: `infer_expr_throw_info` now calls `constructor()` and enumerates nothing; `for_in_known_empty_target` and the `propertyIsEnumerable` guard call `from_str`; `is_error_constructor_expr` walks `ALL`; `is_error_prototype_expr` was deleted. R4 unchanged. |
+| **M7** | unrepresentable in `lila-ir`; originally open in `lila-aot-wasm` (R4) | The original lane collapsed the five `lila-ir` tables. The T24 follow-up subsequently discharged R4 with the exhaustive location authority in §13. |
 | **M8** | `E0004` in three generated matches | **unrepresentable instead**, same reason as M4. |
 | **M9** | `E0080` on N6 | as promised. `all_is_ordered_and_round_trips` includes the `from_constructor(constructor(k)) == Some(k)` round trip. |
 | **M10** | `E0080` on N5 | as promised (`spellings_are_distinct`). |
 | **M11** | `E0080` on N7 | as promised (`native_error_subset_agrees`), with the caveat in §10.3. |
-| **M12** | `E0308` at the producer | as promised. `ExprIr::RuntimeThrow.name` is `NativeErrorKind`; all 14 constructions and 11 test patterns retyped. The consumer side stays open — R4, §5.4. |
+| **M12** | `E0308` at the producer | as promised. `ExprIr::RuntimeThrow.name` is `NativeErrorKind`; all 14 constructions and 11 test patterns retyped. The T24 follow-up now validates the remaining AOT string boundary before typed lookup (§13). |
 
 ### 10.2 Mistake classes delivered with a different error, or as a stronger property
 
@@ -1003,14 +1000,14 @@ above: N1, W1, W6.
 | # | Invariant | Where | Why no type carries it | What must check it |
 |---|---|---|---|---|
 | **R5** | `NativeErrorKind::NATIVE_ERRORS`, `is_native_error()` and `from_constructor()` have **no product call site**. | `native_error.rs` | Their only consumers are the const assertions that tie them (N6, N7) — i.e. the mistake they make into a compile error is a mistake *in themselves*. Nothing in the compiler currently needs the §20.5.5 six, and nothing needs the reverse constructor map. By AGENTS.md's test this is the closest thing in this area to decoration, and saying so is better than pretending otherwise. They were kept because E5 is real ECMA-262 structure (§20.5.6's template applies to exactly six) that this codebase represents nowhere else, and because M9 and M11 are genuine defect shapes. **If a reviewer disagrees, deleting all three plus `native_error_subset_agrees` is self-contained and costs the product path nothing.** | nothing at runtime; this row exists so the next reader does not mistake them for load-bearing. |
-| **R6** | A sixteenth well-known symbol silently gets no receiver-specialization fast path. | `lowering.rs`, the `match symbol` with `_ => None` (ledger **R3**'s site) | Unchanged from R3: the domain is `WellKnownSymbol × ValueKind` and most cells legitimately have no fast path. The arm now carries a comment naming all nine symbols that deliberately fall through, so the omission is at least written down. | rung 1 `cargo test -p porffor-ir`; the CLI iterator/regexp area suites. |
+| **R6** | A sixteenth well-known symbol silently gets no receiver-specialization fast path. | `lowering.rs`, the `match symbol` with `_ => None` (ledger **R3**'s site) | Unchanged from R3: the domain is `WellKnownSymbol × ValueKind` and most cells legitimately have no fast path. The arm now carries a comment naming all nine symbols that deliberately fall through, so the omission is at least written down. | rung 1 `cargo test -p lila-ir`; the CLI iterator/regexp area suites. |
 
-`R1`, `R2`, `R3` and `R4` are unchanged and were all honoured:
+`R1`, `R2` and `R3` remain unchanged. R4 was honoured by the original lane and
+then discharged by the T24 follow-up (§13):
 `ObjectShape::properties` keeps its `String` key (R1); the two
 `starts_with("Symbol.")` sites became `is_symbol_description(..)` and the
 producer gained the specified `debug_assert!` (R2); the specialization match
-kept its `_ => None` with a naming comment (R3); the four `porffor-aot-wasm`
-tables and `emit_throw_runtime_error`'s `name: &str` were not touched (R4).
+kept its `_ => None` with a naming comment (R3).
 
 ### 10.4 Deviations from the retrofit map
 
@@ -1053,9 +1050,9 @@ are in the tree.
 
 ## 11.1 The tree did not build; §4.3's three call sites were never edited
 
-`ExprIr::RuntimeThrow.name` was retyped to `NativeErrorKind` in `porffor-ir`,
-but the three `porffor-aot-wasm` consumers §4.3 names were left alone, so
-`porffor-aot-wasm` could not compile and `cargo check` — this campaign's stated
+`ExprIr::RuntimeThrow.name` was retyped to `NativeErrorKind` in `lila-ir`,
+but the three `lila-aot-wasm` consumers §4.3 names were left alone, so
+`lila-aot-wasm` could not compile and `cargo check` — this campaign's stated
 main test — could not be run against the area's own work. The fix existed only
 as prose in `target/lane-notes/`.
 
@@ -1208,7 +1205,7 @@ not unwrapped at any map boundary: the shape maps stay string-keyed.
 
 ## 11.9 Two measurement corrections
 
-- §4.3 says "12 test patterns in `crates/porffor-ir/src/lib.rs`" and then lists
+- §4.3 says "12 test patterns in `crates/lila-ir/src/lib.rs`" and then lists
   eleven line numbers. Measured in the retrofitted tree: **11**
   (`ReferenceError` ×10, `TypeError` ×1). The encoder's 11 was right.
 - §§4–7 cite **pre-retrofit line numbers** throughout (Species producers,
@@ -1227,16 +1224,16 @@ not unwrapped at any map boundary: the shape maps stay string-keyed.
   definitionally by `concat!`, stronger than the proposed W6, which was
   correctly not written.
 - **E4** (prototype-map totality) — discharged by type on the producer side:
-  `infer_expr_throw_info` no longer enumerates at all. The four
-  `porffor-aot-wasm` tables keep their catch-alls; **R4 stays open**.
+  `infer_expr_throw_info` no longer enumerates at all. The later T24 follow-up
+  also discharged the AOT consumer side; see §13.
 
 ## 12. Integration record — the compile gate
 
 Integrator's section, written after running the gate. Commands: `cargo check -p
-porffor-ir --all-targets`, `cargo xc`, `cargo fmt --all -- --check`.
+lila-ir --all-targets`, `cargo xc`, `cargo fmt --all -- --check`.
 
 **Green, with zero integrator edits to this area.** The three
-`porffor-aot-wasm` call sites that §11.1 applied (`data.rs:3197`,
+`lila-aot-wasm` call sites that §11.1 applied (`data.rs:3197`,
 `expressions.rs:1256`, `expressions.rs:3025`) are the only reason this crate
 compiles with `ExprIr::RuntimeThrow.name: NativeErrorKind`, and they do.
 
@@ -1257,11 +1254,9 @@ Two of this area's blind risks are now measured rather than argued:
 No warning in either new module: everything in them is `pub` and reachable, and
 nothing the retype touched decayed into dead code.
 
-**Unchanged and still open** after the gate: **D5** (§11.2, the bare-description
-shape-key defect — it needs a rung-G budget), **R4** (the four `porffor-aot-wasm`
-error-name tables keep their catch-alls), and `is_error_constructor_expr`
-inheriting the unguarded-identifier weakness through `is_builtin_reference_expr`
-(§11.4).
+**At this historical gate**, D5, R4 and the unguarded-identifier weakness were
+still open. The T24 follow-up in §13 subsequently discharged R4; D5 and the
+identifier weakness are unchanged by that patch.
 
 ---
 
@@ -1270,17 +1265,56 @@ inheriting the unguarded-identifier weakness through `is_builtin_reference_expr`
 The lane note's §3 named **D7** as the one risk it could not discharge without a
 compiler: `names.rs`'s nine `*_ERROR_NAME` consts are now
 `NativeErrorKind::<V>.as_str()` rather than string literals, and they are used in
-**match-pattern position** at `porffor-aot-wasm/src/module.rs:1731`,
+**match-pattern position** at `lila-aot-wasm/src/module.rs:1731`,
 `module.rs:1746` and `operations.rs:142`.
 
-`cargo check -p porffor-aot-wasm` is clean, so the primary form compiles: a
+`cargo check -p lila-aot-wasm` is clean, so the primary form compiles: a
 `const` item is usable as a pattern when its *type* is structural-match, and
 `&'static str` is, regardless of how the value was computed. **The §4.2 fallback
 (reverting the nine consts to literals plus assertion N8) is not needed and
 should not be taken.**
 
-`cargo check -p porffor-ir` is likewise clean, so assertions N2–N7 and W2–W5,
+`cargo check -p lila-ir` is likewise clean, so assertions N2–N7 and W2–W5,
 W7, W8 are evaluated and pass.
 
-Steps 3 and 4 of the note's ladder (`cargo test -p porffor-ir`, rung G) are test
+Steps 3 and 4 of the note's ladder (`cargo test -p lila-ir`, rung G) are test
 and golden-capture rungs and were not run by this stage.
+
+---
+
+## 13. T24 follow-up — AOT error prototype locations are closed
+
+T24 closes the consumer-side gap formerly recorded as R4.
+
+- `crates/lila-aot-wasm/src/module.rs` defines one private
+  `ErrorPrototypeLocation { global_index, realm_offset }`. One exhaustive
+  `match NativeErrorKind`, with no catch-all, assigns both values together.
+  `error_prototype_global_index` and `error_realm_prototype_offset` are total
+  projections of that record; `error_realm_prototype_entries` maps
+  `NativeErrorKind::ALL` rather than maintaining a fourth nine-row list.
+- `crates/lila-aot-wasm/src/operations.rs` retains the non-error constructor
+  cases in its static `instanceof` fast path, but parses error names with
+  `NativeErrorKind::from_str` and consumes the same typed location authority.
+- `crates/lila-aot-wasm/src/builtins/errors.rs` validates each remaining raw
+  string entry point once, before selecting a prototype. Typed private helpers
+  carry the kind through allocation, realm lookup and diagnostic emission.
+  Invalid internal spellings return `EmitError` instead of falling back to
+  `%Object.prototype%`.
+- The grouped error-constructor emitter converts its already-closed
+  `StandardBuiltinId` with `NativeErrorKind::from_constructor` before asking
+  for the base Error prototype location. That gives the reverse mapping a real
+  product consumer without changing constructor branching or evaluation order.
+
+For every existing valid kind, the same global index, realm offset, emitted
+`name` string and instruction order are retained. The deliberate behavior
+change is confined to invalid compiler-internal spellings, which no longer
+produce a plausible but non-Error JavaScript object.
+
+The follow-up was dry-written and rustfmt-checked in its implementation lane;
+Cargo verification is centralized at the batch checkpoint. The minimum gate is
+`cargo check -p lila-aot-wasm --lib`, followed by
+`tests::operations_instanceof_dynamic_rhs_guard_validates` and the engine's
+`tests::wasm_backend_create_realm_uses_realm_local_error_constructors_and_prototypes`
+contract, which covers all nine prototype rows. The cross-realm fallback
+contract is
+`tests::wasm_backend_cross_realm_error_constructor_fallback_uses_new_target_realm`.

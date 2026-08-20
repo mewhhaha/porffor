@@ -1,6 +1,8 @@
 *.wasm
 #*.csv
 *.txt
+# The generated Test262 publication is a required tracked JSON/text pair.
+!test262/snapshots/published-status-wasm-aot.txt
 *.exe
 
 .claude

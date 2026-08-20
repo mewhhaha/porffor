@@ -1,8 +1,8 @@
 # T13 — Dynamic source evaluation: `eval`, `Function` and realm evaluation
 
-**Status:** Policy selected; in progress — explicit unsupported accounting exists, ADR remains
+**Status:** Policy, typed accounting and no-source `%eval%` implemented; textual static subsets remain
 
-**Parallel group:** Feature lane with an architecture decision first  
+**Parallel group:** Feature lane; architecture decision recorded
 **Depends on:** T03, T06, T08, T09, T12  
 **Blocks:** Honest accounting for dynamic-code Test262 cases and parts of T24/T26
 
@@ -10,28 +10,138 @@
 
 The active product policy is explicit: generic `eval`, Function-family
 construction and realm `evalScript` remain visible Wasm-AOT unsupported cases
-when support would require an interpreter or runtime parser. The harness
-classifies these cases and the README reports them separately. A dedicated ADR
-comparing the allowed designs is still absent, and supported statically known
-source/host-compiler subsets have not been implemented. Keep this task focused
-on architecture, capability reporting and general compilation paths rather
-than treating the permitted unsupported result as a pass.
+when support would require an interpreter or runtime parser. Resolved ordinary
+`eval` calls that may receive primitive String source and `%Function%` calls
+now carry a closed `UnsupportedFeature` through
+IR diagnostics into conformance accounting. The three derived Function-family
+constructors now have closed compiler-only intrinsic identities carried by
+function prototype shapes, and `$262.evalScript` is a typed host
+identity admitted solely by the Test262 host-surface policy. Test262 no longer
+infers any dynamic-source result from source spelling. The README reports all
+of these cases separately.
+The spec's pre-source `%eval%` branches are implemented: a no-argument call
+returns `undefined`, and a call whose lowered first-argument kind is nonempty
+and excludes primitive String returns that value unchanged. This is ordinary
+builtin execution, not a textual static subset. Supported statically known
+source subsets have not been implemented. Keep this task focused on capability
+reporting and general compilation paths rather than treating the permitted
+unsupported result as a pass.
+
+The 2026-08-13 current-pin Wasm-AOT run supplies the first concrete static
+subset owner: its first 17 failures are all typed `$262.evalScript`
+target-realm-environment gaps, with no timeout or crash. These are not a
+declaration-free literal cluster. Sixteen exercise descriptor-sensitive
+global/Annex-B declaration instantiation, and the remaining lexical-collision
+case requires a deferred `SyntaxError` with no partial `var` mutation.
+`docs/rust-rewrite/contracts/precompiled-realm-scripts.md` therefore fixes the
+implementation boundary before code changes: one syntax-proven precompiled
+Script registry, deferred parse/early-error results, runtime
+GlobalDeclarationInstantiation and must-use realm-context restoration. Source
+splicing and a declaration-free harness shortcut are explicitly excluded.
 
 ## Objective
 
-Resolve dynamic JavaScript source evaluation without violating the project ban on shipping an interpreter/VM inside emitted Wasm. Implement every compliant subset that can remain direct compilation, and report the rest explicitly until a deliberately approved host-compiler design exists.
+Resolve dynamic JavaScript source evaluation without violating the project ban on shipping an interpreter/VM inside emitted Wasm. Implement every compliant subset that can remain direct compilation, and report the rest explicitly unless a later architecture decision approves a host-compiler design.
 
 Dynamic `import()` is explicitly not in this task's unsupported bucket: T12's componentized-AOT strategy handles it by resolving specifiers to precompiled module components at runtime. This task covers only textual dynamic source — `eval`, the `Function`-family constructors and realm `evalScript`.
 
-## Required architecture decision record
+## Architecture decision
 
-Before implementation, write an ADR comparing these options:
+**Decision:** Wasm-AOT artifacts do not compile source at runtime. Generic
+direct or indirect `eval`, Function-family construction and realm `evalScript`
+are explicit unsupported dynamic-code-generation cases. This is a product
+capability boundary, not a passing Test262 result.
 
-1. **AOT-known source only:** compile direct `eval`/Function bodies whose source is statically known, while preserving direct-eval scope semantics.
-2. **Optional Rust host compiler service:** Wasm requests compilation/execution from the embedding Rust engine, with explicit capability negotiation and shared realm/state bridging.
-3. **Explicit product unsupported:** keep dynamic source visible as unsupported for Wasm-AOT. The spec-exec oracle may still execute these cases during differential triage, but an oracle pass never counts as product support.
+Source proven constant during AOT compilation may be supported only by sending
+it through the ordinary parser, early-error, spec-IR, lowering and Wasm-codegen
+pipeline. Such a specialization must preserve direct-eval scope, strictness,
+realm ownership and observable argument evaluation; recognizing a test path,
+source fragment or assertion is forbidden. This path remains implementation
+work and its absence remains visible debt.
 
-Reject compiling a generic parser/interpreter into the Wasm artifact and reject test-specific source recognition. The ADR must address standalone artifacts, security, CSP-like policies, deterministic builds, scope capture, realm ownership, heap identity and re-entrancy.
+An optional Rust host compiler service was considered and is not part of the
+1.0 Wasm-AOT contract. It would make otherwise standalone artifacts depend on
+an embedding capability and would require a re-entrant bridge for lexical
+environments, realms and observable heap identity. It would also make security
+policy, caching and deterministic-build behavior host-dependent. Those costs
+are not justified while generic dynamic compilation is an explicitly permitted
+capability gap. Introducing such a service later requires a new architecture
+decision and an explicit typed capability; it may not appear as a silent
+fallback.
+
+The alternatives are therefore resolved as follows:
+
+1. **AOT-known source:** permitted as the sole direct-compilation subset, but
+   not yet implemented.
+2. **Rust host compiler service:** deferred outside the current product
+   contract, with no implicit import or fallback.
+3. **Generic runtime source:** explicitly unsupported and separately accounted
+   for by Wasm-AOT. The spec-exec oracle may execute it during differential
+   triage, but that result is never product support or conformance evidence.
+
+Compiling a parser, interpreter or VM into the artifact remains forbidden.
+Because the selected path performs no runtime compilation, it preserves
+standalone deterministic artifacts, leaves CSP-like policy at a clear
+capability boundary and introduces no compiler re-entrancy or cross-instance
+heap bridge.
+
+## Typed capability boundary
+
+`docs/rust-rewrite/contracts/dynamic-source-capability.md` is the source of
+truth for the closed operation and requirement domains. `DynamicSourceGap` has
+private fields: its constructors derive runtime compilation, caller-environment
+or target-realm-environment debt from `DynamicSourceKind`. An unsupported
+diagnostic carries `UnsupportedFeature::DynamicSource`; consumers match that
+enum rather than its display string.
+
+Current compiler producers cover the directly resolved call/construct paths for
+direct/indirect `%eval%`, all four Function-family constructors and realm
+`evalScript`, including spread calls, optional calls across those identities and
+zero-argument Function construction. The old zero-argument shortcut did not
+compile an empty function; it manufactured a value with Function-constructor
+metadata, so it is now typed unsupported with every other Function-constructor
+call.
+
+Resolved `%eval%` is classified through one private, must-use disposition.
+No-argument calls and no-spread calls whose first argument has a nonempty
+`KindSet` excluding primitive String receive a `ProvenEvalPassThrough` and keep
+their ordinary indirect-call IR. All dynamic targets in a multi-target call
+must qualify. A String-capable or unknown argument, every spread, realm
+`evalScript`, and all Function-family operations retain their typed gaps. The
+pass-through never folds away the call: runtime callee identity and evaluation
+of every argument remain observable.
+
+Forwarding through `Function.prototype.call`/`apply`, `Reflect.apply` or
+`Reflect.construct`, bound functions and proxies does not yet preserve the
+underlying dynamic-source identity into this accounting boundary. Those paths
+remain explicit typed-forwarding debt; identifier spelling must not be used to
+paper over them.
+
+This boundary deliberately does not claim the static subset. A literal eval
+string is recorded as blocked on the caller/realm environment seam rather than
+sent through Script parsing, and a Function-family literal is recorded as
+blocked on the target-realm environment seam rather than synthesized as a
+wrapper. Generic String-capable source remains blocked on runtime compilation;
+proven non-String eval is outside that boundary because it evaluates no source.
+
+`DynamicSourceIntrinsic` is the non-executable catalog behind the remaining
+identities. Generator, async and async-generator function object shapes expose
+the right constructor through their intrinsic prototype; aliases therefore
+retain identity without recognizing identifier spelling. The Wasm-AOT Test262
+harness stores the Test262-only realm-eval host builtin directly on
+`$262.evalScript`, so lowering sees the caller's actual argument expressions.
+The compiler-only Function identities have no backend emitter. Realm eval has a
+defensive host body so the always-loaded harness can carry a valid function
+object, but every directly resolved invocation produces the typed diagnostic
+and is rejected before backend planning.
+
+The diagnostic's AOT-known/runtime split is now derived before lowering from a
+private closed source-proof boundary. String literals, no-substitution
+templates, parentheses and recursively pure literal concatenations are the
+only admitted forms. A folded `ExprIr::String` can no longer manufacture the
+proof, so observable calls or conditionals that happen to fold to a string
+remain `RuntimeCompilation` gaps. This is source ownership for the future
+precompiled registry, not execution of the static subset.
 
 ## Semantic scope
 
@@ -52,9 +162,11 @@ Reject compiling a generic parser/interpreter into the Wasm artifact and reject 
 
 Cover `Function`, `GeneratorFunction`, `AsyncFunction` and `AsyncGeneratorFunction` constructors, parameter/body parsing, realm selection, names/length/prototypes and syntax errors.
 
-## Host compiler service requirements, if selected
+## Requirements for any future host-compiler reconsideration
 
-- Typed host import rather than a magic `eval` opcode.
+- Supersede the decision above explicitly rather than adding an incidental call
+  from one builtin.
+- Use a typed host import rather than a magic `eval` opcode.
 - Compile source with the same Rust front/IR/Wasm pipeline.
 - Define a state bridge so evaluated code sees and mutates the required environment/realm objects without copying observable identity.
 - Cache only when source, realm policy and environment shape make caching unobservable.
@@ -64,20 +176,25 @@ Cover `Function`, `GeneratorFunction`, `AsyncFunction` and `AsyncGeneratorFuncti
 ## Acceptance criteria
 
 - The repository has one documented policy; no ambiguous fallback.
-- Supported static direct-eval cases preserve lexical scope and abrupt completions.
-- Indirect/cross-realm evaluation never aliases the wrong global.
+- Proven no-source `%eval%` retains runtime callee identity and evaluates every
+  argument exactly once in source order; unknown, String-capable and spread
+  calls remain typed gaps.
+- Any supported static direct-eval cases preserve lexical scope and abrupt completions.
+- Any supported indirect/cross-realm evaluation never aliases the wrong global.
 - Unsupported dynamic cases are classified consistently and remain in real-suite accounting.
 - No source regex/materialization exists for known Test262 eval/Function cases.
-- If a host service is implemented, representative dynamic strings—not known at AOT time—pass scope, realm, constructor and error tests.
+- If a later architecture decision selects a host service, representative
+  dynamic strings—not known at AOT time—pass scope, realm, constructor and
+  error tests.
 - The README/CLI clearly report artifact capability requirements.
 
 ## Required tests
 
 ```sh
-cargo test -p porffor-front eval_ --quiet
-cargo test -p porffor-ir eval_ --quiet
-cargo test -p porffor-engine eval_ --quiet
-cargo test -p porffor-cli eval_ --quiet
+cargo test -p lila-front eval_ --quiet
+cargo test -p lila-ir eval_ --quiet
+cargo test -p lila-engine eval_ --quiet
+cargo test -p lila-cli eval_ --quiet
 ```
 
 Run real filters under `built-ins/eval`, `built-ins/Function`, generator/async function constructors, direct/indirect eval language tests and `$262.evalScript` cross-realm cases. Report unsupported counts separately until resolved.

@@ -20,7 +20,7 @@ gates. Scope was `cargo check`/`xc`/`fmt` only — no test, no test262 run.
 | `cargo fmt --all -- --check` | **clean** (exit 0, no diff) |
 
 The baseline was produced by an independent `cargo xc` over `091487732` and
-decomposes as `porffor-aot-wasm` 26 (lib) + `porffor-ir` 6 + `porffor-test262` 1
+decomposes as `lila-aot-wasm` 26 (lib) + `lila-ir` 6 + `lila-test262` 1
 = 33, which reproduces batch 3's recorded count exactly. **No new warning was
 introduced by any of the three lanes, by the cross-file edits, or by me.**
 
@@ -34,12 +34,12 @@ them.
 
 | # | Filed by | File | Edit | State |
 |---|---|---|---|---|
-| 1 | handle-cluster Half A | `porffor-test262/src/lib.rs` | (already committed) | landed; `cargo check -p porffor-test262` clean |
-| 2 | zdt-era §0.1 | `porffor-ir/src/names.rs` | 3 function-id consts (`…ZONED_DATE_TIME_PROTOTYPE_{ERA,ERA_YEAR}_GETTER…`, `…TO_PLAIN_DATE_TIME…`) | applied |
-| 3 | zdt-era §0.2 | `porffor-aot-wasm/src/module.rs` | 3 variants into the `=> None` or-pattern | applied |
-| 4 | handle-cluster §4.1 | `porffor-aot-wasm/src/emit.rs` | export `THROW_ERROR_MESSAGE_EXPORT` | applied |
-| 5 | handle-cluster §4.2 | `porffor-aot-wasm/src/emit.rs` | the `debug_dump` line for it | applied |
-| 6 | handle-cluster §4b | `porffor-aot-wasm/src/objects.rs` | clear the message global at the one direct name-set site | applied, **then strengthened** — see §4.1 |
+| 1 | handle-cluster Half A | `lila-test262/src/lib.rs` | (already committed) | landed; `cargo check -p lila-test262` clean |
+| 2 | zdt-era §0.1 | `lila-ir/src/names.rs` | 3 function-id consts (`…ZONED_DATE_TIME_PROTOTYPE_{ERA,ERA_YEAR}_GETTER…`, `…TO_PLAIN_DATE_TIME…`) | applied |
+| 3 | zdt-era §0.2 | `lila-aot-wasm/src/module.rs` | 3 variants into the `=> None` or-pattern | applied |
+| 4 | handle-cluster §4.1 | `lila-aot-wasm/src/emit.rs` | export `THROW_ERROR_MESSAGE_EXPORT` | applied |
+| 5 | handle-cluster §4.2 | `lila-aot-wasm/src/emit.rs` | the `debug_dump` line for it | applied |
+| 6 | handle-cluster §4b | `lila-aot-wasm/src/objects.rs` | clear the message global at the one direct name-set site | applied, **then strengthened** — see §4.1 |
 | 7 | throw-prop §2.1 | `builtins/errors.rs` | drop `extra_depth` from `emit_throw_runtime_error_to_active_handler` | applied |
 | 8 | throw-prop §2.2a | `builtins/standard.rs` | 1 `If`+`push_control` → `open_frame` | applied |
 | 9 | throw-prop §2.2b | `builtins/standard.rs` | drop the `0,` argument | applied |
@@ -49,7 +49,7 @@ them.
 
 Two lane invariants re-counted after integration, not taken on trust:
 
-- `grep -rn extra_depth crates/porffor-aot-wasm/src` returns **only doc-comment
+- `grep -rn extra_depth crates/lila-aot-wasm/src` returns **only doc-comment
   prose** — zero occurrences in code. The `extra_depth` parameter is gone from
   the crate.
 - `self.push_control(...)` has **0 call sites** left crate-wide; the name
@@ -65,8 +65,8 @@ failed as arity/name errors. Nothing failed silently.
 
 ## 3. BLOCKER encountered, and how it was worked around (recorded, not fixed)
 
-`porffor-aot-wasm` depends on `porffor-ir`, so *no* rung-0 check of this batch's
-backend work is possible while `porffor-ir` is red — and it was red for the first
+`lila-aot-wasm` depends on `lila-ir`, so *no* rung-0 check of this batch's
+backend work is possible while `lila-ir` is red — and it was red for the first
 hour, in files no batch-4 lane touched (the concurrent theory round 3):
 
 - **Committed at `aa9afa1a0`:** `E0308` at `lowering.rs:8591` —
@@ -79,14 +79,14 @@ hour, in files no batch-4 lane touched (the concurrent theory round 3):
   an integer for `ResidueWidth`), `lowering.rs:20959/21002/21032` (E0532 on
   `NumberFormatFold::RangeError`), `lowering.rs:35218…35300` (E0061/E0277/E0593).
 
-Workaround: `git worktree add --detach /home/user/porffor-b4check aa9afa1a0`, my
+Workaround: `git worktree add --detach /home/user/lila-b4check aa9afa1a0`, my
 batch-4 files copied in, theory r3's committed E0308 patched locally, checks run
-there. **Both worktrees are now removed.** By 02:16 the live tree's `porffor-ir`
+there. **Both worktrees are now removed.** By 02:16 the live tree's `lila-ir`
 compiled on its own and every number in §1 is from the **live tree**, not the
 scaffold.
 
 > **Sharp edge worth writing down.** Two git worktrees of this repo pointed at one
-> `CARGO_TARGET_DIR` **corrupt each other's artifacts**: the `porffor-*` path
+> `CARGO_TARGET_DIR` **corrupt each other's artifacts**: the `lila-*` path
 > dependencies collide on their metadata hash, so the second tree's `.rmeta`
 > overwrites the first's while the first's fingerprint still reads "fresh". The
 > symptom was 21 phantom `E0599: no variant named TemporalZonedDateTimePrototypeEraGetter`
@@ -135,7 +135,7 @@ moved off `new`.
   (rung 1c green first, then add it, then rung 1c again).
 - **The stale `era` getter declarations** (`zdt-era` note §5.1): all four `era`
   getters declare `ValueKind::Undefined` with a one-kind `KindSet` while a
-  `gregory` receiver returns the string `"ce"`. `porffor-ir/src/lowering.rs` was
+  `gregory` receiver returns the string `"ce"`. `lila-ir/src/lowering.rs` was
   being rewritten by theory round 3 in the same working tree throughout my
   window; editing 4 tables in a 1.75 MB file mid-rewrite risked clobbering their
   in-flight work for a change that is measured non-fatal today
@@ -186,7 +186,7 @@ panics loop.
 
 ## 6. HAND-OFF — the batch's one hard deadline
 
-`crates/porffor-cli/tests/cli/known_failures.rs:82` still reads
+`crates/lila-cli/tests/cli/known_failures.rs:82` still reads
 `const CURRENT_BATCH: u32 = 3;`, and `known-failures.tsv` still carries the
 `cli / UNFILLED / unfilled / T03` row under `# unfilled-allowed-until: batch-4`.
 
@@ -205,7 +205,7 @@ xc` proves the `const _` hygiene still resolves (it is a compile-time check).
 
 ## 7. For the runner, in priority order
 
-1. **Rung 1c** (`cargo test -p porffor-cli --test cli -- --test-threads=2` under
+1. **Rung 1c** (`cargo test -p lila-cli --test cli -- --test-threads=2` under
    `run-watched.sh --label b4-cli --stall 900`). It is the gate for
    throw-propagation-label-depth, it is the only thing that can adjudicate a
    branch immediate, and it is what fills T03. Expect two *new* panic messages to
@@ -225,7 +225,7 @@ xc` proves the `const _` hygiene still resolves (it is a compile-time check).
    See handle-cluster note §3.6b. Then test262 `detail_hash`, aot-wasm
    `runtime_error_message_pool_tests global_index_registry`, cli `language::` /
    `known_failures::` / `throw_propagation::` / `date::`, then the zdt lane's five
-   `porf test262 run` lines and the throw-prop lane's
+   `lila test262 run` lines and the throw-prop lane's
    `language/statements/{try,switch,for}`.
 3. Rung G is **inverted** for throw-propagation (an empty diff means the repair
    did not land) and **inapplicable** to the other two lanes (both change bytes by

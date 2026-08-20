@@ -13,33 +13,40 @@ carry an `IC` prefix so the two cannot be confused.
 **Read §0 first.** It carries six measured corrections to the area brief, two of
 which change what gets built:
 
-- **C1** — `ExprIr::ArrayLiteral` never contains a spread element; array-literal
-  spread is desugared to `[].concat(…)` / `Array.from(…)` before the node
-  exists. A `protocol` field there would be decoration *and* a false claim. §5
-  designs the replacement (`ArraySpreadStrategy`) and note-routes it.
+- **C1** — historically, `ExprIr::ArrayLiteral` never contained a spread
+  element because lowering erased it through `concat` / `Array.from`. The
+  integrated repair keeps plain `ArrayLiteral` unchanged and gives
+  spread-bearing literals a distinct `ExprIr::ArrayAccumulation`; its spread
+  elements carry the protocol obligation (§15 of the main contract).
 - **C6** — the `EmissionSite::ArrayDestructuring` catalog row is **true**, not a
   lie: `compile_array_destructure_from_value_locals` really emits all four
   obligations, both halves of 7.4.11 step 4 included (§1.6, and the
   `array-elem-iter-nrml-close-skip.js` trace at §9.5). The repair is to *add*
   `ARRAY_DESTRUCTURING_PROTOCOL`, not to delete the row.
 
-The work is split into three groups, and only one of them lands:
+The original work was split into three groups; all three are now encoded:
 
 - **Group A (§3)** — everything that leaves `cargo xc` green with no edit
-  outside `crates/porffor-ir`: the `emission_sites!` row list,
+  outside `crates/lila-ir`: the `emission_sites!` row list,
   `ARRAY_DESTRUCTURING_PROTOCOL` and the site↔witness↔catalog triangle
   (K1/J10/J11), the `protocol` field on `ArrayDestructuringPatternIr` (two
   `E0063`s, both in `lowering.rs`), and two `const`-evaluated readers for the
   `abrupt` column (`AbruptDiscipline` + callee containment, J12/J13).
-- **Group B (§4)** — `SpreadArgument`'s witness and `YieldForm` replacing
-  `delegate: bool`. Fully specified, including every one of the 13 out-of-crate
-  pattern lines. **Applied by nobody this round**: §10 P1 forbids editing
-  `crates/porffor-aot-wasm/`.
-- **Group C (§5)** — the array-literal spread strategy. Designed, note-routed,
-  not written.
+- **Group B (§4)** — two independent witness seams. `YieldForm` now replaces
+  `StatementIr::GeneratorYield`'s `delegate: bool` and carries the
+  one-inhabitant `GeneratorDelegationProtocol` (integrated 2026-08-12; see the
+  main contract's §13). `SpreadArgumentIr` now likewise requires the
+  one-inhabitant `SpreadArgumentProtocol`; its witness credits the real
+  argument-vector emitter for acquisition, step and value only, and makes the
+  absence of an `IteratorClose` claim explicit (integrated 2026-08-12; §14).
+- **Group C (§5, superseded by §15)** — spread-bearing literals now use typed
+  `ArrayAccumulationIr` with no dense specialization. `Fresh` and
+  `SuspensionOwned` targets share one general iterator emitter; a spread always
+  observes `@@iterator`, and the one-inhabitant `ArraySpreadProtocol` makes the
+  acquisition/step/value discharge mandatory.
 
 §10's prohibitions are the load-bearing part for anyone extending this: P1 (no
-`porffor-aot-wasm` edit), P2 (round 1's `pub(crate)` narrowing at
+`lila-aot-wasm` edit), P2 (round 1's `pub(crate)` narrowing at
 `iterator_obligations.rs:45-51` is not re-opened — the emitter-side close token
 is a sibling type in the backend crate, never a witness reader), P5 (`lowering.rs`
 gets exactly two lines).
@@ -53,8 +60,8 @@ iterator — and the scope-shaped design that replaces it.
 
 ## As built (encoder stage, Group A)
 
-Five files changed, all under `crates/porffor-ir/src/`, plus this document and
-the lane note. Acceptance item §11.7 is "no hunk in `crates/porffor-aot-wasm/` is
+Five files changed, all under `crates/lila-ir/src/`, plus this document and
+the lane note. Acceptance item §11.7 is "no hunk in `crates/lila-aot-wasm/` is
 attributable to this contract" — **not** "`git status` is empty there". The
 checkout is shared with concurrent lanes, and a bare `git status` reads as a
 false negative.
@@ -65,7 +72,7 @@ false negative.
 | `operations.rs` | `AbruptDiscipline`, the `discipline` and `calls` columns on `StatementEmissionRow` and their five row values, const asserts **J10/J11/J12/J13**, the `SYNC_PROTOCOL_SITES` citation repair |
 | `ir.rs` | `ArrayDestructuringPatternIr::protocol` — required, no `Default` |
 | `lowering.rs` | the two construction sites `lower_array_binding_pattern` and `lower_array_assignment_pattern` name `ARRAY_DESTRUCTURING_PROTOCOL`. Nothing else. |
-| `lib.rs` | `AbruptDiscipline` added inside the pre-existing `pub use operations::{…}` block (round 4 adds `ArrayPatternProtocol` to the `iterator_obligations` block). No new `mod` line. |
+| `lib.rs` | `ArrayPatternProtocol` remains in the public iterator-obligation surface. The IC-8 follow-up removes the crate-internal `AbruptDiscipline`, raw row types and raw row tables from the public operations re-export. |
 
 Two deletions, because a runtime check that survives beside the compile-time
 check it duplicates is evidence the compile-time one is decoration:
@@ -103,6 +110,7 @@ amended in place; this is the index.
 | `SpreadLoopExitsOnlyWhenDone` was false at two lines | bug | The §9.11 read is complete. Two abrupt exits (`Get(iterator,"next")` and the not-callable TypeError) leave a non-done iterator; the conclusion survives because both are *inside* GetIterator. Renamed `SpreadCloseOwedOnlyAfterAcquisition` with the reason that is true. |
 | IC-5 called a falsified premise "documentation" | bug | `lower_array_literal`'s spread guard narrows from `possible_kinds.contains(Array)` to `is_subset_of({Array})`. `function f(x) { return [...x]; }` was lowering to `[].concat(x)` and appending a non-array iterable instead of iterating it — wrong under a pristine realm. **This is the one emitted-byte change in the batch.** |
 | `into_entry` was `pub` on an all-`pub`-fields struct | polish | Both `into_entry`s are `pub(crate)`; the FORGED-row hole the doc comment claimed to close is now actually closed. Narrowing the structs themselves is **IC-8**. |
+| Raw operation evidence survived as public API | polish | **IC-8 closed (2026-08-13):** `AbruptDiscipline`, `StatementEmissionRow`, `TrackedGapRow`, `STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` are crate-private and absent from `lib.rs`. Downstream consumers see the privately assembled catalog and its accessors only. |
 | `AbruptDiscipline::name` had zero callers | polish | A `const` distinctness assertion over `AbruptDiscipline::ALL`, K4's treatment applied to this area's own type. |
 | `ForOfLoweringIr::protocol()` had zero callers | polish | Deleted; `into_statement_and_kind` reads the witness and `debug_assert`s two real conditions instead. |
 | The `CloseOnAbruptExitWithStep4Precedence` doc over-claimed | polish | Reworded to name the two helpers and the two completion classes without asserting every site exercises the break/return branch — `compile_array_destructure_from_value_locals` does not. |
@@ -114,3 +122,49 @@ belongs to another batch, and the integrator runs the compile gate. Acceptance
 items §11.1 (`cargo xc` clean) and §11.2 (the K1 counterfactual in a scratch
 copy) are therefore open, and §11.12 (emitted bytes unchanged) is argued from
 the shape of the change, not measured.
+
+## Generator-delegation addendum (2026-08-12)
+
+Group B2 is now encoded. `YieldForm::{Plain, Delegate}` replaces the raw IR
+boolean; `Delegate` requires `GeneratorDelegationProtocol::YIELD_STAR`, whose
+private constructor prevents an unrelated witness from occupying that field.
+`EmissionSite::GeneratorDelegation` is backed by both sync and async delegation
+functions, and the catalog/witness const joins credit all four iterator
+obligations. Backend consumers match the form exhaustively while preserving the
+existing emitter branches and instruction order. `generator_delegation.rs` was
+untouched.
+
+This addendum was dry-written only. No Cargo command or execution test was run;
+the batch integrator owns those gates. Group B1 (`SpreadArgument`) is now
+integrated as described in §14 of the main contract; Group C is integrated as
+described in §15.
+
+## ArrayAccumulation addendum (2026-08-13)
+
+Group C is closed by deleting the shortcut. The lowerer now emits
+`ExprIr::ArrayAccumulation` for every spread-bearing array literal and preserves
+`ExprIr::ArrayLiteral` only for the no-spread case. `ArraySpreadIr` requires
+`ArraySpreadProtocol::ARRAY_ACCUMULATION`; its witness names
+`EmissionSite::ArrayLiteralSpread` for GetIterator, IteratorStep and
+IteratorValue, and records `ArrayAccumulationDoesNotClose` as the fourth-slot
+implementation fact. The AOT backend cannot read the witness.
+
+The target is a closed domain: `Fresh`, or `SuspensionOwned` with separately
+typed array and `ArrayAccumulatorU64NextIndexSlot` carriers. Staged generator
+lowering initializes both before the first element and commits each evaluated
+prefix before the next suspension. The compiler-private index payload is an
+exact raw `u64`, not an ECMAScript Number round-trip; contribution at
+`u64::MAX` is rejected before addition can wrap. This explicitly bounds the
+backend representation and does not claim the spec's unbounded mathematical
+counter. Keeping `nextIndex` independent from `length` is required at the
+array-index boundary: values at indexes below `2^32 - 1` use direct fresh-array
+writes; a value at `2^32 - 1` uses the ordinary named key `"4294967295"` and
+does not grow `length`; an elision there throws `RangeError`. The emitter never
+consults inherited setters and never chooses a dense spread path.
+
+ArrayAccumulation itself has no IteratorClose step. Abrupt completion of
+iterator acquisition, step or value extraction propagates directly, so adding
+a `return()` call here would be an observable spec violation rather than extra
+safety. This patch was dry-written: scoped formatting and static repository
+checks ran, while Cargo, focused runtime tests and pinned
+`language/expressions/array` Test262 remain pending for the central verifier.

@@ -1,6 +1,6 @@
 # T05 — Value representation, heap, GC and weak reachability
 
-**Status:** In progress — layout registries landed; executable GC and full BigInt remain open
+**Status:** In progress — GC and weak runtime limits are explicit; cyclic collection and real weak reachability remain blocked
 
 **Parallel group:** Core foundations  
 **Depends on:** T02, T04  
@@ -8,13 +8,124 @@
 
 ## Current repository state
 
-The checked-in heap design and registries document value tags, layouts, roots,
-weak edges and collector phases, and allocation grows linear memory safely.
-The implementation remains bump-only, the collector contract is metadata-only,
-`gc()` is intentionally unsupported, and multi-limb BigInt arithmetic and
-conversion are still incomplete. The current linear-memory object model also
-does not yet realize this task's Wasm-GC-first target, so that architecture gap
-must be resolved rather than treated as completion.
+[`docs/rust-rewrite/value-heap-gc.md`](../docs/rust-rewrite/value-heap-gc.md)
+is now the checked-in architecture and phased cutover contract. The new
+`gc_types.rs` vocabulary distinguishes GC type indices, field owners, storage
+values, mutability, nullability, strong GC references and owner-typed linear
+spans at compile time. The central `ModuleTypeRegistry` appends
+`RuntimeGcAnchor` and then `RuntimeGcAnchorHolder` from that typed schema. The
+holder has one immutable, non-null `GcRef<RuntimeGcAnchor>` field. Consuming the
+type registry and open global-section builder derives one unexported typed root
+from the section's actual next index, appends it after every existing global,
+and returns one opaque, non-cloneable package containing both finalized
+sections and the root lifecycle. A dedicated consuming transition compiles main
+internally against that exact package and retains it in package-owned code; no
+arbitrary callback can substitute another package. Once the remaining bodies
+are supplied, a single consuming assembly operation emits the package's type,
+global and code sections inseparably in Wasm section order. Callers cannot
+predict a raw root index, extract or copy its schema, clone its raw global
+section, append a later global, split two packages across main/type/global/code,
+or give an internal function the root lifecycle. Main constructs both structs
+before any call, transfers the holder's edge into the root, keeps it through
+source execution and the final job checkpoint, then verifies the anchor ABI and
+clears the root on every real main exit. The schema module is the sole raw
+Wasm-GC encoder boundary: module assembly consumes one opaque compiled package,
+and function emission consumes opaque initialization/cleanup operations instead
+of extracting interchangeable type, field and global `u32` indices.
+
+The product implementation is still the bump-allocated linear-memory object
+model. Its layout, root, weak-edge and collector tables remain passive metadata;
+`gc()` is unsupported and current weak records are strong in practice. The GC
+anchor and its global root are only a runtime-capability/lifecycle witness; no
+JavaScript semantic value has moved from the linear heap and there is no
+integer/reference bridge. This does not establish semantic roots for calls,
+exceptions, suspended frames or pending jobs.
+
+The engine is pinned to Wasmtime 38.0.4. One typed runtime policy now configures
+both product Wasmtime engines, explicitly requires reference types, typed
+function references, Wasm GC and exceptions, and explicitly selects DRC. The
+product dependency retains `gc-drc` and removes `gc-null`, so engine creation
+cannot silently fall back to the null collector. DRC cannot collect cycles;
+T05's cyclic-graph acceptance criterion therefore requires a cycle-capable
+lower-bound update, not a hand-written parallel collector.
+
+The same product policy records weak reachability separately as
+`WasmWeakReachabilityCapability::Unavailable`. Wasm GC and DRC do not expose
+the weak-reference or ephemeron operations T21 needs, and typed engine-setup
+errors retain that fact independently of the collector selection. This is an
+explicit blocker, not a claim that the current linear weak records have weak
+semantics.
+
+The passive linear-heap weak-edge inventory now derives retention from one
+closed `HeapWeakEdgeKind` domain. Weak keys, targets and unregister tokens do
+not retain their targets; ephemeron values are conditionally retained when
+their keys are reachable through the fixpoint; and finalizer holdings remain
+strong until cleanup. No independently writable Boolean can contradict those
+meanings. This is an inventory invariant only: it does not execute tracing,
+clear a weak target, queue cleanup or make the current records weak in practice.
+
+The central feature-enabled CLI compile covers both `lila-aot-wasm` and
+`lila-engine`. The complete resource-bounded engine inventory and the complete
+620-test default CLI inventory instantiate and execute product modules through
+the shared main prologue under the explicit DRC policy, so the typed
+strong-edge/ABI probe is runtime-verified. The new global-root lifecycle still
+requires its focused and inventory verification. Even once verified, it proves
+only the lower-bound feature, schema edge and one capability root—not semantic
+heap migration, reclamation, cycle collection or weak reachability.
+
+## Landed foundation
+
+- One-object-model invariant and atomic semantic cutover are explicit.
+- `GcTypeIndex<T>` and `GcField<Owner, Value, Mutability, Nullability>` prevent
+  the main schema/index/field-shape mixups before encoding.
+- `GcRef<T>` deliberately has no integer representation and denotes only a
+  strong edge; no false weak-reference marker exists.
+- `GcRootGlobal<T>` names only a mutable, nullable Wasm global containing a
+  strong reference to `T`; consuming the type/global builders derives the root
+  from the actual section length, appends it, and returns one opaque finalized
+  package. Its closed main compiler consumes that package into package-owned
+  code, and the sealed result exposes no independent main/type/global/code
+  assembly operations.
+- `LinearAddr<Owner>` and checked `LinearSpan<Owner>` distinguish byte storage
+  from object identity and name its sole GC owner.
+- `RuntimeGcAnchorSchema` fixes one immutable `i32` ABI-version field; its type
+  index is assigned by the central builder rather than a numeric constant and
+  is carried into the main-function initialization as typed module state.
+- `RuntimeGcAnchorHolderSchema` fixes one immutable, non-null
+  `GcRef<RuntimeGcAnchor>` field. Ordered central registration consumes the
+  anchor's typed index when encoding that field. The main probe transfers that
+  edge into the typed root before any call and verifies/clears it only at the
+  shared main exit; the final job checkpoint deliberately does not clear it.
+- Raw GC type-index and field-ordinal construction/extraction, typed root
+  construction/extraction and `struct.new`/`struct.get` instructions are
+  private to `gc_types.rs`. No module-assembly API accepts a planned root slot;
+  consuming the actual global section creates its private, paired
+  `RuntimeModuleSchema`. Only the opaque package exposes complete lifecycle and
+  consume-once assembly operations, so owner/field/target/root-index and
+  cross-package main/type/global/code pairing mistakes fail at the Rust boundary
+  instead of surviving until Wasm validation.
+- `WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` is the
+  closed collector truth consumed by configuration, trace reporting and typed
+  `EngineError` context; both native compiler profiles share that policy.
+- `WasmWeakReachabilityCapability::Unavailable` independently closes the
+  product weak/ephemeron capability domain, so changing the collector cannot
+  silently imply weak-reference support.
+- `HeapWeakEdgeKind` exhaustively derives non-retaining, ephemeron-conditional
+  or strong-until-cleanup retention for every passive weak-edge slot; slot rows
+  cannot encode a contradictory Boolean strength claim.
+
+## Remaining implementation sequence
+
+1. Generate the complete GC layout/type/accessor registry.
+2. Close the value, completion, exception and host ABIs over scalar plus real
+   Wasm-reference parts.
+3. Atomically switch every semantic-object producer/consumer and delete the
+   corresponding linear object model in the same batch.
+4. Raise the lower bound to a cycle-capable collector and close rooting,
+   side-storage and cyclic stress cases.
+5. Select a real weak/ephemeron facility and replace the explicit unavailable
+   capability before implementing weak collections, WeakRef,
+   FinalizationRegistry and Test262 `gc()`.
 
 ## Objective
 
@@ -83,9 +194,9 @@ Expose ephemeron/weak-edge support required by WeakMap, WeakSet, WeakRef and Fin
 ## Required tests
 
 ```sh
-cargo test -p porffor-aot-wasm heap_ --quiet
-cargo test -p porffor-engine wasm_ --quiet
-cargo test -p porffor-cli wasm_ --quiet
+cargo test -p lila-aot-wasm heap_ --quiet
+cargo test -p lila-engine wasm_ --quiet
+cargo test -p lila-cli wasm_ --quiet
 ```
 
 Add long-running stress tests behind an ignored or dedicated CI profile, plus focused real tests under `built-ins/WeakRef`, `built-ins/FinalizationRegistry`, weak collections and allocation-heavy Array/Object subtrees.

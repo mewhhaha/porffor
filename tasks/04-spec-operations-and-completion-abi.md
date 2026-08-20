@@ -8,13 +8,92 @@
 
 ## Current repository state
 
-`porffor-ir/src/operations.rs` and
-`porffor-aot-wasm/src/operations.rs` provide shared operation catalogs and
-emitters, while the backend has explicit ABI and control-flow modules. Feature
+`lila-ir/src/operations.rs` and
+`lila-aot-wasm/src/operations.rs` provide shared operation catalogs and
+emitters, while the backend has explicit ABI and control-flow modules. The 29
+expression-shaped `SpecOperationIr` rows now come from one typed descriptor
+declaration containing the name, family, operand domain, normal result and
+abrupt capability. The backend validates that closed operand domain before
+dispatch, and the former parallel family/result/abrupt matches are gone.
+
+Typed abrupt routing now covers `GetV` inside `GetMethod`, the `ToNumber` of
+`Number.prototype.toFixed` argument zero, and every caller of the shared tagged
+`ToPrimitive` emitter. The sole tagged emitter requires a closed
+`ToPrimitiveAbruptRoute`: route to the active handler, return the current
+function, or close a named iterator and return. Adding a route requires an
+exhaustive match update, and a new caller cannot omit the decision. The
+duplicate tagged `_without_throw_propagation` entry point is gone.
+
+The same route is also mandatory at the lower object/function-specialized
+ToPrimitive seam. Its byte-identical `_without_throw_propagation` twin is gone,
+and the former generic raw-completion route is gone. Private raw emitters now
+return a `#[must_use]` `PendingToPrimitiveCompletion` with private fields. Every
+internal numeric/string composite consumes that token in its exact guarded
+continuation; the runtime-helper generator reaches only a dedicated wrapper
+that emits all four ABI result slots. `unused_must_use` is denied in the module,
+so a new internal raw call that omits its continuation fails to build. Array
+element stringification selects active-handler routing before coercion.
+
+Primitive ToString now has the same closed ownership rule. Its sole emitter
+requires a `PrimitiveToStringAbruptRoute`: active handler, current-function
+return, or iterator-close-and-return with a complete local witness. The former
+raw `_to_local_without_throw_return` copy is gone. Every consumer names its
+policy, and adding a policy requires an exhaustive match update. This fixes the
+shared `SpecOperationIr::ToString`, `String(object)` and array-element paths:
+when an object's coercion hook returns a Symbol, the resulting TypeError now
+reaches an enclosing catch just like a value thrown by the hook, instead of
+unconditionally returning the whole function. Object.fromEntries and
+Object.groupBy retain their iterator-close-before-return discipline.
+
+The exceptional `ToLength` seam now has a similarly closed, deliberately
+bounded owner set. The two RegExp execution paths must propagate a conversion
+throw to the active in-function handler, while Array.fromAsync's array-like path
+must reject and return its already-created promise. Those three consumers call
+one routed emitter with an exhaustive `ToLengthAbruptRoute`; the former
+`_without_throw_return` twin and the three caller-side completion checks are
+gone. A throw is routed immediately after `ToNumber`, before the infallible
+numeric normalization step, so a new exceptional caller cannot accidentally
+continue matching, mutate state, or escape a promise-returning algorithm without
+naming its completion owner. The ordinary `ToLength` wrapper and its 56 callers
+retain their existing current-function policy and remain outside this bounded
+migration.
+
+The proxy-aware `Call` dispatcher now encodes its remaining internal
+two-policy choice as a private, exhaustive `ProxyCallThrowRouting` domain:
+return the current function's completion tuple, or leave the throw in that
+tuple for the caller to inspect. The raw dispatcher is private to
+`functions.rs`; its two named wrappers fix one variant each, and the outlined
+runtime-helper generator reaches it through the leave-completion wrapper rather
+than selecting a raw boolean from `emit.rs`. This domain is deliberately
+separate from `PropagateCallThrow::ToActiveHandler`, which may branch to an
+active in-function handler instead of returning the current function.
+
+This is an invariant-only rewrite. The three former boolean selections already
+chose the correct policies, all existing public wrapper call sites are
+unchanged, and the nine policy-dependent emission points retain their exact
+return/leave branch and instruction order. A focused source contract pins the
+closed variants, exhaustive projection, private raw entry and named-helper
+route. Its static source/diff/rustfmt gates are green; compile and the existing
+Proxy apply, callable-trap abrupt-completion and JSON reviver runtime fixtures
+remain queued behind centralized verification. No `Call`/Proxy conformance
+gain, completion-ABI redesign or `exnref` migration is claimed. The separate
+primitive-to-number `return_on_throw` seam remains outside this bounded change.
+
+This migration also fixes the Temporal month-code coercion path: a user value
+thrown by `toString` now escapes unchanged instead of being overwritten by the
+later non-String TypeError check. Existing coercion and iterator-close order is
+otherwise unchanged. These wrappers do not make the remaining property and
+builtin-coercion sites authoritative: feature
 emitters still contain substantial local coercion, property and completion
 logic, and the large Test262 materialization layer shows that shared operations
-are not yet authoritative across every family. Keep new cross-family semantics
-in the shared operation layer and delete local copies as callers migrate.
+are not yet authoritative across every family. The Wasm completion convention
+also remains the existing tuple/current-completion mechanism rather than the
+target `exnref` design.
+
+The descriptor and migration boundary are specified in
+[`docs/rust-rewrite/operation-descriptors.md`](../docs/rust-rewrite/operation-descriptors.md).
+Keep new cross-family semantics in the shared operation layer and delete local
+copies only as callers migrate.
 
 ## Objective
 
@@ -61,9 +140,9 @@ The convention must work across user functions, builtins, proxy traps, host impo
 ## Implementation sequence
 
 1. Write a catalog mapping operation name to spec inputs, outputs and possible abrupt completions.
-2. Introduce typed operation nodes/helpers in `porffor-ir`.
+2. Introduce typed operation nodes/helpers in `lila-ir`.
 3. Introduce shared Wasm helper generation and a registry that emits each helper once per module.
-4. Convert two representative families first: property access and builtin argument coercion.
+4. Convert representative property access, builtin argument coercion and tagged `ToPrimitive` paths.
 5. Migrate remaining call sites incrementally, deleting old helpers as coverage moves.
 6. Add operation-level differential tests against `spec-exec` using side-effecting coercion objects and proxies.
 
@@ -79,10 +158,10 @@ The convention must work across user functions, builtins, proxy traps, host impo
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir operations_ --quiet
-cargo test -p porffor-aot-wasm operations_ --quiet
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli wasm_ --quiet
+cargo test -p lila-ir operations_ --quiet
+cargo test -p lila-aot-wasm operations_ --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli wasm_ --quiet
 ```
 
 Run real Test262 coercion-order cases from several builtins plus `language/statements/try`, `built-ins/Proxy`, and `built-ins/Object` to verify cross-family behavior.

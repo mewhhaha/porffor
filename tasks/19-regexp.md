@@ -1,6 +1,6 @@
 # T19 — Complete ECMAScript RegExp semantics
 
-**Status:** In progress — dedicated parser/emitter exists; broad ECMAScript grammar remains unsupported
+**Status:** In progress — the ordered-bytecode engine architecture is fixed; dynamic compilation and broad grammar remain incomplete
 
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T10, T18  
@@ -10,10 +10,93 @@
 
 Lila now has dedicated RegExp IR parsing and Wasm builtin support for a
 growing syntax/behavior subset, plus String symbol-dispatch integration. The
-README explicitly records broader RegExp syntax, Unicode-set classes and other
-combinations as unsupported, and focused Test262 rewrites remain. The required
-engine strategy document and complete zero-timeout RegExp/String-regexp trees
-are not yet present.
+selected engine, bytecode, Unicode, backtracking and deterministic resource
+contracts are recorded in
+[`docs/rust-rewrite/regexp-engine.md`](../docs/rust-rewrite/regexp-engine.md).
+Arbitrary runtime pattern compilation, broad grammar coverage, the complete
+typed resource policy and complete zero-timeout RegExp/String-regexp trees are
+not yet present. The README explicitly records broader syntax combinations as
+unsupported, and focused Test262 rewrites remain.
+
+RegExp call and construction now have a bounded realm-correct allocation seam.
+An undefined `NewTarget` becomes the exact entry- or created-realm active
+RegExp constructor, explicit new targets receive one observable `prototype`
+Get, primitive results fall back through the new target's required realm slot,
+and tagged custom prototypes survive the sole result allocation. Direct
+construct dispatch makes the RegExp body the owner of that Get and allocation.
+The focused
+[contract](../docs/rust-rewrite/contracts/regexp-constructor-realm-prototype.md)
+and source-free cross-realm witness do not depend on dynamic Function source
+generation. This does not implement `IsRegExp`/same-constructor early return,
+cloning, flags override, general runtime pattern compilation or broader RegExp
+protocol closure.
+
+The emitted matcher now has a closed result-status ABI. All 45 result writers
+must choose normal completion, corrupt-program failure or resource exhaustion;
+the ordered-choice capacity guard is the sole current resource producer. The
+wrapper uses the same typed resource route for its six scratch-arena preflight
+failures, rewinds transient storage before routing a returned failure, and
+returns a realm-correct `RangeError` before any post-match `lastIndex` write.
+Corrupt artifacts retain their existing generic `Error`. One row source owns
+the status words, constructors and messages, including string-pool interning.
+
+This closes the raw status/current scratch-failure seam only. There is still no
+deterministic execution-step budget or unified `RegExpResourceLimits`, and the
+resource status is not expected to be reachable from a valid current program
+under the exactly sized arena. No product hook or end-to-end exhaustion claim
+is added ahead of that follow-up.
+
+The IR carries the mutually exclusive legacy, `u` and `v` grammar modes as one
+closed `RegExpUnicodeMode` from flag parsing through atom and character-class
+dispatch. Compiled flags cannot represent both Unicode modes at once, and a new
+mode must define its parser routing exhaustively.
+
+Ordinary legacy/`u` classes now narrow that outer mode to a closed
+`OrdinaryClassMode` before choosing an instruction representation. Both the
+ASCII bitmap and code-point range parsers require that typed grammar mode and
+enforce the same control, decimal/octal and identity-escape verdicts. Encoding
+selection therefore cannot make Annex B escapes legal under `u` or change
+`\cA` from U+0001 into literal class members. An incomplete legacy `\c`
+preserves the standalone backslash and following `c` as two class members in
+either representation. The focused
+[contract](../docs/rust-rewrite/contracts/regexp-unicode-class-escape-grammar.md)
+records the boundary and witnesses. This does not add arbitrary runtime
+pattern compilation, close the dynamic-loop Test262 cases, or change the
+UnicodeSets parser.
+
+Named-group identifier classification now uses a closed start/continue domain
+and the pinned ICU `ID_Start`/`ID_Continue` tables directly. The RegExp parser
+no longer asks the third-party regex dependency to decide that product grammar
+rule. That dependency remains in a separate shape-limited static generator fold
+whose accepted results can influence emitted IR; it must be proven against the
+Lila engine or removed.
+
+Legacy direct astral source now has a typed term boundary. A validated UTF-16
+surrogate pair cannot flow through the ordinary one-atom quantifier path: the
+exhaustive term domain makes the lead mandatory and applies a following
+quantifier only to the trail. The focused
+[contract](../docs/rust-rewrite/contracts/regexp-legacy-direct-astral-quantifier.md)
+and IR/Wasm witnesses distinguish that code-unit behavior from the whole-scalar
+`u`/`v` rule. This does not close escaped-surrogate combinations, supplementary
+case folding, the restricted lookbehind subset, or arbitrary runtime pattern
+compilation.
+
+The `v`-mode class parser now commits to one closed expression shape after its
+first typed operand: union, homogeneous intersection, or homogeneous
+subtraction. A private operator enum owns delimiter and range semantics, and
+distinct tail parsers reject mixed operators, implicit operand unions and
+missing operands with a cited `ClassSetExpression` syntax rule. The focused
+[contract](../docs/rust-rewrite/contracts/regexp-unicode-set-expression-shape.md)
+and IR/Wasm witnesses keep valid chained operations live. A private validated
+`ClassSetCharacter` boundary rejects raw syntax characters and all reserved
+double punctuators while preserving escaped operands such as `[a&&\&]`, and
+enforces the decimal-digit lookahead after `\0`. A validated `\q{…}` stays a
+typed operand through outer closure, range and operator validation plus the
+exact §22.2.1.8 `MayContainStrings` negation early error. The typed capability
+marker then survives the complete Pattern group, named-reference, and
+nullable-group unbounded-quantifier checks; only a globally valid Pattern
+remains an explicit unsupported capability. This does not implement
+class-string matching, properties of strings or full UnicodeSets conformance.
 
 ## Objective
 
@@ -21,14 +104,21 @@ Implement the ECMAScript regular-expression grammar, matching model and observab
 
 ## Engine strategy
 
-Write a short design document before broad implementation that evaluates:
+The selected design document evaluates:
 
 - translating ECMAScript patterns into a compatible Rust engine plus Lila-managed semantics;
 - extending/forking the current engine for missing features;
 - implementing a dedicated bytecode/NFA/backtracking engine compiled into Wasm;
 - hybrid specialized engines selected by pattern features.
 
-The chosen design must support lone-surrogate-aware UTF-16 matching, observable `lastIndex`, captures and all pinned syntax. It must not invoke a host JavaScript engine, bundle a JavaScript interpreter, or recognize known Test262 patterns specially.
+The decision is one Lila-owned ordered-backtracking bytecode model: Rust compiles
+static patterns, a RegExp-only compiler in emitted Wasm compiles arbitrary
+runtime patterns, and both feed the same iterative Wasm matcher. A linear-time
+specialization is deferred until the reference engine is complete and its
+admitted feature set can prove observational equivalence. The design supports
+lone-surrogate-aware UTF-16 matching, observable `lastIndex`, captures and all
+pinned syntax without a host JavaScript engine, a JavaScript interpreter, or
+known-pattern recognition.
 
 ## Pattern parsing and validation
 
@@ -89,10 +179,10 @@ Coordinate with T18 so String methods first perform well-known-symbol dispatch. 
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir regexp_ --quiet
-cargo test -p porffor-aot-wasm regexp_ --quiet
-cargo test -p porffor-cli wasm_regexp --quiet
-./target/debug/porf test262 run built-ins/RegExp --execution-backend wasm --timeout-ms 180000 --threads 4
+cargo test -p lila-ir regexp_ --quiet
+cargo test -p lila-aot-wasm regexp_ --quiet
+cargo test -p lila-cli wasm_regexp --quiet
+./target/debug/lila test262 run built-ins/RegExp --execution-backend wasm --timeout-ms 180000 --threads 4
 ```
 
 Also run RegExp literal grammar tests and the String `match`, `matchAll`, `search`, `replace`, `replaceAll` and `split` subtrees.

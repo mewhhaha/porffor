@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # T27: product/release builds of the library and CLI must link no JavaScript
-# interpreter/VM engine (AGENTS.md hard ban). porffor-spec-exec wraps the Boa
+# interpreter/VM engine (AGENTS.md hard ban). lila-spec-exec wraps the Boa
 # interpreter and exists only as a hidden, developer-only differential
 # oracle gated behind the `spec-exec-oracle` cargo feature. This script
 # proves that feature is off by default and that boa_engine does not appear
-# in the default dependency graph of porffor-engine or porffor-cli.
+# in the default dependency graph of lila-engine or lila-cli.
 set -euo pipefail
 
 failures=0
@@ -30,10 +30,21 @@ check_boa_present_with_oracle_feature() {
   fi
 }
 
-check_no_boa_in_default_graph porffor-engine
-check_no_boa_in_default_graph porffor-cli
-check_boa_present_with_oracle_feature porffor-engine
-check_boa_present_with_oracle_feature porffor-cli
+check_no_boa_in_default_graph lila-engine
+check_no_boa_in_default_graph lila-cli
+check_boa_present_with_oracle_feature lila-engine
+check_boa_present_with_oracle_feature lila-cli
+
+artifact_test="crates/lila-aot-wasm/tests/product_artifact.rs"
+if [ ! -f "$artifact_test" ]; then
+  fail "missing emitted product artifact audit: $artifact_test"
+elif ! grep -q 'product_wasm_contains_compiled_semantics_without_a_source_evaluator' "$artifact_test"; then
+  fail "product artifact audit no longer proves compiled semantics and source-evaluator absence"
+fi
+
+if ! grep -q 'cargo test -p lila-aot-wasm --test product_artifact' .github/workflows/ci.yaml; then
+  fail "CI does not execute the emitted product artifact audit"
+fi
 
 if [ "$failures" -ne 0 ]; then
   exit 1

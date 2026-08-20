@@ -1,0 +1,16 @@
+[package]
+name = "lila-intl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+icu_locale = { version = "=2.0.0", default-features = false, features = ["compiled_data"] }
+icu_locale_data = { version = "=2.0.0", default-features = false }
+icu_provider = { version = "=2.0.0", default-features = false, features = ["sync"] }
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"

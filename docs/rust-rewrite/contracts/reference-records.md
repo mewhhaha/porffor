@@ -124,21 +124,21 @@ encoder and discrepancy-fixer stages.
 
 Three files, one new field, and the field is read.
 
-1. `porffor-ir/src/ir.rs` — `DestructuringTargetIr::AssignmentProperty` gains
+1. `lila-ir/src/ir.rs` — `DestructuringTargetIr::AssignmentProperty` gains
    `strictness: Strictness`. Its one construction site is
    `lowering.rs`'s `lower_array_assignment_property_target`, so omitting it is
    `E0063`; a `bool` there is `E0308` for the reasons in `Strictness`'s doc.
    `AssignmentIdentifier` and `AssignmentPrivate` still carry none, and the
    field comment says why (branch 4.c and PrivateSet respectively).
-2. `porffor-ir/src/lowering.rs` — filled from `self.reference_strictness()`,
+2. `lila-ir/src/lowering.rs` — filled from `self.reference_strictness()`,
    the crate's single producer. The `grep -c 'self\.reference_strictness()'`
    gate in ledger L1 moves from **21** to **22**.
-3. `porffor-aot-wasm/src/control_flow.rs` — `PreparedDestructuringTarget::Property`
+3. `lila-aot-wasm/src/control_flow.rs` — `PreparedDestructuringTarget::Property`
    carries it from `prepare_destructuring_target` to `put_destructuring_target`,
    which wraps `compile_property_write_to_locals` in
    `with_reference_strictness` (promoted to `pub(crate)` for this call).
    Analysis arms in `data.rs` and `planning.rs` took `..` / `strictness: _`.
-4. `porffor-aot-wasm/src/planning.rs` — the array-pattern
+4. `lila-aot-wasm/src/planning.rs` — the array-pattern
    `AssignmentProperty` temp-local budget gains
    `REFERENCE_STRICTNESS_FLAG_LOCALS`, because `with_reference_strictness`
    reserves one and `reserve_temp_local` **asserts** rather than diagnosing.
@@ -159,7 +159,161 @@ encoder's §4 describes, now closed for destructuring as well.
 
 ### Compile-gate outcome
 
-`cargo check -p porffor-ir` clean; `cargo check -p porffor-aot-wasm` clean;
+`cargo check -p lila-ir` clean; `cargo check -p lila-aot-wasm` clean;
 `cargo xc` (`check --workspace --all-targets`) exit 0, **0 errors**, and the
 warning set is identical to the pre-integration baseline after normalising line
 numbers. `cargo fmt --all -- --check` exit 0.
+
+---
+
+## T08 identifier-reference follow-up
+
+Destructuring identifier targets now cross lowering and Wasm emission as one
+`IdentifierWriteReferenceIr`, replacing the parallel
+`name`/`global`/`implicit`/`immutable` fields. Its private representation has
+four executable outcomes: mutable binding write, ignored non-strict immutable
+write, typed abrupt completion, and global/unresolvable write carrying
+`Strictness`. The emitter matches that disposition exhaustively.
+
+This closes two previously separate holes without changing evaluation order:
+
+- the uninitialized path consumes `TdzViolation` into the deferred Reference,
+  then emits ReferenceError only when destructuring reaches PutValue, after the
+  extracted value and any default initializer;
+- the global path uses the checked Reference writer under
+  `with_reference_strictness`, so strict destructuring assignment cannot create
+  an unresolvable implicit global and a failed global-object `[[Set]]` observes
+  the Reference's mode.
+
+This is a deliberately narrow seam, not completion of T08's general Reference
+model. `ReferenceRecord` is still recovered from a lowered property read rather
+than constructed directly from the AST, `super` still lacks an explicit
+`[[ThisValue]]` receiver in this contract's ledger. The integration checkpoint
+passed `cargo check -p lila-ir -p
+lila-aot-wasm`, the focused immutable-target IR contract, and a Wasm execution
+covering TDZ/default order, strict and sloppy unresolved writes, and immutable
+assignment.
+
+## T08 suspended-property-reference follow-up
+
+The synchronous-generator activation already has four words which preserve an
+evaluated ordinary property's base/tag and normalized key/tag across `yield`.
+The missing state was not another runtime word: lowering discarded the
+Reference's `[[Strict]]` when it converted a dummy `ExprIr::PropertyWrite` into
+`GeneratorResumeModeIr::AssignProperty { target, key }`, and both the plain
+`yield` and `yield*` resume emitters called raw `emit_object_write`. That bypass
+made the ambient function mode, rather than the carried Reference, decide
+PutValue 3.d.
+
+`AssignProperty` therefore carries a private-field
+`SuspendedPropertyReferenceIr`. Its only current constructor records an
+ordinary Reference as `{ base_and_receiver, key, strictness }`: for a
+non-super property Reference, 6.2.5.3 `GetThisValue` returns `[[Base]]`, so a
+second receiver expression or activation slot would permit an impossible
+disagreement. Consumers receive an exhaustive borrowed use view. The shared
+AOT consumer evaluates and stores base/key before the yielded expression, then
+reloads them and spends `strictness` through `with_reference_strictness` only
+after a normal resume. Adding super/property receiver separation later requires
+a new use-view variant and compile-visible emitter work.
+
+This remains deliberately narrower than the complete generator/Reference
+matrix. Async-generator property-assignment resumption was already an explicit
+unsupported path and its activation has no assignment-reference slots; adding
+those slots and threading them through async delegation is a separate ABI
+feature, not something this type pretends to implement. Private and super yield
+assignment targets remain explicit lowering gaps as before.
+
+## T08 delete-super-reference follow-up
+
+Within the currently supported class and lexical-class home-object contexts,
+`delete super.x` and `delete super[key]` no longer use the former
+`unsupported_expr` arm. Lowering constructs a private
+`DeleteSuperReferencePlan` from current-this metadata and the lowered key, then
+must consume that plan into nested `MaterializeBinding` nodes. The first node
+performs `GetThisBinding` through `ExprIr::This`; the optional second evaluates
+the computed key's raw value; the body throws `ReferenceError` without applying
+`ToPropertyKey` or invoking `[[Delete]]`.
+
+The type is deliberately consumed before durable `ExprIr`, because delete
+never reads the Super Reference's base, receiver, or strictness. Its private
+representation and exhaustive `PropertyKeyIr`/lifecycle matches make an omitted
+operand or new state compile-visible while reusing the existing exhaustive
+`MaterializeBinding`, `This`, and `RuntimeThrow` consumers. A new `ExprIr`
+variant and a second AOT implementation would add surface without carrying
+another invariant.
+
+Object-literal methods still lack the home-object/class-context lowering needed
+to construct this plan and remain explicit unsupported debt. In particular,
+the pinned `super-property-topropertykey.js` object-literal case is not claimed
+by this class-context seam. This closes only the supported delete half of the
+old L6 note. `SuperPropertyWrite` still
+lacks its distinct `[[ThisValue]]` receiver, and super compound/update and
+suspended assignment remain gaps. A structural unit and a Wasm fixture cover
+the fused tree, uninitialized-this/key order, raw-key abrupt completion, absent
+key coercion, null base, and absence of a proxy delete trap. Their Cargo and
+Test262 execution gates remain deferred to the integration checkpoint.
+
+## T08 Object Environment Record write follow-up
+
+Plain identifier `=` inside `with` now has a separate, closed Reference
+lifecycle rather than pretending the Object Environment Record is an ordinary
+property Reference. Analysis creates an `EnvironmentKind::WithObject` after
+the object expression and around the body. Its stable, source-unspellable
+hidden binding is captured unconditionally by ordinary source functions whose
+definition cursor passes through that environment, using the existing lexical
+slot/hop and closure machinery.
+
+`WithEnvironmentBindingObject` admits only identifier reads of one such
+materialized binding. Distinct newtypes represent current scope depth and
+captured cursor depth for both Object and declarative environments; one
+exhaustive cross-product filters the ordered Object chain at the declarative
+fallback located by the same lookup used for the eventual write. A private
+`WithEnvironmentResolution` then couples each surviving object to its initial
+`HasBinding`/`Symbol.unscopables` query, and a non-`Clone`, non-`Copy`
+`WithEnvironmentReferencePlan` owns a non-empty inner-to-outer chain plus the
+referenced name and `Strictness`.
+
+The plan's `put_value` exit consumes it into a fixed tree: initial resolution
+selects an object before the RHS; the RHS is materialized once in that branch;
+`ObjectEnvironmentRecord.SetMutableBinding` then re-runs `HasProperty` on the
+same object. A missing strict binding throws `ReferenceError` without Set. The
+sloppy path still evaluates and propagates the recheck before checked Set, so a
+Proxy `has` trap remains observable. Lexical/global fallback occurs only after
+every active Object Environment Record initially misses. The read follow-up
+below adds the plan's separate consuming `get_value` exit.
+
+The with expression is evaluated outside the newly materialized environment;
+the hidden binding is initialized only after entry. Resumable owners requiring
+a captured WithObject environment are rejected explicitly instead of extending
+the suspension ABI in this batch.
+
+The write seam is deliberately plain-assignment-only. Compound/logical/update/
+destructuring writes, Global Object Environment Records, generated class/helper
+contexts, super-write receiver repair and resumable captured WithObject
+environments remain open. Structural and Wasm fixture execution gates are
+deferred to the integration checkpoint while the low-RAM matrix owns Cargo.
+
+## T08 Object Environment Record read follow-up
+
+Direct value-position identifier reads now consume the same ordered Object
+Environment selection as plain writes. `select_preceding` returns either no
+candidate or a typed non-empty `SelectedWithEnvironmentObjects`; the old raw
+innermost-object accessor is gone. Consuming that selection is the only
+external way to build `WithEnvironmentReferencePlan`, whose `get_value` and
+`put_value` exits both spend the plan.
+
+GetValue evaluates initial `HasBinding`/`Symbol.unscopables` inner-to-outer,
+then re-runs `HasProperty` on the selected materialized object before Get.
+Deletion during the unscopables getter therefore returns `undefined` in sloppy
+code and throws `ReferenceError` in a captured strict function, while an abrupt
+recheck prevents Get. Declarative bindings cut off outer objects at the same
+typed current/captured positions used by writes.
+
+The `typeof unresolvableName` shortcut remains valid only when no selected
+Object Environment Record may bind the name. A selected plan instead uses
+`undefined` only as its terminal unresolvable fallback, runs any selected
+GetBindingValue first, then applies `typeof`. This does not close identifier-call
+`WithBaseObject`, compound/logical/update/destructuring/delete operations,
+generated contexts or resumable captured Object Environment Records. Its
+Cargo, Wasm and pinned Test262 gates remain deferred to the integration
+checkpoint.

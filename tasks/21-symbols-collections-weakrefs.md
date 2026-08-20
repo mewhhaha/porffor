@@ -1,6 +1,6 @@
 # T21 — Symbols, collections, weak collections and weak references
 
-**Status:** In progress — symbols/collections implemented; weak reachability awaits real GC
+**Status:** In progress — symbols/collections implemented; weak reachability is explicitly unavailable
 
 **Parallel group:** Feature lane; split internally by Symbol, strong collections and weak reachability  
 **Depends on:** T05, T06, T10; iterators use T15; cleanup jobs use T14  
@@ -14,6 +14,105 @@ storage and registered weak/ephemeron edges. Because the collector is not
 executable, weak targets cannot clear and finalization cleanup jobs cannot be
 driven by reachability. Strong collection coverage has advanced, but the full
 weak-semantics and complete-tree criteria remain blocked on T05/T14.
+
+Map and Set iterator result shape is now a closed persisted-wire domain rather
+than five raw integer constants. Each constructor accepts only
+`MapIteratorKind` or `SetIteratorKind`; their macro rows generate both the
+stable wire word and the complete dispatch set. `next()` walks that set and
+hands the selected variant to an exhaustive Rust match, then traps an invalid
+record word. Adding an iterator kind therefore cannot silently inherit the old
+Map-key or Set-value fallback.
+
+The strong collection cursor is also a shared typed product seam. Its persisted
+state is the closed `Scanning | Exhausted` domain, and `StrongCollectionCursor`
+selects the complete Map/Set record layout through exhaustive matches. One
+emitter now owns the mutation rules: reload the live append-only history and
+backing pointer, persist the next position before testing a tombstone, and make
+exhaustion irreversible while severing the exhausted iterator's collection
+pointer. That preserves deletion and `clear()` positions, visits reinsertion
+appended before exhaustion, and rejects invalid state words instead of treating
+them as booleans. The representation law and pinned-suite evidence are recorded
+in
+[`ordered-collection-cursors.md`](../docs/rust-rewrite/contracts/ordered-collection-cursors.md).
+This is not a claim that cross-realm or full pinned collection coverage is
+closed. Exact engine contracts for both Map and Set are green across live
+mutation, deletion/reinsertion and irreversible exhaustion.
+
+Strong collection iterator receiver validation is now one shared typed seam.
+`StrongCollectionCursor` exhaustively selects the Map/Set iterator brand and
+preserved error message, while the closed
+`CollectionReceiverError` domain distinguishes a non-object from
+missing internal slots. The exhaustive receiver-representation domain permits
+an internal-brand load only for the compatible Object-tag layout; Array,
+Function and Arguments objects route directly to missing slots, while live and
+revoked Proxies remain unbranded without target unwrapping or trap observation.
+Both `next()` emitters use the same receiver-record helper, and its failures are
+created from the active builtin function's realm. This makes a borrowed
+other-realm `next` throw that realm's `%TypeError%` without changing successful
+cursor behavior. The semantic and representation law is recorded in
+[`collection-iterator-receiver-validation.md`](../docs/rust-rewrite/contracts/collection-iterator-receiver-validation.md).
+This closes only the strong iterator receiver seam, not every collection error
+path or T21's broader cross-realm acceptance criterion.
+
+Ordinary collection data receiver validation is now the same representation-
+safe mechanism without conflating its semantic domain with iterator cursors.
+The closed `CollectionDataReceiverKind` domain selects Map, WeakMap, Set or
+WeakSet brands and messages, while `CollectionReceiverRequirement` keeps those
+four data-slot requirements distinct from the two strong iterator
+requirements. One exhaustive `CollectionReceiverRepresentation` table owns the
+runtime layout decision for both seams: Object-tag records alone may load the
+ordinary brand offset; Array, Function and Arguments are Objects with no brand
+layout; primitives (including the runtime-only heap BigInt tag) are non-object;
+and compile-time-only Dynamic is unreachable. Constructor brand projections
+and other Map/Set allocation sites also consume the same data-kind authority;
+a source-structure regression pins each brand constant to that sole mapping.
+The eighteen source consumers
+that compile thirty-six ordinary collection builtins can no longer duplicate
+or mismatch tag checks, brand loads, messages or error-realm selection. Live
+and revoked Proxies remain unbranded without target unwrapping or trap
+observation. The exact inventory, semantic law and deferred shared verification
+gates are recorded in
+[`collection-data-receiver-validation.md`](../docs/rust-rewrite/contracts/collection-data-receiver-validation.md).
+This closes only the ordinary collection receiver seam, not the weak-
+reachability blocker or T21's full-tree and cross-realm acceptance criteria.
+
+Collection-created algorithm TypeErrors now have one closed realm-aware
+authority. Separate Map/WeakMap and Set/WeakSet constructor-stage domains make
+their distinct legal failures exhaustive (including the Map-only iterator
+entry check), while the existing strong-collection domain selects the two
+`forEach` callback checks. All fifteen source sites create errors from the
+active builtin function's Realm through one typed emitter; no bounded source
+site calls the entry-realm runtime-error helper directly. Created-realm Map and
+Set constructors are self-backed and carry their Realm's TypeError prototype,
+so they cannot lose that identity through missing function metadata. WeakMap
+and WeakSet remain structurally covered but lack created-realm intrinsics, so
+their cross-realm runtime evidence is explicitly deferred. The exact realm,
+ordering, source inventory and focused cross-realm evidence are recorded in
+[`collection-algorithm-error-realms.md`](../docs/rust-rewrite/contracts/collection-algorithm-error-realms.md).
+This closes only those algorithm-created TypeErrors, not successful
+cross-realm construction, iterator closing, weak reachability or T21.
+
+The four collection prototype `Symbol.toStringTag` descriptors now have one
+closed installation authority. `CollectionPrototypeIntrinsic` exhaustively
+derives both the prototype global and its matching `Map`, `Set`, `WeakMap` or
+`WeakSet` String value; one emitter owns the well-known-symbol key and the
+non-writable, non-enumerable, configurable descriptor. Each family installer
+calls it once after its existing methods and accessors, so Map and Set can no
+longer omit the property while WeakMap and WeakSet duplicate the raw shape.
+The representation and deferred verification law is recorded in
+[`collection-prototype-to-string-tag.md`](../docs/rust-rewrite/contracts/collection-prototype-to-string-tag.md).
+This closes only those four intrinsic data properties, not constructor-realm
+fallbacks, weak reachability or the complete collection trees. Runtime, Cargo
+and focused pinned-suite verification remain deferred while the low-RAM
+current-pin matrix owns those resources.
+
+The sole product Wasmtime policy now records
+`WasmWeakReachabilityCapability::Unavailable` independently of its DRC
+collector choice. Every product engine therefore carries the missing
+weak/ephemeron facility as typed setup and reporting context; enabling or
+changing a strong-reference collector cannot silently claim weak semantics.
+This makes the blocker explicit without changing the current builtin surface
+or treating the linear records as a weak implementation.
 
 ## Objective
 
@@ -88,13 +187,13 @@ Test support may repeat collection/job checkpoints, but it must not special-case
 ## Required tests
 
 ```sh
-cargo test -p porffor-aot-wasm symbol_ --quiet
-cargo test -p porffor-aot-wasm collection_ --quiet
-cargo test -p porffor-aot-wasm weak_ --quiet
-cargo test -p porffor-cli wasm_collection --quiet
-./target/debug/porf test262 run built-ins/Symbol --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/Map --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/Set --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-aot-wasm symbol_ --quiet
+cargo test -p lila-aot-wasm collection_ --quiet
+cargo test -p lila-aot-wasm weak_ --quiet
+cargo test -p lila-cli wasm_collection --quiet
+./target/debug/lila test262 run built-ins/Symbol --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Map --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Set --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Run weak-collection, WeakRef and FinalizationRegistry filters repeatedly with GC stress enabled, then rerun Object/Reflect/Proxy own-key tests.

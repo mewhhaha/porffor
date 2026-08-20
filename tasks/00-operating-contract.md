@@ -13,6 +13,16 @@ README status guard, shortcut audit, host-ABI audit, module-boundary audit and
 interpreter-quarantine audit wired into CI. `./scripts/check-task-plan.sh`
 passes in the current working tree. Keep this task as the record for those
 repository contracts; new compiler work belongs to its semantic owner task.
+The README guard treats only the exact generated Wasm-AOT publication pair,
+`test262/snapshots/published-status-wasm-aot.json` and
+`test262/snapshots/published-status-wasm-aot.txt`, as authority to change the
+generated status block. Matrix checkpoints, aggregate inputs, focused or fake
+snapshots, and oracle `spec-exec` artifacts are evidence inputs only and cannot
+authorize a published-status edit. The sole non-evidence exception is the
+historical combined T27/T29 migration: legacy/current status markers, the exact
+Porffor-to-Lila package, binary and fake-suite path identities, and the stale
+`spec-exec` publisher token changing to `wasm-aot`, with every other byte of the
+generated block unchanged.
 
 ## Objective
 
@@ -20,7 +30,7 @@ Turn the rules in `AGENTS.md` and `tasks/README.md` into lightweight, enforceabl
 
 ## Scope
 
-- Add a small task-plan validator, preferably `scripts/check-task-plan.sh` or a Rust test under `porffor-cli`, that verifies:
+- Add a small task-plan validator, preferably `scripts/check-task-plan.sh` or a Rust test under `lila-cli`, that verifies:
   - every `TNN` file has a unique ID;
   - every dependency points to an existing task;
   - every link in `tasks/README.md` resolves;
@@ -34,7 +44,13 @@ Turn the rules in `AGENTS.md` and `tasks/README.md` into lightweight, enforceabl
   - test-specific materializations added/removed;
   - remaining failure hashes and follow-up task IDs.
 - Add a short contributor note explaining the one-owner rule for the monolithic IR/Wasm files until `T02` lands.
-- Add a CI check that fails when README status markers are edited without a corresponding generated status artifact change, unless the edit is explicitly documentation-only outside the generated block.
+- Add a CI check that fails when README status markers are edited without both
+  exact generated Wasm-AOT status artifacts changing together. Do not accept a
+  matrix node, aggregate, focused/fake snapshot, oracle artifact, or one half of
+  the publication pair as substitute authority. Preserve only the exact
+  artifact-free T27/T29 identity and `spec-exec` to `wasm-aot` policy migration
+  described above. An explicitly documentation-only edit outside the generated
+  block remains allowed.
 - Document which commands are smoke tests and which commands are evidence for real-suite progress.
 - Document the backend policy: only `wasm-aot` results are Lila conformance evidence; `spec-exec` (Boa) output is internal oracle/differential diagnostics and must never appear as product status.
 
@@ -55,13 +71,19 @@ Keep the validator dependency-free and deterministic. It must run on Linux and s
 - CI invokes the validator.
 - The PR template clearly distinguishes fake fixture counts from pinned real Test262 counts.
 - The workflow states that `Unsupported`, timeout, crash, and bug are all non-passing outcomes.
+- An isolated guard regression proves that only the complete canonical
+  Wasm-AOT JSON/text publication pair authorizes a generated README status
+  change, apart from the exact historical T27/T29 identity/policy migration;
+  node, aggregate, fake, oracle, single-file, partial/wrong identity and
+  `wasm`-alias changes do not.
 - No runtime/compiler behavior changes.
 
 ## Required tests
 
 ```sh
 ./scripts/check-task-plan.sh
-cargo test -p porffor-cli --quiet
+./scripts/tests/check-readme-status-artifacts.sh
+cargo test -p lila-cli --quiet
 ```
 
 Also run the validator against a temporary intentionally broken copy to prove both error paths before submitting the PR.

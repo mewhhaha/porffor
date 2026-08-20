@@ -300,7 +300,7 @@ ToNumeric, and PutValue on that one record.
 
 ## 2. Type mapping
 
-New module: **`crates/porffor-ir/src/reference.rs`** (this lane's exclusive
+New module: **`crates/lila-ir/src/reference.rs`** (this lane's exclusive
 file). Everything in §2.1–§2.6 lives there unless stated otherwise.
 
 ### 2.1 `Strictness` — invariant I1
@@ -760,9 +760,137 @@ why a type cannot carry the invariant.
 | **L3** | `ReferencePins::materialize` is spent on the write of *its own* Reference, not a sibling's. **Shrunk at DISCREPANCY-FIXER stage:** the *empty* chain is no longer constructible (no `Default`, no `none()`, sole producer `ReferenceRecord::pin_operands`), so what remains is only "two live records at once, chains crossed". | Distinguishing two live pairs needs a lifetime brand (`GhostToken`-style), which is more machinery than the one nesting case in the tree justifies. | `pin_operands` needs a record to be called on, and no lowering function holds two live `(record, pins)` pairs at once — checkable by reading the one call site (`lower_property_reference_update`). |
 | **L4** | The backend's emitted strict guard matches the `Strictness` on the node. | The IR/Wasm boundary is `i64` words; `helper_flag_word` is the last typed point. | The b361b4815 oracle pair (§6, corpus 4/5) is precisely this test, and it is a byte-identical source pair differing only in the directive prologue. |
 | **L5** | `ExprIr::PropertyWrite`'s new field is actually *read* by the backend rather than merely present. | Rust does not warn on an unread field of a public enum variant. | §4.3 stage 3 is not optional: the field and its consumer land together, and dry-run ADVERSARIAL-MC3 (§6) fails until they do. **The entry fired at ENCODER stage and is now closed for all nine variants** — see the note below this table. |
-| **L6** | `SuperPropertyWrite`'s Receiver is `[[ThisValue]]`, not the super base (MC4b, §5.3). | The IR node has no `this_value` field and the backend has no receiver parameter to thread it into; S5 was deferred. | Open. Named as a follow-up lane. `delete super.x` (13.5.1.2 step 5.b, corpus 7) is in the same lane: its ReferenceError is neither emitted nor representable, and `lower_delete`'s super arm is still `unsupported_expr`. |
+| **L6** | `SuperPropertyWrite`'s Receiver is `[[ThisValue]]`, not the super base (MC4b, §5.3). | The IR node has no `this_value` field and the backend has no receiver parameter to thread it into; S5 was deferred. | **Open for writes.** The related `delete super.x` refusal is closed independently by the fused delete-super plan below: deletion never consumes the base or receiver, so fixing it does not pretend to supply the missing write receiver. |
 | **L7** | `ToPropertyKey` on a computed key runs *after* the RHS on the plain-assignment path (C5, corrected). | `PropertyKeyIr::StringExpr` conflates the key operand with the property key, so the IR cannot record that the coercion is owed; the typed fix changes a shared enum matched across the whole backend. | Open, and **pre-existing** — not a regression of this landing. Corpus entry 6's second half is the oracle. Follow-up lane with build access; see C5. |
 | **L8** | The runtime strictness guard's block depth and the `Br` immediates emitted inside it. | Wasm label depths are `u32` immediates computed against a control stack the raw `If`/`Else` instructions in these guards are not on. No type distinguishes "depth relative to the guard" from "depth relative to the frame". | `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` and `NON_EXTENSIBLE_THROW_EXTRA_DEPTH` are named once in `objects.rs` and added at every branch inside the guard, so the two arms of one helper cannot disagree — which is how the defect arose. The behavioural oracle is the fixture pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`; a wrong depth is a wasm validation failure or a throw caught by the wrong handler. |
+
+### T08 suspended ordinary-property Reference amendment
+
+`lhs = yield rhs` evaluates the LeftHandSideExpression before the yielded RHS
+and performs PutValue only after a normal resume. The existing synchronous
+generator implementation already follows the temporal half of that rule: its
+activation stores the evaluated target payload/tag and normalized key
+payload/tag before compiling `rhs`, and the resume branch reloads those words.
+It nevertheless erased one of 6.2.5's fields in IR:
+`GeneratorResumeModeIr::AssignProperty { target, key }` had no `[[Strict]]`.
+The two resume consumers then invoked raw `emit_object_write`, bypassing the
+Reference strictness guard used by ordinary `ExprIr::PropertyWrite`.
+
+The bounded replacement is:
+
+```rust
+pub struct SuspendedPropertyReferenceIr { /* private */ }
+
+pub enum SuspendedPropertyReferenceUse<'a> {
+    Ordinary {
+        base_and_receiver: &'a TypedExpr,
+        key: &'a PropertyKeyIr,
+        strictness: Strictness,
+    },
+}
+
+pub enum GeneratorResumeModeIr {
+    // ...
+    AssignProperty(SuspendedPropertyReferenceIr),
+}
+```
+
+The single constructor is crate-private. `base_and_receiver` is one value on
+purpose: for an ordinary property Reference, 6.2.5.3 returns `[[Base]]` as the
+receiver. Storing two expressions for that case would make a disagreement
+representable. A future Super Reference, whose `[[Base]]` and
+`[[ThisValue]]` differ, must add another use-view variant; every AOT match then
+fails exhaustiveness until it persists and consumes the distinct receiver.
+
+A single backend helper matches that view to perform both halves of the
+suspension protocol. On the suspend state it evaluates base, applies
+ToPropertyKey, and stores the existing activation words. On normal resume it
+reloads those words and calls `emit_object_write` inside
+`with_reference_strictness(strictness, ...)`. Plain `yield` and `yield*` call
+the same helper rather than spelling raw slot access twice. Throw/return resume
+dispatch still precedes PutValue, so an abrupt resume never writes.
+
+No asynchronous claim is made. Async-generator property assignment is already
+rejected before emission and the async activation has no corresponding four
+slots. Supporting it requires an async-generator ABI/layout change and changes
+to both plain-yield and delegation dispatch; it remains an explicit T08/T15
+gap. Private and super assignment targets at a yield remain explicit lowering
+gaps too.
+
+### T08 delete-super Reference amendment
+
+`delete super[key]` is a smaller lifecycle than a general Super Reference, but
+it is not a bare `RuntimeThrow`. SuperProperty evaluation first obtains
+`actualThis` through `GetThisBinding`; only after that succeeds does it evaluate
+the computed expression and apply `GetValue`. It deliberately retains that raw
+value rather than applying `ToPropertyKey`. Delete then recognizes a Super
+Reference and throws `ReferenceError` before `ToObject`, `ToPropertyKey`, or
+`[[Delete]]`.
+
+That order has three observable boundaries:
+
+1. an uninitialized derived-constructor `this` throws before the key expression;
+2. an abrupt computed expression wins over delete's `ReferenceError`;
+3. a normally produced object key is not coerced and no proxy delete trap runs.
+
+The lowering contract is one private, consuming plan:
+
+```rust
+pub(crate) struct DeleteSuperReferencePlan { /* private */ }
+
+enum DeleteSuperReferencedName {
+    Static,
+    Uncoerced(Box<TypedExpr>),
+}
+```
+
+Its sole constructor accepts the current-this `ValueInfo` and a
+`PropertyKeyIr`. It constructs `ExprIr::This` itself, so a caller cannot pass
+the super base in place of `actualThis`. The conversion is exhaustive:
+`StaticString`/`ArrayLength` become `Static`, while
+`StringExpr`/`ArrayIndex` surrender their raw operand to `Uncoerced`. A new key
+representation is therefore `E0004`, not an implicit coercion policy.
+
+`into_reference_error(self)` destructures every private field and exhaustively
+consumes the two referenced-name states into:
+
+```text
+MaterializeBinding(actualThis,
+  MaterializeBinding(raw computed value,  // absent for a static name
+    RuntimeThrow(ReferenceError)))
+```
+
+The sequence must not use `ExprIr::Comma`. The generic Wasm comma consumer
+compiles its left operand and then its right operand without the explicit
+abrupt-completion propagation performed by `MaterializeBinding`; a throwing key
+could otherwise be overwritten by the terminal ReferenceError. The two bound
+values are deliberately unread. Their private fixed names contain `.` and
+cannot collide with source bindings, while every materialization owns a lexical
+scope.
+
+The plan does not store `[[Base]]`: `GetSuperBase` asserts an ordinary home
+object and uses a non-abrupt `[[GetPrototypeOf]]`, and delete does not inspect
+the resulting object/null value before throwing. It does not store `[[Strict]]`
+because both strict and non-strict Super References take the same unconditional
+throw. This is the C1 fused-node choice applied before durable IR; it is not a
+general Super Reference and does not close L6's write receiver.
+
+Private fields plus the sole constructor make an omitted current-this/key
+argument `E0061`; the two exhaustive matches make a new key or lifecycle state
+`E0004`; destructuring `Self` without `..` makes an unconsumed added field
+`E0027`. Rust still permits a deliberate `let _ = plan`, so static review bans
+`_`/`..` in these matches and the durable lowering fixture proves the sole
+production call consumes the plan. The structural unit pins the exact
+actualThis → raw key → ReferenceError tree. The Wasm fixture additionally
+covers pre-`super()` ordering, a throwing key, absent key coercion, null base,
+and absence of a proxy `deleteProperty` trap.
+
+No claim is made for object-literal-method `super` deletion, whose home-object
+context is not yet represented by this class-context lowering path. The pinned
+`super-property-topropertykey.js` object-literal case therefore remains
+unsupported. Nor is a claim made for `SuperPropertyWrite`, super
+compound/update targets, suspended super assignment, the plain-assignment
+`ToPropertyKey` gap in L7, or the complete T08/Test262 matrix.
 
 **L5, closed.** At ENCODER stage the field was read for six of the nine variants:
 `GlobalPropertyUpdate` and `GlobalPropertyCompoundAssign` bound `strictness: _`
@@ -840,17 +968,17 @@ S5  SuperPropertyWrite gains this_value.              MC4b
 S5 is separable and may be deferred to a follow-up lane; S1–S4 are one landing,
 because S2 without S3 is ledger item L5's decoration.
 
-### 4.2 Construction sites in `porffor-ir` — E0063
+### 4.2 Construction sites in `lila-ir` — E0063
 
 `ExprIr::` occurrences of the nine assignment-shaped variants, counted at
 `84e782506`:
 
 | File | Sites | With `..` (unaffected) | Without `..` |
 |---|---|---|---|
-| `crates/porffor-ir/src/lowering.rs` | 36 | 9 | **27** (26 constructions → E0063; 1 pattern at `12332` → E0027) |
-| `crates/porffor-ir/src/ir.rs` | 9 | 7 | **2** (both patterns, in the AST-stat visitor: `2957`, `3294`) |
-| `crates/porffor-ir/src/early_errors.rs` | 9 | 9 | **0** |
-| `crates/porffor-ir/src/lib.rs` | 10 | 10 | **0** |
+| `crates/lila-ir/src/lowering.rs` | 36 | 9 | **27** (26 constructions → E0063; 1 pattern at `12332` → E0027) |
+| `crates/lila-ir/src/ir.rs` | 9 | 7 | **2** (both patterns, in the AST-stat visitor: `2957`, `3294`) |
+| `crates/lila-ir/src/early_errors.rs` | 9 | 9 | **0** |
+| `crates/lila-ir/src/lib.rs` | 10 | 10 | **0** |
 
 The 26 `lowering.rs` construction sites, by line:
 `9799`, `13126`, `16538`, `16605`, `16635`, `18113`, `30502`, `30625`, `30749`,
@@ -879,14 +1007,14 @@ Two facts worth recording because they are cheap to assume and wrong:
 
 ### 4.3 Backend match arms — E0027
 
-All `ExprIr` occurrences in `porffor-aot-wasm` are **patterns**; the backend
+All `ExprIr` occurrences in `lila-aot-wasm` are **patterns**; the backend
 never constructs IR. Counted over the same nine variants:
 
 | File | Arms | With `..` | Without `..` → **E0027** |
 |---|---|---|---|
-| `crates/porffor-aot-wasm/src/planning.rs` | 59 | 48 | **11** — `2834`, `2903`, `3241`, `3289`, `3466`, `4747`, `4846`, `6612`, `6812`, `7476`, `7974` |
-| `crates/porffor-aot-wasm/src/expressions.rs` | 19 | 5 | **14** — `292`, `344`, `347`, `366`, `383`, `458`, `565`, `633`, `1445`, `2654`, `2717`, `2727`, `2745`, `2862` |
-| `crates/porffor-aot-wasm/src/data.rs` | 9 | 6 | **3** — `2936`, `2955`, `3337` |
+| `crates/lila-aot-wasm/src/planning.rs` | 59 | 48 | **11** — `2834`, `2903`, `3241`, `3289`, `3466`, `4747`, `4846`, `6612`, `6812`, `7476`, `7974` |
+| `crates/lila-aot-wasm/src/expressions.rs` | 19 | 5 | **14** — `292`, `344`, `347`, `366`, `383`, `458`, `565`, `633`, `1445`, `2654`, `2717`, `2727`, `2745`, `2862` |
+| `crates/lila-aot-wasm/src/data.rs` | 9 | 6 | **3** — `2936`, `2955`, `3337` |
 
 Under §5.1, the arms binding only `AssignIdentifier` /
 `CompoundAssignIdentifier` / `UpdateIdentifier` fields (`planning.rs:3241`;
@@ -914,9 +1042,9 @@ Stating the boundary is what makes it auditable later.
 | The Proxy `[[Set]]` trap result | runtime. This contract fixes *whether a `false` result is observable*, not what produces it. |
 | Whether a write **succeeds** | out of scope by construction; only observability of failure is in scope. |
 | `ExprIr::OptionalPropertyChain` (`ir.rs:1388`) | read-only, never a PutValue target. |
-| `crates/porffor-ir/src/lowering_helpers.rs` | **listed in the brief's `files_owned`, but it contains zero `ExprIr::` references and its only `Reference` hit is `PropertyDefinition::IdentifierReference` at line 1911, an unrelated AST shape.** No edit. |
-| `crates/porffor-aot-wasm/src/objects.rs` — *as a match site* | its only reference to these variants is a doc comment at `objects.rs:6094`. The brief is right about that. It is **not** right that objects.rs needs no edit at all; see §4.5. |
-| `crates/porffor-aot-wasm/src/builtins/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs` | batch 2 concurrency hold. None contains a reference to these variants. |
+| `crates/lila-ir/src/lowering_helpers.rs` | **listed in the brief's `files_owned`, but it contains zero `ExprIr::` references and its only `Reference` hit is `PropertyDefinition::IdentifierReference` at line 1911, an unrelated AST shape.** No edit. |
+| `crates/lila-aot-wasm/src/objects.rs` — *as a match site* | its only reference to these variants is a doc comment at `objects.rs:6094`. The brief is right about that. It is **not** right that objects.rs needs no edit at all; see §4.5. |
+| `crates/lila-aot-wasm/src/builtins/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs` | batch 2 concurrency hold. None contains a reference to these variants. |
 
 ### 4.5 The scope extension S3 requires, stated so it can be refused
 
@@ -989,9 +1117,9 @@ Fixed by naming the quantity once: `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` (and
 `NON_EXTENSIBLE_THROW_EXTRA_DEPTH` for the bare `5` written twice) in
 `objects.rs`, added at **every** branch emitted inside the guard. Ledger **L8**.
 The behavioural oracle is a new fixture pair,
-`crates/porffor-cli/tests/fixtures/wasm_reference_strictness_putvalue_{strict,sloppy}.js`,
+`crates/lila-cli/tests/fixtures/wasm_reference_strictness_putvalue_{strict,sloppy}.js`,
 whose failing writes sit inside a **top-level** `try` — the shape that makes the
-`extra_depth` live — with tests in `crates/porffor-cli/tests/cli/language.rs`.
+`extra_depth` live — with tests in `crates/lila-cli/tests/cli/language.rs`.
 This is the one item in this area that can produce invalid or mis-branching Wasm,
 so it is the first thing to verify with an actual build.
 
@@ -1070,7 +1198,7 @@ know it is one binding-pattern away from needing a file it does not own.
 ## 6. Dry-run corpus, with corrected traces
 
 Every path below was confirmed to exist under
-`/home/user/porffor/test262/vendor/test262/`.
+`/home/user/lila/test262/vendor/test262/`.
 
 | # | Case | Class | Trace, corrected |
 |---|---|---|---|
@@ -1080,9 +1208,9 @@ Every path below was confirmed to exist under
 | 4 | `expressions/assignment/8.14.4-8-b_1.js` | **MC2** sloppy half | `flags:[noStrict]`, non-writable inherited property; must silently no-op, `o.hasOwnProperty('bar') === false`. |
 | 5 | `expressions/assignment/8.14.4-8-b_2.js` | **MC2** strict half | Byte-identical body, `flags:[onlyStrict]`; must throw TypeError. **The b361b4815 oracle**: one emitted write helper, two callers, opposite required outcomes. The dry run must show the outcome is a function of a `Strictness` carried from the caller, not of a constant in the helper. Ledger L1/L4. |
 | 6 | `expressions/assignment/target-member-computed-reference.js` | **MC5 + O2** | Two halves: `base[prop()] = expr()` must throw `DummyError` from `prop()` (LHS before RHS); `base[objWithThrowingToString] = expr()` must throw `DummyError` from `expr()` (`ToPropertyKey` after both). Choice C5. Traces `lower_property_reference_update`'s `Get`/`GetV` arm (`32225`–`32240`) and the pins at `32251`–`32279`. |
-| 7 | `expressions/delete/super-property.js` | **MC4a + MC4b** | `delete super.x` must throw ReferenceError (13.5.1.2 step 5.b). **Today it does not**: `lower_delete`'s super arm (`lowering.rs:11456`) returns `unsupported_expr("unsupported unary operator")`. Under §2.5 this becomes `UnsupportedTarget::…` routed to a real ReferenceError. |
+| 7 | `expressions/delete/super-property.js` | **MC4a + MC4b boundary** | `delete super.x` must throw ReferenceError (13.5.1.2 step 5.b). The fused delete-super plan now evaluates `actualThis`, evaluates a raw computed key when present, and throws without coercion or deletion. This closes the former `lower_delete` refusal without claiming MC4b's still-open `SuperPropertyWrite` receiver. |
 | 8 | `expressions/assignment/non-simple-target.js` | **negative control, parser-level** | `1 = 1`, `negative: {phase: parse, type: SyntaxError}`. Boa's `AssignTarget::from_expression` (`boa_ast .../assign/mod.rs:141`) returns `None`, so this **never reaches `lower_reference`**. It controls that the *parser* still rejects, not that `lower_reference` does. State this, or the dry-runner will look for a lowering arm that cannot exist. |
-| 9 | `expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js` | **out of scope** (was labelled "the canonical single-record trace for I5") | **Relabelled at DISCREPANCY-FIXER stage.** The case's subject is a `with` scope: 9.1.1.2.5 `ObjectEnvironmentRecord.SetMutableBinding` re-checks `HasProperty` at *write* time, reached via PutValue 4.c, and the RHS deletes the binding in between. This compiler diverts `with`-scoped identifier writes at `lowering.rs:30439-30441` into `lower_with_scoped_identifier_write`, which emits `ExprIr::Conditional { condition: binding_visible, then: PropertyWrite{..}, else: fallback }` — and a `Conditional`'s condition is emitted *before* the RHS, whereas the spec re-runs `HasProperty` **inside** PutValue, after the RHS ran. So `count === 2` and `!('x' in scope)` both fail: control takes the `PropertyWrite` branch and re-creates `x`. **§4.4 deliberately excludes `with` and Object Environment Records from this lane**, so the fix is not owed here; the entry is relabelled so a failing I5 acceptance is not read as this lane's regression. Blocked on the 9.1.1.2 Environment Record lifecycle area. Corpus 14 is the canonical single-record trace for I5. |
+| 9 | `expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js` | **T08 Object Environment follow-up** | The case's subject is a `with` scope: 9.1.1.2.5 `ObjectEnvironmentRecord.SetMutableBinding` re-checks `HasProperty` at *write* time, reached via PutValue 4.c, after the RHS deletes the binding. The T08 follow-up below replaces the old pre-RHS `Conditional { then: PropertyWrite }` shortcut with a consuming `WithEnvironmentReferencePlan`: initial `HasBinding`/unscopables resolution selects one materialized binding object, RHS evaluation happens once in that selected branch, and `SetMutableBinding` re-checks `HasProperty` on the same object before strict ReferenceError or checked Set. Corpus 14 remains the canonical ordinary-property single-record trace for I5. |
 | 10 | `expressions/assignment/11.13.1-1-s.js` | **MC3** | `Object.defineProperty(obj,"prop",{writable:false})`, then `obj.prop = 20` → TypeError, `obj.prop === 10`. A **resolvable, non-global** property reference: the cleanest MC3 oracle, uncontaminated by §1.3's both-modes GetValue throw. |
 | 11 | ADVERSARIAL MC3 (strict): `"use strict"; const o = Object.freeze({x:1}); o.x = 2;` | **MC3 acceptance** | Must go from *"no IR node can express the throw"* to *"the throw is emitted"*. This is the S2+S3 acceptance criterion and the reason §4.5's extension is not optional. |
 | 12 | ADVERSARIAL MC3 (sloppy control): same source minus the directive; no throw, `o.x === 1` | **MC3′ guard** | Guards against fixing MC3 by hardcoding `Strictness::Strict`. Mandatory, per MC3′ and ledger L1. |
@@ -1097,11 +1225,11 @@ Every path below was confirmed to exist under
 The encoder's work is done when all of the following hold. Each is checkable
 without running the conformance suite except where noted.
 
-1. `crates/porffor-ir/src/reference.rs` exists and defines exactly the items of
+1. `crates/lila-ir/src/reference.rs` exists and defines exactly the items of
    §2, with no `_` arm over `ReferenceBase`, `Composition`, `UnsupportedTarget`
    or `ExprIr` (in `carried_strictness`).
 2. `grep -rn "is_current_owner_strict" crates/` returns **0**.
-3. `grep -rn "strict: bool" crates/porffor-ir/src/ir.rs` returns **0**.
+3. `grep -rn "strict: bool" crates/lila-ir/src/ir.rs` returns **0**.
 4. `grep -rn "PropertyReference" crates/` returns **0** — the enum at
    `lowering.rs:71`, its `read_ir` at `88`, and `build_property_reference_write`
    at `32357` are all deleted, not wrapped.
@@ -1115,24 +1243,228 @@ without running the conformance suite except where noted.
 8. `ReferenceRecord`, `ReferencePins` and `PendingReferenceWrite` derive neither
    `Clone` nor `Copy`, and `PendingReferenceWrite` has no public field, no
    `Deref` and no `Into<TypedExpr>`.
-9. `cargo check -p porffor-ir && cargo check -p porffor-aot-wasm` is clean
+9. `cargo check -p lila-ir && cargo check -p lila-aot-wasm` is clean
    (rung 0; 1–5 s and 15–40 s per `batch-workflow.md`).
 10. **Behavioural, and therefore last and elsewhere:** corpus 11 throws, corpus
     12 does not, corpus 13 (as corrected) throws, corpus 14 reports `n === 1`.
     These four are the tests ledger entries L1, L4 and L5 leave load-bearing;
     nothing in the type system can replace them.
 11. **Added at DISCREPANCY-FIXER stage, and the highest priority of the ten:**
-    `cargo test -p porffor-cli --test cli language::` passes the new fixture
+    `cargo test -p lila-cli --test cli language::` passes the new fixture
     pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`. They put a
     failing strict property write inside a **top-level** `try`, which is the only
     shape that exercises the runtime strictness guard's `Br` immediate (§4.5.1,
     ledger L8) — the one item in this area that can emit invalid Wasm.
-12. `grep -rn "base_mut\|ReferencePins::none\|derive(Debug, Default)] *$" crates/porffor-ir/src/reference.rs`
+12. `grep -rn "base_mut\|ReferencePins::none\|derive(Debug, Default)] *$" crates/lila-ir/src/reference.rs`
     returns **0**: the empty pin chain and the whole-base mutable accessor are
     both gone (§2.2, §2.4).
-13. `grep -rn "strict: bool" crates/porffor-aot-wasm/src/{environments,objects}.rs`
+13. `grep -rn "strict: bool" crates/lila-aot-wasm/src/{environments,objects}.rs`
     returns **0** for the three Reference-consuming emitters of MC2.
 
 Rung G (`emit_golden` + `diff -r`) is **not** applicable: this is feature work
 under `batch-workflow.md`'s rule, and the emitted bytes are supposed to change
 for every strict-mode property write in the fixture corpus.
+
+---
+
+## 8. T08 Object Environment Record `SetMutableBinding` follow-up
+
+### 8.1 The defect
+
+The former `lower_with_scoped_identifier_write` evaluated an initial
+`HasBinding`/`Symbol.unscopables` condition and put the RHS and a direct
+`PropertyWrite` in its true branch. That preserved the first half of assignment
+order, but it silently treated the initial `HasBinding` result as authority to
+write later. `ObjectEnvironmentRecord.SetMutableBinding` instead calls
+`HasProperty(bindingObject, N)` after the RHS has run. If that second query says
+the property is absent, strict code throws `ReferenceError`; sloppy code still
+performs the observable query and then calls checked `Set`. Either query may be
+a Proxy trap and may complete abruptly.
+
+Nested `with` exposed a second instance of the same shortcut. A lowering-local
+stack cannot represent the ordered Environment Record chain: a declarative
+record introduced inside `with` must stop lookup before the outer Object
+Environment Record, while an Object Environment Record introduced inside that
+declarative record must still be queried first. A fresh function lowerer also
+cannot infer the Object Environment Records surrounding the function's
+definition. ResolveBinding therefore needs the analyzed environment cursor
+chain, not a flat list of objects owned by one lowerer.
+
+### 8.2 Closed representation
+
+Analysis registers `EnvironmentKind::WithObject` only after scanning the object
+expression, then pushes that cursor while scanning the body. Its private
+`WithObjectBindingName` is derived from the stable `EnvironmentId` and contains
+`.` so source text cannot spell it. Every source function defined under that
+cursor unconditionally captures each surrounding with-object binding. Existing
+owned slots, capture hops, lexical-environment materialization and closure
+capture then carry the Object Environment Records into a fresh nested lowerer;
+there is no new closure ABI or backend operation.
+
+`WithEnvironmentBindingObject` is the only representation admitted to the
+ordered lowering chain. It contains the storage name and type information of
+the already-materialized synthetic binding. Cloning it can only create another
+identifier read of that binding; it cannot re-evaluate the source object
+expression or substitute an arbitrary effectful `TypedExpr`.
+
+The ordered chain uses four closed position types: current Object entry depth,
+current declarative binding depth, captured Object cursor depth and captured
+declarative binding cursor depth. Current and captured depths are distinct
+newtypes. One exhaustive cross-product decides whether an Object Environment
+Record precedes the already-located declarative fallback. Thus a new position
+class is E0004, and passing a current depth where a captured depth is required
+is E0308. The lexical/global fallback is located once and carried into PutValue;
+selection and emission cannot silently resolve different bindings.
+
+`WithEnvironmentResolution` binds that object to the one private temporary used
+while evaluating its initial `Symbol.unscopables` query. A non-empty
+`WithEnvironmentReferencePlan` owns one innermost resolution and zero or more
+outer resolutions, the referenced name and `Strictness`. The plan is neither
+`Clone` nor `Copy`, and its `put_value` exit consumes it. Thus an empty
+environment chain is not constructible, a second write is E0382, a `bool`
+cannot stand in for `[[Strict]]`, and a new strictness state makes its
+exhaustive PutValue match E0004. Section 9 adds the distinct consuming
+`get_value` exit without reopening construction.
+
+The consuming exit builds one fixed tree:
+
+1. only Object Environment Records which precede the located declarative or
+   global fallback survive selection, in exact inner-to-outer order;
+2. initial binding visibility is tested from innermost to outermost;
+3. only the selected branch evaluates and materializes the RHS;
+4. `HasProperty` is re-run on that exact selected binding object;
+5. strict absence throws `ReferenceError`, while presence reaches a checked
+   strict Set;
+6. sloppy mode materializes the recheck so its abrupt completion is propagated,
+   then reaches a checked sloppy Set regardless of the Boolean result;
+7. lexical/global fallback is reachable only after every initial resolution
+   misses.
+
+The with expression is evaluated into an outer temporary before the compiler
+enters the `WithObject` lexical environment and initializes its hidden binding.
+Otherwise a closure created by the object expression would capture an
+Environment Record which does not exist yet in ECMA-262.
+
+The RHS and sloppy recheck use `MaterializeBinding`, not `Comma`, because the
+former is the existing IR boundary that propagates abrupt completion before
+entering its body. Fixed temporary names contain `.` and therefore cannot
+collide with source bindings.
+
+### 8.3 Boundaries and regressions
+
+The structural contract checks strict and sloppy tree shapes, same-object
+initial/recheck/write identity, current/captured declarative interleaving,
+production hidden captures, RHS placement and the absence of Set on a strict
+missing binding. The Wasm fixture makes strict closure capture load-bearing
+with a predeclared global sentinel, invokes an escaping closure after leaving
+`with`, checks repeated entries retain distinct objects, and adds declarative
+shadowing to the observable Proxy order, abrupt-recheck, sloppy-recreation,
+abrupt-RHS, unscopables and nested-object cases.
+
+This follow-up covers only plain identifier `=` through `with` in scripts and
+ordinary source functions. Direct identifier GetValue is the separate lifecycle
+in §9. Compound, logical, update and destructuring writes, Global Object
+Environment Records, generated class/helper execution contexts, the
+super-write `[[ThisValue]]` gap and deferred computed-key coercion remain
+explicit debt. A resumable owner which would capture a `WithObject` environment
+is rejected explicitly rather than pretending the existing suspension
+activation can re-enter it. The change adds no backend operation, IR variant or
+closure ABI and makes no status-count or full-T08 claim.
+
+---
+
+## 9. T08 Object Environment Record `GetBindingValue` follow-up
+
+### 9.1 The defect
+
+The read path did not share §8's ordered Environment Record selection. It asked
+`OrderedWithEnvironmentChain::innermost_binding_object`, tested that one
+object's `HasBinding`, and sent a miss directly to the non-`with` fallback.
+That has three observable wrong answers from one lifecycle shortcut:
+
+1. a declarative binding introduced inside a `with` body did not cut off the
+   outer Object Environment Record;
+2. an inner Object Environment miss never continued to an outer Object
+   Environment Record; and
+3. the selected object was read with a bare property Get, omitting
+   `ObjectEnvironmentRecord.GetBindingValue`'s second `HasProperty` query.
+
+The third point is not redundant with `HasBinding`. The `@@unscopables` getter
+can delete the property between the two operations, and a Proxy makes both
+queries independently observable or abrupt. `GetBindingValue(N, S)` returns
+`undefined` after a missing recheck when `S` is false and throws
+`ReferenceError` when `S` is true. The strict case is reachable through an
+ordinary strict function created inside sloppy `with` code and carrying the
+Object Environment Record through the existing capture chain.
+
+### 9.2 Closed selection and consuming GetValue
+
+`OrderedWithEnvironmentChain::select_preceding` is the only read/write
+selection exit. It takes the already-located declarative fallback and returns
+`Option<SelectedWithEnvironmentObjects>`. `None` means no Object Environment
+Record precedes that fallback. The selected form has a required `innermost`
+field and an `outer` vector, so an empty chain is not representable. The old
+`innermost_binding_object` accessor is deleted: a caller cannot bypass
+declarative cutoff or outer chaining by requesting one raw object.
+
+`SelectedWithEnvironmentObjects::into_reference_plan` consumes the selection,
+allocates one unscopables temporary per object, and performs the one reversal
+needed to build the nested conditionals in inner-to-outer execution order. It
+is the sole external producer of `WithEnvironmentReferencePlan`; the raw
+binding-object read, `binding_visible`, `WithEnvironmentResolution` constructor
+and plan constructor are private to the Reference module.
+
+The existing non-`Clone`, non-`Copy` plan now has two consuming exits:
+`get_value` and `put_value`. Both use the same selected objects, referenced name
+and carried `Strictness`, so read and write cannot silently disagree about
+which Environment Record chain ResolveBinding traversed. Choosing either exit
+spends the plan; a second GetValue or PutValue is E0382.
+
+The GetValue exit builds this fixed tree:
+
+1. initial `HasBinding` (HasProperty, then `@@unscopables`) is evaluated from
+   the innermost selected object outward;
+2. an initial miss enters only the next outer resolution, and all misses reach
+   the declarative/global/unresolvable fallback;
+3. the selected branch re-runs `HasProperty` on the exact same materialized
+   binding object;
+4. an abrupt recheck propagates without performing Get;
+5. presence performs a property Get with that binding object as receiver;
+6. absence returns `undefined` for `Strictness::Sloppy` and throws
+   `ReferenceError` for `Strictness::Strict`.
+
+The lowerer locates the declarative fallback before selecting Object
+Environment Records, just as the write path does. `WithEnvironmentBindingObject`
+still names only the stable hidden binding created after the `with` expression
+was evaluated, so no part of either query can re-evaluate or substitute the
+source object expression.
+
+### 9.3 Proof and boundary
+
+The structural proof covers a non-empty selection, declarative cutoff,
+inner-to-outer conditional nesting, same-object initial query/recheck/Get,
+strict missing `ReferenceError` and sloppy missing `undefined`. The Wasm fixture
+makes the four-operation Proxy trace (`has`, unscopables Get, recheck `has`,
+value Get), outer fallback, declarative shadowing, deleted-during-unscopables
+strict/sloppy outcomes and abrupt recheck observable. The pinned Test262
+oracles are `get-binding-value-idref-with-proxy-env.js`,
+`has-binding-idref-with-proxy-env.js`, `binding-blocked-by-unscopables.js`, and
+the sloppy/strict-mode
+`get-mutable-binding-binding-deleted-in-get-unscopables*.js` pair.
+Node 24/V8 does not expose that second query, so a host-engine run is not an
+oracle for this edge; the current ECMA-262 algorithm and the pinned Test262
+tests agree on the four-operation sequence above.
+
+The `typeof unresolvableName` fast path is used only when no selected Object
+Environment Record can bind the name. When one can, the plan uses `undefined`
+as its terminal value only for a genuinely unresolvable fallback; any selected
+record still runs GetBindingValue before `typeof` applies to the result. This
+preserves 13.5.3's exemption without bypassing Object Environment resolution or
+turning a selected record's strict missing recheck into `undefined`.
+
+This follow-up claims direct identifier GetValue, including the operand of
+`typeof`. Identifier calls still need `WithBaseObject` receiver preservation.
+Compound/logical/update/destructuring and delete operations, generated
+class/helper contexts and resumable captured Object Environment Records remain
+explicit debt. No IR variant, backend operation, closure ABI, status count or
+complete `language/statements/with` closure is claimed.

@@ -3,7 +3,7 @@
 Session start 2026-08-10 ~16:35 UTC, HEAD `7f690152c` ("WIP checkpoint: batch 6
 review/integrate"), branch `claude/test-driven-rust-opus-pp6giw`.
 Machine 4 CPU / 15 GiB. **The sweep was left running throughout** (supervisor pid
-4128, `porf test262 report-all --threads 2 --jobs 2`, ~4.4 GiB RSS): `cargo check`
+4128, `lila test262 report-all --threads 2 --jobs 2`, ~4.4 GiB RSS): `cargo check`
 is not rung 1c and does not contend with it the way the 8.7 GiB frontend test does.
 No test, build, test262 or git command was run by this session.
 
@@ -15,24 +15,24 @@ already checks:
 
 | gate | on arrival |
 |---|---|
-| `cargo check -p porffor-ir` | 0 errors, **6** warnings (b5 baseline: 6) |
-| `cargo check -p porffor-aot-wasm` | 0 errors, **25** warnings (b5 baseline: 25) |
+| `cargo check -p lila-ir` | 0 errors, **6** warnings (b5 baseline: 6) |
+| `cargo check -p lila-aot-wasm` | 0 errors, **25** warnings (b5 baseline: 25) |
 | `cargo xc` (workspace, all targets) | **EXIT=0**, 39 s cold-ish |
 | `cargo fmt --all -- --check` | ONE diff (`planning.rs:331`) |
 | `./scripts/check-module-boundaries.sh` | **RED** — the ZDT lane's §4 finding |
 
 Warning counts per target, against b5 session 3's measured baseline
-(`target/watched/b5r3-xc.log`): `porffor-ir` lib 6 / lib-test 5,
-`porffor-aot-wasm` lib 25 / lib-test 20, `porffor-test262` lib-test 1. **Identical.**
+(`target/watched/b5r3-xc.log`): `lila-ir` lib 6 / lib-test 5,
+`lila-aot-wasm` lib 25 / lib-test 20, `lila-test262` lib-test 1. **Identical.**
 Batch 6 added ~2,300 lines and no warning.
 
 So the integration work is the notes' explicit integrator patches, not error triage.
 
 ## Lane 1 — iterator-helper-static-key-call-on-a-class-receiver (ship-with-fixes)
 
-### Applied: the §3 "PATCH FOR THE INTEGRATOR" — the root cause, in `porffor-ir`
+### Applied: the §3 "PATCH FOR THE INTEGRATOR" — the root cause, in `lila-ir`
 
-`crates/porffor-ir/src/lowering.rs`, `standard_builtin_signature`'s
+`crates/lila-ir/src/lowering.rs`, `standard_builtin_signature`'s
 `StandardBuiltinId::IteratorConstructor` arm: `constructor_instance` was
 `ValueInfo::undefined()`, now
 `with_instance_prototype(fresh_constructed_instance_info(), Some(iterator_prototype_shape()))`.
@@ -57,7 +57,7 @@ could not compile and the patch as written in the note does not compile:
    `prototype -> iterator_prototype_shape()` (`:3942`). The layered prototype only
    matters for a direct `new Iterator()`.
 
-`cargo check -p porffor-ir` after: 0 errors, 6 warnings (unchanged).
+`cargo check -p lila-ir` after: 0 errors, 6 warnings (unchanged).
 
 **What this changes downstream, stated because it is a behaviour change I cannot
 test:** `receiver_shape_targets_iterator_helper` now resolves for these receivers,
@@ -92,7 +92,7 @@ this defect class, and nothing in the type system stops it.
 ### Applied: the §4 finding — `check-module-boundaries.sh` was RED at HEAD
 
 ```
-check-module-boundaries: crates/porffor-ir/src/lib.rs has 169 non-test lines; expected at most 140
+check-module-boundaries: crates/lila-ir/src/lib.rs has 169 non-test lines; expected at most 140
 ```
 
 The lane verified it is pre-existing (`git show HEAD:...` counts 169 too) and handed
@@ -103,8 +103,8 @@ to point a re-exported contract type at its `docs/rust-rewrite/contracts/` file.
 file had not grown; documenting it had.
 
 So the fix is the metric, not the number: `non_test_lines()` now skips blank lines
-and whole-line comments, and both budgets (`porffor-ir` 140, `porffor-aot-wasm` 180)
-stay where they are. `porffor-ir/src/lib.rs` = 140/140, `porffor-aot-wasm/src/lib.rs`
+and whole-line comments, and both budgets (`lila-ir` 140, `lila-aot-wasm` 180)
+stay where they are. `lila-ir/src/lib.rs` = 140/140, `lila-aot-wasm/src/lib.rs`
 = 101/180. Raising the number would have ratcheted a budget for a file that had not
 gained a line of code — and this budget exists to keep implementation out of a crate
 root, which comments cannot be.
@@ -129,16 +129,16 @@ the builder's `'a` lifetime, not a borrow of `self` — the sibling
 
 ### The one thing I changed in the lane's own work: the cache limits, 8 GiB -> 1 GiB
 
-`scripts/rung1c-chunks.sh` set `PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=8589934592`
+`scripts/rung1c-chunks.sh` set `LILA_FUNCTION_CACHE_LIMIT_BYTES=8589934592`
 (8 GiB) with module/program at 512 MiB, copying the shape of the sweep invocation
 in `batch-workflow.md`. The lane's reasoning about *what* the limits do is correct
-and I verified it independently — `porffor-engine/src/cache.rs` implements all
+and I verified it independently — `lila-engine/src/cache.rs` implements all
 three tiers over `fs::read`/`fs::write` (`impl CacheStore for FunctionCache`,
 `cache.rs:220-235`), so they bound disk, not RSS, and they are indeed not the OOM
 fix. Two measurements say the *values* are wrong for this box:
 
 1. **The cache is one shared directory with no per-process keying.**
-   `porffor_cache_root()` = `$PORFFOR_CACHE_DIR` else `~/.cache/porffor`
+   `lila_cache_root()` = `$LILA_CACHE_DIR` else `~/.cache/lila`
    (`cache.rs:341-357`). The supervisor actually running on this box right now
    uses **1 GiB / 64 MiB / 64 MiB** — read out of
    `target/test262-scratch/sweep-supervisor.sh` *and* confirmed live in
@@ -146,7 +146,7 @@ fix. Two measurements say the *values* are wrong for this box:
    directory grow to 8 GiB hands the next sweep process 7+ GiB to prune back to
    70 % of its own 1 GiB budget. Two budgets over one directory undo each other.
 2. **The disk is a fixed per-session allowance.** Measured now: 19 GiB available,
-   `target/debug` 7.3 GiB, `~/.cache/porffor` **948 MiB** — i.e. the function tier
+   `target/debug` 7.3 GiB, `~/.cache/lila` **948 MiB** — i.e. the function tier
    is already sitting at the sweep's cap. Spending a third of the remaining
    allowance on a cache to make rung 1c warm is a bad trade when "no space left on
    device" mid-chunk presents as anything but a disk problem.
@@ -197,7 +197,7 @@ is contained in `{Object, Function} ∪ NULLISH` — and lowering only builds th
   8 `wasm_array_*`, 2 `wasm_string_*`. Of the banked chunks only `string` appears,
   and both of its receivers are `Array.from(...)` and an array literal — array
   kind, so lowering never builds the `CallMethod` and the path is unreachable.
-- Fixtures containing `extends Iterator` — the receiver the `porffor-ir` typing fix
+- Fixtures containing `extends Iterator` — the receiver the `lila-ir` typing fix
   moves: **18, every one of them `wasm_iterator_*`.**
 
 Both populations land entirely in `iterator` and `iterator_helpers`, which the lane
@@ -254,9 +254,9 @@ Two, both compile-checked, neither changing emitted behaviour:
 
 | gate | result |
 |---|---|
-| `cargo check -p porffor-ir` | **0 errors**, 6 warnings (baseline 6) |
-| `cargo check -p porffor-aot-wasm` | **0 errors**, 25 warnings (baseline 25) |
-| `cargo check -p porffor-cli --all-targets` | **0 errors**, 0 warnings |
+| `cargo check -p lila-ir` | **0 errors**, 6 warnings (baseline 6) |
+| `cargo check -p lila-aot-wasm` | **0 errors**, 25 warnings (baseline 25) |
+| `cargo check -p lila-cli --all-targets` | **0 errors**, 0 warnings |
 | `cargo xc` (workspace, all targets) | **EXIT=0** — ir lib 6 / lib-test 5, aot-wasm lib 25 / lib-test 20, test262 lib-test 1: **identical to the b5 baseline, no new warning** |
 | `cargo fmt --all -- --check` | **clean** (one pre-existing diff in `planning.rs` fixed) |
 | `./scripts/check-module-boundaries.sh` | **ok**, and its negative control fires |
@@ -264,18 +264,18 @@ Two, both compile-checked, neither changing emitted behaviour:
 
 ## What the runner must do, in this order — and what I could NOT verify
 
-Nothing in this session was executed: no test, no build, no `porf`, no test262, no
+Nothing in this session was executed: no test, no build, no `lila`, no test262, no
 git. Every behavioural claim below is unverified by construction.
 
-1. **Rebuild `target/debug/porf`.** It is from 09:28Z on 2026-08-10 and the compiler
+1. **Rebuild `target/debug/lila`.** It is from 09:28Z on 2026-08-10 and the compiler
    has changed twice since. b5 measured it stale twice.
 2. **`iterator_helpers::` first** (13 -> 14 tests). It decides both halves of lane 1:
-   the emitter routing *and* the `porffor-ir` typing fix, whose one behavioural
+   the emitter routing *and* the `lila-ir` typing fix, whose one behavioural
    surprise is that `forEach` on these receivers now lowers to `CallMethod`.
    `run_wasm_backend_calls_iterator_prototype_for_each_on_a_class_receiver` is the
    test that catches it if that is wrong.
 3. **`iterator::`** (30 tests, 4 of them the batch-5 reds), then
-   `cargo test -p porffor-aot-wasm --test iterator_helper_dispatch` (3 tests, new,
+   `cargo test -p lila-aot-wasm --test iterator_helper_dispatch` (3 tests, new,
    never run — its 8-byte slack against a 69-77 byte signal is calibrated but not
    verified post-repair; read the printed byte counts before widening it).
 4. **`known_failures::`** (5 tests, 0.02 s) — it is the only check of the 18-chunk
@@ -308,8 +308,8 @@ Unclaimed and still open, recorded so they stop being invisible:
 Session start 2026-08-10 ~20:05 UTC, HEAD `002756629` ("WIP checkpoint: batch 6
 runner ladder"), branch `claude/test-driven-rust-opus-pp6giw`. 4 CPU / 15 GiB.
 **The sweep is DOWN** — the b6 runner killed supervisor 4128 / report-all 4131 at
-17:16Z and did not restart it; `ps` on arrival shows 0 `porf`, 0 `cargo`, 14.2 GiB
-free. No test, build, `porf`, test262 or git command was run by this session.
+17:16Z and did not restart it; `ps` on arrival shows 0 `lila`, 0 `cargo`, 14.2 GiB
+free. No test, build, `lila`, test262 or git command was run by this session.
 
 This session follows the runner, not the lanes: the three lanes and integrator
 session 1 are inside `002756629`, and `git status --porcelain` was empty on
@@ -323,9 +323,9 @@ runner's blocker asks for by name.
 | gate | on arrival |
 |---|---|
 | `cargo xc` (workspace, all targets) | **EXIT=0**, 54 s cold |
-| `porffor-ir` | lib **6** / lib-test **5** warnings |
-| `porffor-aot-wasm` | lib **25** / lib-test **20** warnings |
-| `porffor-test262` | lib-test **1** warning |
+| `lila-ir` | lib **6** / lib-test **5** warnings |
+| `lila-aot-wasm` | lib **25** / lib-test **20** warnings |
+| `lila-test262` | lib-test **1** warning |
 | `cargo fmt --all -- --check` | clean |
 | `./scripts/check-module-boundaries.sh` | ok |
 
@@ -348,14 +348,14 @@ closes it.
 panic!(...))` — it panics rather than degrading. The message reached the emitter
 as a bare `&str` parameter and the pool was a hand-written list in `data.rs`: two
 independent sources for one fact, with nothing at compile time able to compare
-them. The ZDT lane spelled two new literals; `cargo test -p porffor-aot-wasm
+them. The ZDT lane spelled two new literals; `cargo test -p lila-aot-wasm
 --lib` went **24 red**, and 22 of the 24 are not Temporal tests at all — they
 emit a full bootstrap, so any builtin body that reads an uninterned pool string
 takes them all down together.
 
 **What landed** (all `cargo check`-verified, no behaviour change):
 
-1. `crates/porffor-aot-wasm/src/builtins/temporal_plain_date.rs` — new closed
+1. `crates/lila-aot-wasm/src/builtins/temporal_plain_date.rs` — new closed
    enum `TemporalDifferenceGuard` with five variants (`PlainDate`,
    `PlainDateTime`, `PlainYearMonth`, `ZonedDateTime` same-calendar, plus
    `ZonedDateTime` same-time-zone), an exhaustive `message()`, an exhaustive
@@ -452,11 +452,11 @@ cleanly this batch. **Owner: batch 7, as a lane with a run.**
 Also considered and rejected: encoding the invariant as a `debug_assert!` at the
 tuple destructuring (`constructable() ⇒ constructor_instance` not statically
 nullish, with the four names allowlisted). It is the right shape, but
-`target/debug/porf` is built *with* debug assertions and this session cannot run
-a single test — a false positive would break every `porf` invocation the runner
+`target/debug/lila` is built *with* debug assertions and this session cannot run
+a single test — a false positive would break every `lila` invocation the runner
 makes, and I will not add a runtime assertion I cannot execute once. Batch 7
 should add it together with the DTF fix, when it can run `cargo test -p
-porffor-ir` behind it.
+lila-ir` behind it.
 
 §3(3) (the two wrong `standard_builtin_value_info` results for `Iterator()` and
 `it.toArray()`) stays filed and unapplied for session 1's reason, which the
@@ -548,8 +548,8 @@ remaining edits are a shell comment, a doc comment, and a ledger `reason`.
 
 | gate | result |
 |---|---|
-| `cargo check -p porffor-aot-wasm` | **0 errors**, 25 warnings (baseline 25) |
-| `cargo check -p porffor-cli --all-targets` | **0 errors**, 0 new warnings |
+| `cargo check -p lila-aot-wasm` | **0 errors**, 25 warnings (baseline 25) |
+| `cargo check -p lila-cli --all-targets` | **0 errors**, 0 new warnings |
 | `cargo xc` (workspace, all targets) | **EXIT=0** — ir lib 6 / lib-test 5, aot-wasm lib 25 / lib-test 20, test262 lib-test 1: **identical to the b5 and arrival baselines, no new warning** |
 | `cargo fmt --all -- --check` | **clean** |
 | `./scripts/check-module-boundaries.sh` | **ok** |
@@ -563,7 +563,7 @@ Nothing was executed here. Every behavioural claim is unverified by construction
 1. **`known_failures::`** (5 tests, 0.01 s). It is the only check of the edited
    ledger row, of the refreshed `CURRENT_BATCH` doc, and of the 18-chunk
    partition. Run it first; it is free.
-2. **`cargo test -p porffor-aot-wasm --lib`** (~740 s, 246 tests). This is the
+2. **`cargo test -p lila-aot-wasm --lib`** (~740 s, 246 tests). This is the
    target the guard enum lives under and the one that went 24 red on the
    uninterned message. It is also the target neither the fixer nor either
    integrator has ever run. If the guard walk is wrong, this is where it says so,
@@ -586,7 +586,7 @@ Unclaimed and still open after this session:
   survivor of lane 1's audit, above, with its patch and its reachability
   argument. Owner: batch 7.
 - The `debug_assert!` that would make that whole class a run-time-of-first-test
-  error, which needs a session that can run `cargo test -p porffor-ir`.
+  error, which needs a session that can run `cargo test -p lila-ir`.
 - `lowering.rs`'s two wrong `standard_builtin_value_info` results (`Iterator()`
   and `it.toArray()`), filed by lane 1 in batch 6 and still not ridden along.
 - Deleting the three in-place plain-family intern entries in favour of the walk —
@@ -601,18 +601,18 @@ working tree at 21:16:50Z as `a0f411eaf` ("WIP checkpoint: batch 6 runner final
 rungs") while the notes were being written, so the ten files below are already in
 HEAD and `git status` is clean. Verified the commit contains exactly this
 session's edits and nothing else — there is no concurrent writer, and `ps` shows
-0 `porf`, 0 `cargo` on the box:
+0 `lila`, 0 `cargo` on the box:
 
 ```
-crates/porffor-aot-wasm/src/builtins/mod.rs                         |  8 +
-crates/porffor-aot-wasm/src/builtins/temporal_plain_date.rs         | 141 +-
-crates/porffor-aot-wasm/src/builtins/temporal_plain_date_methods.rs |  2 +-
-crates/porffor-aot-wasm/src/builtins/temporal_plain_date_time_methods.rs   |  2 +-
-crates/porffor-aot-wasm/src/builtins/temporal_plain_year_month_methods.rs  |  2 +-
-crates/porffor-aot-wasm/src/builtins/temporal_zoned_date_time_methods.rs   |  4 +-
-crates/porffor-aot-wasm/src/data.rs                                 | 65 +-
-crates/porffor-cli/tests/cli/known_failures.rs                      | 42 +-
-crates/porffor-cli/tests/known-failures.tsv                         |  2 +-
+crates/lila-aot-wasm/src/builtins/mod.rs                         |  8 +
+crates/lila-aot-wasm/src/builtins/temporal_plain_date.rs         | 141 +-
+crates/lila-aot-wasm/src/builtins/temporal_plain_date_methods.rs |  2 +-
+crates/lila-aot-wasm/src/builtins/temporal_plain_date_time_methods.rs   |  2 +-
+crates/lila-aot-wasm/src/builtins/temporal_plain_year_month_methods.rs  |  2 +-
+crates/lila-aot-wasm/src/builtins/temporal_zoned_date_time_methods.rs   |  4 +-
+crates/lila-aot-wasm/src/data.rs                                 | 65 +-
+crates/lila-cli/tests/cli/known_failures.rs                      | 42 +-
+crates/lila-cli/tests/known-failures.tsv                         |  2 +-
 scripts/rung1c-chunks.sh                                            | 17 +-
 ```
 
@@ -622,8 +622,8 @@ All gates in the table above were measured at this content, i.e. at `a0f411eaf`.
 
 # FINDINGS FIXER — batch 6, pass over the 19 findings
 
-Entered at `a0f411eaf`, box idle (0 `porf`, 0 `cargo`, sweep down). `cargo check`/`cargo xc`
-only; no git, no test, no `porf`, no test262 command.
+Entered at `a0f411eaf`, box idle (0 `lila`, 0 `cargo`, sweep down). `cargo check`/`cargo xc`
+only; no git, no test, no `lila`, no test262 command.
 
 ## Outcome per finding
 
@@ -660,28 +660,28 @@ and `builtins.rs` changed a const's contents and a comment, no enum variant. `da
 `functions.rs` and the ZDT fixture are comments only. The CLI `#[test]` count is still
 **617** (8 `spec-exec-oracle` gates → 609 compiled, 608 executing), so no ledger or
 `batch-workflow.md` number moved. The new `iterator_helper_dispatch` test is in
-`porffor-aot-wasm`, not the CLI target.
+`lila-aot-wasm`, not the CLI target.
 
 `known_failures` no longer needs a hand-deleted done-file line — the script re-runs it.
 
 ## Gate at exit
 
 `cargo xc` **EXIT=0**, 0 errors. Warnings identical to the arrival/b5 baseline:
-`porffor-ir` lib 6 / lib-test 5, `porffor-aot-wasm` lib 25 / lib-test 20,
-`porffor-test262` lib-test 1. `cargo fmt --all -- --check` clean.
+`lila-ir` lib 6 / lib-test 5, `lila-aot-wasm` lib 25 / lib-test 20,
+`lila-test262` lib-test 1. `cargo fmt --all -- --check` clean.
 `./scripts/check-module-boundaries.sh` **ok** (ir 140 code lines / budget 160,
 wasm 101 / 180). `sh -n scripts/rung1c-chunks.sh` and `bash -n
 scripts/check-module-boundaries.sh` clean; 18 `run_chunk` = 18 `mod`.
 
 ## Owed to the runner, in order
 
-1. `cargo test -p porffor-aot-wasm --test iterator_helper_dispatch` — **UNFILTERED**.
+1. `cargo test -p lila-aot-wasm --test iterator_helper_dispatch` — **UNFILTERED**.
    4 tests, 13 `emit()` calls, minutes not seconds. The new
    `iterator_helper_dispatch_differential_separates_two_emitters` is the one that has never
    run: if it reddens, the two `_dispatches_..._like_...` tests converged and are vacuous.
-2. `cargo test -p porffor-aot-wasm --lib` — still never run by any fixer/integrator, and it
+2. `cargo test -p lila-aot-wasm --lib` — still never run by any fixer/integrator, and it
    is the target that went 24 red on the pool-panic this batch.
-3. `cargo test -p porffor-cli --test cli -- --test-threads=3 date::` — the ZDT fixture
+3. `cargo test -p lila-cli --test cli -- --test-threads=3 date::` — the ZDT fixture
    comment changed; the fixture itself did not, so this is confirmation, not a re-measure.
 4. `scripts/rung1c-chunks.sh` for `language` + `binary_data`, sweep down.
    `known_failures` will now re-run first, by design, at ~0.01 s.
@@ -690,7 +690,7 @@ scripts/check-module-boundaries.sh` clean; 18 `run_chunk` = 18 `mod`.
 
 * `({}).map(1)` throwing `TypeError` rather than trapping — the improvement that justifies
   the wide dispatch predicate — is still unfixtured. Recorded on the predicate's doc.
-* The seven fall-back blocks remain unwitnessed at this head (the `porffor-ir`
+* The seven fall-back blocks remain unwitnessed at this head (the `lila-ir`
   `constructor_instance` fix makes the FIRST guard fire for every class receiver). The new
   negative control is an instrument check, not coverage of those blocks.
 * The counts sidecar still cannot see a same-count module edit. The `cksum` upgrade is

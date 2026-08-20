@@ -1,6 +1,6 @@
 # T20 — Number, BigInt, Math and JSON
 
-**Status:** In progress — broad numeric/JSON support exists; arbitrary BigInt and full closure remain
+**Status:** In progress — exact core BigInt operators and broad numeric/JSON support exist; full closure remains
 
 **Parallel group:** Feature lane; split internally by Number, BigInt, Math and JSON  
 **Depends on:** T04, T05, T10, T18  
@@ -9,11 +9,119 @@
 ## Current repository state
 
 Number operators/conversions, Math builtins, JSON parsing/stringification and
-small/heap BigInt representations have extensive Wasm implementations and
-focused real-suite coverage. The heap design explicitly records multi-limb
-BigInt arithmetic and conversion as incomplete, and JSON/Number metadata still
-appears in the Test262 materialization layer. Full Number, BigInt, Math and JSON
-current-pin trees have not met this task's shortcut-free acceptance gate.
+inline/heap BigInt representations have extensive Wasm implementations and
+focused real-suite coverage. Core multi-limb BigInt arithmetic, comparison and
+binary bitwise operators now share the exact arbitrary-precision runtime
+representation. The binary bitwise path evaluates both operands before its
+ordered ToNumeric conversions, rejects mixed numeric types and BigInt `>>>`,
+implements negative shift-count reversal and reports unaddressable left-shift
+results as an explicit resource RangeError. Unary complement now has its own
+closed IR operation and an exhaustive Number-versus-BigInt backend dispatch:
+the operand is evaluated once and crosses one ToNumeric boundary, the Number
+arm consumes the shared exact modulo-2^32 emitter, and the BigInt arm applies
+the existing arbitrary-precision XOR representation to `-1n`. Literal folding
+uses the same mathematical identity without narrowing. Remaining
+conversion/builtin integrations are still open. The BigInt prototype result
+boundary now carries a closed exact-value, radix-string or locale-fallback
+policy from each existing builtin producer. After shared receiver extraction,
+marker-typed helpers make locale calls ineligible for the radix reader:
+`toLocaleString` uses the permitted decimal core fallback and leaves its two
+reserved arguments unused, while `toString` retains radix coercion/error order
+and `valueOf` retains the exact representation. One prepared-radix witness
+owns coercion and range validation before immediate-versus-heap formatting,
+and a closed builder body-domain lets only standard builtins and the
+`ValueToNumber`/`ValueToNumeric` helpers interpret their environment as
+Realm-or-zero state. Main, user, host and every other helper body use the
+global error fallback, while created-Realm BigInt prototype methods carry both
+their TypeError and RangeError prototype slots. BigInt/Symbol `TypeError`s and
+radix `RangeError`s therefore use the same defining-realm policy for immediate
+and heap representations without exposing lexical environments. The focused
+[result-policy contract](../docs/rust-rewrite/contracts/bigint-prototype-result-policy.md)
+and registered CLI fixture cover immediate, heap and boxed values. This batch
+has run only static gates for the seam; it does not implement or claim
+`Intl.NumberFormat` or locale-aware ECMA-402 output. The Number side now has one
+backend authority for exact modulo-2^32 conversion across unary and binary
+bitwise operators, Array length conversion, String split limits,
+`String.fromCharCode`'s `ToUint16` projection, `Math.imul`, `Math.clz32`, every
+integer typed-array and Atomics store, and every integer DataView setter. The
+emitter keeps the modulo in binary64 before its non-trapping unsigned
+conversion, so NaN and infinities become zero while finite magnitudes at and
+above 2^63 retain their low bits; signed consumers interpret those same low 32
+bits only after conversion. A registered dynamic CLI fixture covers the large
+positive and negative residues plus observable evaluation/coercion order. Its
+focused Wasm product-path test has not yet been executed in this batch while
+the repository-wide conformance matrix owns the verifier. The Math.random
+product path uses a realm-owned
+`HostRandom` capability: the only provider result type validates the exact
+finite `[0, 1)` domain, the production provider maps 53 operating-system
+entropy bits to binary64, and the builtin catalog alone decides whether the
+optional host import exists. A deterministic injected provider covers the same
+engine path without making production output constant. The central
+feature-enabled CLI compile is green, as are focused checks for the typed host
+import, injected provider, and BigInt bitwise CLI fixture. The full Number,
+BigInt, Math and JSON current-pin trees have not met this task's shortcut-free
+acceptance gate. The Math extremum backend now consumes the complete runtime
+argument vector for `Math.min` and `Math.max` instead of a three-argument
+prefix. One closed operation domain owns each identity and Wasm reduction,
+while the loop applies `ToNumber` left-to-right to every argument even after
+`NaN`; abrupt conversion stops the walk unchanged. The focused
+[extremum-reduction contract](../docs/rust-rewrite/contracts/math-extremum-argument-reduction.md)
+and CLI fixture cover arguments beyond the old cap, signed zero, later
+coercion and later abrupt completion. This batch has run only static gates for
+that seam while the repository-wide conformance matrix owns the verifier. The
+`Math.hypot` backend now likewise consumes the complete runtime argument
+vector. A private non-copy completed-reduction witness makes the full
+left-to-right `ToNumber` pass a prerequisite for result selection, while
+Infinity and NaN observations never terminate the argument loop. Finite
+nonzero values use a scaled sum of squares so representable large and tiny
+inputs do not overflow or underflow merely because an intermediate was
+squared. The focused
+[hypot reduction contract](../docs/rust-rewrite/contracts/math-hypot-argument-reduction.md)
+and registered CLI fixture cover contributions and observable coercions after
+the old seven-argument cap, Infinity-over-NaN precedence, abrupt completion,
+positive-zero output and large/tiny finite vectors. This batch has run only
+static gates for that seam; the focused Wasm fixture, pinned `Math/hypot` tree
+and broader Math gates remain deferred, and this is not a correctly-rounded
+last-bit, current-pin baseline-delta, complete Math or T20 closure claim. The
+`Math.sumPrecise` backend now consumes every input through the runtime sync
+iterator protocol; lowering no longer materializes literal arrays, generators
+or overridden array iterators into a compile-time answer. A closed iterator
+error policy gives the Math algorithm its defining/current-function-realm
+TypeErrors without changing the legacy realm route of array consumers, and an
+explicit count guard plus exact Number-tag check are the only algorithm-created
+errors that close the iterator while preserving the original throw. Five
+closed reduction states retain the specification's minus-zero, finite,
+infinity and NaN behavior while still visiting later values. Finite terms are
+added to one fixed signed 34-limb two's-complement accumulator: binary64 values
+are integer multiples of `2^-1074`, their largest coefficient has 2098 bits,
+and fewer than `2^53` terms need at most 2151 signed magnitude bits, below the
+2176-bit buffer. The sole finisher converts to magnitude and rounds once to
+nearest, ties to even. The focused
+[runtime reduction contract](../docs/rust-rewrite/contracts/math-sum-precise-runtime.md),
+bounded structure test and registered CLI fixture cover the runtime routes,
+signed zero, cancellation, adversarial rounding, exceptional-state
+continuation, close behavior and created-realm TypeErrors. This batch has run
+only static gates for the seam; the fixture also witnesses created-realm
+primitive iterator-prototype selection. The focused Wasm fixture, practical runtime
+coverage of the `2^53 - 1` RangeError guard, pinned `Math/sumPrecise` tree and
+broader Math gates remain deferred. It is not a generic iterator-realm or
+generator-close closure, an own/created-realm Arguments iterator repair, a
+current-HEAD ten-of-ten Test262 result, a throughput claim, complete Math or
+T20 closure. The
+JSON reviver frame protocol now has a theory source of
+truth at `docs/rust-rewrite/contracts/json-reviver-frame.md`. Its dynamic frame
+stores closed typed states and an explicit nested-versus-root property role;
+exhaustive emission gives every valid wire word a semantic arm and traps an
+invalid word as an internal invariant violation. The static-specialized and
+dynamic parser paths share the post-call deletion/replacement emitter, so an
+ordinary empty-string property cannot be mistaken for the synthetic root. A
+registered dynamic-input CLI fixture pins postorder traversal, array-length
+and object-key snapshots, forward mutation, `context.source` SameValue
+eligibility, nested empty-string replacement, root replacement/`undefined`,
+and abrupt completion ordering. This batch has only run static gates for that
+seam while the repository-wide conformance matrix owns the verifier; its
+focused Wasm fixture and broader JSON/Test262 gates remain deferred, and this
+is not a JSON closure or full-tree conformance claim.
 
 ## Objective
 
@@ -87,15 +195,15 @@ Property access and calls must route through T04/T10 so getters/proxies and muta
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir numeric_ --quiet
-cargo test -p porffor-aot-wasm numeric_ --quiet
-cargo test -p porffor-cli wasm_number --quiet
-cargo test -p porffor-cli wasm_bigint --quiet
-cargo test -p porffor-cli wasm_json --quiet
-./target/debug/porf test262 run built-ins/Number --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/BigInt --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/Math --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/JSON --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-ir numeric_ --quiet
+cargo test -p lila-aot-wasm numeric_ --quiet
+cargo test -p lila-cli wasm_number --quiet
+cargo test -p lila-cli wasm_bigint --quiet
+cargo test -p lila-cli wasm_json --quiet
+./target/debug/lila test262 run built-ins/Number --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/BigInt --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Math --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/JSON --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Re-run numeric expression/operator tests and binary-data filters that consume Number/BigInt conversions.

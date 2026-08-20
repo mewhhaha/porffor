@@ -25,7 +25,7 @@ import subprocess
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-PORF = REPO / "target/release/porf"
+LILA = REPO / "target/release/lila"
 OUT = REPO / "target/probe"
 
 # (feature tag, test262 case count, snippet, module?, expected first line of output)
@@ -101,7 +101,7 @@ def run(probe):
     path.write_text(snippet + "\n")
     try:
         result = subprocess.run(
-            [str(PORF), "run", "--execution-backend", "wasm", str(path)],
+            [str(LILA), "run", "--execution-backend", "wasm", str(path)],
             capture_output=True, text=True, timeout=120,
         )
         combined = result.stdout + result.stderr
@@ -121,8 +121,8 @@ def main():
 
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "dep.mjs").write_text("export const v = 10;\n")
-    if not PORF.exists():
-        print(f"missing {PORF}; run: cargo build --release -p porffor-cli", file=sys.stderr)
+    if not LILA.exists():
+        print(f"missing {LILA}; run: cargo build --release -p lila-cli", file=sys.stderr)
         return 2
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:

@@ -1,6 +1,6 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — initial boundaries landed; large ownership bottlenecks remain
+**Status:** In progress — major builtin ownership bottlenecks split; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
@@ -10,15 +10,206 @@
 
 Both crates now expose dedicated IR, lowering, analysis, diagnostics,
 operations, ABI, heap, object, function, environment, control-flow and builtin
-modules, and `./scripts/check-module-boundaries.sh` passes. The split is only
-partial: `porffor-ir/src/lib.rs`, `lowering.rs`, several Wasm builtin files and
-object/operation emitters remain very large implementation stores. Treat the
-existing module boundaries as usable, but continue coordinating broad edits to
-those remaining hotspots.
+modules, and `./scripts/check-module-boundaries.sh` enforces the highest-value
+seams and line budgets. The split remains partial: `lowering.rs`,
+`builtins/standard.rs`, several family files and object/operation emitters are
+still large implementation stores. Treat the landed boundaries as independent
+ownership surfaces, but continue coordinating broad edits to those remaining
+hotspots.
+
+### Landed 2026-08-17: bound-function invoker ownership
+
+The hidden `BoundFunctionInvoker` body now lives beside
+`Function.prototype.bind` in `builtins/function.rs`. `FunctionBuiltin` is the
+closed six-case backend domain for the five public Function intrinsics and the
+one internal call/construct invoker they create; `builtins/standard.rs` keeps
+only one typed delegate per case. This closes the remaining Function-owned body
+that unrelated builtin work still had to cross in the shared dispatcher and
+reduces that parent from 33,342 to 33,248 raw lines.
+
+The invoker body is a semantic-free source move. Comparing it with the frozen
+pre-move `builtins/standard.rs` arm after normalizing only the enum qualifier
+shows the same instruction, temporary-local reservation and reverse-release
+order. Its existing call, construct, nested `new.target` and heap-rooting CLI
+fixtures remain the behavioral characterization; they were not executed while
+Cargo and runtime verification remain under the centralized lease.
+
+The module-boundary audit requires all six typed delegates, the unique hidden
+variant and its unique child match arm, rejects catch-all/unreachable escape
+routes, and budgets both the newly complete family file and the smaller parent.
+The static write-phase gates are green: `git diff --check`, the bounded
+source-body comparison, `check-module-boundaries.sh`, `check-task-plan.sh` and
+focused `rustfmt`. No Function, bind, call/construct, `new.target`, heap-rooting
+or conformance behavior improvement is claimed by this extraction.
+
+### Landed 2026-08-13: Number intrinsic ownership
+
+The complete eleven-member Number intrinsic family now lives in
+`builtins/number.rs`: `Number`, its four non-coercing predicates and its six
+prototype methods. The catalog match keeps one typed delegate per ID. A closed
+`NumberBuiltin` owns the parent-facing family choice, and a private closed
+`NumberPrototypeOperation` owns the six operations that share receiver
+validation. Neither domain admits an unrelated `StandardBuiltinId`; both
+behavior matches are exhaustive and the boundary audit rejects catch-all arms.
+
+This is a semantic-free source move. Static source/token comparisons against
+the parent commit `4dec427e6` confirm the same emitted instruction and temporary-
+local order for all four predicates, the Number and remaining String constructor
+paths, the shared prototype receiver path, all six prototype operations and the
+final local releases. Numeric conversion and formatting algorithms remain with
+`operations.rs`. A focused CLI fixture characterizes the intended unchanged
+runtime family surface, but has not executed while the resource-bounded matrix
+owns Cargo and Test262.
+
+The static write-phase gates are green: `git diff --check`,
+`check-module-boundaries.sh`, `check-task-plan.sh` and
+`rustfmt --edition 2024 --check --config skip_children=true` over the four
+touched Rust files (`builtins/mod.rs`, `builtins/number.rs`,
+`builtins/standard.rs` and `cli/language_numerics.rs`). `skip_children=true` is
+required so this focused gate does not recursively format unrelated builtin
+modules. Compile, focused fixture execution, current-pin Number and pre/post
+golden gates remain deferred. The pre-edit golden must later be built from
+parent commit `4dec427e6` in a separate worktree after copying the committed
+`wasm_number_builtin_family.js` fixture into that worktree. The before and after
+captures therefore use the same 583-fixture corpus and their formal `diff -r`
+remains meaningful and reproducible. No Number behavior or conformance
+improvement is claimed by this extraction.
+
+### Landed 2026-08-12–13: builtin metadata and family body boundaries
+
+Fourteen previously coupled builtin stores now have separate owners:
+
+- `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
+  constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
+  subsequent work leaves it at 31,998 lines, below the enforced cap. The moved
+  methods have only parent-module visibility except the existing crate test
+  hook.
+- `lila-ir/src/builtins/catalog.rs` is the single 779-row
+  `StandardBuiltinId` registry. One row generates the enum, names, flags,
+  function-ID mappings and independent function/global order arrays. Typed
+  dense ordinals plus const duplicate/hole/ID checks preserve the deliberately
+  different declaration, 779-function and 52-global orders.
+- `lila-aot-wasm/src/builtins/object.rs` owns all 34 Object builtin bodies and
+  their private helpers. Three grouped choices are closed enums rather than
+  generic builtin IDs or booleans.
+- `lila-aot-wasm/src/builtins/proxy.rs` owns the three Proxy lifecycle bodies;
+  `reflect.rs` remains the separate owner of the 13 Reflect bodies and their
+  proxy-trap machinery.
+- `lila-aot-wasm/src/builtins/math.rs` owns all 37 Math bodies behind a private
+  closed `MathBuiltin` domain. `standard.rs` gives every Math ID its own typed
+  one-line delegate, and both Math behavior matches are exhaustive. The
+  min/max direction is a two-case private enum rather than a generic builtin
+  ID. After the Object, Proxy and Math moves, `standard.rs` has fallen from
+  49,179 to 36,807 lines.
+- `lila-aot-wasm/src/builtins/symbol.rs` owns all seven Symbol bodies and the
+  three shared Symbol receiver/description helpers behind a private closed
+  `SymbolBuiltin` domain. `String(symbol)` reaches the one helper it shares
+  through a parent-private method; the remaining helpers cannot escape the
+  family. The catalog dispatch keeps seven typed delegates, and `standard.rs`
+  fell from 36,789 to 36,313 lines without changing an emitted instruction.
+- `lila-aot-wasm/src/builtins/bigint.rs` owns all six BigInt intrinsic bodies
+  behind a private closed `BigIntBuiltin` domain. The constructor, signed and
+  unsigned fixed-width operations, and three prototype methods moved verbatim;
+  general BigInt conversion, allocation and stringification helpers remain
+  with their existing operation and heap owners. The catalog dispatch keeps
+  six typed delegates, and `standard.rs` fell from 36,313 to 35,647 lines.
+- `lila-aot-wasm/src/builtins/boolean.rs` owns all three Boolean intrinsic
+  bodies behind a private closed `BooleanBuiltin` domain. The constructor keeps
+  the same argument/result-local ordering previously shared with Number and
+  String, while the two prototype methods keep their boxed-receiver checks and
+  realm-local TypeError route together. After the intervening T20 residue
+  consolidation, the extraction reduced `standard.rs` from 35,532 to 35,439
+  lines.
+- `lila-aot-wasm/src/builtins/number.rs` owns all eleven Number intrinsic bodies
+  behind a closed `NumberBuiltin` domain. A private closed
+  `NumberPrototypeOperation` owns the six methods that share Number receiver
+  validation; the constructor and four static predicates complete the family.
+  Eleven typed delegates preserve the flat catalog dispatch, and `standard.rs`
+  fell from 33,730 to 33,512 lines.
+- `lila-aot-wasm/src/builtins/function.rs` owns the complete five-member
+  Function intrinsic family and its hidden bound-function call/construct
+  invoker behind a private closed `FunctionBuiltin` domain. The catalog
+  dispatch keeps six typed delegates, while the moved bodies retain their exact
+  instruction and temporary-local order. The original intrinsic extraction
+  reduced `standard.rs` from 34,461 to 34,088 lines; moving the remaining
+  invoker body reduces it again without changing the public family.
+- `lila-aot-wasm/src/builtins/uri.rs` owns all six global URI and Annex-B codec
+  wrappers behind a private closed `UriBuiltin` domain. The UTF-8/UTF-16 codec
+  primitives remain with their existing `string.rs` owner; only the complete
+  global wrapper family moved. Six typed delegates preserve the flat catalog
+  dispatch, and `standard.rs` fell from 35,439 to 35,394 lines.
+- `lila-aot-wasm/src/builtins/global_numeric.rs` owns both coercing global
+  numeric predicate bodies behind a private closed `GlobalNumericBuiltin`
+  domain. `Number.isFinite` and `Number.isNaN` remain with the distinct
+  non-coercing Number family, while `parseInt` and `parseFloat` remain host
+  builtin emitters. The catalog dispatch keeps one typed delegate for each of
+  `isFinite` and `isNaN`, and `standard.rs` fell from 35,394 to 35,372 lines.
+- `lila-aot-wasm/src/builtins/errors.rs` owns the complete eleven-member Error
+  intrinsic family as well as its pre-existing allocation, realm-prototype,
+  cause, iterable and throw helpers. A private closed `ErrorBuiltin` domain
+  distinguishes the static predicate, the nine constructors carried by the
+  existing closed `NativeErrorKind`, and `Error.prototype.toString`; unrelated
+  `StandardBuiltinId` values cannot reach this family emitter. Eleven typed
+  delegates preserve the catalog dispatch without duplicating the error-kind
+  registry, and `standard.rs` fell from 35,372 to 34,948 lines.
+- `lila-aot-wasm/src/builtins/json.rs` owns all four JSON namespace bodies
+  alongside the parse, reviver, stringify and raw-JSON machinery they already
+  consume. A private closed `JsonBuiltin` domain covers `parse`, `stringify`,
+  `rawJSON` and `isRawJSON`; hidden static-JSON lowering and runtime helpers
+  remain implementation details rather than pretend namespace members. Four
+  typed delegates preserve the flat catalog dispatch, and `standard.rs` fell
+  from 34,948 to 34,461 lines.
+
+The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
+and `lila-intl`, and the focused builtin catalog tests pass for the moves that
+reached that checkpoint. The source moves were also compared against their
+pre-extraction bodies, and the boundary audit prevents these stores from being
+folded back into their parents. The later
+Proxy move is source-equivalent by a static body comparison and is included in
+the green compile checkpoint and product-artifact boundary proof. The Math move
+is statically source-equivalent, boundary-checked, and covered by that compile
+checkpoint. The later Symbol move is statically source-equivalent and
+boundary-checked, passes the centralized feature-enabled CLI compile, and is
+covered by the exact String/Symbol hook fixture through the product Wasm
+backend. The BigInt move is statically source-equivalent and boundary-checked;
+its centralized feature-enabled compile and the exact constructor/fixed-width,
+wrapper-coercion and cross-realm prototype behavior checkpoints are green.
+The Boolean move is statically instruction-sequence equivalent and
+boundary-checked; its compile, focused fixture, and real Boolean shard gates
+remain queued behind the active resource-bounded matrix run.
+The original Function move is an exact 389-line body match after normalizing
+only the five public enum arm headers. The later hidden-invoker move preserves
+its complete body after normalizing only that sixth arm header. Compile,
+focused constructor/call/apply/bind/toString and bound-call/construct fixtures,
+and the real `built-ins/Function` shard remain queued behind the same matrix
+run.
+The URI move is statically source-equivalent after normalizing only the closed
+enum path and rustfmt's block-expression layout, and is boundary-checked; its
+compile, focused global-codec fixtures and real URI/Annex-B shard gates remain
+queued behind the same matrix run.
+The global numeric move is statically source-equivalent after normalizing only
+the closed enum path, and is boundary-checked; its compile, focused coercion
+and cross-realm fixture gates and real `isFinite`/`isNaN` shards remain queued
+behind that matrix run.
+The Error move preserves the existing emitter and local-allocation sequences;
+its only semantic-free rewrites replace raw builtin-ID tests with the closed
+`ErrorBuiltin` and `NativeErrorKind` domains. Its compile, focused constructor,
+cross-realm, static predicate and prototype-method fixtures, and real Error,
+NativeErrors, AggregateError and SuppressedError shards remain queued behind
+the same matrix run.
+The JSON move is a verbatim body extraction after normalizing only the closed
+enum path and rustfmt layout. Its compile, focused parse/reviver, stringify,
+raw-JSON and cross-realm gates, and real `built-ins/JSON` shard remain queued
+behind the same matrix run.
+The Number move is statically source/token-equivalent for the four predicates,
+both split constructor paths, shared receiver path, six prototype operations and
+temporary-local releases. Its static boundary/task/diff/rustfmt gates are green;
+compile, focused fixture, pre/post golden and real `built-ins/Number` gates remain
+queued behind the same matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
-`crates/porffor-aot-wasm/src/intrinsics/` now holds per-family realm bootstrap
+`crates/lila-aot-wasm/src/intrinsics/` now holds per-family realm bootstrap
 and property-descriptor installation, extracted from
 `builtins/bootstrap.rs::init_builtin_constructor_object`. That function was a
 single ~4,760-line body and the worst merge point in the backend: two lanes
@@ -32,34 +223,63 @@ Every arm moved **verbatim** — installers destructure an `IntrinsicInstall`
 context back into the original identifier names (including `builtin`, which
 multi-variant arms branch on), so no body text was rewritten. The move was
 verified byte-identical across all 527 CLI fixtures with
-`crates/porffor-aot-wasm/tests/emit_golden.rs`, which matters because property
+`crates/lila-aot-wasm/tests/emit_golden.rs`, which matters because property
 installation order is observable through `Object.keys` and the ordinary suites
 assert on program output rather than emitted bytes.
 
-Remaining in this area, in dependency order:
+The earlier intrinsic split left three immediate follow-ups. All now have
+bounded owners:
 
-- The 485-variant no-op or-pattern at the tail of the dispatch, plus 7 smaller
-  interspersed no-op groups, still have to be appended to for every new builtin.
-  They collapse into an `is_intrinsic_root()` guard once the descriptor table
-  below exists.
-- `porffor-ir/src/builtins.rs` still carries a 583-variant enum and ~9 parallel
-  exhaustive `match self` tables. Collapsing them into one descriptor row per
-  builtin is the largest remaining per-builtin edit cost. Ordering hazards:
-  `all_functions()` order feeds Wasm function indices, `all_globals()` is
-  deliberately *not* declaration order and feeds `globalThis` enumeration order,
-  and variant order feeds `Ord` for `BTreeSet` iteration.
-- `builtins/standard.rs` is still 48,608 lines, of which `compile_standard_builtin`
-  is a 39,009-line match with 203 arms holding bodies inline.
+- **Resolved 2026-08-12:** the append-only no-op dispatch is gone. The standard
+  builtin catalog requires a closed installer class on every row, and
+  `bootstrap.rs` consumes it through an exhaustive installer match.
+- **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
+  catalog with compile-time ordering and uniqueness invariants.
+- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, Number, Function,
+  global numeric, URI, Error and JSON 2026-08-13:** their bodies are family
+  modules; Reflect already has the same boundary. Other large inline families
+  should follow the same exhaustive-delegate shape.
+
+### Landed 2026-08-12: catalog-owned bootstrap routing
+
+`init_builtin_constructor_object` performs common function/prototype setup for
+every initialized `StandardBuiltinId`, but only 34 IDs then run one of 33
+family intrinsic installers. Before this seam that distinction was encoded
+backwards: the 33 productive arms were followed by no-op arms naming every
+other ID. Adding a builtin compiled only after someone appended its name to an
+unrelated no-op tail, while the catalog that owned the builtin could not say
+whether an installer was required.
+
+The landed seam is a mandatory catalog field whose value is a closed
+`StandardBuiltinInstaller` domain. `None` must skip family dispatch; every
+other case must be consumed by an exhaustive backend match that invokes the
+corresponding installer. This is behavioral routing rather than passive
+metadata: omitting the field makes a new catalog row fail to parse, and adding
+an installer variant makes the backend fail to compile until it handles the
+case. The existing catalog/function iteration and the location of dispatch
+after common setup remain unchanged, preserving construction and observable
+property-installation order.
+
+The catalog now records 34 productive roots across 33 installer classes and
+745 explicit `None` choices. `ArrayBuffer` and `SharedArrayBuffer` deliberately
+share one class because their installer branches on the carried builtin ID.
+The backend match contains only the productive classes; the former raw-ID
+no-op groups were deleted, reducing `builtins/bootstrap.rs` from 4,903 to 4,156
+lines. A catalog contract pins the productive root sequence, and the module
+boundary audit requires both the mandatory field and the typed backend
+dispatch. The focused catalog contract and central feature-enabled CLI compile
+are green; broader behavioral suites remain part of this task's acceptance
+gate.
 
 ## Objective
 
-Split the current monolithic compiler implementation into stable ownership boundaries without changing JavaScript behavior or emitted semantics. At the time this plan was written, `porffor-ir/src/lib.rs` and `porffor-aot-wasm/src/lib.rs` are tens of thousands of lines and are the primary merge-conflict bottleneck.
+Split the current monolithic compiler implementation into stable ownership boundaries without changing JavaScript behavior or emitted semantics. At the time this plan was written, `lila-ir/src/lib.rs` and `lila-aot-wasm/src/lib.rs` are tens of thousands of lines and are the primary merge-conflict bottleneck.
 
 ## Required module boundaries
 
 The exact filenames may change, but the resulting architecture must expose equivalent boundaries.
 
-### `porffor-ir`
+### `lila-ir`
 
 - `ir/`: public `ProgramIr`, statements, expressions, functions, classes, properties, shapes, value information and IDs.
 - `lowering/`: AST-to-spec-IR lowering, split by declarations, expressions, statements, functions/classes and modules.
@@ -69,7 +289,7 @@ The exact filenames may change, but the resulting architecture must expose equiv
 - `operations/`: typed representations of shared ECMAScript abstract operations consumed by backends.
 - `diagnostics/`: structured diagnostic codes and source locations.
 
-### `porffor-aot-wasm`
+### `lila-aot-wasm`
 
 - `module/`: sections, imports/exports, tables, globals, data and validation.
 - `abi/`: tagged values, call/construct convention, completion convention and host imports.
@@ -104,7 +324,7 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 - Both giant `lib.rs` files become orchestration/re-export surfaces rather than implementation stores.
 - Feature families have clear files that separate agents can own.
 - There are no cyclic module dependencies or duplicate constant registries.
-- Public APIs used by `porffor-engine` remain coherent and documented.
+- Public APIs used by `lila-engine` remain coherent and documented.
 - Representative emitted artifacts behave identically before and after extraction. If byte identity is not practical, compare imports, exports, validation, output, completion kind and thrown error class.
 - Workspace compile time and binary size do not regress materially solely because of module movement.
 
@@ -113,12 +333,12 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 ```sh
 cargo fmt --all --check
 cargo check --workspace
-cargo test -p porffor-ir --quiet
-cargo test -p porffor-aot-wasm --quiet
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli --quiet
-./target/debug/porf test262 run language/wasm/pass \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 \
+cargo test -p lila-ir --quiet
+cargo test -p lila-aot-wasm --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli --quiet
+./target/debug/lila test262 run language/wasm/pass \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
 ```
 

@@ -21,27 +21,27 @@ repository, and build the CLI:
 
 ```sh
 git clone https://github.com/mewhhaha/porffor.git
-cd porffor
+cd lila
 ./scripts/dev.sh build
 ```
 
 The development wrapper shares Cargo's normal `target/` directory, uses `lld`
 when available, and bounds parallelism for this large workspace. Set
-`PORFFOR_JOBS` to request a lower job count.
+`LILA_JOBS` to request a lower job count.
 
 Run the compiler from the built binary:
 
 ```sh
-./target/debug/porf --help
-./target/debug/porf inspect crates/porffor-cli/tests/fixtures/hello.js
-./target/debug/porf run crates/porffor-cli/tests/fixtures/hello.js
-./target/debug/porf build wasm crates/porffor-cli/tests/fixtures/hello.js
+./target/debug/lila --help
+./target/debug/lila inspect crates/lila-cli/tests/fixtures/hello.js
+./target/debug/lila run crates/lila-cli/tests/fixtures/hello.js
+./target/debug/lila build wasm crates/lila-cli/tests/fixtures/hello.js
 ```
 
 You can also invoke it through Cargo:
 
 ```sh
-cargo run -p porffor-cli -- inspect crates/porffor-cli/tests/fixtures/hello.js
+cargo run -p lila-cli -- inspect crates/lila-cli/tests/fixtures/hello.js
 ```
 
 ## Workspace architecture
@@ -54,14 +54,14 @@ JavaScript source -> parse and early errors -> spec IR -> lowering IR -> Wasm
 
 The primary crates are:
 
-- `porffor-front`: parsing and source units.
-- `porffor-ir`: spec-shaped IR, diagnostics, and lowering metadata.
-- `porffor-runtime`: realms and host hooks.
-- `porffor-aot-wasm`: direct Wasm code generation.
-- `porffor-engine`: public Rust library API.
-- `porffor-cli`: the `porf` command.
-- `porffor-test262`: Test262 discovery, execution, snapshots, and reporting.
-- `porffor-spec-exec`: feature-gated differential/debug oracle.
+- `lila-front`: parsing and source units.
+- `lila-ir`: spec-shaped IR, diagnostics, and lowering metadata.
+- `lila-runtime`: realms and host hooks.
+- `lila-aot-wasm`: direct Wasm code generation.
+- `lila-engine`: public Rust library API.
+- `lila-cli`: the `lila` command.
+- `lila-test262`: Test262 discovery, execution, snapshots, and reporting.
+- `lila-spec-exec`: feature-gated differential/debug oracle.
 
 The C and native backends are scaffolds. Wasm-AOT is the product backend.
 `spec-exec` must never become the product default, a silent fallback, or part of
@@ -99,8 +99,8 @@ Useful commands include:
 ```sh
 ./scripts/dev.sh check
 cargo fmt --all -- --check
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli --quiet
 ./scripts/check-task-plan.sh
 ./scripts/check-no-interpreter-in-product-graph.sh
 ```
@@ -111,7 +111,7 @@ commands should use the repository stall guard:
 
 ```sh
 ./scripts/run-watched.sh --label cli --stall 900 -- \
-  cargo test -p porffor-cli --test cli -- --test-threads=2
+  cargo test -p lila-cli --test cli -- --test-threads=2
 ```
 
 See [docs/rust-rewrite/batch-workflow.md](docs/rust-rewrite/batch-workflow.md)
@@ -132,12 +132,12 @@ counts; use the status publisher only after a complete verified matrix.
 Representative smoke commands are:
 
 ```sh
-./target/debug/porf test262 run language/wasm/pass \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 \
+./target/debug/lila test262 run language/wasm/pass \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
 
-./target/debug/porf test262 run \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
+./target/debug/lila test262 run \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
 Use `./scripts/publish-real-status-low-ram.sh wasm-aot <snapshot-name>` only for

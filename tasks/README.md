@@ -18,25 +18,27 @@ denominator.
 Backend policy: `wasm-aot` is the product. It is the execution path every task
 targets, the only backend whose results may be published as Lila conformance,
 and the only backend the T26 release gate accepts. `spec-exec` (the Boa-based
-engine in `crates/porffor-spec-exec`) is an internal differential-testing and
+engine in `crates/lila-spec-exec`) is an internal differential-testing and
 debug oracle only, used by T25 and quarantined by T27 — never the CLI default,
 never a silent fallback, never part of an emitted artifact, and never a source
 of published conformance numbers. Wherever a task mentions running spec-exec,
 that run is oracle triage; the Wasm-AOT run is the requirement.
 
-## Current status snapshot — 2026-08-11
+## Current status snapshot — 2026-08-12
 
 | State | Tasks | Repository evidence |
 |---|---|---|
-| Complete | T00, T28 | Repository contracts are enforced and the legacy JavaScript product implementation is retired at its recorded Git recovery commit |
-| In progress | T01-T12, T14-T22, T24-T25, T27 | Substantial implementation exists, but each task retains unmet acceptance criteria described in its current-state section |
-| Policy selected; implementation/accounting open | T13 | Generic dynamic source stays explicit Wasm-AOT unsupported; ADR and any supported compilation subsets remain open |
-| Open | T23, T29 | Intl lacks a complete product architecture; the coordinated Lila identifier migration has not started |
+| Complete | T00, T27-T29 | Repository contracts are enforced, the interpreter is quarantined from the product, the legacy JavaScript product is retired, and the Lila identity cutover is verified |
+| In progress | T01-T12, T14-T25 | Substantial implementation exists; T23's deterministic Intl architecture is live, but each task retains unmet acceptance criteria described in its current-state section |
+| Policy, typed accounting and no-source eval implemented; textual static subsets open | T13 | Generic runtime dynamic source stays explicit Wasm-AOT unsupported; no-argument and proven non-String `%eval%` execute without crossing that boundary, while String-capable eval, all Function-family constructors and realm `evalScript` retain closed compiler diagnostics and sound textual subsets remain open |
 | Blocked final gate | T26 | The current pinned real Wasm-AOT aggregate is not green or fully republished |
 
-The current working tree passes the task-plan, module-boundary, host-ABI and
-interpreter-dependency audits. The Test262 shortcut audit is red because several
-path/source/helper categories exceed their allowlisted ceilings. Do not close a
+The current working tree passes the task-plan, module-boundary, host-ABI,
+interpreter-dependency and Test262 shortcut audits. The shortcut audit now pins
+an exact 432-entry generated inventory. Every entry has a closed classification,
+reason and concrete owner/removal task; none uses the old aggregate
+`T26-unclassified` owner. The inventory still contains 353 semantic shortcuts,
+so audit green means “no unrecorded drift,” not “no shortcuts.” Do not close a
 semantic task from focused green leaves while that task's full-tree and
 materialization-removal criteria remain unmet.
 
@@ -46,7 +48,7 @@ materialization-removal criteria remain unmet.
 2. Do not add source-path, test-name, or assertion-text branches that manufacture Test262 results. Existing focused materializations must be catalogued and retired as general semantics replace them.
 3. Every change starts with a reproducible failing real Test262 filter or exact case and ends with the same command green. Add a small CLI/engine regression fixture when it isolates the behavior better than the upstream case.
 4. Preserve evaluation order, abrupt completion, realm ownership, property attributes, observable coercions, and proxy traps. Passing the happy path is not enough.
-5. Do not hand-edit published conformance totals. Use `porf test262 publish-status` or `scripts/publish-real-status-low-ram.sh` after a complete verified matrix.
+5. Do not hand-edit published conformance totals. Use `lila test262 publish-status` or `scripts/publish-real-status-low-ram.sh` after a complete verified matrix.
 6. Keep `unsafe_code = "forbid"`. New dependencies require a reason, license review, deterministic behavior, and a clear Wasm/runtime story.
 7. Feature PRs should not combine unrelated refactors. When a prerequisite interface is missing, land the interface first under its foundation task.
 8. The interpreter stays quarantined. No CLI or library product path may execute user programs through `spec-exec` by default or as a silent fallback, and emitted Wasm never embeds an interpreter/VM or feeds user source to one. T27 enforces this in code; every other task must not reintroduce it.
@@ -99,7 +101,7 @@ not forbid focused work when its required interface already exists.
 
 | ID | Task | Depends on |
 |---|---|---|
-| [T11](11-proxy-reflect-metaobject.md) | Proxy and Reflect meta-object protocol | T04, T05, T06, T10 |
+| [T11](11-proxy-reflect-metaobject.md) | Proxy and Reflect meta-object protocol | T04, T05, T06, T09, T10 |
 | [T12](12-modules-linking-loading.md) | Modules, linking, namespace objects, TLA host flow | T06, T07, T08, T09, T10 |
 | [T13](13-dynamic-source-evaluation.md) | `eval`, `Function`, realm evaluation policy/implementation | T06, T08, T09, T12 |
 | [T14](14-promises-jobs-async.md) | Promise jobs, async functions, async iteration | T04, T05, T06, T09 |
@@ -119,7 +121,7 @@ not forbid focused work when its required interface already exists.
 | ID | Task | Depends on |
 |---|---|---|
 | [T25](25-differential-fuzzing-performance.md) | Differential testing, fuzzing, timeout and code-size work | T01-T04; runs continuously |
-| [T27](27-interpreter-quarantine-and-product-default.md) | Interpreter quarantine and Wasm-AOT product default | T02, T03; labeling/dependency work can start immediately |
+| [T27](27-interpreter-quarantine-and-product-default.md) | Interpreter quarantine and Wasm-AOT product default | T02, T03; complete |
 | [T26](26-zero-failure-conformance-closure.md) | Full pinned suite closure and release gate | All applicable tasks, including T27 |
 
 ### Repository ownership and identity
@@ -127,7 +129,7 @@ not forbid focused work when its required interface already exists.
 | ID | Task | Depends on |
 |---|---|---|
 | [T28](28-retire-legacy-js.md) | Retire the legacy JavaScript product and enforce the Rust-only boundary | T00; complete |
-| [T29](29-lila-identifier-migration.md) | Coordinate the remaining Rust identifier migration to Lila; does not block Test262 or T26 | T28 |
+| [T29](29-lila-identifier-migration.md) | Coordinated Rust identifier migration to Lila; product cutover, version-6 Lila producer, and read-only version-4/version-5 decoder verified | T28; complete |
 
 ## Merge-conflict policy
 

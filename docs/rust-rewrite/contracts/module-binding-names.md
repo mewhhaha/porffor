@@ -13,14 +13,18 @@ uses the full area title. There is one contract; that file is it.
 where they disagree** — notably V6/K4, the minted-vs-source disjointness claim,
 ledger R1's stated reason, and the K1/K2 overclaims.
 
+§12 records the later typed `ModuleKey` follow-up. It separates host-normalized
+module identity from source request spelling; it does not claim the generated
+Script-text obligation R8 is closed.
+
 ---
 
 ## INTEGRATOR stage
 
 The lane note's §2 ("edits needed in files this lane does not own") is **None**,
 and the containment claim was re-checked here rather than assumed: no type or
-minting function named in the note appears outside `crates/porffor-ir/`, and the
-only hit inside `porffor-ir` but outside `modules/` is
+minting function named in the note appears outside `crates/lila-ir/`, and the
+only hit inside `lila-ir` but outside `modules/` is
 `lowering.rs`'s `.map(ModuleLinkErrorIr::to_diagnostic)`, which is unaffected by
 adding a variant.
 
@@ -28,4 +32,4 @@ The §3 shared-file coordination in `lib.rs` resolved cleanly: this lane's
 `mod binding_names;` and the iterator lane's `mod iterator_obligations;` are both
 present in the alphabetical run, with both `pub use` blocks intact.
 
-`cargo check -p porffor-ir` and `cargo xc` are clean.
+`cargo check -p lila-ir` and `cargo xc` are clean.

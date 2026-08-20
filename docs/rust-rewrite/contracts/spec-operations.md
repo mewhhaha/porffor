@@ -8,14 +8,15 @@ values and the two would drift if split:
 
 Start at §3 (type mapping, Part A) for the catalog half.
 
-As built: `crates/porffor-ir/src/operations.rs`. §12 (encoder addendum) records
+As built: `crates/lila-ir/src/operations.rs`. §12 (encoder addendum) records
 the four deviations, the three added mistake classes, and ledger entries L6–L8.
 
 **§13 is the dry-run discrepancy pass and supersedes §§1–12 where they
 disagree.** For this half, read 13.2 (the catalog entry was forgeable), 13.3
 (`ALL` is now macro-generated; the L1 test and `catalog_index` are deleted),
-13.9 (`sites` is a slice), 13.10 (`OwnerTaskId` validates membership) and 13.11
-(what `EmitterEvidence` actually proves, and how L2 must be scoped).
+13.9 (`sites` is a slice), 13.10 (the single-source `TaskId` enum closes owner
+membership over T00–T29) and 13.11 (what `EmitterEvidence` actually proves, and
+how L2 must be scoped).
 
 ---
 
@@ -45,7 +46,7 @@ arms now bind `..` and call `compile_for_of_array` unconditionally.
 `AsyncForOfIteratorPlanIr` is a different type and is genuinely constructed —
 which is *why* the `ForOfArray` path was dead.
 
-`cargo check -p porffor-ir`, `cargo check -p porffor-aot-wasm` and `cargo xc`
+`cargo check -p lila-ir`, `cargo check -p lila-aot-wasm` and `cargo xc`
 are all clean after the deletion, and no warning appeared or disappeared, so
 nothing else depended on it. Rung G is expected to diff empty and has not been
 run here.

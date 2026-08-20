@@ -15,6 +15,106 @@ async generators, async iteration, module jobs and `waitAsync` share unfinished
 boundaries with T12/T15/T17. The complete Promise/async filters have not met the
 zero-failure acceptance gate for the current pin.
 
+The AOT pending-job record now has one closed Rust `PromiseJobKind` domain for
+the two job shapes the product path actually enqueues: Promise reactions and
+thenable resolution. Both producers encode that type, and the main-export drain
+derives its comparison chain from the domain before selecting a handler through
+an exhaustive match. An unknown word traps instead of silently running as a
+thenable job. A private payload-bearing `PromiseJobToEnqueue` now requires each
+producer to supply its argument and realm policy before the sole FIFO append;
+new job shapes cannot grow a second queue-order implementation.
+The job and reaction-callback enum, ordered `ALL` set and stable wire word now
+come from the same macro row, with a const dense-range proof; there is no second
+hand-written variant list that can omit a new row.
+
+Promise reaction callback words are also one closed six-variant Rust domain.
+Reaction construction writes that typed word once, rather than initializing a
+default and repairing internal async continuations afterward, and the runner's
+ordered comparison chain selects behavior through an exhaustive match. Default
+reaction jobs derive `GetFunctionRealm(handler)` at enqueue time or carry the
+specification's null realm for an empty handler; internal async continuations
+carry their captured realm. Thenable jobs derive the `then` callback realm.
+Both callback lookups select the enqueue-time current realm for a revoked Proxy,
+and the drain maps a null job realm to its saved host-checkpoint realm instead
+of installing zero or leaking the preceding job's realm.
+
+The reaction record's `[[Type]]` is now a separate closed
+`PromiseReactionType::{Fulfill, Reject}` domain rather than a raw Promise-state
+word. All three producer pairs must select the type before construction. The
+reaction-job runner decodes the stable wire words 1/2 once into a normalized
+rejection flag, traps an unknown word, and threads that flag through all six
+callback shapes. No callback independently treats an invalid word as its own
+fallback. This is a record-integrity boundary; valid reaction behavior and the
+wire encoding are unchanged.
+
+Promise `finally` completion preservation now has its own closed
+`PromiseFinallyCompletion::{Fulfill, Reject}` domain. The `ThenFinally` /
+`CatchFinally` continuation stage and the later `ValueThunk` / `Thrower` stage
+consume the same typed choice through exhaustive matches, while four named
+zero-choice wrappers keep naked booleans out of the standard-builtin
+dispatcher. This closes a representational hole in which one inverted boolean
+could compile and silently restore the wrong original completion. Existing
+valid behavior and ordering are unchanged.
+
+Ordinary async-function activations now store the completion supplied by
+`Await` through one closed `AsyncFunctionResumeCompletion::{Normal, Throw}`
+domain. The raw offset and stable words 0/1 are private to the heap boundary;
+activation initialization and the reaction continuation must use the typed
+store. Ordinary `await` and both `for-await-of` resume sites use the sole strict
+decoder, which normalizes to one `is_throw` flag and traps an unknown word
+instead of treating it as fulfilment. The shared `for-await-of` emitter now has
+a closed async-function/async-generator layout choice, so the generator's
+separate five-way resume-kind behavior stays explicit rather than being folded
+into an integer tuple. This is also a record-integrity boundary: the existing
+valid 0/1 behavior is unchanged, while illegal internal words fail closed.
+
+Promise records now store `[[PromiseState]]` through one closed three-variant
+`PromiseState::{Pending, Fulfilled, Rejected}` wire domain. The raw offset is
+private to typed initialization, terminal-store and strict-load helpers, and an
+unknown word traps instead of falling through as rejection. The separate
+`PromiseSettlement::{Fulfill, Reject}` domain is accepted by every terminal
+producer and Promise-direction helper, so `Pending` or an arbitrary integer can
+no longer be supplied where a terminal choice is required. Promise reaction
+`[[Type]]` remains distinct despite sharing the two terminal wire words.
+
+One exhaustive reaction-pair router now owns the pending/fulfilled/rejected
+behavior shared by ordinary `then`, async `await` and async-generator
+return-await. Terminal settlement captures the selected reaction list, stores
+the result, clears both obsolete lists, stores the typed state, performs
+rejection tracking when required, and only then enqueues the captured reactions.
+This closes the Promise lifecycle record and transition-order boundary; it is
+not a claim of broader queue ownership, suspended-body support, GC completion or
+full Promise conformance.
+
+Main Script completion now has one closed exit policy. While source statements
+are emitted, every otherwise-terminal abrupt completion targets a code-sink
+tracked host-checkpoint block instead of returning from the Wasm export. The
+checkpoint drains jobs and then publishes the original Script completion;
+internal functions retain their direct four-word completion return. The drain
+also preserves the thrown error-name/message globals alongside the completion
+tuple, so an error raised by a queued job cannot overwrite the identity or
+message of an already-pending top-level throw. A durable engine regression
+requires the queued job's print side effect and the primary throw identity;
+central compile and that focused runtime contract remain queued behind the live
+current-pin matrix.
+
+This closes the current record/ordering/realm-source boundary; it does not yet
+provide the broader realm/agent-owned host queue contract. Async continuations
+still ride on reaction records, while module and finalization-cleanup jobs
+remain outside this two-kind queue. Full execution-context switching and
+realm-correct allocation across the complete builtin surface also remain T06
+work, so this is not a claim of complete cross-realm Promise conformance.
+
+The central feature-enabled CLI compile covers the consolidated job machinery.
+The typed callback-word/realm policy's durable layout contract is green, as are
+the engine contracts proving that reaction jobs run after synchronous code in
+registration order and that thenable-resolution jobs are asynchronous and
+settle once. The ordinary async resume-completion contract has been added for
+central verification, as has the typed Promise-lifecycle contract. Their
+focused compile/runtime checks remain queued behind the live current-pin
+matrix. Those checks are not a substitute for the full Promise/async Test262
+filters.
+
 ## Objective
 
 Implement the ECMAScript job model, complete Promise semantics, async functions and async iteration with deterministic host integration suitable for Test262 and embedders.
@@ -84,16 +184,13 @@ a fix that reported *handled* rejections would have turned passes into failures:
 Implementation note: the promise record grew from 64 to 72 bytes for the list
 link, and the global registry gained two slots.
 
-Three holes remain in the same story:
+Two holes remain in the same story:
 
 - **Only the oldest unhandled rejection is reported**, because the main export
   carries a single completion value. Hosts normally report every one. Adequate
   for pass/fail scoring, imprecise as a diagnostic. `emit_report_unhandled_rejection`
   already walks the whole list and could print the rest via the host `print`
   import before setting the throw completion.
-- **A top-level throw in a script returns from main before the drain runs**, so
-  pending jobs are abandoned and any rejection they would have produced is never
-  reported. Pre-existing and unrelated to the fix above.
 - The rejection list is process-global rather than per-realm, so cross-realm
   (`$262.createRealm`) promises share one tracker. Untested territory rather
   than a known break - cross-realm is the one feature still failing the probe.
@@ -117,10 +214,10 @@ variants.
 ## Required tests
 
 ```sh
-cargo test -p porffor-runtime job_ --quiet
-cargo test -p porffor-aot-wasm promise_ --quiet
-cargo test -p porffor-cli wasm_async --quiet
-./target/debug/porf test262 run built-ins/Promise --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-runtime job_ --quiet
+cargo test -p lila-aot-wasm promise_ --quiet
+cargo test -p lila-cli wasm_async --quiet
+./target/debug/lila test262 run built-ins/Promise --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
 Also run async function, `await`, `for-await-of`, async iterator and top-level-await filters, plus intentionally hanging/duplicate `$DONE` harness tests.

@@ -11,10 +11,10 @@
 # are confined to the listed CPUs regardless of how many threads they create.
 #
 # usage:
-#   ./scripts/capped.sh cargo test -p porffor-engine --lib
-#   ./scripts/capped.sh ./target/release/porf run --execution-backend wasm x.js
+#   ./scripts/capped.sh cargo test -p lila-engine --lib
+#   ./scripts/capped.sh ./target/release/lila run --execution-backend wasm x.js
 #
-# PORFFOR_CPU_PERCENT overrides the share (default 50).
+# LILA_CPU_PERCENT overrides the share (default 50).
 
 set -eu
 
@@ -29,8 +29,8 @@ logical_cpus() {
 cpus=$(logical_cpus)
 case "$cpus" in ''|*[!0-9]*|0) cpus=4 ;; esac
 
-percent=${PORFFOR_CPU_PERCENT:-50}
-case "$percent" in ''|*[!0-9]*|0) echo "PORFFOR_CPU_PERCENT must be a positive integer" >&2; exit 2 ;; esac
+percent=${LILA_CPU_PERCENT:-50}
+case "$percent" in ''|*[!0-9]*|0) echo "LILA_CPU_PERCENT must be a positive integer" >&2; exit 2 ;; esac
 
 allowed=$(( cpus * percent / 100 ))
 [ "$allowed" -ge 1 ] || allowed=1

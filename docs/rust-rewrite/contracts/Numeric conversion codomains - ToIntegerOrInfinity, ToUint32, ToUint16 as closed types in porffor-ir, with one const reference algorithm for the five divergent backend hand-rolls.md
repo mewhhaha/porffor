@@ -1,4 +1,4 @@
-# Contract: Numeric conversion codomains — `ToIntegerOrInfinity` / `ToUint32` / `ToUint16` as closed types in `porffor-ir`, with one const reference algorithm for the five divergent backend hand-rolls
+# Contract: Numeric conversion codomains — `ToIntegerOrInfinity` / `ToUint32` / `ToUint16` as closed types in `lila-ir`, with one const reference algorithm for the five divergent backend hand-rolls
 
 Area owner: FORMALIZER, theory-first campaign, round 2.
 Implements: ECMA-262 5.2.5 (`modulo`), 7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22,
@@ -34,14 +34,14 @@ otherwise produce either a wrong retrofit or a decoration type.
 
 | Fact | Value | How |
 |---|---|---|
-| `pub fn spec_*` constructors in `ir.rs` | **31** | `grep -c "^    pub fn spec_" crates/porffor-ir/src/ir.rs` |
-| References to `spec_to_integer_or_infinity` outside its definition | **2**, both under `#[cfg(test)]` | `ir.rs:3856` (module gate at `ir.rs:3451`), `porffor-aot-wasm/src/lib.rs:1468` (module gate at `lib.rs:109`) |
-| References to `spec_to_length` outside its definition | **2**, both under `#[cfg(test)]` | `ir.rs:3878`, `porffor-aot-wasm/src/lib.rs:1486` |
-| References to `spec_to_index` outside its definition | **2**, both under `#[cfg(test)]` | `ir.rs:3900`, `porffor-aot-wasm/src/lib.rs:1503` |
-| Modular-residue sites in `porffor-ir` | **2** | `rem_euclid` at `lowering.rs:24662` and `lowering.rs:36471`; there is no third |
-| Float→integer truncating casts on a conversion path in `porffor-ir` | **1** | `value.trunc() as i32` at `lowering.rs:34801`; `grep -n "trunc() as i32"` returns exactly this line |
-| Distinct hand-rolls of the 7.1.5-step-2 / 7.1.6-step-2 case split in `porffor-aot-wasm` | **5**, in **5 different spellings** | §1.4 |
-| CLI fixtures mentioning `toPrecision`, `toFixed`, `toExponential`, `clz32` | **0, 0, 0, 0** of 532 | `grep -rl` in `crates/porffor-cli/tests/fixtures` |
+| `pub fn spec_*` constructors in `ir.rs` | **31** | `grep -c "^    pub fn spec_" crates/lila-ir/src/ir.rs` |
+| References to `spec_to_integer_or_infinity` outside its definition | **2**, both under `#[cfg(test)]` | `ir.rs:3856` (module gate at `ir.rs:3451`), `lila-aot-wasm/src/lib.rs:1468` (module gate at `lib.rs:109`) |
+| References to `spec_to_length` outside its definition | **2**, both under `#[cfg(test)]` | `ir.rs:3878`, `lila-aot-wasm/src/lib.rs:1486` |
+| References to `spec_to_index` outside its definition | **2**, both under `#[cfg(test)]` | `ir.rs:3900`, `lila-aot-wasm/src/lib.rs:1503` |
+| Modular-residue sites in `lila-ir` | **2** | `rem_euclid` at `lowering.rs:24662` and `lowering.rs:36471`; there is no third |
+| Float→integer truncating casts on a conversion path in `lila-ir` | **1** | `value.trunc() as i32` at `lowering.rs:34801`; `grep -n "trunc() as i32"` returns exactly this line |
+| Distinct hand-rolls of the 7.1.5-step-2 / 7.1.6-step-2 case split in `lila-aot-wasm` | **5**, in **5 different spellings** | §1.4 |
+| CLI fixtures mentioning `toPrecision`, `toFixed`, `toExponential`, `clz32` | **0, 0, 0, 0** of 532 | `grep -rl` in `crates/lila-cli/tests/fixtures` |
 | CLI fixtures mentioning `fromCharCode` | **5** of 532, none reaching the static-generator fold | ibid. |
 | test262 corpus files in §6 that exist at the current pin | **9 of 9** | checked by path |
 
@@ -227,11 +227,11 @@ Every one of the five backend emitters begins by re-deriving 7.1.5 step 2 /
 
 | # | Function | File:line | Spelling of the case split | Verdict |
 |---|---|---|---|---|
-| 1 | `compile_bitwise_number_payload` | `porffor-aot-wasm/src/expressions.rs:1684` | **none** — `F64ReinterpretI64` → `I64TruncSatF64S` → `I32WrapI64`, no guard at all | **defective**, §1.5 |
-| 2 | `emit_to_uint32_i64_from_number_payload` | `porffor-aot-wasm/src/builtins/string.rs:15052` | four `F64` compares: `x ≠ x`, `x = 0`, `x = +∞`, `x = −∞` | **defective**, §1.6 |
-| 3 | `emit_array_to_uint32_i64_from_number_payload` | `porffor-aot-wasm/src/builtins/array.rs:3047` | three: `x ≠ x`, `x = +∞`, `x = −∞` (±0 correctly falls through) | **correct** — the reference |
-| 4 | `emit_to_length_i64_from_number_payload_local` | `porffor-aot-wasm/src/builtins/array.rs:1977` | two: `x ≠ x`, `x ≤ 0` (folds 7.1.20 step 2's clamp and −∞ into one test) | **correct** |
-| 5 | `emit_to_index_from_number_payload` | `porffor-aot-wasm/src/operations.rs:4112` | one: `x ≠ x`; ±∞ routed to the RangeError branch instead | **correct** |
+| 1 | `compile_bitwise_numeric_to_locals` (Number arm) | `lila-aot-wasm/src/operations.rs:4019` | **none** — `F64ReinterpretI64` → `I64TruncSatF64S` → `I32WrapI64`, no guard at all | **defective**, §1.5 |
+| 2 | `emit_to_uint32_i64_from_number_payload` | `lila-aot-wasm/src/builtins/string.rs:15052` | four `F64` compares: `x ≠ x`, `x = 0`, `x = +∞`, `x = −∞` | **defective**, §1.6 |
+| 3 | `emit_array_to_uint32_i64_from_number_payload` | `lila-aot-wasm/src/builtins/array.rs:3047` | three: `x ≠ x`, `x = +∞`, `x = −∞` (±0 correctly falls through) | **correct** — the reference |
+| 4 | `emit_to_length_i64_from_number_payload_local` | `lila-aot-wasm/src/builtins/array.rs:1977` | two: `x ≠ x`, `x ≤ 0` (folds 7.1.20 step 2's clamp and −∞ into one test) | **correct** |
+| 5 | `emit_to_index_from_number_payload` | `lila-aot-wasm/src/operations.rs:4112` | one: `x ≠ x`; ±∞ routed to the RangeError branch instead | **correct** |
 
 The area title's word is **divergent**, and that is exactly what was measured:
 five independent derivations of one shared step, of which two are wrong. It is
@@ -239,8 +239,8 @@ five independent derivations of one shared step, of which two are wrong. It is
 
 ### 1.5 The N1 defect, stated exactly
 
-`compile_bitwise_number_payload` (`expressions.rs:1701-1713`) computes, for each
-operand:
+The Number arm of `compile_bitwise_numeric_to_locals`
+(`operations.rs:4084-4098`) computes, for each operand:
 
 ```
 LocalGet(int_local); F64ReinterpretI64; I64TruncSatF64S; LocalSet(int_local)
@@ -409,14 +409,14 @@ does not re-decide it and the dry-runner can check it.
 | C1 | 7.1.5's codomain is a mathematical set; the carrier is unspecified. | `enum IntegerOrInfinity { NegativeInfinity, Finite(FiniteInteger), PositiveInfinity }`, `FiniteInteger` wrapping an `f64` constrained to be finite, integral and not `−0.0`. | Theorem A: every reachable finite value is binary64-exact. An `i64` or `i128` carrier would be *lossy*, not merely awkward — `truncate(1e300)` does not fit. |
 | C2 | Constant folding is optional; a compiler may always defer to the runtime. | A fold that would produce a **wrong value** must be removed; a fold that **declines** may stay. `NumberFormatFold::NotStatic` is a legitimate answer everywhere. | Spec correctness before speed (AGENTS.md). A decline costs a runtime call; a wrong fold costs conformance. |
 | C3 | Whether `String.fromCharCode` folding accepts a non-finite loop induction variable. | The conversion is **total** (`Uint16::of_number(Infinity)` = `Uint16(0)`, per 7.1.9 step 2), and the *fold* declines separately, at the caller, on a `!is_finite()` test that belongs to the static generator's own domain. | §5.4. The decline is a property of enumerating an arithmetic progression, not of ToUint16. Splitting them keeps the codomain honest **and** keeps rung G byte-identical. |
-| C4 | Whether `ToInt32`, `ToLength`, `ToIndex` get codomain newtypes. | **No.** They get `const fn` reference algorithms plus `const _: () = assert!(...)` tables. | There is no construction site for them in `porffor-ir`. Round 1 deleted `PropertyDescriptorIr` and `IntegerIndexedConversionIr` for exactly this (mistake class N7). A newtype nobody constructs is decoration; a const table that fails the build is not. |
+| C4 | Whether `ToInt32`, `ToLength`, `ToIndex` get codomain newtypes. | **No.** They get `const fn` reference algorithms plus `const _: () = assert!(...)` tables. | There is no construction site for them in `lila-ir`. Round 1 deleted `PropertyDescriptorIr` and `IntegerIndexedConversionIr` for exactly this (mistake class N7). A newtype nobody constructs is decoration; a const table that fails the build is not. |
 
 ---
 
 ## 2. Type mapping
 
-New file: **`crates/porffor-ir/src/numeric_conversions.rs`**, declared inside
-`crates/porffor-ir/src/ir.rs` immediately after the existing `reference` module
+New file: **`crates/lila-ir/src/numeric_conversions.rs`**, declared inside
+`crates/lila-ir/src/ir.rs` immediately after the existing `reference` module
 (`ir.rs:22-23`) and following its shape exactly:
 
 ```rust
@@ -438,7 +438,7 @@ pub use numeric_conversions::{
 ```
 
 `lib.rs:79` is `pub use ir::*;` (verified), so both the module and the
-re-exports reach `porffor_ir::` with no edit to `lib.rs`. `numeric_conversions.rs`
+re-exports reach `lila_ir::` with no edit to `lib.rs`. `numeric_conversions.rs`
 begins with `use super::*;`, matching `reference.rs:24`.
 
 ### 2.0 Invariant index
@@ -524,7 +524,7 @@ hole by another route — this section's claim that "the only ways out of an
 `IntegerOrInfinity` are `fraction_digits()` and `precision()`" was false while it
 was there. Ordering is all an interval test needs, `Finite` is a public variant,
 and `of_number` is a public source of comparison constants, so any crate
-depending on `porffor-ir` could write
+depending on `lila-ir` could write
 
 ```rust
 match (
@@ -993,7 +993,7 @@ pub const fn reference_to_index(integer: ExtendedInteger) -> ToIndexOutcome {
 > `debug_assert!` is gone anyway — `ResidueWidth` makes the states it guarded
 > unrepresentable, which is the form AGENTS.md asks for.
 
-`reference_to_int32` has **no runtime caller** in `porffor-ir` — there is no
+`reference_to_int32` has **no runtime caller** in `lila-ir` — there is no
 ToInt32 site in this crate — and that is stated rather than hidden. Its
 consumer is the const block in §2.7, so a wrong edit to it fails the build.
 `reference_to_uint32` and `reference_to_uint16` do have runtime callers via
@@ -1001,7 +1001,7 @@ consumer is the const block in §2.7, so a wrong edit to it fails the build.
 
 ### 2.6 The `NormalResult` rows — I12
 
-`crates/porffor-ir/src/operations.rs:774-779` currently reads:
+`crates/lila-ir/src/operations.rs:774-779` currently reads:
 
 ```rust
 Self::ToNumber | Self::ToIntegerOrInfinity => NormalResult::Number,
@@ -1156,9 +1156,9 @@ in this area. Each row carries the reason a type cannot carry the invariant.
 | # | Invariant | Why no type | Where it is checked instead |
 |---|---|---|---|
 | **LN1** | `residue_of_number`'s `\|x\| ≥ 2^63` branch (`f64::rem_euclid`) agrees with the const-asserted integer core. | The bridge is Theorem B — a statement about IEEE-754 `fmod` exactness, i.e. about the hardware — and no type can carry it **for this formulation**. That is the honest wording; the row previously said "no type can carry this", which is stronger than the evidence. The branch does not need `rem_euclid`: for `\|x\| ≥ 2^63`, decomposing `x.to_bits()` as `m · 2^e` with `m` a 53-bit integer and `e ≥ 11` gives `x mod 2^N` as `0` when `e ≥ N` and `(m & ((1 << (N − e)) − 1)) << e` otherwise — pure `u64` integer arithmetic, `const`-evaluable on stable, exact by construction rather than by appeal to IEEE-754 §5.3.1. Rewriting it that way would move the 18-case boundary table into a third `const _` block and retire this row. Not taken this round; recorded so the choice is visible. | One `#[cfg(test)]` differential in `numeric_conversions.rs` over the boundary: `2^63 − 2048`, `2^63`, `2^63 + 2048`, `−2^63`, `−(2^63 + 2048)`, `2^84`, `1e300`, `−1e300`, `2^32`, `2^32 − 1`, `−1`, `±0`, `±∞`, `NaN`. Expected values are in §1.6's table. |
-| **LN2** | The five `porffor-aot-wasm` emitters compute the same functions as §2.5's reference algorithms. | `porffor-ir` cannot see `porffor-aot-wasm`; this is the same crate-boundary shape as the existing ledger **L2** in the spec-operation contract. | `target/lane-notes/numeric-conversion-codomains-theory-integration.md` carries the retrofit and the acceptance gate. Out of this lane. |
+| **LN2** | ~~The five `lila-aot-wasm` derivations compute the same functions as §2.5's reference algorithms.~~ **Closed at the runtime boundary.** Array length conversion, String split limits and unary/binary bitwise Number coercion now consume one exact `emit_to_uint32_i64_from_number_payload`; the two family-local algorithms and the saturate-before-modulo bitwise sequence are deleted. Unary complement has a dedicated closed IR operation rather than a manufactured Number `-1`, so one ToNumeric result reaches an exhaustive Number/BigInt dispatch; its BigInt arm reuses exact arbitrary-precision XOR with `-1n`. | A cross-crate type cannot enforce an encoder implementation, so the closure is structural: there is one consumed emitter and no competing product implementation in these paths. The closed unary operation prevents a future lowering arm from silently reintroducing the mixed-numeric binary spelling. | The durable numeric-bitwise fixture covers `Infinity`, `2^63`, `1e300`, huge shift counts, arbitrary-precision positive/negative complements, boxed operands, single coercion, and abrupt identity; the existing Array and String gates cover their consumers. |
 | **LN3** | `Precision::get() ≥ 1`, relied on by `static_number_to_precision`'s body for `precision as usize - 1` (`lowering.rs:34965`). | The body is outside this area's owned region and takes a primitive; a dependent range type would require editing unowned lines. | `Precision` has one constructor, which tests `(1.0..=100.0)`. A `debug_assert!((1..=100).contains(&precision))` replaces the deleted range check at `lowering.rs:34952`. |
-| **LN4** | `spec_to_integer_or_infinity`, `spec_to_length` and `spec_to_index` are reachable only from `#[cfg(test)]`. | Deleting them requires editing `crates/porffor-aot-wasm/src/lib.rs`'s test module (`:1468`, `:1486`, `:1503`), which is outside this lane and inside batch 2's crate. | **Measured and recorded only** (§0.1, §4.5). Handed to the integrator. |
+| **LN4** | `spec_to_integer_or_infinity`, `spec_to_length` and `spec_to_index` are reachable only from `#[cfg(test)]`. | Deleting them requires editing `crates/lila-aot-wasm/src/lib.rs`'s test module (`:1468`, `:1486`, `:1503`), which is outside this lane and inside batch 2's crate. | **Measured and recorded only** (§0.1, §4.5). Handed to the integrator. |
 | **LN5** | ~~`static_number_expr` resolves the identifiers `Infinity` and `NaN` by spelling alone.~~ **Closed.** The row was both understated and wrong about impact. Four resolvers tested the spelling with no scope lookup, not one: `static_number_expr`, `static_to_number_expr`, `static_number_to_string_receiver_value` and `is_static_undefined_expr`. And "not worsened by this contract" was **false at the `toPrecision` site**: `function f(){ let Infinity = 5; return (1.5).toPrecision(Infinity); }` used to reach the deleted `!(1..=100)` guard, decline, and give the correct runtime answer `"1.5000"`; with the new 21.1.3.5 step 5 arm it folded to `PositiveInfinity` → `RangeChecked::RangeError` → an emitted `RangeError` throw. A latent defect became a shipped wrong answer. | Nothing — this was never an invariant a type could not carry. The guard already existed in the same file (`expression_is_builtin_symbol_intrinsic`, `identifier_is_builtin_native_error`), with a doc comment recording that the class had already shipped two silent wrong answers; it simply was not called. | **Now a type-adjacent single helper.** The four clauses (9.1.1: no active `with`, no Environment Record binding, global proven present, source still `Builtin`) are one predicate, `ScriptLowerer::identifier_resolves_to_builtin_global`; the two pre-existing guards were rewritten to call it, and `static_global_number_identifier` wraps it for the three number-valued spellings. All four resolvers route through it. A fifth resolver that maps a spelling to a value is still a review item, which is what remains of this row. |
 
 Five rows is the whole ledger. Everything else in §2.0 is a compile error.
@@ -1169,7 +1169,7 @@ Five rows is the whole ledger. Everything else in §2.0 is a compile error.
 
 | Class | The mistake, concretely | What it becomes |
 |---|---|---|
-| **N1** — saturate before the modulo | Writing `I64TruncSatF64S` before the residue, in-crate. | In `porffor-ir`, unrepresentable: `Uint32`'s field is private, so a hand-rolled residue cannot be spelled as a `Uint32` — **`E0603`** at the tuple-struct constructor. Across the crate boundary this is **ledger LN2**, not a compile error, and this contract does not claim otherwise. What it provides instead is `residue_pow2_i64` as the single normative algorithm plus §2.7's build-checked table. |
+| **N1** — saturate before the modulo | Writing `I64TruncSatF64S` before the residue, in-crate. | In `lila-ir`, unrepresentable: `Uint32`'s field is private, so a hand-rolled residue cannot be spelled as a `Uint32` — **`E0603`** at the tuple-struct constructor. Across the crate boundary this is **ledger LN2**, not a compile error, and this contract does not claim otherwise. What it provides instead is `residue_pow2_i64` as the single normative algorithm plus §2.7's build-checked table. |
 | **N1′** — "the modulo is a machine remainder" | Editing `residue_pow2_i64` to `int % (1 << bits)`, or `reference_to_uint32` to a truncating cast. | **Build failure** at the §2.7 const block: `reference_to_uint32(-1) == 4_294_967_295` and `reference_to_uint16(-1) == 65_535` both fail immediately. A `const` assertion failure is a hard compile error, not a warning. |
 | **N2** — two implementations of one operation that disagree | Adding a second in-crate ToUint32. | **`E0603`**: `Uint32(x)` is not constructible outside `numeric_conversions`; there is no `From<u32>`, no `new`, no public field. The second implementation cannot produce the type the consumer accepts, so it cannot be wired in. |
 | **N2′** — the two readings of one residue drift apart | Editing `reference_to_int32` without `reference_to_uint32`. | **Build failure** at the cross-table `const _` in §2.7: `reference_to_int32(v) as u32 == reference_to_uint32(v)` fails on the first tie input that distinguishes them. |
@@ -1521,7 +1521,7 @@ At `ir.rs:1099`, `:1109`, `:1119`, above each of the three constructors:
     /// **Reachable only from tests as of `091487732`.** Measured: this
     /// constructor has exactly two references workspace-wide besides its own
     /// definition, and both sit inside `#[cfg(test)]` modules — `ir.rs:3856`
-    /// (gate at `ir.rs:3451`) and `crates/porffor-aot-wasm/src/lib.rs:1468`
+    /// (gate at `ir.rs:3451`) and `crates/lila-aot-wasm/src/lib.rs:1468`
     /// (gate at `lib.rs:109`). AGENTS.md wants unreachable-from-product code to
     /// fail to build; deleting this requires editing an aot-wasm test module,
     /// which is outside this area's lane. Ledger **LN4** in
@@ -1547,8 +1547,8 @@ At `operations.rs:692-694`, one comment above the three rows:
 
 | Not edited | Reason |
 |---|---|
-| `crates/porffor-aot-wasm/src/expressions.rs`, `operations.rs`, `builtins/string.rs`, `builtins/array.rs`, `lib.rs` | Out of lane; batch 2 is live in this crate. The five emitters are the integration note's subject. |
-| `crates/porffor-ir/src/lib.rs` | Single-lane hub owned entirely by the TDZ area this round. `pub use ir::*;` at `:79` already exposes the new module. |
+| `crates/lila-aot-wasm/src/expressions.rs`, `operations.rs`, `builtins/string.rs`, `builtins/array.rs`, `lib.rs` | Out of lane; batch 2 is live in this crate. The five emitters are the integration note's subject. |
+| `crates/lila-ir/src/lib.rs` | Single-lane hub owned entirely by the TDZ area this round. `pub use ir::*;` at `:79` already exposes the new module. |
 | `static_number_to_exponential` (`lowering.rs:34824`), `static_number_to_fixed` (`lowering.rs:34921`) | Outside the owned regions. Their `Option<usize>` / `usize` parameters are why `FractionDigits::as_usize` exists. |
 | `static_number_to_precision`'s body below `:34953` | Outside the owned region. The `u8` change is an inference change there, not a textual edit (§4.2 note 2). |
 | `static_number_expr` (`lowering.rs:35774`), `static_to_number_like_expr` (`:34804`), `static_to_number_expr` (`:34467`) | Outside the owned regions. `static_to_number_like_expr`'s *header line* is at `:34804`, three lines past the owned block's end at `:34801`; do not drift into it. Ledger LN5 records the identifier-shadowing hazard in `static_number_expr`. |
@@ -1608,7 +1608,7 @@ All five were read in full. `emit_array_to_uint32_i64_from_number_payload`
 `ToIndex(2^53)` → RangeError. `emit_to_length_...` uses the trapping
 `I64TruncF64U` and `emit_to_index_...` the trapping `I64TruncF64S`, and in both
 cases the preceding clamp proves the operand is in range, so neither can trap.
-The two defects are `compile_bitwise_number_payload` and
+The two defects are the Number arm of `compile_bitwise_numeric_to_locals` and
 `emit_to_uint32_i64_from_number_payload`. The divergence is in the **five
 different spellings of one shared step** (§1.4), which is what makes a single
 reference algorithm the right remedy.
@@ -1645,7 +1645,7 @@ problems, both visible at `lowering.rs:34798-34801`: the `is_nan()` disjunct is
 dead (subsumed by `!is_finite()`), and `value.trunc() as i32` **saturates**, so
 `truncate(1e300)` becomes `i32::MAX`. The saturation is latent for the same
 reason the rest is — `i32::MAX` is outside `0..=100` and `1..=100` — but it is
-the same mechanism as backend defect N1, inside `porffor-ir`, and it is the
+the same mechanism as backend defect N1, inside `lila-ir`, and it is the
 reason the codomain must not be `i32` rather than merely must include `±∞`.
 
 ### 5.6 The brief's "latent, not shipped" framing is confirmed, with one addition
@@ -1694,8 +1694,8 @@ this is latent, and it is what §7 requires the dry-runner to re-derive.
 ## 5b. DISCREPANCY-FIXER RECORD
 
 Written blind (no `cargo`/`rustc`; the integrator owns the compile gate). Files
-touched: `crates/porffor-ir/src/numeric_conversions.rs`,
-`crates/porffor-ir/src/lowering.rs`, `crates/porffor-ir/src/ir.rs`.
+touched: `crates/lila-ir/src/numeric_conversions.rs`,
+`crates/lila-ir/src/lowering.rs`, `crates/lila-ir/src/ir.rs`.
 
 ### Fixed in code
 
@@ -1726,7 +1726,7 @@ touched: `crates/porffor-ir/src/numeric_conversions.rs`,
   a RangeError where 21.1.3.5 step 1 requires a TypeError. Outside this area's
   owned regions; pre-existing at two other sites; this lane adds a third.
 - `MAX_SAFE_INTEGER_U64` (`numeric_conversions.rs`) versus
-  `porffor-aot-wasm/src/heap.rs:10`'s `MAX_SAFE_INTEGER` — two workspace
+  `lila-aot-wasm/src/heap.rs:10`'s `MAX_SAFE_INTEGER` — two workspace
   spellings of 2^53−1, this area's own duplication class one crate over. Both
   are correct today, so this is a tidy-up, not a defect. Measured consumers that
   one `pub(crate) use` in `heap.rs` would tie: `array.rs:1995`, `:1999`,
@@ -1764,10 +1764,10 @@ both of which pass today by accident (§1.5).
 > snapshots, two 11038-case runs and one 23643-case run — **and every one of
 > them carries `"execution_backend": "spec-exec"`**; neither path appears in any
 > `failures` list. The only `wasm-aot` snapshots in the tree are eight
-> `matrix-cache-wasm-aot-*.json` with empty `completed_paths`. `porffor-spec-exec`
+> `matrix-cache-wasm-aot-*.json` with empty `completed_paths`. `lila-spec-exec`
 > contains no numeric conversion at all — `execute_script` (`lib.rs:358`) calls
 > `boa_engine`'s `Context::eval` — so those green counts say nothing about
-> `compile_bitwise_number_payload`. The N1 verdict stands on the symbolic trace,
+> the Number arm of `compile_bitwise_numeric_to_locals`. The N1 verdict stands on the symbolic trace,
 > which is sound and needs no run; but the F1 retrofit's acceptance gate must
 > not be mistaken for a regression check that already exists, because it does
 > not.
@@ -1892,7 +1892,7 @@ produces the spec's answer where it previously declined.
 The encoder is done when all of the following hold. The dry-runner checks each
 against the code as written, not against this document.
 
-1. `cargo check -p porffor-ir` is clean. A failure inside a `const _: () = { ... }`
+1. `cargo check -p lila-ir` is clean. A failure inside a `const _: () = { ... }`
    block is a **content** error in §2.7's table, not a syntax problem — fix the
    algorithm, never the table.
 2. Every type defined in `numeric_conversions.rs` has a **named construction
@@ -1920,8 +1920,8 @@ against the code as written, not against this document.
    file returns nothing.
 5. `static_number_fraction_digits_is_invalid` no longer exists, and
    `grep -rn "static_number_fraction_digits_is_invalid" crates/` is empty.
-6. `grep -rn "trunc() as i32" crates/porffor-ir/src/` is empty.
-7. `grep -rn "rem_euclid" crates/porffor-ir/src/` returns exactly **one** line,
+6. `grep -rn "trunc() as i32" crates/lila-ir/src/` is empty.
+7. `grep -rn "rem_euclid" crates/lila-ir/src/` returns exactly **one** line,
    inside `residue_of_number`. The two sites at `lowering.rs:24662` and
    `:36471` are gone, replaced by calls.
 8. The ledger has exactly the five rows in §2.8, and `numeric_conversions.rs`
@@ -1943,10 +1943,10 @@ against the code as written, not against this document.
     explicit clause turbofish (`::<ToExponential>`, `::<ToFixed>`,
     `::<ToPrecision>`) and **no** `NonFiniteReceiverOrder` argument. An
     order argument reappearing is N4″ reopening.
-13. `grep -rn "residue_of_number(" crates/porffor-ir/src/` shows only
+13. `grep -rn "residue_of_number(" crates/lila-ir/src/` shows only
     `::<u32>` and `::<u16>` calls, and `residue_pow2_i64` takes a
     `ResidueWidth`. An integer `bits` parameter reappearing is I10b reopening.
-14. `grep -rn "PartialOrd" crates/porffor-ir/src/numeric_conversions.rs` is
+14. `grep -rn "PartialOrd" crates/lila-ir/src/numeric_conversions.rs` is
     empty. Re-deriving it on `FiniteInteger` reopens N3 from outside the crate
     (§2.1).
 15. Every identifier-spelling resolver in `lowering.rs` that maps `Infinity`,

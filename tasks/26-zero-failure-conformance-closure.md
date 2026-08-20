@@ -8,9 +8,17 @@
 
 ## Current repository state
 
-The fake suites are green, but the README explicitly states that the current
-pinned real Wasm-AOT aggregate is not green and has not been fully republished.
-The shortcut audit is also red in the current working tree, the generated
+The fake suites were green at the preceding path-only checkpoint. Their
+execution-identity denominator is derived as 191 executions from 190 physical
+files: one unflagged parse-negative runs once as sloppy Script and once as
+strict Script. Runtime proof of that refreshed denominator is deferred to the
+centralized Cargo/Test262 verification lease. The committed pre-version-7 fake
+snapshots are path-only historical evidence, not current version-7 proof. The
+README explicitly states that the current pinned real Wasm-AOT aggregate is not
+green and has not been fully republished.
+The shortcut audit is green as an exact-drift contract over 432 classified
+observations, but 353 of those observations are still semantic shortcuts; audit
+green therefore does not satisfy the final integrity criterion. The generated
 current-pin backlog is absent, and several architecture/feature lanes retain
 explicit unsupported cases. Formal closure entry criteria are therefore not
 met.
@@ -35,10 +43,21 @@ Begin formal closure only when:
 
 - Discover the complete suite from the pinned vendored Test262 checkout and current matrix strategy.
 - Include all selected top-level roots, flags, negative tests, modules and async tests supported by the repository's conformance definition.
-- A case appears exactly once in the manifest and aggregate.
+- Each execution identity `(physical path, closed execution mode)` appears
+  exactly once in the manifest and aggregate. An unflagged physical file has
+  distinct sloppy-Script and strict-Script identities; path-only accounting is
+  invalid evidence.
+- `onlyStrict`, `noStrict`, `raw`, `module`, and `raw`+`module` expand through
+  the closed mode law in
+  `docs/rust-rewrite/contracts/test262-execution-identity.md`; conflicting
+  strictness flags are invalid suite data, not a reason to choose a mode.
 - `Unsupported`, parser/lowering/backend failure, runtime failure, host failure, crash, bug and timeout are all non-passing outcomes.
+- Unknown failure-kind, outcome, origin, or classification-count wire spellings
+  invalidate the evidence. The explicit `unknown` origin remains a recognized
+  non-passing taxonomy value that must burn down to zero.
 - Fake-suite counts remain separate smoke-test metrics and never contribute to the real-suite numerator or denominator.
-- Pin changes invalidate stale aggregate evidence and require a fresh complete matrix.
+- Pin, snapshot schema, matrix strategy, or execution-identity changes
+  invalidate stale aggregate evidence and require a fresh complete matrix.
 
 ## Closure workflow
 
@@ -126,8 +145,12 @@ All completed runs must reconcile manifest totals and produce the same semantic 
 
 After all checks pass:
 
-- publish status only through `porf test262 publish-status` or `scripts/publish-real-status-low-ram.sh`;
-- commit generated JSON/text snapshots and the generated README status block together as required by repository policy;
+- publish status only through `lila test262 publish-status` or `scripts/publish-real-status-low-ram.sh`;
+- commit the generated README status block with both exact canonical publisher
+  outputs, `test262/snapshots/published-status-wasm-aot.json` and
+  `test262/snapshots/published-status-wasm-aot.txt`; node, aggregate, focused,
+  fake-suite and `spec-exec` artifacts do not authorize that block, and neither
+  does only one half of the canonical pair;
 - include exact counts, pins, date and refresh commands;
 - archive a closure report listing matrix nodes, duration, slowest cases, artifact hashes and integrity-audit result;
 - tag the baseline/release only after CI verifies the committed snapshot matches a fresh aggregate;
@@ -138,24 +161,25 @@ After all checks pass:
 ```sh
 cargo fmt --all --check
 cargo test --workspace --quiet
-cargo build -p porffor-cli
+cargo build -p lila-cli
 
-./target/debug/porf test262 run language/wasm/pass \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 \
+./target/debug/lila test262 run language/wasm/pass \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
-./target/debug/porf test262 run \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
+./target/debug/lila test262 run \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
 
 rm -f test262/snapshots/final-wasm-aot-*.json test262/snapshots/final-wasm-aot-*.txt
 ./scripts/publish-real-status-low-ram.sh wasm-aot final-wasm-aot
 
 # Optional oracle-validation matrix; diagnostic only, never published as product conformance:
 rm -f test262/snapshots/final-spec-exec-*.json test262/snapshots/final-spec-exec-*.txt
-./scripts/publish-real-status-low-ram.sh spec-exec final-spec-exec
+./target/debug/lila test262 report-all --execution-backend spec-exec \
+  --snapshot-name final-spec-exec --resume
 
-./target/debug/porf test262 progress-status --execution-backend wasm-aot \
+./target/debug/lila test262 progress-status --execution-backend wasm-aot \
   --snapshot-name final-wasm-aot
-./target/debug/porf test262 triage-status --execution-backend wasm-aot \
+./target/debug/lila test262 triage-status --execution-backend wasm-aot \
   --snapshot-name final-wasm-aot
 ```
 

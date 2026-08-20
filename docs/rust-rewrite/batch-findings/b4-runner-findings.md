@@ -5,7 +5,7 @@ branch `claude/test-driven-rust-opus-pp6giw`. Machine 4 CPU / 15 GiB.
 
 ## Rung -1 — inherited state, verified not assumed  [3 facts that change the plan]
 
-1. **There is no `./target/release/porf`.** All three lane `verify_prefix` lines call it. `target/debug/porf`
+1. **There is no `./target/release/lila`.** All three lane `verify_prefix` lines call it. `target/debug/lila`
    exists (149 MB, mtime 02:35) and is what batch 3 measured with. A release build of this workspace is not
    affordable inside a ~1 h container window alongside the sweep; I use the debug binary, as batch 3 did, and
    say so at every number.
@@ -54,12 +54,12 @@ before writing. `target/watched/b3r-fake.log` is 164 bytes (10 of 190 cases, as 
 
 ## Rung 1 — `cargo xc`  [GREEN]
 `cargo xc` (fresh, under `run-watched`, log `target/watched/b4r-xc.log`): **0 lines matching `^error`**.
-Warning totals identical to the fixer's baseline: `porffor-aot-wasm` 26 (lib) / 21 (lib test, all duplicates),
-`porffor-ir` 6 (lib) / 5 (lib test), `porffor-test262` 1. No new warnings, no new errors.
+Warning totals identical to the fixer's baseline: `lila-aot-wasm` 26 (lib) / 21 (lib test, all duplicates),
+`lila-ir` 6 (lib) / 5 (lib test), `lila-test262` 1. No new warnings, no new errors.
 
 ## Rung 1a — REBUILD (prerequisite, not a rung)
-`cargo build -p porffor-cli` → `Finished dev profile in 1m 12s`. `target/debug/porf` now 03:37, and
-`find crates -name '*.rs' -newer target/debug/porf` returns **0**. Every measurement below this line is at
+`cargo build -p lila-cli` → `Finished dev profile in 1m 12s`. `target/debug/lila` now 03:37, and
+`find crates -name '*.rs' -newer target/debug/lila` returns **0**. Every measurement below this line is at
 batch-4 code. Everything above it is not.
 
 ## Rung 2 — unit gates for all three lanes  [ALL GREEN]
@@ -67,10 +67,10 @@ Log `target/watched/b4r-unit.log`, chained by `target/watched/b4r-unit.sh`.
 
 | step | filter | result | target size |
 |---|---|---|---|
-| A | `-p porffor-engine --lib -- render_wasmtime wasm_backend_characterization` | **2 passed / 0 failed**, 185.55 s | engine lib = 673 tests |
-| B | `-p porffor-test262 --lib -- detail_hash` | **4 passed / 0 failed**, 0.00 s | test262 lib = 263 tests |
-| C | `-p porffor-aot-wasm --lib -- code_sink::` | **9 passed / 0 failed**, 0.14 s | aot-wasm lib = 267 tests |
-| D | `-p porffor-cli --test cli -- throw_propagation::` | **2 passed / 0 failed**, 35.03 s | **cli = 593 tests** |
+| A | `-p lila-engine --lib -- render_wasmtime wasm_backend_characterization` | **2 passed / 0 failed**, 185.55 s | engine lib = 673 tests |
+| B | `-p lila-test262 --lib -- detail_hash` | **4 passed / 0 failed**, 0.00 s | test262 lib = 263 tests |
+| C | `-p lila-aot-wasm --lib -- code_sink::` | **9 passed / 0 failed**, 0.14 s | aot-wasm lib = 267 tests |
+| D | `-p lila-cli --test cli -- throw_propagation::` | **2 passed / 0 failed**, 35.03 s | **cli = 593 tests** |
 
 Notes that matter, each read rather than assumed:
 
@@ -93,7 +93,7 @@ Notes that matter, each read rather than assumed:
 
 ## Rung 2b — Half A on the REAL corpus, counted both sides  [the lane's own before/after]
 
-The lane asked for `porf test262 failure-details 'intl402/Collator' --snapshot-name <name>` before and after.
+The lane asked for `lila test262 failure-details 'intl402/Collator' --snapshot-name <name>` before and after.
 **That command cannot run here**: it requires a complete 498-node aggregate for the manifest hash, and the only
 aggregate on disk (`baseline-wasm-aot-b2-aggregate-…`, 15 nodes: annexB + Array) does not cover Intl. It exits
 `missing aggregate snapshot …; no compatible wasm-aot aggregate snapshot for manifest hash 2666282911900143411`.
@@ -102,7 +102,7 @@ So I measured it directly off the banked node snapshots instead, replicating
 `group_failures_by_detail_identity`'s key exactly as the source spells it — `(hash_detail(detail), outcome,
 kind, origin)` where `hash_detail` hashes `FailureDetailIdentity::of(detail)`, i.e. `erase_volatile_handles`
 over the closed prefix list `["handle@", "symbol@"]`, digits only, replaced by `<addr>`
-(`crates/porffor-test262/src/lib.rs:23615` and `:25156-25190`). BEFORE = group by the `detail_hash` **stored in
+(`crates/lila-test262/src/lib.rs:23615` and `:25156-25190`). BEFORE = group by the `detail_hash` **stored in
 the snapshot** (computed by the pre-batch-4 binary); AFTER = group by the erased detail. Same failure list on
 both sides, so this isolates the grouping change and nothing else.
 
@@ -144,23 +144,23 @@ Reproduced three times in a row on the same input; ~9.6 GiB free, so this is sta
 
 | probe | result |
 |---|---|
-| `porf test262 report built-ins/Array/isArray/proxy.js` | **Success 1/1** |
-| `porf test262 report built-ins/Array/prototype/map/15.4.4.19-5-21.js` | **stack overflow** (x3) |
-| `porf run --execution-backend wasm` on that case's 4 lines | **stack overflow** |
-| `porf run` on `var g = this; print(typeof g);` | **stack overflow** |
-| `porf run` on `print(typeof globalThis);` | **stack overflow** |
-| `porf run` on `print(typeof Temporal.ZonedDateTime);` | **stack overflow** |
-| `porf run` on `print(typeof Temporal.PlainDateTime);` | **stack overflow** |
-| `porf run` on `print(typeof Temporal.PlainDate);` / `Temporal` / `Temporal.Instant` / `Temporal.Now` | fine |
-| `porf run` on `new Temporal.PlainDate(2020,1,1,"gregory").era` | prints `ce` |
-| **`porf build wasm`** on `print(typeof Temporal.ZonedDateTime);` | **stack overflow, no `.wasm` produced** |
+| `lila test262 report built-ins/Array/isArray/proxy.js` | **Success 1/1** |
+| `lila test262 report built-ins/Array/prototype/map/15.4.4.19-5-21.js` | **stack overflow** (x3) |
+| `lila run --execution-backend wasm` on that case's 4 lines | **stack overflow** |
+| `lila run` on `var g = this; print(typeof g);` | **stack overflow** |
+| `lila run` on `print(typeof globalThis);` | **stack overflow** |
+| `lila run` on `print(typeof Temporal.ZonedDateTime);` | **stack overflow** |
+| `lila run` on `print(typeof Temporal.PlainDateTime);` | **stack overflow** |
+| `lila run` on `print(typeof Temporal.PlainDate);` / `Temporal` / `Temporal.Instant` / `Temporal.Now` | fine |
+| `lila run` on `new Temporal.PlainDate(2020,1,1,"gregory").era` | prints `ce` |
+| **`lila build wasm`** on `print(typeof Temporal.ZonedDateTime);` | **stack overflow, no `.wasm` produced** |
 
 `build wasm` alone reproduces it, so this is the **compiler**, not execution. `RUST_MIN_STACK` does not help
 because the compile runs on an engine worker thread with an explicit `ENGINE_WORKER_STACK_SIZE = 64 * 1024 *
-1024` (`crates/porffor-engine/src/lib.rs:154`). **64 MiB of stack is being consumed by a one-line program.**
+1024` (`crates/lila-engine/src/lib.rs:154`). **64 MiB of stack is being consumed by a one-line program.**
 
 ### Root cause, read in the source and confirmed by `git diff`
-`crates/porffor-aot-wasm/src/planning.rs`:
+`crates/lila-aot-wasm/src/planning.rs`:
 
 - `fn require_standard_builtin(&mut self, builtin)` at **:1231** begins
   `self.standard_roots.insert(builtin);` — **the returned `bool` is discarded, so there is no re-entry guard.**
@@ -169,7 +169,7 @@ because the compile runs on an engine worker thread with an explicit `ENGINE_WOR
   **:1901**. This is **pre-existing**.
 - The `TemporalZonedDateTime*` arm (pattern begins :2042, `TemporalZonedDateTimeConstructor` is the first
   alternative) calls `self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor)` at
-  **:2087**. `git diff 091487732 HEAD -- crates/porffor-aot-wasm/src/planning.rs` shows this line prefixed
+  **:2087**. `git diff 091487732 HEAD -- crates/lila-aot-wasm/src/planning.rs` shows this line prefixed
   `+`: **it is added by batch 4, by the `zdt-era-and-prototype` lane.**
 
 So batch 4 closed a cycle in an unguarded recursive walk:
@@ -186,7 +186,7 @@ edge and explicitly does not anticipate a *termination* one.
   separate defect worth a row: **`--resume` has no poison-case circuit breaker.**
 - **Blast radius is not Temporal.** Top-level `this` and `globalThis` root every global, so they reach the
   cycle. Any test262 case containing `var global = this;` aborts the process.
-- It also invalidates the naive reading of lane C's own verify prefix: the four `porf test262 run …/era…`
+- It also invalidates the naive reading of lane C's own verify prefix: the four `lila test262 run …/era…`
   commands cannot pass, or even report, until this is fixed.
 
 ### Fix applied by me (round 1 of max 3), and the reason for this shape rather than the obvious one
@@ -202,7 +202,7 @@ every effect in these arms is a monotone set-insert or a `= true` flag, so runni
 n times yields the identical fixpoint.
 
 ### The repair, and its verification  [GREEN]
-`crates/porffor-aot-wasm/src/planning.rs`:
+`crates/lila-aot-wasm/src/planning.rs`:
 - new private field `walked: BTreeSet<StandardBuiltinId>` on `RuntimeBootstrapPlan`, documented with the cycle,
   the blast radius, and the reason the guard may not live on `standard_roots`;
 - `require_standard_builtin` now roots unconditionally and *walks* at most once
@@ -212,7 +212,7 @@ n times yields the identical fixpoint.
   rooted and `temporal_object` is set, which is exactly the property the naive one-line guard would have
   broken) and `requiring_a_builtin_twice_is_idempotent`.
 
-Rebuilt (`cargo build -p porffor-cli`, 34.26 s) and re-ran every probe. **All six previously-aborting programs
+Rebuilt (`cargo build -p lila-cli`, 34.26 s) and re-ran every probe. **All six previously-aborting programs
 now compile and run:**
 
 | probe | before | after |
@@ -272,7 +272,7 @@ itself. With the `walked` guard in place a re-launch of the identical command wo
 I have not started one (the brief forbids new sweeps), so that is a hand-off, not a result.
 
 ### Post-fix unit gate  [GREEN]
-`cargo test -p porffor-aot-wasm --lib -- planning:: tests::a_cyclic tests::requiring_a_builtin`:
+`cargo test -p lila-aot-wasm --lib -- planning:: tests::a_cyclic tests::requiring_a_builtin`:
 **36 passed / 0 failed / 1 ignored**, 76.08 s. That is every existing `planning::` test plus the two new ones,
 so the guard changes no rooting answer that any existing test pins. aot-wasm lib target 267 -> **269** tests.
 
@@ -316,8 +316,8 @@ across two batches.
 
 Start 2026-08-10 04:57 UTC. HEAD `5bb66a35a` ("WIP checkpoint: batch 4 runner rebuilding, sweep overflow
 identified") — attempt 1's `planning.rs` `walked` cycle-guard IS committed. Working tree **clean**.
-`target/debug/porf` mtime 04:07; `find crates -name '*.rs' -newer target/debug/porf` returns **0**, so the
-binary contains every batch-4 edit including the cycle guard. There is still no `target/release/porf`;
+`target/debug/lila` mtime 04:07; `find crates -name '*.rs' -newer target/debug/lila` returns **0**, so the
+binary contains every batch-4 edit including the cycle guard. There is still no `target/release/lila`;
 all numbers below are the debug binary, as in batch 3 and attempt 1.
 
 ## Rung -1 — inherited state (verified, not assumed)
@@ -327,7 +327,7 @@ all numbers below are the debug binary, as in batch 3 and attempt 1.
 - `target/watched/b4-cli.log` — attempt 1's rung 1c, started 04:11, killed 04:32. Reached **44 of 593 tests,
   0 FAILED**. Its header reads `capped: CPUs 0-1 of 4 (50%)`: `scripts/run-watched.sh` routes through
   `scripts/capped.sh`, which pins to half the CPUs by default. So that 44-in-21-minutes rate (28.6 s/test) was
-  measured on **2** CPUs, not 4, and it extrapolates to ~4.7 h for the suite. `PORFFOR_CPU_PERCENT=100`
+  measured on **2** CPUs, not 4, and it extrapolates to ~4.7 h for the suite. `LILA_CPU_PERCENT=100`
   overrides the cap; that knob is the single most useful thing to know on this box now the sweep is gone.
 
 ## Rung 1c — RESTRUCTURED so it can actually complete, and it is running  [the batch's hard deadline]
@@ -338,11 +338,11 @@ all died mid-run). The reason is structural, not bad luck: the run is ~2.4 h at 
 
 So I run it as **resumable per-module chunks** — `target/watched/b4c-rung1c.sh`, launched `setsid`/`disown`:
 
-- one `cargo test -p porffor-cli --test cli -- --test-threads=3 <module>::` per area module, 16 chunks;
+- one `cargo test -p lila-cli --test cli -- --test-threads=3 <module>::` per area module, 16 chunks;
 - `--test-threads=3` (never 1 — under `--test-threads=1` every test runs on the thread named `main`,
   `known_failures::execution_path` loses the per-test name it routes on, and all 593 fall back to spawning a
-  cold `porf` child; batch-workflow.md §rung-1c);
-- `PORFFOR_CPU_PERCENT=100` so the chunk gets all 4 CPUs;
+  cold `lila` child; batch-workflow.md §rung-1c);
+- `LILA_CPU_PERCENT=100` so the chunk gets all 4 CPUs;
 - each chunk appends a verdict line, plus its `failures:` block if red, to
   **`target/lane-notes/b4-rung1c-chunks.md`**, and records itself in `target/watched/b4c-done`, so a restart
   loses at most the chunk in flight and the next attempt re-invokes the identical script to resume.
@@ -361,14 +361,14 @@ twice. What chunking gives up, stated plainly: whole-suite ordering/interference
 
 `known_failures::` is not a formality: it contains `ledger_is_well_formed`, the assertion that fails the moment
 `CURRENT_BATCH` reaches `unfilled-allowed-until: batch-4`. It is green **because `CURRENT_BATCH` is still 3**
-(`crates/porffor-cli/tests/cli/known_failures.rs:91`). The deadline is unmet, not met — see T03 below.
+(`crates/lila-cli/tests/cli/known_failures.rs:91`). The deadline is unmet, not met — see T03 below.
 
 `throw_propagation::` green here is lane B's headline re-confirmed at this commit on a clean tree: both
 `run_wasm_backend_propagates_a_throwing_property_read_out_of_a_loop` and `..._out_of_a_switch` pass.
 
 ## Side chain (nice 15, pinned to CPU 3) — `target/watched/b4c-side.sh`
 Rung 1c's 3 test threads leave one CPU; the side chain uses it at `nice -n 15` so it can never slow the
-deadline run. 9 single-case `porf test262 report` runs, each banking its own snapshot under
+deadline run. 9 single-case `lila test262 report` runs, each banking its own snapshot under
 `target/test262-scratch/b4-side/` and a done-marker, log `target/watched/b4c-side.log`:
 lane C's 3 unmeasured prototype-method files (`since`, `until`, `from`), lane B's 4 corpus cases, lane A's 2
 regression-watch cases. Selection reasoning is in the script.
@@ -416,8 +416,8 @@ needs Half B and vice versa, and it needs no argument — only the four strings:
 The lane warned that when Half B lands, `language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_
 from_its_name` flips to `test did not panic as expected` unless the `#[should_panic]`, the `const _` line and
 the ledger row are retired in the same patch. Verified all three, by reading:
-- `crates/porffor-cli/tests/cli/language.rs:1849` — the attribute is **gone**; the only `#[should_panic]` left
-  in `crates/porffor-cli/tests/` is `binary_data.rs:549` (`expected = "porf run exceeded"`, the declared T17
+- `crates/lila-cli/tests/cli/language.rs:1849` — the attribute is **gone**; the only `#[should_panic]` left
+  in `crates/lila-cli/tests/` is `binary_data.rs:549` (`expected = "lila run exceeded"`, the declared T17
   hang). The test now asserts positively: `stdout.contains("string(message-differs)")`.
 - `known_failures.rs` — exactly **two** `const _` lines (`:544` atomics-wait, `:545` heap page-boundary).
 - `known-failures.tsv` — no T24 row.
@@ -426,7 +426,7 @@ it is not present.
 
 ## Conformance failures recorded with an owner and a reason (AGENTS.md requirement)
 Lane C asked that the 6 calendar-blocked files be recorded rather than left silent. I verified the blocking
-claim in source rather than repeating it: `crates/porffor-aot-wasm/src/builtins/temporal_plain_date.rs`,
+claim in source rather than repeating it: `crates/lila-aot-wasm/src/builtins/temporal_plain_date.rs`,
 `enum TemporalCalendarId` has exactly two variants (`Iso8601`, `Gregory`) and `pub(crate) const ALL: [Self; 2]`.
 The doc comment on `ALL` also records a second, subtler blocker: adding a lunisolar calendar invalidates
 `emit_temporal_month_day_string_reference_year`'s unconditional 1972 constant.
@@ -535,7 +535,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 592 filtered out; fi
 ledger row was green *as a declared failure*. It now passes on the defect-absent branch.
 
 I checked it is not vacuous by reading the fixture
-(`crates/porffor-cli/tests/fixtures/wasm_runtime_error_message_is_not_its_name.js`). It is a four-way
+(`crates/lila-cli/tests/fixtures/wasm_runtime_error_message_is_not_its_name.js`). It is a four-way
 discriminator, not a boolean: `no-throw` / `wrong-error-kind` / `message-equals-name` / `message-differs`. To
 print `message-differs` the program must (a) actually throw on `null.x`, (b) throw a real `TypeError`, and
 (c) have `e.message !== e.name`. A stubbed or absent message lands on one of the other three.
@@ -559,8 +559,8 @@ All four panic identically at `assertion failed: output.status.success()` — a 
 no cause. I reproduced it by hand rather than guessing:
 
 ```
-$ ./target/debug/porf run --execution-backend wasm \
-    crates/porffor-cli/tests/fixtures/wasm_iterator_prototype_some.js
+$ ./target/debug/lila run --execution-backend wasm \
+    crates/lila-cli/tests/fixtures/wasm_iterator_prototype_some.js
 uncaught throw: wasm-aot completion: string(callback throw)
 ```
 
@@ -591,7 +591,7 @@ green. The defect is **confined to the `Iterator.prototype.*` helper family**. L
 working (probe C) and measured not to have broken sibling builtin-callback paths (B, D).
 
 ### Localised in source, so the next batch does not repeat the search
-`crates/porffor-aot-wasm/src/builtins/standard.rs`, the `StandardBuiltinId::IteratorPrototypeSome` arm at
+`crates/lila-aot-wasm/src/builtins/standard.rs`, the `StandardBuiltinId::IteratorPrototypeSome` arm at
 **line 26936**, 319 lines. Counted occurrences inside that arm:
 
 | symbol | count |
@@ -616,7 +616,7 @@ it as "confined and consistent with pre-existing", not as "proven pre-existing".
 **Owner: T15** (`built-ins/Iterator` in `test262/backlog/ownership-map.tsv`). **Reason:** `Iterator.prototype`
 helper arms in `standard.rs` hand-roll throw handling and never branch to the active throw target, so a
 callback throw is discarded instead of propagating. **Repro:** the four-probe program above, and
-`porf run --execution-backend wasm crates/porffor-cli/tests/fixtures/wasm_iterator_prototype_some.js`.
+`lila run --execution-backend wasm crates/lila-cli/tests/fixtures/wasm_iterator_prototype_some.js`.
 
 I did **not** attempt the repair. It is four ~300-line hand-rolled arms, and a speculative fix I could not
 re-gate with a full rung 1c in the remaining window would be worse than an exact lead.
@@ -649,7 +649,7 @@ Remaining chunks, in the script's order: `object`(35), `string`(36), `data_view`
 `language`(105), `binary_data`(38). **485 tests.**
 
 Arithmetic that proves the chunking is a complete rung 1c and not a subset: `awk` exact-line count over
-`crates/porffor-cli/tests/cli/*.rs` = **601** `#[test]`; minus the **8** `spec-exec-oracle`-gated in
+`crates/lila-cli/tests/cli/*.rs` = **601** `#[test]`; minus the **8** `spec-exec-oracle`-gated in
 `frontend.rs` = **593** compiled, which is exactly what every chunk's `N passed + filtered out` sums to
 (e.g. `11 + 582 = 593`, `1 + 592 = 593`). The 16 chunk filters partition those 593 with no overlap
 (`array::` carries `--skip typed_array::` because libtest filters are substrings) and no gap.
@@ -657,7 +657,7 @@ Arithmetic that proves the chunking is a complete rung 1c and not a subset: `awk
 **Budget for the next attempt, measured here rather than estimated:** per-module cost spans **6.8 s/test**
 (`heap`) to **38 s/test** (`date`); 108 tests took ~30 min with all 4 CPUs. The 485 remaining are ~2 h, plus
 **900 s of dead wall-clock** in `binary_data::` for the declared T17 `Atomics.wait` hang (`HANG_TIMEOUT`,
-`tests/cli/main.rs:66`). Budget ~2.5 h across 3 container windows. Use `PORFFOR_CPU_PERCENT=100`: without it
+`tests/cli/main.rs:66`). Budget ~2.5 h across 3 container windows. Use `LILA_CPU_PERCENT=100`: without it
 `scripts/capped.sh` silently halves the machine, which is what made batch 4's first attempt look 2x slower.
 
 ## T03 — the ledger row. NOT filled, and deliberately NOT force-closed.
@@ -687,7 +687,7 @@ is stable and identical for all four):
 | cli | `iterator::run_wasm_backend_succeeds_for_iterator_prototype_some_fixture` | fail | T15 | ditto |
 
 Evidence column must cite a tracked path (the hygiene test rejects `target/`): use
-`crates/porffor-cli/tests/fixtures/wasm_iterator_prototype_some.js`.
+`crates/lila-cli/tests/fixtures/wasm_iterator_prototype_some.js`.
 A better outcome than four ledger rows is fixing the arm — the rows are the fallback, not the goal.
 
 ## RUNG 1C — FINAL COVERAGE FOR THIS ATTEMPT (05:51)
@@ -733,8 +733,8 @@ Nothing measured moved backwards.
 | 1 | Rung 1c chunks 11-16 (`functions` tail, `frontend`, `typed_array`, `array`, `language`, `binary_data`) — 331+ tests | next runner | Container window. Resumable: `./target/watched/b4c-rung1c.sh`. ~2 h incl. 900 s dead time for the declared T17 hang. |
 | 2 | T03 ledger row | next runner | Needs the complete failing set from item 1. Deliberately not force-closed; 4 rows already earned, drafted above. `CURRENT_BATCH` left at 3 so `ledger_is_well_formed` stays honest. |
 | 3 | `Iterator.prototype.{some,every,find,reduce}` callback-throw discard | **T15** | Newly found by this attempt. Four hand-rolled ~300-line arms in `standard.rs` (Some at :26936) with 3 `COMPLETION_KIND_THROW` compares and 0 branches to the active throw target. Repro + 4-probe discriminator recorded above. Not a runner-sized repair. |
-| 4 | `cargo test -p porffor-ir --lib` tests 298-626 | next runner | Batch-3 debt. All 4 CPUs were committed to rung 1c, which is the deadline item. |
-| 5 | `cargo test -p porffor-aot-wasm --lib` in full (269 tests) | next runner | Same. Attempt 1 ran `planning::` (36) and `code_sink::` (9) green; the emit-heavy remainder is unrun. |
+| 4 | `cargo test -p lila-ir --lib` tests 298-626 | next runner | Batch-3 debt. All 4 CPUs were committed to rung 1c, which is the deadline item. |
+| 5 | `cargo test -p lila-aot-wasm --lib` in full (269 tests) | next runner | Same. Attempt 1 ran `planning::` (36) and `code_sink::` (9) green; the emit-heavy remainder is unrun. |
 | 6 | Fake wasm-safe suite, cases 11-190 | next runner | Batch-3 debt; measured at ~46 s/case on this box (~2.5 h), and the ladder's "10-60 s" is a 16-CPU figure. |
 | 7 | `built-ins/Temporal/PlainMonthDay` cases 151-199 | next runner | 150/199 banked green by batch 3's queued chain (`b3r-pmd-node`, resumable). ~2 min/case here. |
 | 8 | Rung G (golden diff) for lane B | next integrator | Requires parking the change to capture a "before"; the brief forbids git stash/commit, and each side is ~10 min plus a clean window. Lane B's note says an EMPTY diff here would *disprove* the repair — so it must be run deliberately, not opportunistically. |
