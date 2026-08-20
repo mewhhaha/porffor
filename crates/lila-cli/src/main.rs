@@ -2886,23 +2886,26 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                 .get(&OutcomeKind::Bug)
                 .copied()
                 .unwrap_or(0);
-            let unobserved_total = progress.target_total.saturating_sub(progress.summary.total);
+            let unobserved_total = progress
+                .target_total()
+                .saturating_sub(progress.summary.total);
             let remaining_to_green = unobserved_total + not_implemented + crash + bug;
 
             println!("execution_backend: {}", execution_backend.as_str());
-            println!("complete={}", progress.complete);
+            println!("complete={}", progress.is_complete());
             println!(
                 "matrix_nodes_completed: {}",
-                progress.matrix_nodes_completed
+                progress.matrix_nodes_completed()
             );
-            println!("matrix_nodes_total: {}", progress.matrix_nodes_total);
+            println!("matrix_nodes_total: {}", progress.matrix_nodes_total());
             println!("observed_total: {}", progress.summary.total);
-            println!("target_total: {}", progress.target_total);
+            println!("target_total: {}", progress.target_total());
             println!("unobserved_total: {}", unobserved_total);
             println!("current_success: {}", success);
             println!(
                 "current_success_full: {}/{}",
-                success, progress.target_total
+                success,
+                progress.target_total()
             );
             println!(
                 "remaining_observed_failures: {}",

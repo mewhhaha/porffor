@@ -42,6 +42,16 @@ before returning a non-zero exit. This closes command-level false-green and
 zero-selection paths; it does not prove that the harness semantics which
 produced a verdict are correct.
 
+Aggregate snapshot progress also crosses one validated boundary. Expected and
+completed matrix-node counts are opaque, completion is computed from those
+counts instead of stored as an independently writable boolean, and completed
+nodes must be unique members of the expected matrix. A zero-node matrix is an
+explicit no-evidence state rather than complete by `0 == 0`. The CLI still
+reports the same progress fields, but consumers cannot construct a summary
+whose completion claim contradicts its node counts. This closes a
+false-complete reporting shape; it does not establish that an incomplete
+matrix is complete or authorize publication from progress-only evidence.
+
 Direct-run resume checkpoints now bind the exact selected execution set,
 manifest hash, pins, execution backend, matrix-strategy version, and intended
 canonical terminal kind and matrix path before any recorded completion can
