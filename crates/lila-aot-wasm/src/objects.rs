@@ -5382,25 +5382,73 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 PropertyKeyIr::ArrayIndex(_) => {
                     let index_local = self.compile_array_index_to_local(key, function)?;
-                    let unit_len_local = self.reserve_temp_local();
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(unit_len_local));
-                    self.emit_utf16_code_unit_range_payload_from_locals(
+                    let string_offset_local = self.reserve_temp_local();
+                    let string_byte_len_local = self.reserve_temp_local();
+                    let string_unit_len_local = self.reserve_temp_local();
+                    self.emit_unpack_string_payload(
+                        target_local,
+                        string_offset_local,
+                        string_byte_len_local,
+                        function,
+                    );
+                    self.emit_utf16_code_unit_len_from_utf8_locals(
+                        string_offset_local,
+                        string_byte_len_local,
+                        string_unit_len_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::LocalGet(string_unit_len_local));
+                    function.instruction(&Instruction::I64LtU);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_string_index_read(
                         target_local,
                         index_local,
-                        unit_len_local,
+                        payload_local,
+                        tag_local,
                         function,
                     )?;
-                    function.instruction(&Instruction::LocalSet(payload_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                    self.release_temp_local(unit_len_local);
+                    function.instruction(&Instruction::Else);
+                    let key_local = self.reserve_temp_local();
+                    let number_payload_local = self.reserve_temp_local();
+                    let prototype_local = self.reserve_temp_local();
+                    let prototype_tag_local = self.reserve_temp_local();
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(number_payload_local));
+                    self.emit_number_to_string_payload(number_payload_local, function)?;
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    function.instruction(&Instruction::GlobalGet(STRING_PROTOTYPE_GLOBAL_INDEX));
+                    function.instruction(&Instruction::LocalSet(prototype_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(prototype_tag_local));
+                    self.emit_object_read(
+                        prototype_local,
+                        prototype_tag_local,
+                        target_local,
+                        target_tag_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    self.release_temp_local(prototype_tag_local);
+                    self.release_temp_local(prototype_local);
+                    self.release_temp_local(number_payload_local);
+                    self.release_temp_local(key_local);
+                    function.instruction(&Instruction::End);
+                    self.release_temp_local(string_unit_len_local);
+                    self.release_temp_local(string_byte_len_local);
+                    self.release_temp_local(string_offset_local);
                     self.release_temp_local(index_local);
                 }
                 PropertyKeyIr::StringExpr(_) => {
                     let key_local = self.reserve_temp_local();
                     let key_tag_local = self.reserve_temp_local();
                     let index_local = self.reserve_temp_local();
+                    let numeric_index_payload_local = self.reserve_temp_local();
+                    let canonical_index_local = self.reserve_temp_local();
                     let found_local = self.reserve_temp_local();
                     self.compile_object_key_to_locals(key, key_local, key_tag_local, function)?;
                     function.instruction(&Instruction::I64Const(0));
@@ -5443,11 +5491,43 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(byte_len_local);
                     self.release_temp_local(offset_local);
                     function.instruction(&Instruction::Else);
-                    self.emit_string_index_0_to_4_or_minus_one(key_local, index_local, function);
-                    function.instruction(&Instruction::LocalGet(index_local));
+                    self.emit_canonical_numeric_index_string(
+                        key_local,
+                        numeric_index_payload_local,
+                        canonical_index_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(canonical_index_local));
                     function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64GeS);
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::LocalGet(numeric_index_payload_local));
+                    function.instruction(&Instruction::I64Const((-0.0f64).to_bits() as i64));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::LocalGet(numeric_index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                    function.instruction(&Instruction::F64Ge);
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::LocalGet(numeric_index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::LocalGet(numeric_index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Trunc);
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::I32And);
+                    function.instruction(&Instruction::LocalGet(numeric_index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(
+                        18_446_744_073_709_551_616.0,
+                    )));
+                    function.instruction(&Instruction::F64Lt);
+                    function.instruction(&Instruction::I32And);
                     function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::LocalGet(numeric_index_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::I64TruncF64U);
+                    function.instruction(&Instruction::LocalSet(index_local));
                     let string_offset_local = self.reserve_temp_local();
                     let string_byte_len_local = self.reserve_temp_local();
                     let string_unit_len_local = self.reserve_temp_local();
@@ -5509,6 +5589,8 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
 
                     self.release_temp_local(found_local);
+                    self.release_temp_local(canonical_index_local);
+                    self.release_temp_local(numeric_index_payload_local);
                     self.release_temp_local(index_local);
                     self.release_temp_local(key_tag_local);
                     self.release_temp_local(key_local);

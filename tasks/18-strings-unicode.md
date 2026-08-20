@@ -136,6 +136,21 @@ execution remain queued behind the active current-pin matrix. This does not
 change the maximum String size, general numeric conversion or the published
 repeat count.
 
+Computed property reads on primitive Strings now cross lowering through one
+private closed `CanonicalIndex` / `OrdinaryPropertyKey` classification. Static
+proof may select the indexed IR path; every other value is preserved for the
+general `ToPropertyKey` path instead of being rejected merely because its
+lowered kind is not Number. The backend performs dynamic canonical numeric
+index recognition across the full non-negative integral `u64` domain, rejects
+`-0`, fractions and non-finite values as String exotic indices, and falls
+through to `%String.prototype%` for non-index and out-of-bounds keys. This
+removes the general `"string index must be number"` unsupported boundary that
+owned the two pinned `15.5.5.5.2-{1,3}-2.js` failures. The structural contract
+test passes, both exact files now report `2/2` execution variants, and the
+adjacent `built-ins/String/15.5.5.5.2` family reports `28/28` under Wasm-AOT at
+the harness-declared `aa55200d1310384c5cf69ea95b2a2ecba457007b` pin. This is
+focused leaf evidence, not complete String-tree or current publication proof.
+
 ## Objective
 
 Implement ECMAScript strings as sequences of UTF-16 code units, including lone surrogates, while retaining an efficient Wasm representation. Complete String primitives, wrapper exotics, iterators and all pinned String APIs without ASCII-only assumptions or exact-test materializations.

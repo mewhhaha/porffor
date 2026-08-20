@@ -94,7 +94,8 @@ The largest remaining closure work is:
   semantic debt;
 - implement executable GC and real weak reachability, plus complete
   arbitrary-precision BigInt operations;
-- remove the parser/lowering reparse boundary;
+- finish parser grammar and structured early-error closure while preserving the
+  landed parse-once boundary;
 - finish modules/linking, broad RegExp grammar, complete Intl, general suspended
   async/generator control flow and remaining cross-realm/exotic-object edges;
 - build the planned differential generation, reduction, replay and sustained
@@ -356,13 +357,25 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/lila-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Every focused Test262 count below predates the execution-identity cutover and
-is historical physical/path evidence, not a current execution numerator or
-denominator. Unflagged files now contribute separate sloppy and strict
-executions, so each focused count must be rediscovered and rerun before it can
-be reported as current execution-aware evidence.
+Focused Test262 counts below that predate the execution-identity cutover are
+historical physical/path evidence, not current execution numerators or
+denominators. Unflagged files now contribute separate sloppy and strict
+executions, so only entries that explicitly report execution variants from a
+post-cutover rerun are current focused evidence.
 
-Recent focused progress through `2026-07-27`:
+Recent focused progress through `2026-08-20`:
+
+- Primitive String computed-property reads now preserve every non-index key for
+  the ordinary `ToPropertyKey` and `%String.prototype%` path, while canonical
+  indices use UTF-16 own-property lookup and out-of-bounds indices fall through
+  to the prototype. The formerly unsupported non-index witnesses are `2/2`
+  execution variants each, and the adjacent pinned `15.5.5.5.2` family is
+  `28/28` under Wasm-AOT. This is focused evidence, not String-tree closure.
+- Class elements now report specific early `SyntaxError` codes for non-static
+  async methods, getters and setters named `constructor`, and for every private
+  `#constructor` form. The adjacent expression and statement early-error
+  subtrees are each `444/444` under Wasm-AOT; this is bounded parser evidence,
+  not full language or aggregate closure.
 
 - Promise construction now runs executors synchronously through the real
   Wasm-AOT call path, creates branded pending promise records, supplies distinct

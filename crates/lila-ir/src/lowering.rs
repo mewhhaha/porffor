@@ -91,6 +91,25 @@ enum PropertyUpdateOp {
     Logical(LogicalBinaryOp),
 }
 
+/// The two lowering outcomes for a computed property key on a String exotic.
+///
+/// `CanonicalIndex` is available only after static proof. Every other key is
+/// preserved for the ordinary `ToPropertyKey` path; failure to prove an index
+/// is not a reason to reject the program.
+enum StringExoticComputedKey {
+    CanonicalIndex(Box<TypedExpr>),
+    OrdinaryPropertyKey(PropertyKeyIr),
+}
+
+impl StringExoticComputedKey {
+    fn into_property_key(self) -> PropertyKeyIr {
+        match self {
+            Self::CanonicalIndex(index) => PropertyKeyIr::ArrayIndex(index),
+            Self::OrdinaryPropertyKey(key) => key,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActiveLabel {
     pub(crate) name: String,
@@ -23654,17 +23673,64 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
         }
-        let index = self.lower_expression(expr);
-        if index.kind != ValueKind::Number {
-            return self.unsupported_expr("string index must be number");
-        }
+        let key = self
+            .classify_string_exotic_computed_key(expr)
+            .into_property_key();
         TypedExpr::from_info(
-            ValueInfo::new(ValueKind::String),
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
             ExprIr::PropertyRead {
                 target: Box::new(target),
-                key: PropertyKeyIr::ArrayIndex(Box::new(index)),
+                key,
             },
         )
+    }
+
+    fn classify_string_exotic_computed_key(
+        &mut self,
+        expr: &Expression,
+    ) -> StringExoticComputedKey {
+        if let Some(key) = self.static_array_numeric_property_key(expr) {
+            return match key {
+                PropertyKeyIr::ArrayIndex(index) => StringExoticComputedKey::CanonicalIndex(index),
+                key => StringExoticComputedKey::OrdinaryPropertyKey(key),
+            };
+        }
+
+        if let Some(key) = self.lower_static_property_key(expr) {
+            return match key {
+                PropertyKeyIr::StaticString(name) => {
+                    if let Some(index) = Self::static_string_exotic_index(&name) {
+                        StringExoticComputedKey::CanonicalIndex(Box::new(
+                            self.static_number_index_expr(index),
+                        ))
+                    } else {
+                        StringExoticComputedKey::OrdinaryPropertyKey(PropertyKeyIr::StaticString(
+                            name,
+                        ))
+                    }
+                }
+                key => StringExoticComputedKey::OrdinaryPropertyKey(key),
+            };
+        }
+
+        let key = self.lower_expression(expr);
+        StringExoticComputedKey::OrdinaryPropertyKey(PropertyKeyIr::StringExpr(Box::new(key)))
+    }
+
+    fn static_string_exotic_index(name: &str) -> Option<f64> {
+        if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        if name.len() > 1 && name.starts_with('0') {
+            return None;
+        }
+        let index = name.parse::<u64>().ok()?;
+        ((index as f64) <= MAX_ARRAY_INDEX).then_some(index as f64)
     }
 
     fn lower_arguments_index_key(
