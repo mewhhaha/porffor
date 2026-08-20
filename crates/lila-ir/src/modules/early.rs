@@ -359,6 +359,22 @@ mod tests {
                 EarlyErrorCode::ClassConstructorGeneratorMethod,
             ),
             (
+                "class constructor may not be an async method",
+                EarlyErrorCode::ClassConstructorAsyncMethod,
+            ),
+            (
+                "class constructor may not be a getter method",
+                EarlyErrorCode::ClassConstructorGetter,
+            ),
+            (
+                "class constructor may not be a setter method",
+                EarlyErrorCode::ClassConstructorSetter,
+            ),
+            (
+                "class constructor may not be a private method",
+                EarlyErrorCode::ClassPrivateConstructorName,
+            ),
+            (
                 "'arguments' not allowed in class static block",
                 EarlyErrorCode::ClassStaticBlockContainsArguments,
             ),
@@ -511,6 +527,42 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn remaining_class_constructor_restrictions_map_to_early_syntax_errors() {
+        for (source, code) in [
+            (
+                "class C { async constructor() {} }",
+                EarlyErrorCode::ClassConstructorAsyncMethod,
+            ),
+            (
+                "class C { get constructor() {} }",
+                EarlyErrorCode::ClassConstructorGetter,
+            ),
+            (
+                "class C { set constructor(value) {} }",
+                EarlyErrorCode::ClassConstructorSetter,
+            ),
+            (
+                "class C { static async *#constructor() {} }",
+                EarlyErrorCode::ClassPrivateConstructorName,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a forbidden class constructor form should fail before evaluation");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
+            assert_eq!(diagnostic.code(), Some(code), "{source:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source:?}"
+            );
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
     }
 
     #[test]

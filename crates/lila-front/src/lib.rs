@@ -879,6 +879,81 @@ mod tests {
     }
 
     #[test]
+    fn remaining_class_constructor_restrictions_report_specific_early_errors_in_both_goals() {
+        for (source, code) in [
+            (
+                "class C { async constructor() {} }",
+                EarlyErrorCode::ClassConstructorAsyncMethod,
+            ),
+            (
+                "let C = class { async constructor() {} };",
+                EarlyErrorCode::ClassConstructorAsyncMethod,
+            ),
+            (
+                "class C { get constructor() {} }",
+                EarlyErrorCode::ClassConstructorGetter,
+            ),
+            (
+                "let C = class { get constructor() {} };",
+                EarlyErrorCode::ClassConstructorGetter,
+            ),
+            (
+                "class C { set constructor(value) {} }",
+                EarlyErrorCode::ClassConstructorSetter,
+            ),
+            (
+                "let C = class { set constructor(value) {} };",
+                EarlyErrorCode::ClassConstructorSetter,
+            ),
+            (
+                "class C { #constructor; }",
+                EarlyErrorCode::ClassPrivateConstructorName,
+            ),
+            (
+                "let C = class { static async *#constructor() {} };",
+                EarlyErrorCode::ClassPrivateConstructorName,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a forbidden class constructor form should fail before evaluation");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn remaining_class_constructor_boundaries_preserve_static_and_computed_public_names() {
+        for source in [
+            r##"class C {
+                constructor() {}
+                static async constructor() {}
+                async ["constructor"]() {}
+                static get constructor() { return 1; }
+                static set constructor(value) {}
+                get ["constructor"]() { return 1; }
+                set ["constructor"](value) {}
+                ["#constructor"] = 1;
+            }"##,
+            r##"let C = class {
+                constructor() {}
+                static async constructor() {}
+                static get constructor() { return 1; }
+                static set constructor(value) {}
+                ["#constructor"];
+            };"##,
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("static and computed public names are not forbidden constructor forms");
+            }
+        }
+    }
+
+    #[test]
     fn class_static_block_arguments_rejections_cover_both_forms_and_goals() {
         for source in [
             r"class C { static { (class { [argument\u0073]() {} }); } }",
@@ -1344,6 +1419,10 @@ switch (0) {
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassConstructorGeneratorMethod).is_some()
         );
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorAsyncMethod).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorGetter).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorSetter).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassPrivateConstructorName).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)
                 .is_some()
