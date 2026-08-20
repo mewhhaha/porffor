@@ -97,6 +97,7 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot make non-configurable arguments property writable",
     "Cannot make non-configurable arguments.callee writable",
     "Cannot read properties of null or undefined",
+    "Cannot redefine array index property",
     "Cannot redefine non-configurable arguments accessor",
     "Cannot redefine non-configurable arguments property",
     "Cannot redefine non-configurable arguments.callee",
@@ -974,6 +975,11 @@ impl StringPool {
             "AsyncDisposableStack.prototype.use dispose method is not callable",
             "AsyncDisposableStack.prototype.adopt onDisposeAsync is not callable",
             "AsyncDisposableStack.prototype.defer onDisposeAsync is not callable",
+            // Constructor-only `%DisposableStack%` shell. No method names are
+            // interned by this lane because no synchronous disposal members
+            // are installed.
+            "DisposableStack",
+            "DisposableStack constructor requires new",
             "Object.groupBy items cannot be null or undefined",
             "Object.groupBy callback must be callable",
             "Object.groupBy iterator method must be callable",

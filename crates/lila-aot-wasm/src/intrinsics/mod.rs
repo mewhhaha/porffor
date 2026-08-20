@@ -4,7 +4,7 @@
 //! `builtins/bootstrap.rs::init_builtin_constructor_object`, formerly a single
 //! ~4,760-line function and the worst merge point in the backend. Per-family
 //! bodies live here, while the mandatory catalog `StandardBuiltinInstaller`
-//! classification now routes its 34 productive roots without naming every
+//! classification now routes its 35 productive roots without naming every
 //! other builtin in a no-op tail.
 //!
 //! Each family owns one file here. An arm moves across **verbatim** — the
@@ -31,6 +31,7 @@ pub(crate) mod object;
 pub(crate) mod promise;
 pub(crate) mod proxy;
 pub(crate) mod regexp;
+pub(crate) mod resource_management;
 pub(crate) mod string;
 pub(crate) mod symbol;
 pub(crate) mod temporal;

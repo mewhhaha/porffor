@@ -20,6 +20,21 @@ hand-written four-field kind-presence fold are gone. Heap descriptor values and
 masks are also distinct typed domains, so an accessor word cannot acquire a
 `[[Writable]]` bit through their constructors.
 
+Array-index `[[DefineOwnProperty]]` now crosses the Object builtin boundary as
+one `ValidatedDescriptor<WasmLocals>`. Dense and sparse index storage project
+their current data/getter/setter carriers into the same typed compatibility
+validator used by array named properties; validation therefore completes
+before any element, accessor, descriptor-word or length mutation. Generic
+descriptors preserve the existing kind, omitted fields preserve the existing
+value/accessor, kind transitions use `undefined`/false defaults, and
+non-configurable comparisons use tagged `SameValue` (including NaN, signed
+zero and object/function identity). Indexed descriptor materialization matches
+the stored kind and exposes raw getter/setter identity without invoking either.
+This lane owns the 27 observed current-pin
+Array witnesses ending 190, 192, 193, 202, 207, 212–214, 227–230, 233–242,
+244, 245 and 260–262. The Arguments indexed cases ending 279 and 280 remain an
+explicit adjacent obligation, not evidence for this Array closure.
+
 Arguments-object `length` writes now take the same closed
 `PropertyDescriptorKind` domain rather than an `accessor: bool`. The Generic
 arm preserves the existing data/accessor kind (and data-only writability) while
@@ -111,14 +126,17 @@ the recursive Proxy descriptor-record protocol remains T11 work. The complete
 separate from the full `[[HasProperty]]` dispatcher. Proxy `[[Get]]` retains its
 older value-bearing invariant scan.
 
-This is still a foundation, not task closure. Array application and index
-paths, arguments descriptors, several builtin/exotic emitters and lowering
-shape facts still consume derived raw words or parallel positional forms. The
-`Presence::Present` step-4 exemption remains the explicit LN10 obligation, the
-ordinary `Object.defineProperty` adapter still relies on its emitted run-time
-6.2.6.5 step-9 check, and the shortcut audit still finds path/source-dependent
-materializations. `cargo check -p lila-ir -p lila-aot-wasm` and the focused
-array descriptor CLI fixture were green at the earlier descriptor checkpoint;
+This is still a foundation, not task closure. Array application paths,
+arguments descriptors, several builtin/exotic emitters and lowering shape
+facts still consume derived raw words or parallel positional forms. The
+`Presence::Present` step-4 exemption remains the explicit LN10 obligation in
+the ordinary and array-named consumers, the ordinary `Object.defineProperty`
+adapter still relies on its emitted run-time 6.2.6.5 step-9 check, and the
+shortcut audit still finds path/source-dependent materializations. The new
+Array-index structural regression has received only rustfmt/diff/static checks;
+its focused Rust and Test262 execution remains deferred. The workspace check
+for `lila-ir` and `lila-aot-wasm` and the focused array descriptor CLI fixture
+were green at the earlier descriptor checkpoint;
 the HasProperty and Proxy-Set batches have not rerun them. The focused
 Proxy-Set direct-descriptor fixture is written but has not run while the shared
 verification lane owns Cargo and Test262. The focused own-descriptor-predicate

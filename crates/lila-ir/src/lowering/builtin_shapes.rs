@@ -7119,7 +7119,8 @@ impl<'a> ScriptLowerer<'a> {
             // the batch-7 `IntlDateTimeFormatConstructor` defect verbatim, whose
             // arm 20 lines below is the precedent this copies (`Object`,
             // `{Object}`, no return shape, fresh constructed instance).
-            StandardBuiltinId::AsyncDisposableStackConstructor => (
+            StandardBuiltinId::AsyncDisposableStackConstructor
+            | StandardBuiltinId::DisposableStackConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,

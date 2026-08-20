@@ -57,6 +57,18 @@ fresh wrapper on each invocation. The boundary and its cross-realm nonclaim are
 recorded in
 `docs/rust-rewrite/contracts/bound-function-this-capture.md`.
 
+Non-generic Boolean prototype method calls now retain the acquired function
+object and the reference base as separate `CallIndirect` operands. Shape
+analysis may identify `%Boolean.prototype.toString%` or `valueOf`, but that
+knowledge no longer authorizes a key-only `CallMethod` whose backend fast path
+can replace the transferred function according to the receiver and property
+name. The receiver-materialization boundary now has a durable binding-identity
+witness proving the callee read and `this_arg` share the same single evaluation.
+Both methods, valid boxed-Boolean calls, standard and unrelated destination
+names, and the four wrong-brand object families in the ten bounded Test262
+witnesses are recorded in
+`docs/rust-rewrite/contracts/non-generic-builtin-method-callee-identity.md`.
+
 Cross-realm Function construction remains an explicit dynamic-source
 exclusion, and complete Function/class/private-element subtrees have not been
 verified against the current pin without materializations. This remains an

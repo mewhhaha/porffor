@@ -52,6 +52,15 @@ whose completion claim contradicts its node counts. This closes a
 false-complete reporting shape; it does not establish that an incomplete
 matrix is complete or authorize publication from progress-only evidence.
 
+Every active full or reduced Wasm-AOT assertion/property prelude now uses the
+same SameValue algorithm. It treats `NaN` as equal to `NaN`, distinguishes
+`+0` from `-0`, and is consumed by `assert.sameValue`, `assert.notSameValue`,
+array comparison, and `verifyProperty` value checks. The prior `!==` property
+comparison could misclassify a correct descriptor as a runtime bug, while a
+reduced-prelude equality shortcut could hide a signed-zero defect. A
+source-level contract test pins all three materialization variants and their
+consumers; this is a harness-integrity correction, not product semantics.
+
 Direct-run resume checkpoints now bind the exact selected execution set,
 manifest hash, pins, execution backend, matrix-strategy version, and intended
 canonical terminal kind and matrix path before any recorded completion can

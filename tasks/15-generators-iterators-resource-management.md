@@ -15,6 +15,24 @@ materialization, and the README records unsupported suspended/control-flow
 families. General sync/async generator state machines, iterator-close coverage
 across all consumers and complete resource-management filters remain open.
 
+The `%DisposableStack%` constructor and intrinsic prototype shell now form a
+real synchronous resource-stack boundary without pretending disposal exists.
+A private non-`Copy`, `#[must_use]` `PendingDisposableStackRecordLocal` can be
+minted only after the pending state and empty capability storage are fully
+initialized; one consuming finalizer installs the distinct synchronous brand,
+attaches the record and publishes the Object result. The constructor is
+direct-returning and owns the sole observable `NewTarget.prototype` Get,
+custom tagged prototype selection, primitive fallback and allocation.
+Catalog/bootstrap install only the constructor, constructor link and
+`Symbol.toStringTag`: `use`, `adopt`, `defer`, `move`, `dispose`, `disposed`
+and `Symbol.dispose` remain absent until their real synchronous algorithms
+land. The distinct brand also supplies the missing real receiver for five
+otherwise-green `%AsyncDisposableStack%` wrong-brand cases. The dated
+2026-08-13 artifact recorded 0/93 for `DisposableStack` and 98/104 for
+`AsyncDisposableStack`; those counts selected this seam but are not current-SHA
+evidence. The contract and deferred focused gates live in
+`docs/rust-rewrite/contracts/disposable-stack-construction-brand.md`.
+
 The generator-yield IR now distinguishes `yield` from `yield*` with the closed
 `YieldForm` domain. Its delegation case carries a one-inhabitant
 `GeneratorDelegationProtocol`, which is compile-time tied to all four iterator

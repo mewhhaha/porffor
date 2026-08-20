@@ -22,6 +22,7 @@ pub enum StandardBuiltinInstaller {
     WeakRef,
     FinalizationRegistry,
     AsyncDisposableStack,
+    DisposableStack,
     Set,
     Object,
     Proxy,
@@ -5673,6 +5674,15 @@ standard_builtin_catalog! {
         installer: None,
         native: DECODE_URI_COMPONENT_NAME,
     }
+    DisposableStackConstructor {
+        function: FunctionOrdinal(779) => BUILTIN_DISPOSABLE_STACK_FUNCTION_ID,
+        global: GlobalOrdinal(52),
+        global_name: DISPOSABLE_STACK_NAME,
+        debug: DISPOSABLE_STACK_NAME,
+        flags: [CONSTRUCTABLE],
+        installer: DisposableStack,
+        native: DISPOSABLE_STACK_NAME,
+    }
 }
 
 impl StandardBuiltinId {
@@ -5686,6 +5696,30 @@ impl StandardBuiltinId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This constructor-only slice deliberately registers no synchronous
+    /// disposal methods. Their future catalog rows must arrive with the real
+    /// disposal algorithms rather than becoming callable placeholders.
+    #[test]
+    fn disposable_stack_constructor_is_the_only_registered_sync_stack_builtin() {
+        let builtin = StandardBuiltinId::DisposableStackConstructor;
+        assert_eq!(
+            StandardBuiltinId::from_function_id(BUILTIN_DISPOSABLE_STACK_FUNCTION_ID),
+            Some(builtin)
+        );
+        assert_eq!(builtin.native_function_name(), Some("DisposableStack"));
+        assert!(builtin.constructable());
+        assert!(StandardBuiltinId::all_globals().contains(&builtin));
+
+        assert_eq!(
+            StandardBuiltinId::all_functions()
+                .iter()
+                .filter(|candidate| candidate.debug_name().starts_with("DisposableStack"))
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![builtin]
+        );
+    }
 
     #[test]
     fn math_random_alone_declares_the_host_random_import() {
@@ -5785,6 +5819,10 @@ mod tests {
                 (Builtin::SetConstructor, Installer::Set),
                 (Builtin::SymbolConstructor, Installer::Symbol),
                 (Builtin::ErrorConstructor, Installer::Error),
+                (
+                    Builtin::DisposableStackConstructor,
+                    Installer::DisposableStack,
+                ),
             ]
         );
     }

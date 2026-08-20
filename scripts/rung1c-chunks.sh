@@ -506,6 +506,7 @@ run_chunk date              date::
 run_chunk iterator          iterator::
 run_chunk iterator_helpers  iterator_helpers::
 run_chunk regexp            regexp::
+run_chunk resource_management resource_management::
 run_chunk object            object::
 run_chunk string            string::
 run_chunk data_view         data_view::

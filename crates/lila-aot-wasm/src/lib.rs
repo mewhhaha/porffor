@@ -141,6 +141,76 @@ mod tests {
     }
 
     #[test]
+    fn disposable_stack_construction_is_single_use_and_method_free() {
+        let constructor = include_str!("builtins/disposable_stack.rs");
+        let functions = include_str!("functions.rs");
+        let heap = include_str!("heap.rs");
+        let catalog = include_str!("../../lila-ir/src/builtins/catalog.rs");
+        let names = include_str!("../../lila-ir/src/names.rs");
+
+        assert!(constructor.contains(
+            "#[must_use = \"a pending DisposableStack record must be consumed by the instance finalizer\"]\nstruct PendingDisposableStackRecordLocal(u32);"
+        ));
+        assert!(!constructor.contains("derive(Clone"));
+        assert_eq!(
+            constructor
+                .matches("emit_alloc_pending_disposable_stack_record(function)?")
+                .count(),
+            1
+        );
+        assert_eq!(
+            constructor
+                .matches("emit_new_target_prototype_to_locals(")
+                .count(),
+            1,
+            "the constructor body owns exactly one observable prototype Get"
+        );
+        assert_eq!(
+            constructor
+                .matches("emit_finalize_disposable_stack_instance(")
+                .count(),
+            2,
+            "one consuming call and one private finalizer definition"
+        );
+        assert_eq!(
+            constructor
+                .matches("OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK")
+                .count(),
+            1,
+            "only the consuming finalizer may install the sync brand"
+        );
+        assert!(!constructor.contains("OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK"));
+        assert!(heap.contains("pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;"));
+        assert!(heap
+            .contains("pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;"));
+
+        let direct_returning = functions
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct_returning
+                .matches("StandardBuiltinId::DisposableStackConstructor,")
+                .count(),
+            1,
+            "the constructor body must run before generic prototype Get/allocation"
+        );
+
+        assert_eq!(
+            catalog
+                .matches("\n    DisposableStackConstructor {")
+                .count(),
+            1,
+            "the constructor is the only sync stack catalog row"
+        );
+        assert!(!catalog.contains("\n    DisposableStackPrototype"));
+        assert!(!names.contains("BUILTIN_DISPOSABLE_STACK_PROTOTYPE"));
+    }
+
+    #[test]
     fn typed_array_accessors_use_the_closed_buffer_witness() {
         let binary_data = include_str!("builtins/binary_data.rs");
         let standard = include_str!("builtins/standard.rs");

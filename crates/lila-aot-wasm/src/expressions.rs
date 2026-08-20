@@ -677,21 +677,21 @@ impl<'a> FunctionBuilder<'a> {
                             tag_local,
                             function,
                         );
-                        function.instruction(&Instruction::LocalSet(self.scratch_local));
-                        if *value_kind == ValueKind::Dynamic {
-                            function.instruction(&Instruction::LocalGet(tag_local));
-                        } else {
+                        function.instruction(&Instruction::LocalSet(value_local));
+                        if *value_kind != ValueKind::Dynamic {
                             function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                            function.instruction(&Instruction::LocalSet(tag_local));
                         }
-                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         self.emit_reference_global_property_write(
                             name,
-                            self.scratch_local,
-                            self.result_tag_local,
+                            value_local,
+                            tag_local,
                             *strictness,
                             function,
                         )?;
-                        function.instruction(&Instruction::LocalGet(self.scratch_local));
+                        function.instruction(&Instruction::LocalGet(tag_local));
+                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                        function.instruction(&Instruction::LocalGet(value_local));
                     }
                     UpdateReturnMode::Postfix => {
                         let old_value_local = self.reserve_temp_local();
@@ -820,14 +820,20 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                     function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
+                // The checked strict write performs a HasProperty operation
+                // before Set and may use `scratch_local` internally. Move the
+                // completed RHS into the now-dead old-value local so the
+                // Reference payload cannot be clobbered before consumption.
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::LocalSet(temp_local));
                 self.emit_reference_global_property_write(
                     name,
-                    self.scratch_local,
+                    temp_local,
                     rhs_tag_local,
                     *strictness,
                     function,
                 )?;
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::LocalGet(temp_local));
                 self.release_temp_local(rhs_tag_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(temp_local);

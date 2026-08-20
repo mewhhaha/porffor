@@ -42,6 +42,7 @@ mod language_errors;
 mod language_numerics;
 mod object;
 mod regexp;
+mod resource_management;
 mod string;
 mod throw_propagation;
 mod typed_array;

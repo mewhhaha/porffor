@@ -16175,23 +16175,19 @@ impl<'a> ScriptLowerer<'a> {
                             );
                         }
                     }
-                    if let Some(boolean_builtin) = StandardBuiltinId::from_function_id(&function_id)
-                    {
-                        let method_name = match boolean_builtin {
-                            StandardBuiltinId::BooleanPrototypeToString => "toString",
-                            StandardBuiltinId::BooleanPrototypeValueOf => "valueOf",
-                            _ => "",
-                        };
-                        if !method_name.is_empty() {
-                            return TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                    args,
-                                },
-                            );
-                        }
+                    if matches!(
+                        StandardBuiltinId::from_function_id(&function_id),
+                        Some(
+                            StandardBuiltinId::BooleanPrototypeToString
+                                | StandardBuiltinId::BooleanPrototypeValueOf
+                        )
+                    ) {
+                        // These methods are non-generic. The inferred target
+                        // describes the acquired function, not the receiver's
+                        // brand, so a key-only CallMethod could replace a
+                        // transferred Boolean function with a receiver/name
+                        // fast path. Preserve both reference components.
+                        return self.lower_indirect_method_call(info, callee, receiver, args, None);
                     }
                     if let Some(bigint_builtin) = StandardBuiltinId::from_function_id(&function_id)
                     {
@@ -18971,6 +18967,7 @@ impl<'a> ScriptLowerer<'a> {
             // `IntlDateTimeFormatConstructor` arm is again the precedent for a
             // constructor with no instance shape.
             StandardBuiltinId::AsyncDisposableStackConstructor
+            | StandardBuiltinId::DisposableStackConstructor
             | StandardBuiltinId::AsyncDisposableStackPrototypeMove
             | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => {
                 Some(ValueInfo::new(ValueKind::Object))

@@ -7714,6 +7714,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::AsyncDisposableStackConstructor => {
                 self.emit_async_disposable_stack_constructor(function)?;
             }
+            StandardBuiltinId::DisposableStackConstructor => {
+                self.emit_disposable_stack_constructor(function)?;
+            }
             StandardBuiltinId::AsyncDisposableStackPrototypeUse => {
                 self.emit_async_disposable_stack_use(function)?;
             }

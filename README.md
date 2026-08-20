@@ -84,6 +84,10 @@ What is already in place:
   arrays, promises/async execution, generators/iterators, binary data,
   collections, strings, RegExp, numbers/BigInt/JSON, Date/Temporal and host
   builtins.
+- `%DisposableStack%` has a real constructor, intrinsic prototype shell,
+  pending record and distinct synchronous brand; its disposal methods remain
+  deliberately absent until the synchronous resource-disposal algorithms are
+  implemented.
 
 The largest remaining closure work is:
 

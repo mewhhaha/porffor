@@ -1583,6 +1583,101 @@ mod tests {
     }
 
     #[test]
+    fn non_generic_boolean_method_calls_retain_acquired_callee_identity() {
+        let mut source = String::new();
+        let mut expected_calls = 0;
+        for method in ["toString", "valueOf"] {
+            for constructor in ["Boolean", "String", "Number", "Date", "Object"] {
+                let destinations = if constructor == "Boolean" {
+                    &["transferred"][..]
+                } else {
+                    &[method, "transferred"][..]
+                };
+                for destination in destinations {
+                    expected_calls += 1;
+                    source.push_str(&format!(
+                        "var value{expected_calls} = new {constructor}(); value{expected_calls}.{destination} = Boolean.prototype.{method}; value{expected_calls}.{destination}();"
+                    ));
+                }
+            }
+        }
+        let program = lower_script(&source);
+        assert!(
+            program.is_wasm_supported(),
+            "expected supported transferred Boolean calls: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let calls = script
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                StatementIr::Expression(expression)
+                    if matches!(
+                        expression.expr,
+                        ExprIr::MaterializeBinding { ref body, .. }
+                            if matches!(body.expr, ExprIr::CallIndirect { .. })
+                    ) =>
+                {
+                    Some(expression)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), expected_calls);
+        for expression in calls {
+            let ExprIr::MaterializeBinding {
+                name, body: call, ..
+            } = &expression.expr
+            else {
+                unreachable!("the call collection accepts only materialized calls");
+            };
+            let ExprIr::CallIndirect {
+                callee,
+                this_arg: Some(this_arg),
+                ..
+            } = &call.expr
+            else {
+                panic!("expected callee and this argument: {call:?}");
+            };
+            assert!(matches!(
+                this_arg.expr,
+                ExprIr::Identifier(ref this_name) if this_name == name
+            ));
+            assert!(callee.function_targets.iter().all(|target| matches!(
+                StandardBuiltinId::from_function_id(target),
+                Some(
+                    StandardBuiltinId::BooleanPrototypeToString
+                        | StandardBuiltinId::BooleanPrototypeValueOf
+                )
+            )));
+            assert!(!callee.function_targets.is_empty());
+            assert!(
+                match &callee.expr {
+                    ExprIr::PropertyRead { target, key } => matches!(
+                        (&target.expr, key),
+                        (
+                            ExprIr::Identifier(target_name),
+                            PropertyKeyIr::StaticString(key)
+                        ) if target_name == name
+                            && matches!(key.as_str(), "toString" | "valueOf" | "transferred")
+                    ),
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::GetV,
+                        operands,
+                    } =>
+                        operands.len() == 2
+                            && matches!(operands[0].expr, ExprIr::Identifier(ref target_name) if target_name == name)
+                            && matches!(operands[1].expr, ExprIr::String(ref key) if matches!(key.as_str(), "toString" | "valueOf" | "transferred")),
+                    _ => false,
+                },
+                "expected retained property read: {callee:?}"
+            );
+        }
+    }
+
+    #[test]
     fn preserves_call_spreads_in_source_argument_order() {
         let program = lower_script(
             "function collect() {} let values = [2, 3]; collect(42, ...[1], ...values,);",

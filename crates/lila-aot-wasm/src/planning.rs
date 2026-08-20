@@ -6466,6 +6466,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         // row. The settlement callbacks are anonymous reaction handlers and take
         // the settled value, like the `AsyncIterator` `@@asyncDispose` pair.
         StandardBuiltinId::AsyncDisposableStackConstructor
+        | StandardBuiltinId::DisposableStackConstructor
         | StandardBuiltinId::AsyncDisposableStackPrototypeMove
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => 0,

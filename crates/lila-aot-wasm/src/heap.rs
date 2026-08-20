@@ -280,6 +280,9 @@ pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE: u64 = 32;
 /// One `DisposableResource` record: its kind, its `[[ResourceValue]]` and its
 /// `[[DisposeMethod]]`.
 pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE: u64 = 40;
+/// `[[DisposableState]]` plus the `[[DisposeCapability]]`'s empty
+/// `[[DisposableResourceStack]]` (pointer, length, capacity).
+pub(crate) const HEAP_DISPOSABLE_STACK_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE: u64 = 32;
@@ -984,6 +987,12 @@ pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET: u64 = 24;
 pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const HEAP_DISPOSABLE_STACK_STATE_OFFSET: u64 = 0;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET: u64 = 8;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET: u64 = 16;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET: u64 = 24;
+pub(crate) const DISPOSABLE_STACK_PENDING_STATE_WORD: u64 = 0;
+
 /// `[[AsyncDisposableState]]` is a two-element domain, so it is stored as a
 /// flag rather than a string: `pending` is the value `AsyncDisposableStack()`
 /// installs, and `disposed` is what `disposeAsync` and `move` set. The
@@ -1681,6 +1690,9 @@ pub(crate) const OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT: u64 = 38;
 /// case turns on this word being absent from an ordinary object, from
 /// `AsyncDisposableStack.prototype` itself, and from the constructor.
 pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
+/// `[[DisposableState]]` is intentionally not the async brand. The five
+/// AsyncDisposableStack wrong-receiver witnesses depend on this distinction.
+pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -4575,6 +4587,38 @@ pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT: &[HeapLayoutSlot] = &
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_DISPOSABLE_STACK_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "disposable-stack-record",
+        name: "state",
+        offset: HEAP_DISPOSABLE_STACK_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "disposable-stack-record",
+        name: "entries_ptr",
+        offset: HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "disposable-stack-record",
+        name: "entries_len",
+        offset: HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "disposable-stack-record",
+        name: "entries_cap",
+        offset: HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "map-iterator-record",
@@ -6488,6 +6532,12 @@ mod tests {
         assert_eq!(HEAP_FINALIZATION_REGISTRY_CELL_SIZE, 56);
         assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, 32);
         assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE, 40);
+        assert_eq!(HEAP_DISPOSABLE_STACK_RECORD_SIZE, 32);
+        assert_eq!(DISPOSABLE_STACK_PENDING_STATE_WORD, 0);
+        assert_ne!(
+            OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK,
+            OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK
+        );
         assert_eq!(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE, 48);
         assert_eq!(HEAP_MAP_ITERATOR_RECORD_SIZE, 32);
         assert_eq!(HEAP_SET_RECORD_SIZE, 32);
@@ -6566,6 +6616,10 @@ mod tests {
         assert_layout(
             HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT,
             HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
+        );
+        assert_layout(
+            HEAP_DISPOSABLE_STACK_RECORD_LAYOUT,
+            HEAP_DISPOSABLE_STACK_RECORD_SIZE,
         );
         assert_layout(
             HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT,
@@ -6657,6 +6711,7 @@ mod tests {
             .chain(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter())
             .chain(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
             .chain(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT.iter())
+            .chain(HEAP_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT.iter())

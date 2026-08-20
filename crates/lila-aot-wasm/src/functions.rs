@@ -3257,6 +3257,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::WeakRefConstructor,
             StandardBuiltinId::FinalizationRegistryConstructor,
             StandardBuiltinId::AsyncDisposableStackConstructor,
+            StandardBuiltinId::DisposableStackConstructor,
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
             StandardBuiltinId::IteratorConstructor,

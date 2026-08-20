@@ -43,6 +43,14 @@ parse-once boundary is landed, several environment/control-flow files remain
 large shared hotspots, and the language subtrees assigned to this task have not
 been proven zero-failure on a current complete Wasm-AOT matrix.
 
+Strict global compound assignment and prefix update now retain their computed
+payload and tag in reserved locals across PutValue's run-time `HasProperty`
+check. The checked write path may use emitter scratch/result locals internally;
+passing those same locals as the value previously let `x += 1` or `++x`
+compute `1`, then publish or return a helper temporary instead. The strict
+DisposableStack constructor fixture carries a focused global-write preamble
+that pins both the stored value and expression result for the two IR forms.
+
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central

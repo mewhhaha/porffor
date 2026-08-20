@@ -260,7 +260,7 @@ case. The existing catalog/function iteration and the location of dispatch
 after common setup remain unchanged, preserving construction and observable
 property-installation order.
 
-The catalog now records 34 productive roots across 33 installer classes and
+The catalog now records 35 productive roots across 34 installer classes and
 745 explicit `None` choices. `ArrayBuffer` and `SharedArrayBuffer` deliberately
 share one class because their installer branches on the carried builtin ID.
 The backend match contains only the productive classes; the former raw-ID

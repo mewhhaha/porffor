@@ -201,12 +201,13 @@ fn inspect_reports_phase_twenty_five_builtin_ir_shape() {
     // builtin, i.e. it is a function of the GLOBAL ENVIRONMENT and not of this
     // fixture's text. So every batch that adds an intrinsic root moves it and
     // this assertion goes red without anything in the fixture changing.
-    // Batch 8: 51 -> 52, the +1 being `AsyncDisposableStack`. Recount with
+    // Batch 8: 51 -> 52 for `AsyncDisposableStack`; the constructor-only
+    // `%DisposableStack%` shell then moves 52 -> 53. Recount with
     // `lila inspect crates/lila-cli/tests/fixtures/wasm_builtin_globals.js`
     // rather than guessing the delta; do not weaken this to a prefix match,
     // because the exact number is the only thing that makes an accidental
     // global-environment change visible at rung 1b.
-    assert!(stdout.contains("builtin_globals=52"), "{stdout}");
+    assert!(stdout.contains("builtin_globals=53"), "{stdout}");
     assert!(stdout.contains("builtin_ctor_calls="));
     assert!(stdout.contains("builtin_static_calls="));
     assert!(stdout.contains("error_builtin_calls="));

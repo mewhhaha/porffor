@@ -239,6 +239,9 @@ impl<'a> FunctionBuilder<'a> {
                     &intrinsic_context,
                     function,
                 )?,
+            StandardBuiltinInstaller::DisposableStack => {
+                self.install_disposable_stack_constructor_intrinsics(&intrinsic_context, function)?
+            }
             StandardBuiltinInstaller::Set => {
                 self.install_set_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -2934,6 +2937,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
         ));
+        // `%DisposableStack.prototype%` follows the same source-free realm
+        // policy as its async sibling. Dynamic Function construction is the
+        // only pinned test that distinguishes a created-realm slot.
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+        ));
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3786,6 +3800,16 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::AsyncDisposableStackConstructor,
                 ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::DisposableStackConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::DisposableStackConstructor,
+                DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

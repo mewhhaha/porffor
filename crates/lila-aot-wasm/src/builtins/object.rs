@@ -2,7 +2,9 @@ use super::super::*;
 use super::array::ArrayConcatSpreadableSlotValue;
 use crate::objects::{
     ProxyHandlerLocals, ProxyRevocationRoute, ProxySlotLocals, ProxyTargetLocals, TaggedLocals,
+    WasmPartialDescriptor,
 };
+use lila_ir::property_descriptor::Presence;
 use lila_ir::PropertyDescriptorKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3207,17 +3209,32 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::Else);
-        self.emit_array_define_accessor_index(
+        let descriptor = WasmPartialDescriptor {
+            value: Presence::Absent,
+            writable: Presence::Absent,
+            get: Presence::Runtime {
+                present: getter_present_local,
+                value: TaggedLocals::new(getter_payload_local, getter_tag_local),
+            },
+            set: Presence::Runtime {
+                present: setter_present_local,
+                value: TaggedLocals::new(setter_payload_local, setter_tag_local),
+            },
+            enumerable: Presence::Runtime {
+                present: enumerable_present_local,
+                value: enumerable_payload_local,
+            },
+            configurable: Presence::Runtime {
+                present: configurable_present_local,
+                value: configurable_payload_local,
+            },
+        }
+        .validate()
+        .expect("the accessor branch excludes data descriptor fields");
+        self.emit_array_define_index_descriptor(
             target_payload_local,
             index_local,
-            getter_payload_local,
-            getter_tag_local,
-            setter_payload_local,
-            setter_tag_local,
-            enumerable_payload_local,
-            enumerable_present_local,
-            configurable_payload_local,
-            configurable_present_local,
+            descriptor,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -3580,18 +3597,32 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::Else);
-        self.emit_array_define_data_index(
+        let descriptor = WasmPartialDescriptor {
+            value: Presence::Runtime {
+                present: value_present_local,
+                value: TaggedLocals::new(value_payload_local, value_tag_local),
+            },
+            writable: Presence::Runtime {
+                present: writable_present_local,
+                value: writable_payload_local,
+            },
+            get: Presence::Absent,
+            set: Presence::Absent,
+            enumerable: Presence::Runtime {
+                present: enumerable_present_local,
+                value: enumerable_payload_local,
+            },
+            configurable: Presence::Runtime {
+                present: configurable_present_local,
+                value: configurable_payload_local,
+            },
+        }
+        .validate()
+        .expect("the data branch excludes accessor descriptor fields");
+        self.emit_array_define_index_descriptor(
             target_payload_local,
             index_local,
-            value_payload_local,
-            value_tag_local,
-            writable_payload_local,
-            enumerable_payload_local,
-            configurable_payload_local,
-            value_present_local,
-            writable_present_local,
-            enumerable_present_local,
-            configurable_present_local,
+            descriptor,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -4605,13 +4636,6 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(writable_payload_local));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
         function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ENUMERABLE as i64));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Const(0));
@@ -4627,6 +4651,45 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(configurable_payload_local));
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::LocalSet(getter_payload_local));
+        function.instruction(&Instruction::LocalGet(value_tag_local));
+        function.instruction(&Instruction::LocalSet(getter_tag_local));
+        self.emit_array_accessor_setter_for_index(
+            target_payload_local,
+            entry_index_local,
+            setter_payload_local,
+            setter_tag_local,
+            function,
+        );
+        self.emit_alloc_accessor_descriptor_from_locals_with_flag_local(
+            getter_payload_local,
+            getter_tag_local,
+            setter_payload_local,
+            setter_tag_local,
+            enumerable_payload_local,
+            configurable_payload_local,
+            self.result_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(writable_payload_local));
         self.emit_alloc_data_descriptor_from_locals_with_flag_locals(
             value_payload_local,
             value_tag_local,
@@ -4636,6 +4699,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_local,
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         function.instruction(&Instruction::End);

@@ -215,6 +215,33 @@ impl TaggedLocals {
     }
 }
 
+/// Allocation-free stored fields consumed by descriptor compatibility.
+///
+/// Array indices use one carrier for either data or getter storage, while
+/// ordinary/named entries keep those carriers separate. Naming all three roles
+/// here lets both layouts share one ValidateAndApply implementation without
+/// teaching it heap offsets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StoredDescriptorLocals {
+    pub(crate) data: TaggedLocals,
+    pub(crate) getter: TaggedLocals,
+    pub(crate) setter: TaggedLocals,
+}
+
+impl StoredDescriptorLocals {
+    pub(crate) const fn new(
+        data: TaggedLocals,
+        getter: TaggedLocals,
+        setter: TaggedLocals,
+    ) -> Self {
+        Self {
+            data,
+            getter,
+            setter,
+        }
+    }
+}
+
 /// A canonical property-key payload and its retained ECMAScript tag.
 ///
 /// The payload alone is not enough at an internal-method boundary: String and
@@ -2540,12 +2567,68 @@ impl<'a> FunctionBuilder<'a> {
         validation_success_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let stored = StoredDescriptorLocals::new(
+            TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local()),
+            TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local()),
+            TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local()),
+        );
+        for (value, tag_offset, payload_offset) in [
+            (
+                stored.data,
+                HEAP_OBJECT_DATA_TAG_OFFSET,
+                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
+            ),
+            (
+                stored.getter,
+                HEAP_OBJECT_GETTER_TAG_OFFSET,
+                HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+            ),
+            (
+                stored.setter,
+                HEAP_OBJECT_SETTER_TAG_OFFSET,
+                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+            ),
+        ] {
+            self.load_i64_to_local_from_offset(entry_local, tag_offset, value.tag, function);
+            self.load_i64_to_local_from_offset(
+                entry_local,
+                payload_offset,
+                value.payload,
+                function,
+            );
+        }
+        self.emit_validate_stored_descriptor(
+            existing_descriptor_kind_local,
+            stored,
+            descriptor,
+            validation_success_local,
+            function,
+        )?;
+        for local in [
+            stored.setter.tag,
+            stored.setter.payload,
+            stored.getter.tag,
+            stored.getter.payload,
+            stored.data.tag,
+            stored.data.payload,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn emit_validate_stored_descriptor(
+        &mut self,
+        existing_descriptor_kind_local: u32,
+        stored: StoredDescriptorLocals,
+        descriptor: &WasmDescriptor,
+        validation_success_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let classification = classify(descriptor);
         let data_terms = classification.terms(DescriptorSide::Data);
         let accessor_terms = classification.terms(DescriptorSide::Accessor);
         let descriptor = descriptor.as_partial();
-        let stored_tag_local = self.reserve_temp_local();
-        let stored_payload_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
         function.instruction(&Instruction::I64Const(
@@ -2664,23 +2747,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    entry_local,
-                    HEAP_OBJECT_DATA_TAG_OFFSET,
-                    stored_tag_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    entry_local,
-                    HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-                    stored_payload_local,
-                    function,
-                );
                 self.emit_tagged_payload_same_value_i32(
                     value.tag,
                     value.payload,
-                    stored_tag_local,
-                    stored_payload_local,
+                    stored.data.tag,
+                    stored.data.payload,
                     function,
                 )?;
                 function.instruction(&Instruction::I32Eqz);
@@ -2691,17 +2762,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
         }
-        for (field, tag_offset, payload_offset) in [
-            (
-                descriptor.get,
-                HEAP_OBJECT_GETTER_TAG_OFFSET,
-                HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
-            ),
-            (
-                descriptor.set,
-                HEAP_OBJECT_SETTER_TAG_OFFSET,
-                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
-            ),
+        for (field, existing) in [
+            (descriptor.get, stored.getter),
+            (descriptor.set, stored.setter),
         ] {
             match field {
                 Presence::Absent | Presence::Present(_) => {}
@@ -2713,23 +2776,11 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Eqz);
                     function.instruction(&Instruction::I32Eqz);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.load_i64_to_local_from_offset(
-                        entry_local,
-                        tag_offset,
-                        stored_tag_local,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        entry_local,
-                        payload_offset,
-                        stored_payload_local,
-                        function,
-                    );
                     self.emit_tagged_payload_same_value_i32(
                         value.tag,
                         value.payload,
-                        stored_tag_local,
-                        stored_payload_local,
+                        existing.tag,
+                        existing.payload,
                         function,
                     )?;
                     function.instruction(&Instruction::I32Eqz);
@@ -2743,8 +2794,6 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         function.instruction(&Instruction::End);
-        self.release_temp_local(stored_payload_local);
-        self.release_temp_local(stored_tag_local);
         Ok(())
     }
 

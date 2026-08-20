@@ -2384,6 +2384,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 }
 
 const WASM_AOT_ASSERT_SAME_VALUE_PRELUDE: &str = r#"
+function __lilaAssertIsSameValue(a, b) {
+  if (a === b) {
+    return a !== 0 || 1 / a === 1 / b;
+  }
+  return a !== a && b !== b;
+}
+
 function __lilaAssertToString(value) {
   if (value === undefined) {
     return 'undefined';
@@ -2405,10 +2412,7 @@ function assert(mustBeTrue, message) {
 }
 
 assert.sameValue = function (actual, expected, message) {
-  if (actual === expected) {
-    return;
-  }
-  if (actual !== actual && expected !== expected) {
+  if (__lilaAssertIsSameValue(actual, expected)) {
     return;
   }
 
@@ -2426,7 +2430,7 @@ assert.sameValue = function (actual, expected, message) {
 const WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE: &str = r#"
 function __lilaAssertIsSameValue(a, b) {
   if (a === b) {
-    return true;
+    return a !== 0 || 1 / a === 1 / b;
   }
   return a !== a && b !== b;
 }
@@ -28519,6 +28523,29 @@ assert.sameValue(descriptor.configurable, true);
         let predicate = javascript_function(source, "function compareArray(");
         assert!(predicate.contains("__lilaCompareArrayMismatchIndex(actual, expected) === -1"));
         assert!(!predicate.contains("while ("));
+    }
+
+    #[test]
+    fn wasm_aot_property_harness_uses_same_value_for_nan_and_signed_zero() {
+        for source in [
+            WASM_AOT_HARNESS,
+            WASM_AOT_ASSERT_SAME_VALUE_PRELUDE,
+            WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE,
+        ] {
+            let same_value = javascript_function(source, "function __lilaAssertIsSameValue(");
+            assert!(same_value.contains("a !== 0 || 1 / a === 1 / b"));
+            assert!(same_value.contains("a !== a && b !== b"));
+        }
+
+        assert!(WASM_AOT_ASSERT_SAME_VALUE_PRELUDE
+            .contains("__lilaAssertIsSameValue(actual, expected)"));
+        assert!(WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE
+            .contains("__lilaAssertIsSameValue(actual[index], expected[index])"));
+
+        let verify_property = javascript_function(WASM_AOT_HARNESS, "function verifyProperty(");
+        assert!(verify_property.contains("__lilaAssertIsSameValue(originalDesc.value, desc.value)"));
+        assert!(verify_property.contains("__lilaAssertIsSameValue(obj[name], desc.value)"));
+        assert!(!verify_property.contains("originalDesc.value !== desc.value"));
     }
 
     #[test]
