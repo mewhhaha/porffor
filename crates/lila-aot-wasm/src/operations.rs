@@ -102,6 +102,28 @@ pub(crate) enum ToLengthAbruptRoute {
     },
 }
 
+/// Where the throw created by primitive `ToNumber` is owned.
+///
+/// Product callers use named wrappers that fix one of these policies. The raw
+/// emitter remains private so a caller cannot invert an unlabelled boolean,
+/// and adding a policy must update the exhaustive emission match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrimitiveToNumberThrowRouting {
+    /// Return the current function's completion tuple immediately.
+    ReturnCurrentFunction,
+    /// Leave the throw in the completion tuple for the surrounding composite.
+    LeaveInCompletion,
+}
+
+impl PrimitiveToNumberThrowRouting {
+    fn emit(self, builder: &mut FunctionBuilder<'_>, function: &mut Function) {
+        match self {
+            Self::ReturnCurrentFunction => builder.emit_return_current_completion(function),
+            Self::LeaveInCompletion => {}
+        }
+    }
+}
+
 /// The realm that owns TypeErrors created inside a conversion composite.
 ///
 /// This is also the closed ABI domain forwarded through parameter 2 of the
@@ -5350,7 +5372,12 @@ impl<'a> FunctionBuilder<'a> {
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_primitive_to_number_payload_inner(tag_local, payload_local, true, function)
+        self.emit_primitive_to_number_payload_inner(
+            tag_local,
+            payload_local,
+            PrimitiveToNumberThrowRouting::ReturnCurrentFunction,
+            function,
+        )
     }
 
     pub(crate) fn emit_primitive_to_number_payload_without_throw_return(
@@ -5359,14 +5386,19 @@ impl<'a> FunctionBuilder<'a> {
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_primitive_to_number_payload_inner(tag_local, payload_local, false, function)
+        self.emit_primitive_to_number_payload_inner(
+            tag_local,
+            payload_local,
+            PrimitiveToNumberThrowRouting::LeaveInCompletion,
+            function,
+        )
     }
 
-    pub(crate) fn emit_primitive_to_number_payload_inner(
+    fn emit_primitive_to_number_payload_inner(
         &mut self,
         tag_local: u32,
         payload_local: u32,
-        return_on_throw: bool,
+        throw_routing: PrimitiveToNumberThrowRouting,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -5404,9 +5436,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        if return_on_throw {
-            self.emit_return_current_completion(function);
-        }
+        throw_routing.emit(self, function);
         self.emit_nan_payload(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -5419,9 +5449,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        if return_on_throw {
-            self.emit_return_current_completion(function);
-        }
+        throw_routing.emit(self, function);
         self.emit_nan_payload(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(tag_local));
