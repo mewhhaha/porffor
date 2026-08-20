@@ -836,6 +836,49 @@ mod tests {
     }
 
     #[test]
+    fn class_constructor_generator_methods_report_one_early_error_for_both_forms_and_goals() {
+        for source in [
+            "class C { *constructor() {} }",
+            "let C = class { async *constructor() {} };",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a non-static class constructor may not be a generator method");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassConstructorGeneratorMethod),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_constructor_generator_boundaries_preserve_static_and_computed_methods() {
+        for source in [
+            r#"class C {
+                constructor() {}
+                static *constructor() {}
+                *["constructor"]() {}
+            }"#,
+            r#"let C = class {
+                constructor() {}
+                static async *constructor() {}
+                async *["constructor"]() {}
+            };"#,
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "static and computed generator methods are not constructor definitions",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn class_static_block_arguments_rejections_cover_both_forms_and_goals() {
         for source in [
             r"class C { static { (class { [argument\u0073]() {} }); } }",
@@ -1297,6 +1340,9 @@ switch (0) {
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::CatchBodyDeclarationConflict).is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ClassConstructorGeneratorMethod).is_some()
         );
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)

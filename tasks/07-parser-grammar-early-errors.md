@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor and class-static-block `ContainsArguments` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor, constructor generator-method and class-static-block `ContainsArguments` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -59,6 +59,15 @@ computed `["constructor"]()` methods beside one ordinary constructor. This is
 classification only: it does not change class lowering or runtime constructor
 semantics, close adjacent constructor restrictions, or complete the class
 grammar bucket.
+
+Non-static generator and async-generator methods named `constructor` now share
+one closed condition for Boa's exact common wording. Declaration and expression
+forms reject under both goals, while positive witnesses preserve static and
+computed generator methods named `constructor` beside one ordinary
+constructor. This is classification only: it does not implement generator or
+class execution, combine adjacent constructor restrictions, or complete the
+class grammar bucket. Focused Cargo and Test262 verification remains deferred
+to the shared verification lane.
 
 Class static blocks whose statement lists have `ContainsArguments` now have one
 closed condition for Boa's sole exact wording. Declaration and expression forms

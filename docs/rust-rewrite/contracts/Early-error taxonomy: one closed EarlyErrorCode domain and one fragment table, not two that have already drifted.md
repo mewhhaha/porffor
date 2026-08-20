@@ -1,5 +1,35 @@
 # Contract: early-error taxonomy — one closed `EarlyErrorCode` domain and one fragment table
 
+## 2026-08-20 normative class-constructor generator-method amendment
+
+ClassElement early errors reject a non-static generator or async-generator
+method whose literal property name is `"constructor"`. Pinned
+`boa_parser-0.21.1` emits the same complete, case-sensitive literal from the two
+corresponding branches:
+
+`class constructor may not be a generator method`
+
+T07 therefore extends the domain with
+`EarlyErrorCode::ClassConstructorGeneratorMethod` /
+`E_CLASS_CONSTRUCTOR_GENERATOR_METHOD` and one classifier row whose fragment
+and witness are that exact literal. The exhaustive `lila-ir` mapping derives
+`Early`, `SyntaxError` for the condition. The domain now has **24** variants and
+the one parse-failure table has **22** rows.
+
+Front-end regressions reject generator and async-generator constructors in
+declaration and expression forms under both goals. Positive witnesses preserve
+static and computed generator methods named `constructor`; a real Module parse
+also crosses the retained front-end-to-IR diagnostic boundary. The full theory,
+producer inventory, source matrix, pinned Test262 evidence and nonclaims live
+in
+`docs/rust-rewrite/contracts/class-constructor-generator-method-early-errors.md`
+and are normative.
+
+This amendment preserves the parse-once path and adds no second classifier. It
+does not cover adjacent async/accessor/private constructor diagnostics, close
+the class parser bucket or complete T07. Cargo, focused execution and pinned
+Test262 verification remain deferred to the shared verification lane.
+
 ## 2026-08-17 normative class-static-block `ContainsArguments` amendment
 
 The ClassStaticBlockBody early-error rules reject a

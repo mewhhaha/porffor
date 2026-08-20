@@ -355,6 +355,10 @@ mod tests {
                 EarlyErrorCode::DuplicateClassConstructor,
             ),
             (
+                "class constructor may not be a generator method",
+                EarlyErrorCode::ClassConstructorGeneratorMethod,
+            ),
+            (
                 "'arguments' not allowed in class static block",
                 EarlyErrorCode::ClassStaticBlockContainsArguments,
             ),
@@ -485,6 +489,25 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::DuplicateClassConstructor)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_constructor_generator_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "class C { async *constructor() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a non-static class constructor may not be a generator method");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassConstructorGeneratorMethod)
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
