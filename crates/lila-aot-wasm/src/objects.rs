@@ -7991,47 +7991,17 @@ impl<'a> FunctionBuilder<'a> {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::StringExpr(_)
                 ) {
                     let key_local = self.compile_object_key_to_local(key, function)?;
-                    let is_spreadable_key_local = self.reserve_temp_local();
-                    function.instruction(&Instruction::LocalGet(key_local));
-                    function.instruction(&Instruction::I64Const(
-                        self.strings
-                            .property_key_symbol_payload("Symbol.isConcatSpreadable"),
-                    ));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::I64ExtendI32U);
-                    function.instruction(&Instruction::LocalSet(is_spreadable_key_local));
-                    function.instruction(&Instruction::LocalGet(is_spreadable_key_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::I32Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_arguments_is_concat_spreadable_write(
-                        target_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(key_local));
-                    function.instruction(&Instruction::I64Const(self.strings.payload("callee")));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_arguments_callee_write(
-                        target_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_array_define_named_data_property(
+                    let key_tag_local = self.reserve_temp_local();
+                    self.emit_property_key_tag_from_payload(key_local, key_tag_local, function);
+                    self.emit_arguments_property_write(
                         target_local,
                         key_local,
+                        key_tag_local,
                         payload_local,
                         tag_local,
                         function,
                     )?;
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(is_spreadable_key_local);
+                    self.release_temp_local(key_tag_local);
                     self.release_temp_local(key_local);
                 } else {
                     let index_local = self.compile_array_index_to_local(key, function)?;
@@ -17434,14 +17404,16 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("callee")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_string_payload_equality_i32(key_local, self.scratch_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_arguments_callee_write(object_local, payload_local, tag_local, function)?;
+        self.emit_arguments_property_write(
+            object_local,
+            key_local,
+            proxy_key_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(array_index_write_handled_local));
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(array_index_write_handled_local));
         function.instruction(&Instruction::I64Eqz);
@@ -18307,6 +18279,22 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    /// Whether named properties use the Array/Arguments side table instead of
+    /// the ordinary object's `HEAP_PTR`/`HEAP_LEN` entry table.
+    pub(crate) fn emit_is_array_named_entry_backed_tag_i32(
+        &self,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+    }
+
     pub(crate) fn emit_ordinary_set_data_on_receiver_result(
         &mut self,
         receiver_payload_local: u32,
@@ -18620,12 +18608,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
-        // Array-index receiver writes use Array [[DefineOwnProperty]], not the
-        // named-property side table. Preserve an existing descriptor and
-        // report blocked additions as `false`.
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        // Array/Arguments-index receiver writes use their indexed
+        // [[DefineOwnProperty]] storage, not the named-property side table.
+        // Preserve existing descriptors and report blocked additions as
+        // `false`.
+        self.emit_is_array_named_entry_backed_tag_i32(receiver_tag_local, function);
         function.instruction(&Instruction::LocalGet(key_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -18641,6 +18628,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(receiver_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_receiver_index_set_result(
+            receiver_payload_local,
+            index_local,
+            value_payload_local,
+            value_tag_local,
+            result_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
         self.emit_array_set_index_result(
             receiver_payload_local,
             index_local,
@@ -18649,6 +18649,7 @@ impl<'a> FunctionBuilder<'a> {
             result_local,
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -18659,9 +18660,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_object_entry_backed_tag_i32(receiver_tag_local, function);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_array_named_entry_backed_tag_i32(receiver_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             receiver_payload_local,
@@ -18779,9 +18778,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(found_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_array_named_entry_backed_tag_i32(receiver_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
@@ -19431,15 +19428,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        // Dense and sparse Array indices live outside the named-property
-        // table.  Find their descriptor before walking the prototype chain so
-        // OrdinarySet can honor writability and define on the receiver.
+        // Dense and sparse Array/Arguments indices live outside the
+        // named-property table. Find their descriptor before walking the
+        // prototype chain so OrdinarySet can honor setters and writability
+        // even when an Arguments object is itself a prototype.
         function.instruction(&Instruction::LocalGet(found_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_array_named_entry_backed_tag_i32(current_tag_local, function);
         function.instruction(&Instruction::LocalGet(key_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -19455,12 +19451,24 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_descriptor_kind_for_index(
+            current_payload_local,
+            index_local,
+            descriptor_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
         self.emit_array_descriptor_kind_for_index(
             current_payload_local,
             index_local,
             descriptor_kind_local,
             function,
         );
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
@@ -19533,9 +19541,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_object_entry_backed_tag_i32(current_tag_local, function);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_array_named_entry_backed_tag_i32(current_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             current_payload_local,
@@ -20799,9 +20805,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_array_named_entry_backed_tag_i32(object_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             object_payload_local,
@@ -21232,9 +21236,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_array_named_entry_backed_tag_i32(object_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.store_i64_const_at_offset(
             object_payload_local,
@@ -21272,9 +21274,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(object_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_array_named_entry_backed_tag_i32(object_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.store_i64_local_at_offset(
             object_payload_local,

@@ -32,8 +32,34 @@ zero and object/function identity). Indexed descriptor materialization matches
 the stored kind and exposes raw getter/setter identity without invoking either.
 This lane owns the 27 observed current-pin
 Array witnesses ending 190, 192, 193, 202, 207, 212–214, 227–230, 233–242,
-244, 245 and 260–262. The Arguments indexed cases ending 279 and 280 remain an
-explicit adjacent obligation, not evidence for this Array closure.
+244, 245 and 260–262.
+
+Arguments-index `[[DefineOwnProperty]]` now crosses the same builtin boundary
+as one `ValidatedDescriptor<WasmLocals>` and projects current indexed storage
+through `StoredDescriptorLocals` into the shared compatibility validator. Its
+private non-`Copy` `ArgumentsIndexMappingLocals` captures both mapping presence
+and the bits-32..63 environment slot before any descriptor mutation; mapped
+reads, post-define writes and mapping restoration consume that retained role,
+so a nonzero slot cannot silently become slot zero after the descriptor word
+is replaced. Accessor conversion and `[[Writable]]: false` detach the mapping,
+generic updates retain the complete mapping, and validation finishes before
+the first indexed or ParameterMap store. Creating an absent index also checks
+the Arguments non-extensible flag before either store. Indexed descriptor
+materialization now exposes raw Arguments getter/setter identity rather than
+invoking or flattening the accessor. Dynamically tagged Arguments named writes also enter
+an Arguments-aware ordinary `[[Set]]` route: own and inherited accessor or
+non-writable semantics run before fresh creation, while actual named updates
+use Arguments named-property storage instead of treating the indexed-entry
+buffer as an ordinary object property table. The bounded contract is recorded
+in `docs/rust-rewrite/contracts/arguments-index-descriptor-exotic.md`; the exact
+current-pin witnesses ending 279 and 280 now pass 4/4 Wasm-AOT executions on
+the current checkout.
+Absent indexed assignment now preserves the direct existing-own/mapped path but
+routes a missing own descriptor through prototype `[[Set]]` before bounded
+receiver-side indexed creation, including inherited setter/read-only and
+non-extensible outcomes. Special `length`/`callee` writes and
+`Symbol.isConcatSpreadable` coercion/delete remain explicit follow-up audit
+surfaces rather than claims of this lane.
 
 Arguments-object `length` writes now take the same closed
 `PropertyDescriptorKind` domain rather than an `accessor: bool`. The Generic
@@ -127,7 +153,7 @@ separate from the full `[[HasProperty]]` dispatcher. Proxy `[[Get]]` retains its
 older value-bearing invariant scan.
 
 This is still a foundation, not task closure. Array application paths,
-arguments descriptors, several builtin/exotic emitters and lowering shape
+remaining arguments special/named descriptors, several builtin/exotic emitters and lowering shape
 facts still consume derived raw words or parallel positional forms. The
 `Presence::Present` step-4 exemption remains the explicit LN10 obligation in
 the ordinary and array-named consumers, the ordinary `Object.defineProperty`
@@ -137,7 +163,14 @@ Array-index structural regression has received only rustfmt/diff/static checks;
 its focused Rust and Test262 execution remains deferred. The workspace check
 for `lila-ir` and `lila-aot-wasm` and the focused array descriptor CLI fixture
 were green at the earlier descriptor checkpoint;
-the HasProperty and Proxy-Set batches have not rerun them. The focused
+the HasProperty and Proxy-Set batches have not rerun them. The new Arguments
+indexed checkpoint passed its structural tests 4/4, focused CLI fixture 1/1,
+and exact Test262 279/280 variants 4/4 in the centralized verification lane.
+The subsequently added Arguments-as-indexed-prototype setter/read-only witness
+exposed a dropped Arguments tag in ordinary prototype mutation/observation on
+its first focused CLI run. After the bounded tag-preservation repair, the full
+fixture including explicit prototype-identity checks passes 1/1; the structural
+contract remains 4/4 and exact Test262 279/280 remain 4/4. The focused
 Proxy-Set direct-descriptor fixture is written but has not run while the shared
 verification lane owns Cargo and Test262. The focused own-descriptor-predicate
 fixture is also written but has received only static boundary and diff checks;

@@ -57,16 +57,39 @@ fresh wrapper on each invocation. The boundary and its cross-realm nonclaim are
 recorded in
 `docs/rust-rewrite/contracts/bound-function-this-capture.md`.
 
-Non-generic Boolean prototype method calls now retain the acquired function
-object and the reference base as separate `CallIndirect` operands. Shape
-analysis may identify `%Boolean.prototype.toString%` or `valueOf`, but that
-knowledge no longer authorizes a key-only `CallMethod` whose backend fast path
-can replace the transferred function according to the receiver and property
-name. The receiver-materialization boundary now has a durable binding-identity
-witness proving the callee read and `this_arg` share the same single evaluation.
-Both methods, valid boxed-Boolean calls, standard and unrelated destination
-names, and the four wrong-brand object families in the ten bounded Test262
-witnesses are recorded in
+The closed thirteen-member family of non-generic Boolean, Number, BigInt, and
+String prototype methods now retains the acquired function object and the
+reference base as separate `CallIndirect` operands. Shape analysis may identify
+one of those targets, but that knowledge no longer authorizes a key-only
+`CallMethod` whose backend fast path can replace the transferred function
+according to the receiver and property name. A private
+`NonGenericBuiltinMethod` domain owns the two Boolean methods, all six Number
+methods, all three BigInt methods, and String `toString`/`valueOf`; generic
+String methods keep their key-only fast paths. The receiver-materialization
+boundary has a durable binding-identity witness proving the callee read and
+`this_arg` share the same single evaluation. For each method, the witness covers
+a valid same-brand boxed call including `Object(1n)` under an unrelated name,
+plus an Object wrong-brand call under standard and unrelated destination names;
+the six Number methods also cover a boxed-Boolean standard-name transfer so a
+remembered Boolean value cannot fold away an overwritten callee. Because heap
+shapes are copied by value rather than joined by an object-identity carrier, a
+property write clears the complete pre-write Boolean fold set and invalidates
+the copied heap shapes of every other binding in that set before updating the
+precisely resolved target. A separate alias witness proves a write through a
+copied boxed-Boolean binding leaves neither a literal fold nor a stale builtin
+target on the original name. All 45 family calls pin the expected result kind
+on both IR layers. Runtime evidence remains
+narrower. Fresh baselines confirmed
+`built-ins/Number/prototype/toString/S15.7.4.2_A4_T01.js` and
+`built-ins/Number/prototype/valueOf/S15.7.4.4_A2_T01.js` failing in both modes.
+After the final alias-safe fold repair, both complete five-file Number prefixes
+pass 10/10. The ten Boolean files remain a separate bounded rerun gate. The
+Number formatting methods share
+`thisNumberValue`, while pinned BigInt and String tests prove their branded
+extraction and realm contracts without covering every property-transfer shape.
+Symbol and Date were audited but do not enter the domain because current
+lowering already preserves their acquired callees through the general
+indirect-call path. The boundary is recorded in
 `docs/rust-rewrite/contracts/non-generic-builtin-method-callee-identity.md`.
 
 Cross-realm Function construction remains an explicit dynamic-source

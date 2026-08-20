@@ -4118,7 +4118,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(cap_local);
     }
 
-    fn emit_array_descriptor_side_present_to_local(
+    pub(crate) fn emit_array_descriptor_side_present_to_local(
         terms: &KindTerms<WasmLocals>,
         result_local: u32,
         function: &mut Function,
@@ -4147,7 +4147,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_local));
     }
 
-    fn emit_array_index_effective_flag(
+    pub(crate) fn emit_array_index_effective_flag(
         &mut self,
         field: Presence<u32, u32>,
         existing_descriptor_kind_local: u32,
@@ -4184,7 +4184,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_local));
     }
 
-    fn emit_array_index_effective_value(
+    pub(crate) fn emit_array_index_effective_value(
         field: Presence<TaggedLocals, u32>,
         existing: TaggedLocals,
         result: TaggedLocals,

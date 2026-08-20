@@ -108,10 +108,12 @@ word without a Rust type error; conversion to the Wasm `i64` encoding occurs
 only where the instruction is emitted.
 
 This does not close T10 or the rest of the ledger. Array application paths and
-arguments/exotic emitters still contain derived word operations, and LN10's
+remaining arguments/exotic emitters still contain derived word operations, and LN10's
 `Presence::Present` step-4 exemption remains explicit in the ordinary and
 array-named consumers. The full contract's note-routed LN6 text is kept as the
 historical design record; its current-state supersession is recorded in the
-appended integration section there. Arguments indexed descriptors, including
-the mapped/deleted-index cases represented by Test262 15.2.3.7-6-a-279 and
-15.2.3.7-6-a-280, are explicitly outside the Array-index lane.
+appended integration section there. Arguments indexed descriptors are outside
+the Array-index lane, but now consume the same typed descriptor and stored
+compatibility authority through the separate exotic protocol in
+`arguments-index-descriptor-exotic.md`; its focused witnesses are Test262
+15.2.3.7-6-a-279 and 15.2.3.7-6-a-280.

@@ -97,10 +97,11 @@ fn array_index_compatibility_reuses_the_typed_stored_descriptor_validator() {
         .contains("StoredDescriptorLocals::new(existing_value, existing_value, existing_setter)"));
     assert!(ARRAY_SOURCE.contains("let descriptor = descriptor.into_partial();"));
 
-    // Mapped Arguments indexed semantics are the adjacent, explicitly deferred
-    // lane and retain their independent helpers.
-    assert!(OBJECT_SOURCE.contains("fn emit_arguments_define_data_index("));
-    assert!(OBJECT_SOURCE.contains("fn emit_arguments_define_accessor_index("));
+    // Arguments now consumes the same typed validator through its own exotic
+    // post-application mapping protocol.
+    assert!(OBJECT_SOURCE.contains("fn emit_arguments_define_index_descriptor("));
+    assert!(!OBJECT_SOURCE.contains("fn emit_arguments_define_data_index("));
+    assert!(!OBJECT_SOURCE.contains("fn emit_arguments_define_accessor_index("));
 }
 
 #[test]

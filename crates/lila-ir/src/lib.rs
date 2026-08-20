@@ -1583,28 +1583,132 @@ mod tests {
     }
 
     #[test]
-    fn non_generic_boolean_method_calls_retain_acquired_callee_identity() {
+    fn non_generic_primitive_method_calls_retain_acquired_callee_identity() {
+        struct MethodCase {
+            owner: &'static str,
+            name: &'static str,
+            builtin: StandardBuiltinId,
+            valid_receiver: &'static str,
+            expected_kind: ValueKind,
+        }
+
+        let methods = [
+            MethodCase {
+                owner: "Boolean",
+                name: "toString",
+                builtin: StandardBuiltinId::BooleanPrototypeToString,
+                valid_receiver: "new Boolean()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Boolean",
+                name: "valueOf",
+                builtin: StandardBuiltinId::BooleanPrototypeValueOf,
+                valid_receiver: "new Boolean()",
+                expected_kind: ValueKind::Boolean,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toExponential",
+                builtin: StandardBuiltinId::NumberPrototypeToExponential,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toFixed",
+                builtin: StandardBuiltinId::NumberPrototypeToFixed,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toLocaleString",
+                builtin: StandardBuiltinId::NumberPrototypeToLocaleString,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toPrecision",
+                builtin: StandardBuiltinId::NumberPrototypeToPrecision,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toString",
+                builtin: StandardBuiltinId::NumberPrototypeToString,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "valueOf",
+                builtin: StandardBuiltinId::NumberPrototypeValueOf,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::Number,
+            },
+            MethodCase {
+                owner: "BigInt",
+                name: "toString",
+                builtin: StandardBuiltinId::BigIntPrototypeToString,
+                valid_receiver: "Object(1n)",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "BigInt",
+                name: "toLocaleString",
+                builtin: StandardBuiltinId::BigIntPrototypeToLocaleString,
+                valid_receiver: "Object(1n)",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "BigInt",
+                name: "valueOf",
+                builtin: StandardBuiltinId::BigIntPrototypeValueOf,
+                valid_receiver: "Object(1n)",
+                expected_kind: ValueKind::BigInt,
+            },
+            MethodCase {
+                owner: "String",
+                name: "toString",
+                builtin: StandardBuiltinId::StringPrototypeToString,
+                valid_receiver: "new String()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "String",
+                name: "valueOf",
+                builtin: StandardBuiltinId::StringPrototypeValueOf,
+                valid_receiver: "new String()",
+                expected_kind: ValueKind::String,
+            },
+        ];
         let mut source = String::new();
-        let mut expected_calls = 0;
-        for method in ["toString", "valueOf"] {
-            for constructor in ["Boolean", "String", "Number", "Date", "Object"] {
-                let destinations = if constructor == "Boolean" {
-                    &["transferred"][..]
-                } else {
-                    &[method, "transferred"][..]
-                };
-                for destination in destinations {
-                    expected_calls += 1;
-                    source.push_str(&format!(
-                        "var value{expected_calls} = new {constructor}(); value{expected_calls}.{destination} = Boolean.prototype.{method}; value{expected_calls}.{destination}();"
-                    ));
-                }
+        let mut expected_calls = Vec::new();
+        for method in methods {
+            let mut calls = vec![
+                (method.valid_receiver, "transferred"),
+                ("new Object()", method.name),
+                ("new Object()", "transferred"),
+            ];
+            if method.owner == "Number" {
+                calls.push(("new Boolean()", method.name));
+            }
+            for (receiver, destination) in calls {
+                let index = expected_calls.len() + 1;
+                source.push_str(&format!(
+                    "var value{index} = {receiver}; value{index}.{destination} = {}.prototype.{}; value{index}.{destination}();",
+                    method.owner, method.name
+                ));
+                expected_calls.push((method.builtin, destination, method.expected_kind));
             }
         }
         let program = lower_script(&source);
         assert!(
             program.is_wasm_supported(),
-            "expected supported transferred Boolean calls: {:?}",
+            "expected supported transferred primitive calls: {:?}",
             program.diagnostics
         );
         let script = program.script.as_ref().expect("script ir should exist");
@@ -1625,8 +1729,11 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(calls.len(), expected_calls);
-        for expression in calls {
+        assert_eq!(calls.len(), expected_calls.len());
+        for (expression, (expected_builtin, expected_key, expected_kind)) in
+            calls.into_iter().zip(expected_calls)
+        {
+            assert_eq!(expression.kind, expected_kind);
             let ExprIr::MaterializeBinding {
                 name, body: call, ..
             } = &expression.expr
@@ -1641,18 +1748,15 @@ mod tests {
             else {
                 panic!("expected callee and this argument: {call:?}");
             };
+            assert_eq!(call.kind, expected_kind);
             assert!(matches!(
                 this_arg.expr,
                 ExprIr::Identifier(ref this_name) if this_name == name
             ));
-            assert!(callee.function_targets.iter().all(|target| matches!(
-                StandardBuiltinId::from_function_id(target),
-                Some(
-                    StandardBuiltinId::BooleanPrototypeToString
-                        | StandardBuiltinId::BooleanPrototypeValueOf
-                )
-            )));
-            assert!(!callee.function_targets.is_empty());
+            assert_eq!(callee.function_targets.len(), 1);
+            assert!(callee
+                .function_targets
+                .contains(&expected_builtin.function_id()));
             assert!(
                 match &callee.expr {
                     ExprIr::PropertyRead { target, key } => matches!(
@@ -1660,8 +1764,7 @@ mod tests {
                         (
                             ExprIr::Identifier(target_name),
                             PropertyKeyIr::StaticString(key)
-                        ) if target_name == name
-                            && matches!(key.as_str(), "toString" | "valueOf" | "transferred")
+                        ) if target_name == name && key.as_str() == expected_key
                     ),
                     ExprIr::SpecOperation {
                         operation: SpecOperationIr::GetV,
@@ -1669,12 +1772,78 @@ mod tests {
                     } =>
                         operands.len() == 2
                             && matches!(operands[0].expr, ExprIr::Identifier(ref target_name) if target_name == name)
-                            && matches!(operands[1].expr, ExprIr::String(ref key) if matches!(key.as_str(), "toString" | "valueOf" | "transferred")),
+                            && matches!(operands[1].expr, ExprIr::String(ref key) if key.as_str() == expected_key),
                     _ => false,
                 },
                 "expected retained property read: {callee:?}"
             );
         }
+    }
+
+    #[test]
+    fn boolean_method_fold_and_shape_are_invalidated_through_binding_aliases() {
+        let program = lower_script(
+            "var b = new Boolean(); var alias = b; alias.toString = Number.prototype.toString; b.toString();",
+        );
+        assert!(
+            program.is_wasm_supported(),
+            "expected supported aliased Boolean method call: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expression) =
+            script.body.statements.last().expect("call expression")
+        else {
+            panic!("expected final call expression");
+        };
+        let ExprIr::MaterializeBinding {
+            name,
+            value,
+            body: call,
+        } = &expression.expr
+        else {
+            panic!("expected acquired-callee receiver materialization: {expression:?}");
+        };
+        assert!(
+            matches!(
+                value.expr,
+                ExprIr::Identifier(ref value_name)
+                    | ExprIr::GlobalPropertyRead { name: ref value_name }
+                    if value_name == "b"
+            ),
+            "expected materialized source receiver b: {value:?}"
+        );
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(this_arg),
+            ..
+        } = &call.expr
+        else {
+            panic!("expected acquired-callee indirect call: {call:?}");
+        };
+        assert!(callee.function_targets.is_empty());
+        assert!(matches!(
+            this_arg.expr,
+            ExprIr::Identifier(ref this_name) if this_name == name
+        ));
+        assert!(
+            match &callee.expr {
+                ExprIr::PropertyRead { target, key } => {
+                    matches!(target.expr, ExprIr::Identifier(ref target_name) if target_name == name)
+                        && matches!(key, PropertyKeyIr::StaticString(key) if key == "toString")
+                }
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::GetV,
+                    operands,
+                } => {
+                    operands.len() == 2
+                        && matches!(operands[0].expr, ExprIr::Identifier(ref target_name) if target_name == name)
+                        && matches!(operands[1].expr, ExprIr::String(ref key) if key == "toString")
+                }
+                _ => false,
+            },
+            "expected retained runtime property read: {callee:?}"
+        );
     }
 
     #[test]

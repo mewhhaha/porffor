@@ -82,6 +82,52 @@ enum ToPrimitiveLookupKey {
     Method(&'static str),
 }
 
+/// Builtin methods whose inferred target proves the acquired function's
+/// identity, but does not prove that the property base has the receiver brand
+/// required by that function.
+///
+/// This is deliberately the complete Boolean/Number/BigInt/String
+/// primitive-brand family, not a list of destination property names.
+/// Possessing one of these values is the proof that lowering must retain the
+/// acquired callee and `this` base as separate operands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonGenericBuiltinMethod {
+    BooleanToString,
+    BooleanValueOf,
+    NumberToExponential,
+    NumberToFixed,
+    NumberToLocaleString,
+    NumberToPrecision,
+    NumberToString,
+    NumberValueOf,
+    BigIntToString,
+    BigIntToLocaleString,
+    BigIntValueOf,
+    StringToString,
+    StringValueOf,
+}
+
+impl NonGenericBuiltinMethod {
+    fn from_function_id(function_id: &str) -> Option<Self> {
+        match StandardBuiltinId::from_function_id(function_id)? {
+            StandardBuiltinId::BooleanPrototypeToString => Some(Self::BooleanToString),
+            StandardBuiltinId::BooleanPrototypeValueOf => Some(Self::BooleanValueOf),
+            StandardBuiltinId::NumberPrototypeToExponential => Some(Self::NumberToExponential),
+            StandardBuiltinId::NumberPrototypeToFixed => Some(Self::NumberToFixed),
+            StandardBuiltinId::NumberPrototypeToLocaleString => Some(Self::NumberToLocaleString),
+            StandardBuiltinId::NumberPrototypeToPrecision => Some(Self::NumberToPrecision),
+            StandardBuiltinId::NumberPrototypeToString => Some(Self::NumberToString),
+            StandardBuiltinId::NumberPrototypeValueOf => Some(Self::NumberValueOf),
+            StandardBuiltinId::BigIntPrototypeToString => Some(Self::BigIntToString),
+            StandardBuiltinId::BigIntPrototypeToLocaleString => Some(Self::BigIntToLocaleString),
+            StandardBuiltinId::BigIntPrototypeValueOf => Some(Self::BigIntValueOf),
+            StandardBuiltinId::StringPrototypeToString => Some(Self::StringToString),
+            StandardBuiltinId::StringPrototypeValueOf => Some(Self::StringValueOf),
+            _ => None,
+        }
+    }
+}
+
 /// The operator a compound or logical assignment applies to a property
 /// Reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16153,66 +16199,35 @@ impl<'a> ScriptLowerer<'a> {
                             },
                         );
                     }
-                    if let Some(number_builtin) = StandardBuiltinId::from_function_id(&function_id)
-                    {
-                        let method_name = match number_builtin {
-                            StandardBuiltinId::NumberPrototypeToExponential => "toExponential",
-                            StandardBuiltinId::NumberPrototypeToFixed => "toFixed",
-                            StandardBuiltinId::NumberPrototypeToLocaleString => "toLocaleString",
-                            StandardBuiltinId::NumberPrototypeToPrecision => "toPrecision",
-                            StandardBuiltinId::NumberPrototypeToString => "toString",
-                            StandardBuiltinId::NumberPrototypeValueOf => "valueOf",
-                            _ => "",
-                        };
-                        if !method_name.is_empty() {
-                            return TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                    args,
-                                },
-                            );
-                        }
-                    }
-                    if matches!(
-                        StandardBuiltinId::from_function_id(&function_id),
-                        Some(
-                            StandardBuiltinId::BooleanPrototypeToString
-                                | StandardBuiltinId::BooleanPrototypeValueOf
-                        )
-                    ) {
-                        // These methods are non-generic. The inferred target
-                        // describes the acquired function, not the receiver's
-                        // brand, so a key-only CallMethod could replace a
-                        // transferred Boolean function with a receiver/name
-                        // fast path. Preserve both reference components.
-                        return self.lower_indirect_method_call(info, callee, receiver, args, None);
-                    }
-                    if let Some(bigint_builtin) = StandardBuiltinId::from_function_id(&function_id)
-                    {
-                        let method_name = match bigint_builtin {
-                            StandardBuiltinId::BigIntPrototypeToString => "toString",
-                            StandardBuiltinId::BigIntPrototypeToLocaleString => "toLocaleString",
-                            StandardBuiltinId::BigIntPrototypeValueOf => "valueOf",
-                            _ => "",
-                        };
-                        if !method_name.is_empty() {
-                            return TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                    args,
-                                },
-                            );
+                    if let Some(method) = NonGenericBuiltinMethod::from_function_id(&function_id) {
+                        match method {
+                            NonGenericBuiltinMethod::BooleanToString
+                            | NonGenericBuiltinMethod::BooleanValueOf
+                            | NonGenericBuiltinMethod::NumberToExponential
+                            | NonGenericBuiltinMethod::NumberToFixed
+                            | NonGenericBuiltinMethod::NumberToLocaleString
+                            | NonGenericBuiltinMethod::NumberToPrecision
+                            | NonGenericBuiltinMethod::NumberToString
+                            | NonGenericBuiltinMethod::NumberValueOf
+                            | NonGenericBuiltinMethod::BigIntToString
+                            | NonGenericBuiltinMethod::BigIntToLocaleString
+                            | NonGenericBuiltinMethod::BigIntValueOf
+                            | NonGenericBuiltinMethod::StringToString
+                            | NonGenericBuiltinMethod::StringValueOf => {
+                                // Target inference identifies the function
+                                // that was acquired, not the receiver's
+                                // primitive brand. Keep both Reference
+                                // components so a transferred method reaches
+                                // its own closed receiver check.
+                                return self.lower_indirect_method_call(
+                                    info, callee, receiver, args, None,
+                                );
+                            }
                         }
                     }
                     if let Some(string_builtin) = StandardBuiltinId::from_function_id(&function_id)
                     {
                         let method_name = match string_builtin {
-                            StandardBuiltinId::StringPrototypeToString => "toString",
-                            StandardBuiltinId::StringPrototypeValueOf => "valueOf",
                             StandardBuiltinId::StringPrototypeCharAt => "charAt",
                             StandardBuiltinId::StringPrototypeConcat => "concat",
                             StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
@@ -29373,7 +29388,72 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// Invalidates the two facts a property write can make stale through an
+    /// untracked object alias: a remembered Boolean value and the copied heap
+    /// shape that still names its old prototype method.
+    ///
+    /// Binding shapes are copied by value; there is no object-identity carrier
+    /// joining `let alias = value` back to `value`. The pre-write Boolean fold
+    /// domain is therefore the smallest sound alias domain available here.
+    /// Preserve only the precisely resolved write target so the caller can
+    /// apply its exact shape update, and erase every other candidate's shape.
+    fn invalidate_static_boolean_alias_shapes(&mut self, target_name: &str) {
+        let target_location = (target_name != LEXICAL_THIS_NAME)
+            .then(|| self.lookup_binding_with_location(target_name))
+            .flatten()
+            .map(|(_, location)| location);
+        let candidates = std::mem::take(&mut self.static_boolean_bindings);
+        if candidates.is_empty() {
+            return;
+        }
+
+        for (scope_index, scope) in self.scopes.iter_mut().enumerate() {
+            for (name, binding) in scope {
+                let is_target = name == target_name
+                    && target_location == Some(BindingLookupLocation::Scope(scope_index));
+                if candidates.contains_key(name) && !is_target {
+                    binding.heap_shape = None;
+                }
+            }
+        }
+        for (name, binding) in &mut self.var_bindings {
+            let is_target = name == target_name
+                && (target_location == Some(BindingLookupLocation::VariableEnvironment)
+                    || (target_location.is_none() && binding.is_script_global));
+            if candidates.contains_key(name) && !is_target {
+                binding.heap_shape = None;
+            }
+        }
+        for (name, property) in &mut self.global_properties {
+            let is_target = name == target_name
+                && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
+            if candidates.contains_key(name) && !is_target {
+                property.value_info.heap_shape = None;
+            }
+        }
+        for infos in [
+            &mut self.nested_script_global_value_infos,
+            &mut self.known_nested_script_global_value_infos,
+        ] {
+            for (name, info) in infos {
+                let is_target = name == target_name
+                    && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
+                if candidates.contains_key(name) && !is_target {
+                    info.heap_shape = None;
+                }
+            }
+        }
+        if target_name != LEXICAL_THIS_NAME && candidates.contains_key(LEXICAL_THIS_NAME) {
+            if let Some(info) = &mut self.current_construct_this_info {
+                info.heap_shape = None;
+            }
+        }
+    }
+
     fn update_binding_shape_path(&mut self, name: &str, path: &[PropertyKeyIr], value: ValueInfo) {
+        if !path.is_empty() {
+            self.invalidate_static_boolean_alias_shapes(name);
+        }
         if name == LEXICAL_THIS_NAME {
             if let Some(current) = self.current_construct_this_info.clone() {
                 self.current_construct_this_info =
