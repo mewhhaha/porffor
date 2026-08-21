@@ -370,6 +370,31 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- Identifier `++` and `--` inside `with` now consume the same non-empty,
+  non-copyable Object Environment Reference plan as direct reads and writes.
+  Each selected branch fixes one binding object across GetBindingValue's second
+  `HasProperty`, ToNumeric and the delta, then SetMutableBinding's post-Get
+  `HasProperty`; strict nested-function References throw before Set when a
+  getter deleted the property, while sloppy References recreate it without
+  falling through to an outer binding. A mutating `@@unscopables` getter also
+  forces a pre-located Number fallback to become BigInt before the object record
+  declines it, pinning a Dynamic fallback update and all-runtime-tags metadata.
+  Proxy `has` traps also prove both sides of the run-time global fallback
+  boundary: deleting a previously proven global must throw rather than recreate
+  it, while creating a previously unresolved global must admit the update. A
+  durable CLI oracle and bounded source witness cover all four prefix/postfix
+  forms, their returned values and the exact current-pin inventory of 16
+  `noStrict` files (16 executions). At pre-batch commit
+  `156aeb38b28378e04bb852f8d00679f47b401d34`,
+  `prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js`
+  and
+  `postfix-decrement/operator-x-postfix-decrement-calls-putvalue-lhs-newvalue-.js`
+  each reported `0/1` as `Runtime/NotImplemented` with the exact diagnostic
+  ``unsupported in lila wasm-aot first slice: unbound identifier `x```.
+  The integrated IR invariant is `1/1`, the source-bounded contract suite is
+  `4/4`, the Wasm lifecycle fixture is `1/1`, and the exact current-source
+  Test262 cohort is now `16/16`; these are focused results, not a full-suite
+  status publication.
 - Primitive String computed-property reads now preserve every non-index key for
   the ordinary `ToPropertyKey` and `%String.prototype%` path, while canonical
   indices use UTF-16 own-property lookup and out-of-bounds indices fall through

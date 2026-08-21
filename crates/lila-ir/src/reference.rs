@@ -643,6 +643,90 @@ impl WithEnvironmentResolution {
             },
         )
     }
+
+    /// Compose one selected Object Environment Record's independently
+    /// observable GetBindingValue and SetMutableBinding around a numeric
+    /// update. Resolution is not restarted after the getter runs.
+    fn numeric_update_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        bindings: &WithEnvironmentNumericUpdateBindings,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let WithEnvironmentNumericUpdateBindings {
+            old_value: old_value_name,
+            result: result_name,
+            write: write_name,
+        } = bindings;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let old_value = binding_object
+            .clone()
+            .get_value(referenced_name, strictness);
+        let numeric_info = ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: KindSet::from_kind(ValueKind::Number)
+                .union(KindSet::from_kind(ValueKind::BigInt)),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        let update = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::UpdateIdentifier {
+                name: old_value_name.clone(),
+                op,
+                return_mode,
+                value_kind: ValueKind::Dynamic,
+            },
+        );
+        let updated_value = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::Identifier(old_value_name.clone()),
+        );
+        let write = binding_object.put_value(referenced_name, strictness, updated_value);
+        let result = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::Identifier(result_name.clone()),
+        );
+        let after_write = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: write_name.clone(),
+                value: Box::new(write),
+                body: Box::new(result),
+            },
+        );
+        let after_update = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: result_name.clone(),
+                value: Box::new(update),
+                body: Box::new(after_write),
+            },
+        );
+        let selected_update = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: old_value_name.clone(),
+                value: Box::new(old_value),
+                body: Box::new(after_update),
+            },
+        );
+        TypedExpr::from_info(
+            numeric_info,
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected_update),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
 }
 
 impl SelectedWithEnvironmentObjects {
@@ -671,15 +755,38 @@ impl SelectedWithEnvironmentObjects {
 ///
 /// The innermost resolution is a required field instead of the first element
 /// of a `Vec`, so an empty Object Environment chain is not representable. The
-/// plan is deliberately neither `Clone` nor `Copy`; [`Self::get_value`] and
-/// [`Self::put_value`] both consume it, making a second use E0382.
+/// plan is deliberately neither `Clone` nor `Copy`; [`Self::get_value`],
+/// [`Self::put_value`] and [`Self::numeric_update`] consume it, making a second
+/// use E0382.
 #[derive(Debug)]
-#[must_use = "a with-environment Reference must be consumed by GetValue or PutValue"]
+#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, or numeric update"]
 pub(crate) struct WithEnvironmentReferencePlan {
     innermost: WithEnvironmentResolution,
     outer: Vec<WithEnvironmentResolution>,
     referenced_name: String,
     strictness: Strictness,
+}
+
+/// Compiler-private bindings used by one with-environment numeric update.
+///
+/// All three roles are `String`, so accepting them positionally would allow a
+/// result/write transposition to compile. The constructor allocates the roles
+/// in one fixed order and the fields remain private to this module.
+#[derive(Debug)]
+pub(crate) struct WithEnvironmentNumericUpdateBindings {
+    old_value: String,
+    result: String,
+    write: String,
+}
+
+impl WithEnvironmentNumericUpdateBindings {
+    pub(crate) fn allocate(mut allocate: impl FnMut(&str) -> String) -> Self {
+        Self {
+            old_value: allocate("with.update.old."),
+            result: allocate("with.update.result."),
+            write: allocate("with.update.write."),
+        }
+    }
 }
 
 impl WithEnvironmentReferencePlan {
@@ -730,6 +837,44 @@ impl WithEnvironmentReferencePlan {
             );
         }
         innermost.put_value_or_else(&referenced_name, strictness, value, resolved)
+    }
+
+    /// Consume one ResolveBinding result for `++`/`--`. The required private
+    /// materializations keep the selected GetValue, numeric delta, same-base
+    /// PutValue and returned prefix/postfix result in their specified order.
+    #[must_use]
+    pub(crate) fn numeric_update(
+        self,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        bindings: WithEnvironmentNumericUpdateBindings,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.numeric_update_or_else(
+                &referenced_name,
+                strictness,
+                op,
+                return_mode,
+                &bindings,
+                resolved,
+            );
+        }
+        innermost.numeric_update_or_else(
+            &referenced_name,
+            strictness,
+            op,
+            return_mode,
+            &bindings,
+            resolved,
+        )
     }
 }
 
@@ -1678,7 +1823,11 @@ mod tests {
         has_property_target(lhs)
     }
 
-    fn assert_strict_selected_write(expr: &TypedExpr, object_name: &str) {
+    fn assert_strict_selected_write(
+        expr: &TypedExpr,
+        object_name: &str,
+        expected_value_name: &str,
+    ) {
         let ExprIr::MaterializeBinding {
             name: value_name,
             value,
@@ -1688,7 +1837,7 @@ mod tests {
             panic!("RHS must be materialized in the selected branch");
         };
         assert_eq!(value_name, WITH_ENVIRONMENT_VALUE_BINDING);
-        assert_eq!(identifier_name(value), "rhs");
+        assert_eq!(identifier_name(value), expected_value_name);
 
         let ExprIr::Conditional {
             condition,
@@ -1779,7 +1928,7 @@ mod tests {
             panic!("innermost Object Environment must be queried first");
         };
         assert_eq!(initial_resolution_target(inner_condition), "$with.inner");
-        assert_strict_selected_write(inner_write, "$with.inner");
+        assert_strict_selected_write(inner_write, "$with.inner", "rhs");
 
         let ExprIr::Conditional {
             condition: outer_condition,
@@ -1790,7 +1939,7 @@ mod tests {
             panic!("an inner miss must continue through the outer environment");
         };
         assert_eq!(initial_resolution_target(outer_condition), "$with.outer");
-        assert_strict_selected_write(outer_write, "$with.outer");
+        assert_strict_selected_write(outer_write, "$with.outer", "rhs");
         assert_eq!(identifier_name(fallback), "fallback");
     }
 
@@ -1903,6 +2052,77 @@ mod tests {
             panic!("the Object Environment resolution must guard GetValue");
         };
         assert_selected_get_value(then_expr, "$with.object", Strictness::Sloppy);
+    }
+
+    #[test]
+    fn with_environment_numeric_update_sequences_same_object_get_delta_put_then_result() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .numeric_update(
+            NumericUpdateOp::Increment,
+            UpdateReturnMode::Prefix,
+            WithEnvironmentNumericUpdateBindings::allocate(|prefix| {
+                format!("${}", prefix.trim_end_matches('.'))
+            }),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the Object Environment once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+        assert_eq!(identifier_name(fallback), "fallback");
+
+        let ExprIr::MaterializeBinding {
+            name: old_name,
+            value: old_value,
+            body: after_get,
+        } = &selected.expr
+        else {
+            panic!("GetBindingValue must be materialized before ToNumeric");
+        };
+        assert_eq!(old_name, "$with.update.old");
+        assert_selected_get_value(old_value, "$with.object", Strictness::Strict);
+
+        let ExprIr::MaterializeBinding {
+            name: result_name,
+            value: update,
+            body: after_update,
+        } = &after_get.expr
+        else {
+            panic!("the numeric result must be retained across PutValue");
+        };
+        assert_eq!(result_name, "$with.update.result");
+        assert!(matches!(
+            &update.expr,
+            ExprIr::UpdateIdentifier {
+                name,
+                op: NumericUpdateOp::Increment,
+                return_mode: UpdateReturnMode::Prefix,
+                value_kind: ValueKind::Dynamic,
+            } if name == "$with.update.old"
+        ));
+
+        let ExprIr::MaterializeBinding {
+            name: write_name,
+            value: write,
+            body: result,
+        } = &after_update.expr
+        else {
+            panic!("PutValue must complete before the update result is returned");
+        };
+        assert_eq!(write_name, "$with.update.write");
+        assert_strict_selected_write(write, "$with.object", "$with.update.old");
+        assert_eq!(identifier_name(result), "$with.update.result");
     }
 
     #[test]

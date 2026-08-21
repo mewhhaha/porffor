@@ -20,7 +20,8 @@ use crate::ir::reference::{
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
     DeleteSuperReferencePlan, OrderedWithEnvironmentChain, PositionedWithEnvironment,
     ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord,
-    SelectedWithEnvironmentObjects, WithEnvironmentBindingObject, WithEnvironmentReferencePlan,
+    SelectedWithEnvironmentObjects, WithEnvironmentBindingObject,
+    WithEnvironmentNumericUpdateBindings, WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +177,25 @@ enum LocatedIdentifierReference {
         position: DeclarativeEnvironmentPosition,
     },
     Unresolvable,
+}
+
+/// Whether an identifier update is definitely reached or is the fallback of
+/// a run-time Object Environment Record selection. The latter invalidates the
+/// prior static binding shape because observable HasBinding may mutate the
+/// fallback before either selecting the object or reaching ToNumeric.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdentifierUpdateReachability {
+    Definite,
+    WithEnvironmentFallback,
+}
+
+fn unknown_runtime_value_info() -> ValueInfo {
+    ValueInfo {
+        kind: ValueKind::Dynamic,
+        possible_kinds: KindSet::all_runtime_tags(),
+        heap_shape: None,
+        function_targets: BTreeSet::new(),
+    }
 }
 
 impl LocatedIdentifierReference {
@@ -26493,15 +26513,66 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        let reference = self.locate_identifier_reference(&name);
+        let selected = self
+            .with_environment_chain
+            .select_preceding(reference.declarative_position());
+        let (op, return_mode) = match op {
+            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
+            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
+            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
+            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+        };
+        if let Some(objects) = selected {
+            let plan = self.with_environment_reference_plan(name.clone(), objects);
+            let fallback = self.lower_located_identifier_numeric_update(
+                name,
+                op,
+                return_mode,
+                reference,
+                IdentifierUpdateReachability::WithEnvironmentFallback,
+            );
+            let bindings = WithEnvironmentNumericUpdateBindings::allocate(|prefix| {
+                self.alloc_temp_binding_name(prefix)
+            });
+            return plan.numeric_update(op, return_mode, bindings, fallback);
+        }
+        self.lower_located_identifier_numeric_update(
+            name,
+            op,
+            return_mode,
+            reference,
+            IdentifierUpdateReachability::Definite,
+        )
+    }
+
+    fn lower_located_identifier_numeric_update(
+        &mut self,
+        name: String,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        reference: LocatedIdentifierReference,
+        reachability: IdentifierUpdateReachability,
+    ) -> TypedExpr {
         // 13.4.4 / 13.4.5 UpdateExpression: GetValue then PutValue, so
         // 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 both apply. `x++` on an
         // uninitialized binding used to read the slot.
-        match self.resolve_binding_reference(&name) {
-            BindingResolution::Uninitialized(violation) => return violation.into_throw(),
-            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
-        }
-        let (binding_storage_name, update_kind) = if let Some(binding) = self.lookup_binding(&name)
-        {
+        let located_binding = match reference {
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Uninitialized(violation),
+                ..
+            } => return violation.into_throw(),
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Initialized(binding),
+                ..
+            } => Some(binding),
+            LocatedIdentifierReference::Unresolvable => None,
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Unresolvable,
+                ..
+            } => unreachable!("a declarative location cannot be unresolvable"),
+        };
+        let (binding_storage_name, update_kind) = if let Some(binding) = located_binding {
             if binding.mode == BindingMode::Const {
                 // 13.4.4.1 (and 13.4.5.1 / the prefix forms) run
                 //   1. expr = evaluate the UnaryExpression
@@ -26540,17 +26611,27 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Dynamic
             };
             let storage_name = binding.storage_name.clone();
-            self.set_binding_value_info(&name, ValueInfo::new(update_kind));
+            let emitted_update_kind = match reachability {
+                IdentifierUpdateReachability::Definite => update_kind,
+                IdentifierUpdateReachability::WithEnvironmentFallback => ValueKind::Dynamic,
+            };
+            let updated_info = match reachability {
+                IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind),
+                IdentifierUpdateReachability::WithEnvironmentFallback => {
+                    unknown_runtime_value_info()
+                }
+            };
+            self.set_binding_value_info(&name, updated_info.clone());
             // A script-level `var` is a property of the global object, and
             // `lower_identifier_name_inner` reads it from there. Updating the
             // local mirror instead would read a value that is stale by every
             // write a closure made through the global object, so `n++` after
             // `function bump(){ n++ }; bump()` would resume from the old value.
             if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
-                self.set_global_property_value_info(name.clone(), ValueInfo::new(update_kind));
-                (None, update_kind)
+                self.set_global_property_value_info(name.clone(), updated_info);
+                (None, emitted_update_kind)
             } else {
-                (Some(storage_name), update_kind)
+                (Some(storage_name), emitted_update_kind)
             }
         } else if let Some(info) = self.lookup_global_property_info(&name) {
             if info.proven_present {
@@ -26569,50 +26650,116 @@ impl<'a> ScriptLowerer<'a> {
                 } else {
                     ValueKind::Dynamic
                 };
-                self.set_global_property_value_info(name.clone(), ValueInfo::new(update_kind));
-                (None, update_kind)
+                let emitted_update_kind = match reachability {
+                    IdentifierUpdateReachability::Definite => update_kind,
+                    IdentifierUpdateReachability::WithEnvironmentFallback => ValueKind::Dynamic,
+                };
+                let updated_info = match reachability {
+                    IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind),
+                    IdentifierUpdateReachability::WithEnvironmentFallback => {
+                        unknown_runtime_value_info()
+                    }
+                };
+                self.set_global_property_value_info(name.clone(), updated_info);
+                (None, emitted_update_kind)
             } else {
-                self.unsupported_with_message(format!(
-                    "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                ));
-                return TypedExpr::undefined();
+                match reachability {
+                    IdentifierUpdateReachability::Definite => {
+                        self.unsupported_with_message(format!(
+                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
+                        ));
+                        return TypedExpr::undefined();
+                    }
+                    IdentifierUpdateReachability::WithEnvironmentFallback => {
+                        (None, ValueKind::Dynamic)
+                    }
+                }
             }
         } else if self.global_property_is_proven_present(&name) {
-            return self.unsupported_expr("numeric update on non-number binding");
+            match reachability {
+                IdentifierUpdateReachability::Definite => {
+                    return self.unsupported_expr("numeric update on non-number binding");
+                }
+                IdentifierUpdateReachability::WithEnvironmentFallback => (None, ValueKind::Dynamic),
+            }
         } else {
-            self.unsupported_with_message(format!(
-                "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-            ));
-            return TypedExpr::undefined();
-        };
-
-        let (op, return_mode) = match op {
-            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
-            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
-            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
-            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+            match reachability {
+                IdentifierUpdateReachability::Definite => {
+                    self.unsupported_with_message(format!(
+                        "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
+                    ));
+                    return TypedExpr::undefined();
+                }
+                IdentifierUpdateReachability::WithEnvironmentFallback => (None, ValueKind::Dynamic),
+            }
         };
 
         let strictness = self.reference_strictness();
-        TypedExpr::from_info(
-            ValueInfo::new(update_kind),
-            if let Some(storage_name) = binding_storage_name {
+        if let Some(storage_name) = binding_storage_name {
+            return TypedExpr::from_info(
+                ValueInfo::new(update_kind),
                 ExprIr::UpdateIdentifier {
                     name: storage_name,
                     op,
                     return_mode,
                     value_kind: update_kind,
+                },
+            );
+        }
+        if reachability == IdentifierUpdateReachability::WithEnvironmentFallback {
+            if let Some(info) = self.global_properties.get_mut(&name) {
+                info.value_info = unknown_runtime_value_info();
+                if info.configurable {
+                    info.proven_present = false;
                 }
-            } else {
-                ExprIr::GlobalPropertyUpdate {
-                    name,
-                    op,
-                    return_mode,
-                    value_kind: update_kind,
-                    strictness,
-                }
+            }
+        }
+        let update = TypedExpr::from_info(
+            ValueInfo::new(update_kind),
+            ExprIr::GlobalPropertyUpdate {
+                name: name.clone(),
+                op,
+                return_mode,
+                value_kind: update_kind,
+                strictness,
             },
-        )
+        );
+        match reachability {
+            IdentifierUpdateReachability::Definite => update,
+            IdentifierUpdateReachability::WithEnvironmentFallback => {
+                // HasBinding/@@unscopables is observable and may delete a
+                // previously proven global before the fallback is reached.
+                // UpdateExpression GetValue must then throw in sloppy code as
+                // well; it must not coerce `undefined` and recreate the name.
+                let present = TypedExpr::spec_has_property(
+                    TypedExpr::from_info(
+                        self.global_this_info(),
+                        ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                    ),
+                    TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(name)),
+                );
+                let missing = TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::RuntimeThrow {
+                        name: NativeErrorKind::ReferenceError,
+                        message: "unbound identifier in with scope",
+                    },
+                );
+                TypedExpr::from_info(
+                    update.value_info(),
+                    ExprIr::Conditional {
+                        condition: Box::new(present),
+                        then_expr: Box::new(update),
+                        else_expr: Box::new(missing),
+                    },
+                )
+            }
+        }
     }
 
     fn lower_unary(&mut self, op: UnaryOp, target: &Expression) -> TypedExpr {

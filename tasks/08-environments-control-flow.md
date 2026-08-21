@@ -43,6 +43,32 @@ parse-once boundary is landed, several environment/control-flow files remain
 large shared hotspots, and the language subtrees assigned to this task have not
 been proven zero-failure on a current complete Wasm-AOT matrix.
 
+All four identifier numeric-update forms inside `with` now spend that same
+non-empty, non-`Clone`, non-`Copy` Reference plan. A selected branch composes
+GetBindingValue's independent `HasProperty`/Get, one closed numeric update and
+SetMutableBinding's post-Get `HasProperty`/Set around three compiler-private
+materializations. The same binding-object identity therefore survives a getter
+that deletes the property; strict nested-function References throw before Set,
+while sloppy References recreate the property without falling through to an
+outer function, global or Object Environment Record. A durable CLI oracle and
+bounded source witness cover the lifecycle, all four prefix/postfix results,
+and an `@@unscopables` getter that changes a Number fallback to BigInt before
+blocking the object binding; the branch-local update therefore remains Dynamic
+while post-expression metadata widens to all runtime tags. Proxy `has` traps
+separately delete a previously proven global and create a previously unresolved
+global before declining the object binding, forcing one run-time `HasProperty`
+guard to reject the former without recreation and admit the latter; a
+configurable global also loses its static `proven_present` fact. They pin the
+exact 16-file `noStrict` Test262 inventory. At pre-batch commit
+`156aeb38b28378e04bb852f8d00679f47b401d34`, the representative prefix-increment
+and postfix-decrement strict-reference witnesses each reported `0/1` as
+`Runtime/NotImplemented`, with the exact diagnostic
+``unsupported in lila wasm-aot first slice: unbound identifier `x```. The
+integrated IR invariant is `1/1`, the source-bounded contract suite is `4/4`,
+the Wasm lifecycle fixture is `1/1`, and the exact current-source cohort is now
+`16/16`; these focused results do not claim the full language subtree or pinned
+matrix is green.
+
 Strict global compound assignment and prefix update now retain their computed
 payload and tag in reserved locals across PutValue's run-time `HasProperty`
 check. The checked write path may use emitter scratch/result locals internally;
@@ -58,11 +84,11 @@ feature-enabled CLI compile, and its exact generator-suspension Wasm fixture is
 green. The delete-super and Object Environment Record read/write structural
 units and Wasm fixtures are present, while their Cargo and pinned Test262
 execution gates remain deferred to the current integration checkpoint. The
-Object Environment seam is intentionally limited to plain assignment and direct
-identifier GetValue (including `typeof` operands) in scripts and ordinary
-source functions. Identifier-call `WithBaseObject`, compound/logical/update/
-destructuring/delete operations, generated class/helper contexts and resumable
-captured WithObject environments remain explicit debt.
+Object Environment seam is intentionally limited to plain assignment, direct
+identifier GetValue (including `typeof` operands) and identifier numeric update
+in scripts and ordinary source functions. Identifier-call `WithBaseObject`,
+compound/logical/destructuring/delete operations, generated class/helper
+contexts and resumable captured WithObject environments remain explicit debt.
 
 Resumable loops now carry a required closed
 `ResumableLoopIterationEnvironmentIr::{StorageOnly, FreshPerIteration}` policy.
