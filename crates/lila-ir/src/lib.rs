@@ -13366,6 +13366,87 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn async_generator_synchronous_using_scope_owns_activation_capability() {
+        let program = lower_script(
+            "async function * owner() {
+                 using outer = null;
+                 yield 1;
+                 await 2;
+                 { using inner = undefined; yield 3; await 4; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("async generator should be lowered");
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncGenerator(outer_capability),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("async-generator using must own its remaining body suffix");
+        };
+        let [StatementIr::GeneratorYield { .. }, StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("yield, await, and nested block must remain inside the live outer scope");
+        };
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncGenerator(inner_capability),
+            body: inner_body,
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested async-generator using must own a distinct capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [
+                StatementIr::GeneratorYield { .. },
+                StatementIr::AsyncAwait { .. }
+            ]
+        ));
+
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert!(capability
+                .binding_name()
+                .starts_with("$async.generator.dispose.capability."));
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "async-generator capability must have exactly one activation slot"
+            );
+        }
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::AsyncGenerator
+        );
+        assert!(owner.resumable_plan.is_some());
+
+        let unsupported = lower_script(
+            "async function * owner() { using resource = await Promise.resolve(null); }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("suspension inside an async-generator using initializer")
+        }));
+    }
+
+    #[test]
     fn synchronous_using_entry_is_the_only_runtime_binding_initializer() {
         fn contains_lexical(statement: &StatementIr, name: &str) -> bool {
             match statement {

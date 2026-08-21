@@ -3,8 +3,9 @@ use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget}
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr,
-    AsyncFunctionSyncDisposableCapabilityIr, AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr,
-    ForOfIteratorHeadIr, ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
+    AsyncFunctionSyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
+    AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
+    ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
     ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
     SyncDisposableResourcesIr, SyncDisposableScopeExecutionIr,
 };
@@ -47,7 +48,7 @@ struct DetachedActivationSyncDisposeCapabilityLocals {
     entry_count: u32,
 }
 
-/// The two resumable execution owners that share the activation-backed
+/// The resumable execution owners that share the activation-backed
 /// synchronous DisposeCapability representation.
 ///
 /// Keeping the producer carriers in distinct variants prevents an async
@@ -57,6 +58,7 @@ struct DetachedActivationSyncDisposeCapabilityLocals {
 enum ActivationSyncDisposeOwner<'a> {
     PlainGenerator(&'a PlainGeneratorSyncDisposableCapabilityIr),
     AsyncFunction(&'a AsyncFunctionSyncDisposableCapabilityIr),
+    AsyncGenerator(&'a AsyncGeneratorSyncDisposableCapabilityIr),
 }
 
 impl ActivationSyncDisposeOwner<'_> {
@@ -64,6 +66,7 @@ impl ActivationSyncDisposeOwner<'_> {
         match self {
             Self::PlainGenerator(capability) => capability.binding_name(),
             Self::AsyncFunction(capability) => capability.binding_name(),
+            Self::AsyncGenerator(capability) => capability.binding_name(),
         }
     }
 
@@ -71,6 +74,7 @@ impl ActivationSyncDisposeOwner<'_> {
         match self {
             Self::PlainGenerator(_) => FunctionExecutionKind::Generator,
             Self::AsyncFunction(_) => FunctionExecutionKind::Async,
+            Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator,
         }
     }
 
@@ -78,6 +82,7 @@ impl ActivationSyncDisposeOwner<'_> {
         match self {
             Self::PlainGenerator(_) => HEAP_GENERATOR_RESUME_STATE_OFFSET,
             Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET,
+            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
         }
     }
 
@@ -85,6 +90,7 @@ impl ActivationSyncDisposeOwner<'_> {
         match self {
             Self::PlainGenerator(_) => SyncDisposeCompletionContinuation::Dispatch,
             Self::AsyncFunction(_) => SyncDisposeCompletionContinuation::DispatchAsyncFunction,
+            Self::AsyncGenerator(_) => SyncDisposeCompletionContinuation::DispatchAsyncGenerator,
         }
     }
 }
@@ -108,6 +114,7 @@ enum SyncForOfIterationLifecycleLocals<'a> {
 enum SyncDisposeCompletionContinuation {
     Dispatch,
     DispatchAsyncFunction,
+    DispatchAsyncGenerator,
     DeferToIteratorClose,
 }
 
@@ -1286,7 +1293,9 @@ impl<'a> FunctionBuilder<'a> {
                 ..
             } => Some(plan.entry_state),
             StatementIr::SyncDisposableScope {
-                execution: SyncDisposableScopeExecutionIr::AsyncFunction(_),
+                execution:
+                    SyncDisposableScopeExecutionIr::AsyncFunction(_)
+                    | SyncDisposableScopeExecutionIr::AsyncGenerator(_),
                 body,
                 ..
             } => body
@@ -1339,7 +1348,9 @@ impl<'a> FunctionBuilder<'a> {
                 ..
             } => Some(plan.exit_state),
             StatementIr::SyncDisposableScope {
-                execution: SyncDisposableScopeExecutionIr::AsyncFunction(_),
+                execution:
+                    SyncDisposableScopeExecutionIr::AsyncFunction(_)
+                    | SyncDisposableScopeExecutionIr::AsyncGenerator(_),
                 body,
                 ..
             } => body
@@ -1392,7 +1403,8 @@ impl<'a> FunctionBuilder<'a> {
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
-                    | SyncDisposableScopeExecutionIr::AsyncFunction(_),
+                    | SyncDisposableScopeExecutionIr::AsyncFunction(_)
+                    | SyncDisposableScopeExecutionIr::AsyncGenerator(_),
                 ..
             } => None,
             _ => None,
@@ -1437,7 +1449,8 @@ impl<'a> FunctionBuilder<'a> {
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
-                    | SyncDisposableScopeExecutionIr::AsyncFunction(_),
+                    | SyncDisposableScopeExecutionIr::AsyncFunction(_)
+                    | SyncDisposableScopeExecutionIr::AsyncGenerator(_),
                 ..
             } => None,
             _ => None,
@@ -4927,6 +4940,13 @@ impl<'a> FunctionBuilder<'a> {
                     body,
                     function,
                 ),
+            SyncDisposableScopeExecutionIr::AsyncGenerator(capability) => self
+                .compile_activation_sync_disposable_scope(
+                    ActivationSyncDisposeOwner::AsyncGenerator(capability),
+                    resources,
+                    body,
+                    function,
+                ),
         }
     }
 
@@ -5007,6 +5027,10 @@ impl<'a> FunctionBuilder<'a> {
                 Self::async_statement_entry_state,
                 Self::async_statement_exit_state,
             ),
+            ActivationSyncDisposeOwner::AsyncGenerator(_) => (
+                Self::async_statement_entry_state,
+                Self::async_statement_exit_state,
+            ),
         };
         let entry_state = body.statements.iter().find_map(entry_state_of);
         let exit_state = body.statements.iter().rev().find_map(exit_state_of);
@@ -5072,7 +5096,8 @@ impl<'a> FunctionBuilder<'a> {
                 ActivationSyncDisposeOwner::PlainGenerator(_) => {
                     self.compile_generator_block_contents(body, entry_state, true, function)?;
                 }
-                ActivationSyncDisposeOwner::AsyncFunction(_) => {
+                ActivationSyncDisposeOwner::AsyncFunction(_)
+                | ActivationSyncDisposeOwner::AsyncGenerator(_) => {
                     self.compile_async_block_contents(
                         body,
                         entry_state,
@@ -5700,6 +5725,9 @@ impl<'a> FunctionBuilder<'a> {
             }
             SyncDisposeCompletionContinuation::DispatchAsyncFunction => {
                 self.emit_dispatch_async_completion(function)?;
+            }
+            SyncDisposeCompletionContinuation::DispatchAsyncGenerator => {
+                self.emit_dispatch_async_generator_completion(function);
             }
             SyncDisposeCompletionContinuation::DeferToIteratorClose => {}
         }

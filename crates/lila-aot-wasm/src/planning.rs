@@ -8160,7 +8160,8 @@ fn count_sync_disposable_scope_temp_locals(
             count_sync_disposable_resources_temp_locals(resources, body_temps)
         }
         SyncDisposableScopeExecutionIr::PlainGenerator(_)
-        | SyncDisposableScopeExecutionIr::AsyncFunction(_) => {
+        | SyncDisposableScopeExecutionIr::AsyncFunction(_)
+        | SyncDisposableScopeExecutionIr::AsyncGenerator(_) => {
             let initializer_temps = resources
                 .iter()
                 .map(|resource| count_expr_temp_locals(&resource.initializer))

@@ -146,6 +146,54 @@ by the existing linear plan, the complete 78-file `language/statements/using`
 directory and the full pinned aggregate remain outside this batch. The source contract is
 `docs/rust-rewrite/contracts/plain-async-function-synchronous-using-scope.md`.
 
+The adjacent async-generator synchronous-`using` batch is verified around the
+fourth required owner,
+`SyncDisposableScopeExecutionIr::AsyncGenerator`. Only lowering's
+suspension-owned allocator can mint its private
+`AsyncGeneratorSyncDisposableCapabilityIr`, using the fixed
+`async.generator.dispose.capability.` prefix. The backend's exhaustive
+`ActivationSyncDisposeOwner` projects that proof to
+`FunctionExecutionKind::AsyncGenerator`,
+`HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET`, the shared async state walkers and
+`SyncDisposeCompletionContinuation::DispatchAsyncGenerator`. The activation
+binding must be an owned environment slot; temporary-local fallback is absent.
+The capability is published only when a request first reaches the declaration,
+retained across both `GeneratorYield` and `AsyncAwait`, and detached before the
+existing reverse disposal and `SuppressedError` fold. Only after the folded
+completion is restored does the async-generator dispatcher return it to the
+driver, which settles the current request and drains the queue.
+
+The exact current-pin inventory for this batch is one async-flagged file and
+two Script executions:
+
+- `language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js`.
+
+At pre-batch source commit `a5606a73cbbb2a8ffd81c0c2e2dee945bb2b9a4b`,
+both executions reported `Runtime/NotImplemented` with the exact diagnostic
+`unsupported in lila wasm-aot first slice: using declaration in an async
+generator`; the path has no Wasm-AOT rewrite, mask or known-failure entry. The
+durable CLI fixture covers no disposal before start, while yielded or while
+awaiting; normal completion; external `return()` and `throw()`; awaited
+rejection; acquisition failure after a prior
+registration; a nested non-suspending scope; LIFO and nested `SuppressedError`
+order; exactly-once disposal; queued request order; and a request synchronously
+enqueued by a disposer while the generator remains executing. Its observable
+trace places both promise reactions after disposal and the queued request's
+reaction before the current request's reaction. The shared
+workspace/all-target check and `cargo xc` are green; the focused IR invariant
+is `1/1`; the async-generator,
+retained async-function and retained generator structure executables are
+`7/7`, `7/7` and `6/6`; and their CLI lifecycle oracles are `1/1` in 16.81,
+13.09 and 53.84 seconds respectively. The exact async-generator Test262 witness
+is now `2/2` with zero unsupported, crash or bug results. Central verification
+also fixed the dispatcher preflight and suspension scanner to recurse through
+the typed async-generator scope. `await using`, async disposers,
+resource-initializer suspension, resource loop heads, modules, dynamic source,
+nonlinear async-generator forms,
+the complete `using` tree and the full pinned aggregate remain outside this
+batch. The source contract is
+`docs/rust-rewrite/contracts/async-generator-synchronous-using-scope.md`.
+
 The next bounded source batch extends that same synchronous disposal lifecycle
 to classic `for` initializer heads. The producer uses the closed, statically
 non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and

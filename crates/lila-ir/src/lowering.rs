@@ -10045,7 +10045,18 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         }
 
-        let execution = self.sync_disposable_scope_execution()?;
+        let owner = self.sync_disposable_scope_owner();
+        if owner == SyncDisposableScopeOwnerPlan::AsyncGenerator
+            && list.iter().filter_map(Variable::init).any(|initializer| {
+                contains(initializer, ContainsSymbol::AwaitExpression)
+                    || contains(initializer, ContainsSymbol::YieldExpression)
+            })
+        {
+            self.unsupported("suspension inside an async-generator using initializer");
+            return None;
+        }
+
+        let execution = self.sync_disposable_scope_execution(owner);
 
         let mut resources = Vec::with_capacity(list.len());
         for variable in list {
@@ -10093,39 +10104,47 @@ impl<'a> ScriptLowerer<'a> {
     /// particular, resumable capabilities can only be minted through the
     /// suspension-owned allocator below; an async generator cannot fall
     /// through to the immediate representation.
-    fn sync_disposable_scope_execution(&mut self) -> Option<SyncDisposableScopeExecutionIr> {
-        let owner = self
-            .current_function_id
+    fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
+        self.current_function_id
             .as_ref()
             .and_then(|function_id| self.analysis.function_plans.get(function_id))
             .map_or(SyncDisposableScopeOwnerPlan::Immediate, |function| {
                 function.sync_disposable_scope_owner()
-            });
+            })
+    }
+
+    fn sync_disposable_scope_execution(
+        &mut self,
+        owner: SyncDisposableScopeOwnerPlan,
+    ) -> SyncDisposableScopeExecutionIr {
         match owner {
-            SyncDisposableScopeOwnerPlan::Immediate => {
-                Some(SyncDisposableScopeExecutionIr::Immediate)
-            }
+            SyncDisposableScopeOwnerPlan::Immediate => SyncDisposableScopeExecutionIr::Immediate,
             SyncDisposableScopeOwnerPlan::PlainGenerator => {
                 let binding_name = self.alloc_suspension_owned_binding(
                     "generator.dispose.capability.",
                     ValueInfo::new(ValueKind::Object),
                 );
-                Some(SyncDisposableScopeExecutionIr::PlainGenerator(
+                SyncDisposableScopeExecutionIr::PlainGenerator(
                     PlainGeneratorSyncDisposableCapabilityIr::new(binding_name),
-                ))
+                )
             }
             SyncDisposableScopeOwnerPlan::AsyncFunction => {
                 let binding_name = self.alloc_suspension_owned_binding(
                     "async.dispose.capability.",
                     ValueInfo::new(ValueKind::Object),
                 );
-                Some(SyncDisposableScopeExecutionIr::AsyncFunction(
+                SyncDisposableScopeExecutionIr::AsyncFunction(
                     AsyncFunctionSyncDisposableCapabilityIr::new(binding_name),
-                ))
+                )
             }
             SyncDisposableScopeOwnerPlan::AsyncGenerator => {
-                self.unsupported("using declaration in an async generator");
-                None
+                let binding_name = self.alloc_suspension_owned_binding(
+                    "async.generator.dispose.capability.",
+                    ValueInfo::new(ValueKind::Object),
+                );
+                SyncDisposableScopeExecutionIr::AsyncGenerator(
+                    AsyncGeneratorSyncDisposableCapabilityIr::new(binding_name),
+                )
             }
         }
     }

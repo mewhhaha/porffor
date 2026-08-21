@@ -61,6 +61,8 @@ StatementIr::SyncDisposableScope {
 pub enum SyncDisposableScopeExecutionIr {
     Immediate,
     PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr),
+    AsyncFunction(AsyncFunctionSyncDisposableCapabilityIr),
+    AsyncGenerator(AsyncGeneratorSyncDisposableCapabilityIr),
 }
 ```
 
@@ -74,12 +76,12 @@ activation-backed `owned_env_bindings` set by construction.
 
 Analysis projects every function protocol through the exhaustive private
 `SyncDisposableScopeOwnerPlan::{Immediate, PlainGenerator, AsyncFunction,
-AsyncGenerator}` domain. Script and `Ordinary` select `Immediate`, `Generator`
-allocates and consumes the plain-generator carrier, and the two async owners
-remain explicit diagnostics. There is no optional plan and no boolean
-resumability flag. Adding another execution kind or another scope execution
-owner is a compile-time obligation at analysis, lowering, and every backend
-consumer.
+AsyncGenerator}` domain. Script and `Ordinary` select `Immediate`, and
+`Generator` allocates and consumes the plain-generator carrier. Later extension
+contracts assign distinct required carriers to the two async owners. There is
+no optional plan and no boolean resumability flag. Adding another execution
+kind or another scope execution owner is a compile-time obligation at analysis,
+lowering, and every backend consumer.
 
 The capability binding stores backend-owned DisposeCapability state rather
 than a user-visible lexical value. The binding is unique per emitted scope and

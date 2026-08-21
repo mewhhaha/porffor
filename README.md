@@ -657,6 +657,42 @@ Recent focused progress through `2026-08-21`:
   `await` inside a `using` initializer, resource-bearing loop heads, modules,
   dynamic source, the complete 78-file `language/statements/using` directory
   and the full pinned aggregate remain explicit nonclaims.
+- The adjacent async-generator synchronous-`using` batch is verified around the
+  fourth required execution owner,
+  `SyncDisposableScopeExecutionIr::AsyncGenerator`, and its private
+  `AsyncGeneratorSyncDisposableCapabilityIr`. The closed
+  `ActivationSyncDisposeOwner` maps that proof to
+  `FunctionExecutionKind::AsyncGenerator`,
+  `HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET`, the existing async body compiler
+  and `DispatchAsyncGenerator`; generator-only and async-function-only offsets
+  cannot be selected without changing an exhaustive match. The shared
+  activation-backed capability is initialized only when a request first
+  reaches the declaration, retained through both `yield` and `await`, then
+  detached and disposed before the current request completes or later requests
+  drain. A durable CLI oracle covers pre-start/yield/await retention, normal
+  completion, external `return()` and `throw()`, rejected-await resumption,
+  acquisition failure, a nested non-suspending scope, LIFO suppression,
+  exactly-once disposal, queued requests and a request synchronously enqueued
+  by a disposer. The reentrant oracle records both promise reactions after
+  disposal and the queued reaction before the current-request reaction, as
+  observed from the host/spec request-drain order. At pre-batch source commit
+  `a5606a73cbbb2a8ffd81c0c2e2dee945bb2b9a4b`, both executions of the exact
+  async-flagged file
+  `language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js`
+  reported `Runtime/NotImplemented` with the exact diagnostic `unsupported in
+  lila wasm-aot first slice: using declaration in an async generator`. The
+  shared workspace/all-target check and `cargo xc` are green; the focused IR
+  invariant is `1/1`; the async-generator, retained async-function and retained
+  generator structure executables are `7/7`, `7/7` and `6/6`; and their CLI
+  lifecycle oracles are `1/1` in 16.81, 13.09 and 53.84 seconds respectively.
+  The exact async-generator Test262 witness is now `2/2` with zero unsupported,
+  crash or bug results. Central verification also fixed the dispatcher
+  preflight and suspension scanner to recurse through the typed async-generator
+  scope.
+  `await using`, async disposers, suspension inside a resource initializer,
+  resource loop heads, modules, dynamic source, nonlinear async-generator
+  forms, the complete `using` tree and the full pinned aggregate remain
+  explicit nonclaims.
 - The adjacent classic-`for` extension gives a synchronous
   `using` head the closed, statically non-empty
   `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while

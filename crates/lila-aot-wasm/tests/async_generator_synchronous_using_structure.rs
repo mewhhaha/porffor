@@ -1,15 +1,19 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
+const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs");
+const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.tsv");
 const FIXTURE: &str =
-    include_str!("../../lila-cli/tests/fixtures/wasm_using_plain_async_function_lifecycle.js");
-const CONTRACT: &str = include_str!(
-    "../../../docs/rust-rewrite/contracts/plain-async-function-synchronous-using-scope.md"
-);
+    include_str!("../../lila-cli/tests/fixtures/wasm_using_async_generator_lifecycle.js");
+const CONTRACT: &str =
+    include_str!("../../../docs/rust-rewrite/contracts/async-generator-synchronous-using-scope.md");
+const EXACT_PATH: &str =
+    "language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js";
 const EXACT_TEST262: &str = include_str!(
-    "../../../test262/vendor/test262/test/language/statements/using/initializer-disposed-at-end-of-asyncfunctionbody.js"
+    "../../../test262/vendor/test262/test/language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js"
 );
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -29,7 +33,7 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 }
 
 #[test]
-fn ir_requires_a_distinct_private_async_function_capability() {
+fn ir_requires_a_distinct_private_async_generator_capability() {
     let owner = bounded(
         IR_SOURCE,
         "pub enum SyncDisposableScopeExecutionIr {",
@@ -48,11 +52,11 @@ fn ir_requires_a_distinct_private_async_function_capability() {
     assert!(!owner.contains("_ =>"));
 
     assert!(IR_SOURCE.contains(
-        "#[must_use = \"a plain-async-function synchronous DisposeCapability must be attached to its scope\"]\n#[derive(Debug, Clone, PartialEq, Eq)]\npub struct AsyncFunctionSyncDisposableCapabilityIr {\n    binding_name: String,\n}"
+        "#[must_use = \"an async-generator synchronous DisposeCapability must be attached to its scope\"]\n#[derive(Debug, Clone, PartialEq, Eq)]\npub struct AsyncGeneratorSyncDisposableCapabilityIr {\n    binding_name: String,\n}"
     ));
     let capability = bounded(
         IR_SOURCE,
-        "pub struct AsyncFunctionSyncDisposableCapabilityIr {",
+        "pub struct AsyncGeneratorSyncDisposableCapabilityIr {",
         "/// A declaration-ordered, statically non-empty synchronous resource list.",
     );
     assert!(capability.contains("pub(crate) fn new(binding_name: String)"));
@@ -62,7 +66,7 @@ fn ir_requires_a_distinct_private_async_function_capability() {
 }
 
 #[test]
-fn analysis_and_lowering_mint_one_suspension_owned_async_capability() {
+fn lowering_selects_owner_and_rejects_initializer_suspension_before_lowering() {
     let analyzed_owner = bounded(
         ANALYSIS_SOURCE,
         "pub(crate) enum SyncDisposableScopeOwnerPlan {",
@@ -90,30 +94,45 @@ fn analysis_and_lowering_mint_one_suspension_owned_async_capability() {
         "    fn lower_using_declaration(",
         "    /// Selects the only legal lifetime for an ordinary statement-list `using`.",
     );
+    for marker in [
+        "let owner = self.sync_disposable_scope_owner()",
+        "owner == SyncDisposableScopeOwnerPlan::AsyncGenerator",
+        "ContainsSymbol::AwaitExpression",
+        "ContainsSymbol::YieldExpression",
+        "suspension inside an async-generator using initializer",
+        "let execution = self.sync_disposable_scope_execution(owner)",
+        "for variable in list",
+        "self.lower_expression(initializer)",
+    ] {
+        assert!(lower.contains(marker), "missing lowering guard: {marker}");
+    }
     assert_before(
         lower,
-        "let execution = self.sync_disposable_scope_execution(owner);",
-        "for variable in list",
+        "owner == SyncDisposableScopeOwnerPlan::AsyncGenerator",
+        "let execution = self.sync_disposable_scope_execution(owner)",
     );
     assert_before(
         lower,
-        "for variable in list",
+        "suspension inside an async-generator using initializer",
         "self.lower_expression(initializer)",
+    );
+    assert_before(
+        lower,
+        "let execution = self.sync_disposable_scope_execution(owner)",
+        "for variable in list",
     );
 
     let selection = bounded(
         LOWERING_SOURCE,
-        "    fn sync_disposable_scope_execution(",
+        "    fn sync_disposable_scope_owner(",
         "    fn hoist_root_statement_items(",
     );
     for marker in [
+        "function.sync_disposable_scope_owner()",
         "SyncDisposableScopeOwnerPlan::Immediate =>",
         "SyncDisposableScopeOwnerPlan::PlainGenerator =>",
         "SyncDisposableScopeOwnerPlan::AsyncFunction =>",
         "SyncDisposableScopeOwnerPlan::AsyncGenerator =>",
-        "self.alloc_suspension_owned_binding(",
-        "\"async.dispose.capability.\"",
-        "AsyncFunctionSyncDisposableCapabilityIr::new(binding_name)",
         "\"async.generator.dispose.capability.\"",
         "AsyncGeneratorSyncDisposableCapabilityIr::new(binding_name)",
     ] {
@@ -124,20 +143,20 @@ fn analysis_and_lowering_mint_one_suspension_owned_async_capability() {
     }
     assert_before(
         selection,
-        "\"async.dispose.capability.\"",
-        "AsyncFunctionSyncDisposableCapabilityIr::new(binding_name)",
+        "\"async.generator.dispose.capability.\"",
+        "AsyncGeneratorSyncDisposableCapabilityIr::new(binding_name)",
     );
     assert!(!selection.contains("_ =>"));
     assert_eq!(
         LOWERING_SOURCE
-            .matches("AsyncFunctionSyncDisposableCapabilityIr::new(")
+            .matches("AsyncGeneratorSyncDisposableCapabilityIr::new(")
             .count(),
         1
     );
 }
 
 #[test]
-fn backend_owner_exhaustively_selects_async_state_and_completion_authority() {
+fn backend_owner_exhaustively_selects_async_generator_authority() {
     let witnesses = bounded(
         CONTROL_FLOW_SOURCE,
         "#[must_use = \"an activation-backed DisposeCapability binding must reach its consuming detach path\"]",
@@ -148,12 +167,10 @@ fn backend_owner_exhaustively_selects_async_state_and_completion_authority() {
         "struct ActiveActivationSyncDisposeCapabilityLocals",
         "struct DetachedActivationSyncDisposeCapabilityLocals",
         "enum ActivationSyncDisposeOwner<'a>",
-        "PlainGenerator(&'a PlainGeneratorSyncDisposableCapabilityIr)",
-        "AsyncFunction(&'a AsyncFunctionSyncDisposableCapabilityIr)",
-        "Self::AsyncFunction(_) => FunctionExecutionKind::Async",
-        "Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET",
-        "Self::AsyncFunction(_) => SyncDisposeCompletionContinuation::DispatchAsyncFunction",
+        "AsyncGenerator(&'a AsyncGeneratorSyncDisposableCapabilityIr)",
         "Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator",
+        "Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET",
+        "Self::AsyncGenerator(_) => SyncDisposeCompletionContinuation::DispatchAsyncGenerator",
     ] {
         assert!(
             witnesses.contains(marker),
@@ -172,9 +189,7 @@ fn backend_owner_exhaustively_selects_async_state_and_completion_authority() {
     for marker in [
         "SyncDisposableScopeExecutionIr::Immediate =>",
         "SyncDisposableScopeExecutionIr::PlainGenerator(capability) =>",
-        "ActivationSyncDisposeOwner::PlainGenerator(capability)",
         "SyncDisposableScopeExecutionIr::AsyncFunction(capability) =>",
-        "ActivationSyncDisposeOwner::AsyncFunction(capability)",
         "SyncDisposableScopeExecutionIr::AsyncGenerator(capability) =>",
         "ActivationSyncDisposeOwner::AsyncGenerator(capability)",
         "compile_activation_sync_disposable_scope(",
@@ -185,7 +200,7 @@ fn backend_owner_exhaustively_selects_async_state_and_completion_authority() {
 }
 
 #[test]
-fn async_state_traversal_enters_only_the_async_owned_scope_body() {
+fn state_walkers_include_async_generator_body_but_never_generator_offsets() {
     let async_entry = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn async_statement_entry_state(statement: &StatementIr) -> Option<u32> {",
@@ -193,11 +208,7 @@ fn async_state_traversal_enters_only_the_async_owned_scope_body() {
     );
     assert!(async_entry.contains("SyncDisposableScopeExecutionIr::AsyncFunction(_)"));
     assert!(async_entry.contains("| SyncDisposableScopeExecutionIr::AsyncGenerator(_)"));
-    assert!(async_entry.contains("body,"));
     assert!(async_entry.contains("find_map(Self::async_statement_entry_state)"));
-    assert!(async_entry.contains(
-        "SyncDisposableScopeExecutionIr::Immediate\n                    | SyncDisposableScopeExecutionIr::PlainGenerator(_)"
-    ));
 
     let generator_entry = bounded(
         CONTROL_FLOW_SOURCE,
@@ -208,13 +219,30 @@ fn async_state_traversal_enters_only_the_async_owned_scope_body() {
         "execution: SyncDisposableScopeExecutionIr::PlainGenerator(_),\n                body,"
     ));
     assert!(generator_entry.contains("find_map(Self::generator_statement_entry_state)"));
-    assert!(generator_entry.contains(
-        "SyncDisposableScopeExecutionIr::Immediate\n                    | SyncDisposableScopeExecutionIr::AsyncFunction(_)\n                    | SyncDisposableScopeExecutionIr::AsyncGenerator(_)"
-    ));
+    assert!(generator_entry.contains("| SyncDisposableScopeExecutionIr::AsyncGenerator(_)"));
+
+    let suspension_scan = bounded(
+        EMIT_SOURCE,
+        "fn async_generator_contains_suspension(",
+        "fn async_generator_dispatcher_unsupported_feature(",
+    );
+    assert!(
+        suspension_scan.contains("execution: SyncDisposableScopeExecutionIr::AsyncGenerator(_)")
+    );
+    assert!(suspension_scan.contains("async_generator_contains_suspension(statement, suspension)"));
+
+    let preflight = bounded(
+        EMIT_SOURCE,
+        "fn async_generator_dispatcher_unsupported_feature(",
+        "pub(crate) fn async_generator_for_await_is_transparent_yield(",
+    );
+    assert!(preflight.contains("execution: SyncDisposableScopeExecutionIr::AsyncGenerator(_)"));
+    assert!(preflight.contains("find_map(async_generator_dispatcher_unsupported_feature)"));
+    assert!(!preflight.contains("Some(\"synchronous using scopes\")"));
 }
 
 #[test]
-fn async_scope_initializes_once_retains_through_await_then_disposes_before_dispatch() {
+fn async_generator_scope_disposes_before_request_dispatch_and_queue_drain() {
     let scope = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn compile_activation_sync_disposable_scope(",
@@ -223,11 +251,8 @@ fn async_scope_initializes_once_retains_through_await_then_disposes_before_dispa
     for marker in [
         "owner.execution_kind()",
         "owner.binding_name()",
-        "owned_env_slot(owner.binding_name())",
-        "activation-backed synchronous DisposeCapability is missing its owned binding",
         "BindingStorage::EnvSlot { slot, hops: 0 }",
-        "ActivationSyncDisposeCapabilityStorage { binding }",
-        "ActivationSyncDisposeOwner::AsyncFunction(_) =>",
+        "ActivationSyncDisposeOwner::AsyncGenerator(_) =>",
         "Self::async_statement_entry_state",
         "Self::async_statement_exit_state",
         "owner.resume_state_offset()",
@@ -244,17 +269,7 @@ fn async_scope_initializes_once_retains_through_await_then_disposes_before_dispa
     ] {
         assert!(scope.contains(marker), "missing lifecycle marker: {marker}");
     }
-    assert_before(
-        scope,
-        "activation-backed synchronous DisposeCapability is missing its owned binding",
-        "ActivationSyncDisposeCapabilityStorage { binding }",
-    );
     assert!(!scope.contains("self.allocate_binding("));
-    assert_before(
-        scope,
-        "emit_state_in_inclusive_range_i32(",
-        "initialize_activation_sync_dispose_capability(",
-    );
     assert_before(
         scope,
         "initialize_activation_sync_dispose_capability(",
@@ -295,25 +310,17 @@ fn async_scope_initializes_once_retains_through_await_then_disposes_before_dispa
     assert_before(
         consume,
         "self.restore_saved_completion(",
-        "SyncDisposeCompletionContinuation::DispatchAsyncFunction =>",
+        "SyncDisposeCompletionContinuation::DispatchAsyncGenerator =>",
     );
     assert_before(
         consume,
-        "SyncDisposeCompletionContinuation::DispatchAsyncFunction =>",
-        "self.emit_dispatch_async_completion(function)?",
+        "SyncDisposeCompletionContinuation::DispatchAsyncGenerator =>",
+        "self.emit_dispatch_async_generator_completion(function)",
     );
 }
 
 #[test]
-fn planner_derives_one_shared_activation_capability_peak_exhaustively() {
-    let constants = bounded(
-        PLANNING_SOURCE,
-        "const ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS",
-        "const SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS",
-    );
-    assert!(constants.contains("usize = 5"));
-    assert!(constants.contains("ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5"));
-
+fn planner_groups_all_activation_backed_owners_exhaustively() {
     let count = bounded(
         PLANNING_SOURCE,
         "fn count_sync_disposable_scope_temp_locals(",
@@ -330,50 +337,54 @@ fn planner_derives_one_shared_activation_capability_peak_exhaustively() {
 }
 
 #[test]
-fn durable_consumer_and_exact_two_execution_inventory_bound_the_claim() {
+fn exact_inventory_and_durable_consumer_bound_the_claim() {
     for marker in [
-        "normal before call",
-        "normal while suspended",
+        "normal before start",
+        "normal while yielded",
+        "normal while awaiting",
         "normal completion LIFO",
-        "return disposal before resolution",
-        "source throw disposal before rejection",
+        "external return disposal",
+        "external throw disposal",
         "rejected await disposal",
         "acquisition failure disposal",
-        "nested scopes",
+        "nested inner disposal",
         "outer SuppressedError",
-        "suppressed exactly once",
-        "using-plain-async-function:true",
+        "disposal before settlement and drain",
+        "reentrant disposal and drain",
+        "reentrant exactly once",
+        "using-async-generator:true",
     ] {
         assert!(
             FIXTURE.contains(marker),
             "missing fixture witness: {marker}"
         );
     }
-    assert!(FIXTURE.contains("await normalPromise"));
-    assert!(FIXTURE.contains("await Promise.reject(error)"));
+    assert!(FIXTURE.contains("reentrantRequest = reentrant.next().then("));
     assert!(FIXTURE.contains("combined.suppressed.suppressed, bodyError"));
     assert!(!FIXTURE.contains("await using"));
-    assert!(!FIXTURE.contains("async function*"));
 
     assert!(EXACT_TEST262.contains("flags: [async]"));
     assert!(EXACT_TEST262.contains("features: [explicit-resource-management]"));
-    assert!(EXACT_TEST262.contains("async function f()"));
-    assert!(EXACT_TEST262.contains("wasDisposedWhileSuspended1"));
-    assert!(EXACT_TEST262.contains("wasDisposedWhileSuspended2"));
+    assert!(EXACT_TEST262.contains("async function * f()"));
+    assert!(EXACT_TEST262.contains("wasDisposedBeforeAsyncGeneratorStarted"));
+    assert!(EXACT_TEST262.contains("wasDisposedWhileSuspendedForYield"));
+    assert!(EXACT_TEST262.contains("wasDisposedWhileSuspendedForAwait"));
     assert!(EXACT_TEST262.contains("isDisposedAfterCompleted"));
+    assert!(!TEST262_RUNNER_SOURCE.contains(EXACT_PATH));
+    assert!(!KNOWN_FAILURES.contains(EXACT_PATH));
 
-    assert!(CONTRACT
-        .contains("language/statements/using/initializer-disposed-at-end-of-asyncfunctionbody.js"));
+    assert!(CONTRACT.contains(EXACT_PATH));
     assert!(CONTRACT.contains("reports `0/2` under Wasm AOT"));
+    assert!(CONTRACT.contains("no Wasm-AOT source rewrite, mask, or backlog entry"));
     assert!(CONTRACT.contains("complete `using` tree"));
     for exclusion in [
-        "async generators",
-        "classic-`for`",
-        "for-of",
         "`await using`",
+        "async disposers",
         "resource-initializer suspension",
+        "resource loop heads",
         "modules",
         "dynamic source",
+        "nonlinear async-generator forms",
     ] {
         assert!(
             CONTRACT.contains(exclusion),

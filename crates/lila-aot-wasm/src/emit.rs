@@ -12,7 +12,8 @@ use crate::objects::{
     PreventExtensionsTraversalTargetLocals,
 };
 use lila_ir::{
-    FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId, ValueKind,
+    FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId,
+    SyncDisposableScopeExecutionIr, ValueKind,
 };
 // `CodeSection` is deliberately absent from this list. Every code-section entry
 // now goes through `ModuleCode::push(EmittedFunction)`, which cannot be called
@@ -811,7 +812,21 @@ fn async_generator_contains_suspension(
             .chain(&catch_block.statements)
             .chain(&finally_block.statements)
             .any(|statement| async_generator_contains_suspension(statement, suspension)),
-        StatementIr::SyncDisposableScope { .. } => false,
+        StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncGenerator(_),
+            body,
+            ..
+        } => body
+            .statements
+            .iter()
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::SyncDisposableScope {
+            execution:
+                SyncDisposableScopeExecutionIr::Immediate
+                | SyncDisposableScopeExecutionIr::PlainGenerator(_)
+                | SyncDisposableScopeExecutionIr::AsyncFunction(_),
+            ..
+        } => false,
         _ => false,
     }
 }
@@ -1028,7 +1043,21 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         StatementIr::TryCatch { .. }
         | StatementIr::TryFinally { .. }
         | StatementIr::TryCatchFinally { .. } => Some("try statements without a resume plan"),
-        StatementIr::SyncDisposableScope { .. } => Some("synchronous using scopes"),
+        StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncGenerator(_),
+            body,
+            ..
+        } => body
+            .statements
+            .iter()
+            .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::SyncDisposableScope {
+            execution:
+                SyncDisposableScopeExecutionIr::Immediate
+                | SyncDisposableScopeExecutionIr::PlainGenerator(_)
+                | SyncDisposableScopeExecutionIr::AsyncFunction(_),
+            ..
+        } => Some("synchronous using scope with a mismatched execution owner"),
         StatementIr::Break { .. } | StatementIr::Continue { .. } => {
             Some("loop control completions")
         }

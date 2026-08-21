@@ -46,6 +46,7 @@ fn ir_requires_one_closed_execution_owner_and_private_generator_capability() {
     assert!(owner.contains("Immediate"));
     assert!(owner.contains("PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr)"));
     assert!(owner.contains("AsyncFunction(AsyncFunctionSyncDisposableCapabilityIr)"));
+    assert!(owner.contains("AsyncGenerator(AsyncGeneratorSyncDisposableCapabilityIr)"));
     assert!(!owner.contains("Option<"));
     assert!(!owner.contains("bool"));
 
@@ -94,7 +95,7 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
     );
     assert_before(
         lower,
-        "let execution = self.sync_disposable_scope_execution()?",
+        "let execution = self.sync_disposable_scope_execution(owner);",
         "for variable in list",
     );
     assert_before(
@@ -106,7 +107,7 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
 
     let owner = bounded(
         LOWERING_SOURCE,
-        "    fn sync_disposable_scope_execution(",
+        "    fn sync_disposable_scope_owner(",
         "    fn hoist_root_statement_items(",
     );
     for marker in [
@@ -118,7 +119,8 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
         "self.alloc_suspension_owned_binding(",
         "\"generator.dispose.capability.\"",
         "PlainGeneratorSyncDisposableCapabilityIr::new(binding_name)",
-        "using declaration in an async generator",
+        "\"async.generator.dispose.capability.\"",
+        "AsyncGeneratorSyncDisposableCapabilityIr::new(binding_name)",
     ] {
         assert!(owner.contains(marker), "missing owner boundary: {marker}");
     }
@@ -161,6 +163,7 @@ fn backend_exhaustively_selects_local_or_activation_backed_capability_storage() 
         "Self::PlainGenerator(_) => HEAP_GENERATOR_RESUME_STATE_OFFSET",
         "Self::PlainGenerator(_) => SyncDisposeCompletionContinuation::Dispatch",
         "Self::AsyncFunction(_) => FunctionExecutionKind::Async",
+        "Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator",
     ] {
         assert!(witnesses.contains(marker), "missing AOT witness: {marker}");
     }
@@ -183,6 +186,8 @@ fn backend_exhaustively_selects_local_or_activation_backed_capability_storage() 
     assert!(dispatch.contains("ActivationSyncDisposeOwner::PlainGenerator(capability)"));
     assert!(dispatch.contains("SyncDisposableScopeExecutionIr::AsyncFunction(capability) =>"));
     assert!(dispatch.contains("ActivationSyncDisposeOwner::AsyncFunction(capability)"));
+    assert!(dispatch.contains("SyncDisposableScopeExecutionIr::AsyncGenerator(capability) =>"));
+    assert!(dispatch.contains("ActivationSyncDisposeOwner::AsyncGenerator(capability)"));
     assert!(dispatch.contains("compile_activation_sync_disposable_scope("));
     assert!(!dispatch.contains("_ =>"));
 }
@@ -337,7 +342,8 @@ fn planner_derives_nonoverlapping_active_body_and_detached_disposal_peaks() {
     );
     assert!(count.contains("SyncDisposableScopeExecutionIr::Immediate =>"));
     assert!(count.contains("SyncDisposableScopeExecutionIr::PlainGenerator(_)"));
-    assert!(count.contains("| SyncDisposableScopeExecutionIr::AsyncFunction(_) =>"));
+    assert!(count.contains("| SyncDisposableScopeExecutionIr::AsyncFunction(_)"));
+    assert!(count.contains("| SyncDisposableScopeExecutionIr::AsyncGenerator(_) =>"));
     assert!(count.contains("let acquisition_peak"));
     assert!(count.contains("let disposal_peak"));
     assert!(count.contains("acquisition_peak.max(disposal_peak).max(body_temps)"));

@@ -61,6 +61,7 @@ pub enum SyncDisposableScopeExecutionIr {
     Immediate,
     PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr),
     AsyncFunction(AsyncFunctionSyncDisposableCapabilityIr),
+    AsyncGenerator(AsyncGeneratorSyncDisposableCapabilityIr),
 }
 ```
 
@@ -74,11 +75,11 @@ therefore appears exactly once in the owning `FunctionIr`'s activation-backed
 Analysis projects every function execution kind through the exhaustive
 `SyncDisposableScopeOwnerPlan::{Immediate, PlainGenerator, AsyncFunction,
 AsyncGenerator}` domain. Script and ordinary functions select `Immediate`, a
-plain generator selects its existing carrier, a plain async function mints the
-new carrier, and an async generator remains an explicit diagnostic. There is
-no optional capability and no shared boolean resumability flag. A new function
-kind or scope execution owner is a compile-time obligation at producer and
-consumer matches.
+plain generator selects its existing carrier, and a plain async function mints
+the carrier defined here. The later async-generator extension assigns its own
+distinct required carrier. There is no optional capability and no shared
+boolean resumability flag. A new function kind or scope execution owner is a
+compile-time obligation at producer and consumer matches.
 
 The async capability stores backend-owned DisposeCapability state, not a
 user-visible value. Resource bindings remain owned solely by
@@ -94,7 +95,8 @@ The IR producer must:
 - retain the non-empty resource and suffix-nesting invariants;
 - keep resource initialization ordered after successful registration;
 - keep async-function synchronous `using` out of generic `TryFinally`; and
-- leave async generators and every excluded source form as named diagnostics.
+- leave every source form excluded by this contract as a named diagnostic until
+  its own extension contract supplies a closed owner.
 
 The Wasm consumer must select `AsyncFunction` exhaustively, derive its live
 suspension span through `AsyncAwait`, initialize only at the declaration's
