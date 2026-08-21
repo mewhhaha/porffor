@@ -370,7 +370,32 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
-- Global Object Environment eager compound assignment now has a dry-written
+- Global Object Environment identifier `++` and `--` now use a verified
+  Reference lifecycle beside the retained `with` lifecycle. One private
+  fixed-role numeric carrier feeds the shared Object Environment
+  GetBindingValue/ToNumeric/SetMutableBinding operation, while a distinct
+  non-copyable global plan performs the initial plain `HasProperty` without an
+  unscopables query. The durable CLI oracle covers all four prefix/postfix
+  forms, Number and BigInt results, an initially missing binding throwing from
+  GetValue before ToNumeric, strict getter deletion without recreation, sloppy
+  getter deletion with recreation, and an observable
+  HasBinding/GetBindingValue/SetMutableBinding trace. Its bounded source witness
+  owns the four exact global Test262 files, the four already-green bare-suffix
+  `with` controls, and the eleven already-green global eager-compound files as
+  regression gates. At pre-batch commit `f6b6af6a`, the exact global
+  prefix-increment witness reported `0/1` as `Runtime/NotImplemented` with
+  ``unsupported in lila wasm-aot first slice: unbound identifier `x```; the
+  adjacent plain-assignment witness reported `1/1`. The other three selected
+  numeric files are source-proven to have reached the same refusal but were not
+  separately measured pre-batch. The affected `lila-ir`, `lila-aot-wasm` and
+  `lila-cli` package checks and `cargo xc` are green; the focused IR test is
+  `1/1`, four source-bounded structure executables total `17/17`, and the Wasm
+  lifecycle fixture is `1/1` in 45.02 seconds. The exact selected global
+  numeric cohort now passes `4/4`, its bare-suffix `with` controls remain `4/4`,
+  and the modern eager-compound prefix remains `22/22` with zero unsupported,
+  crash or bug outcomes. These are focused current-batch results, not a full
+  language-subtree or pinned-matrix publication.
+- Global Object Environment eager compound assignment now has a verified
   Reference lifecycle beside the retained `with` lifecycle. A distinct
   non-copyable plan performs the global Object Record's initial plain
   `HasProperty`, then consumes the same sealed old-value/result/write carrier

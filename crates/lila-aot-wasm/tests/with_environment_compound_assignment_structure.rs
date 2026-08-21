@@ -127,7 +127,7 @@ fn one_nonempty_noncopy_plan_owns_the_complete_compound_assignment() {
     let bindings = bounded(
         REFERENCE_SOURCE,
         "pub(crate) struct EagerCompoundAssignmentBindings {",
-        "impl WithEnvironmentNumericUpdateBindings {",
+        "impl NumericUpdateBindings {",
     );
     for marker in [
         "old_value: String",

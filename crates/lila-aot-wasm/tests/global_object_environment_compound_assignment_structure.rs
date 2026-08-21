@@ -166,8 +166,8 @@ fn distinct_noncopy_global_plan_selects_plain_has_property_without_unscopables()
 
     let plan = bounded(
         REFERENCE_SOURCE,
-        "#[must_use = \"a global Object Environment Reference must be consumed by eager compound assignment\"]",
-        "/// Compiler-private bindings used by one with-environment numeric update.",
+        "#[must_use = \"a global Object Environment Reference must be consumed by numeric update or eager compound assignment\"]",
+        "/// Compiler-private bindings used by one Object Environment numeric update.",
     );
     assert!(plan.contains("pub(crate) struct GlobalObjectEnvironmentReferencePlan"));
     assert!(!plan.contains("Clone"));
@@ -249,7 +249,7 @@ fn shared_sealed_lifecycle_rechecks_get_and_put_before_exposing_result() {
     let carrier = bounded(
         REFERENCE_SOURCE,
         "pub(crate) struct EagerCompoundAssignmentBindings {",
-        "impl WithEnvironmentNumericUpdateBindings {",
+        "impl NumericUpdateBindings {",
     );
     for marker in [
         "old_value: String",

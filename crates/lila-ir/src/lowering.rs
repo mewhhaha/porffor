@@ -21,10 +21,9 @@ use crate::ir::reference::{
     reference_base_of_lowered_read, CapturedBindingPosition, CapturedCursorDepth,
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
     DeleteSuperReferencePlan, EagerCompoundAssignmentBindings,
-    GlobalObjectEnvironmentReferencePlan, ObjectEnvironmentBindingObject,
+    GlobalObjectEnvironmentReferencePlan, NumericUpdateBindings, ObjectEnvironmentBindingObject,
     OrderedWithEnvironmentChain, PositionedWithEnvironment, ReferenceBase, ReferenceOperand,
-    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects,
-    WithEnvironmentNumericUpdateBindings, WithEnvironmentReferencePlan,
+    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects, WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26623,10 +26622,14 @@ impl<'a> ScriptLowerer<'a> {
                 reference,
                 IdentifierUpdateReachability::WithEnvironmentFallback,
             );
-            let bindings = WithEnvironmentNumericUpdateBindings::allocate(|prefix| {
-                self.alloc_temp_binding_name(prefix)
-            });
+            let bindings =
+                NumericUpdateBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
             return plan.numeric_update(op, return_mode, bindings, fallback);
+        }
+        if matches!(&reference, LocatedIdentifierReference::Unresolvable)
+            && !self.global_property_is_proven_present(&name)
+        {
+            return self.lower_global_object_environment_numeric_update(name, op, return_mode);
         }
         self.lower_located_identifier_numeric_update(
             name,
@@ -26635,6 +26638,23 @@ impl<'a> ScriptLowerer<'a> {
             reference,
             IdentifierUpdateReachability::Definite,
         )
+    }
+
+    fn lower_global_object_environment_numeric_update(
+        &mut self,
+        name: String,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+    ) -> TypedExpr {
+        if let Some(info) = self.global_properties.get_mut(&name) {
+            info.value_info = unknown_runtime_value_info();
+            info.proven_present = false;
+        }
+        let bindings =
+            NumericUpdateBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
+        let strictness = self.reference_strictness();
+        GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)
+            .numeric_update(op, return_mode, bindings)
     }
 
     fn lower_located_identifier_numeric_update(

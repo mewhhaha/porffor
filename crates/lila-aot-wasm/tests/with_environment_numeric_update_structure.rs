@@ -149,14 +149,14 @@ fn one_nonempty_noncopy_plan_owns_the_complete_numeric_update() {
     assert!(plan_consumer.contains("pub(crate) fn numeric_update("));
     assert!(plan_consumer.contains("op: NumericUpdateOp"));
     assert!(plan_consumer.contains("return_mode: UpdateReturnMode"));
-    assert!(plan_consumer.contains("bindings: WithEnvironmentNumericUpdateBindings"));
+    assert!(plan_consumer.contains("bindings: NumericUpdateBindings"));
     assert!(plan_consumer.contains("for environment in outer"));
     assert!(plan_consumer.contains("innermost.numeric_update_or_else("));
     assert!(!plan_consumer.contains("ExprIr::PropertyUpdate"));
 
     let bindings = bounded(
         REFERENCE_SOURCE,
-        "pub(crate) struct WithEnvironmentNumericUpdateBindings {",
+        "pub(crate) struct NumericUpdateBindings {",
         "impl WithEnvironmentReferencePlan {",
     );
     assert!(bindings.contains("old_value: String"));
@@ -165,19 +165,19 @@ fn one_nonempty_noncopy_plan_owns_the_complete_numeric_update() {
     assert!(bindings.contains("pub(crate) fn allocate("));
     assert_before(
         bindings,
-        "allocate(\"with.update.old.\")",
-        "allocate(\"with.update.result.\")",
+        "allocate(\"object.environment.update.old.\")",
+        "allocate(\"object.environment.update.result.\")",
     );
     assert_before(
         bindings,
-        "allocate(\"with.update.result.\")",
-        "allocate(\"with.update.write.\")",
+        "allocate(\"object.environment.update.result.\")",
+        "allocate(\"object.environment.update.write.\")",
     );
 }
 
 #[test]
 fn selected_branch_orders_get_numeric_delta_put_and_result() {
-    let update = bounded(
+    let selection = bounded(
         REFERENCE_SOURCE,
         "    fn numeric_update_or_else(",
         "impl SelectedWithEnvironmentObjects {",
@@ -185,32 +185,48 @@ fn selected_branch_orders_get_numeric_delta_put_and_result() {
 
     for marker in [
         "let binding_visible = binding_object.binding_visible(",
-        "let WithEnvironmentNumericUpdateBindings {",
+        "binding_object.numeric_update(",
+        "condition: Box::new(binding_visible)",
+        "then_expr: Box::new(selected_update)",
+        "else_expr: Box::new(fallback)",
+    ] {
+        assert!(
+            selection.contains(marker),
+            "missing selection boundary: {marker}"
+        );
+    }
+    assert_before(selection, "let binding_visible =", "let selected_update =");
+
+    let objects = bounded(
+        REFERENCE_SOURCE,
+        "impl ObjectEnvironmentBindingObject {",
+        "/// Declarative-frame depth in the function currently being lowered.",
+    );
+    let update = bounded(
+        objects,
+        "    fn numeric_update(",
+        "    /// GetValue, eager operation, same-base PutValue, then result.",
+    );
+    for marker in [
+        "let NumericUpdateBindings {",
         "old_value: old_value_name,\n            result: result_name,\n            write: write_name,",
-        "let old_value = binding_object",
-        ".get_value(referenced_name, strictness);",
+        "let old_value = self.clone().get_value(referenced_name, strictness);",
         "ExprIr::UpdateIdentifier {",
         "let updated_value = TypedExpr::from_info(",
-        "let write = binding_object.put_value(",
+        "let write = self.put_value(referenced_name, strictness, updated_value);",
         "let result = TypedExpr::from_info(",
         "name: write_name.clone()",
         "name: result_name.clone()",
         "name: old_value_name.clone()",
-        "condition: Box::new(binding_visible)",
     ] {
         assert!(update.contains(marker), "missing update boundary: {marker}");
     }
-    assert_before(update, "let binding_visible =", "let old_value =");
     assert_before(update, "let old_value =", "let update =");
     assert_before(update, "let update =", "let updated_value =");
+    assert_before(update, "let updated_value =", "let write = self.put_value");
     assert_before(
         update,
-        "let updated_value =",
-        "let write = binding_object.put_value",
-    );
-    assert_before(
-        update,
-        "let write = binding_object.put_value",
+        "let write = self.put_value",
         "let result = TypedExpr::from_info",
     );
     assert_before(
@@ -219,7 +235,6 @@ fn selected_branch_orders_get_numeric_delta_put_and_result() {
         "let after_write =",
     );
     assert_before(update, "let after_write =", "let after_update =");
-    assert_before(update, "let after_update =", "let selected_update =");
     assert!(!update.contains("ExprIr::PropertyUpdate"));
 
     let get = bounded(
@@ -276,7 +291,7 @@ fn lowering_spends_the_plan_for_all_four_closed_update_forms() {
     assert!(update.contains(".with_environment_chain"));
     assert!(update.contains(".select_preceding("));
     assert!(update.contains("self.with_environment_reference_plan("));
-    assert!(update.contains("let bindings = WithEnvironmentNumericUpdateBindings::allocate("));
+    assert!(update.contains("NumericUpdateBindings::allocate("));
     assert!(update.contains("self.alloc_temp_binding_name(prefix)"));
     assert!(update.contains("plan.numeric_update("));
     assert!(update.contains("IdentifierUpdateReachability::WithEnvironmentFallback"));

@@ -91,6 +91,49 @@ functions. Identifier-call `WithBaseObject`, logical compound assignment,
 destructuring/delete operations, generated class/helper contexts and resumable
 captured WithObject environments remain explicit debt.
 
+Global Object Environment identifier numeric updates now have a verified
+Reference lifecycle adjacent to the already-green `with` numeric-update lane.
+One private `NumericUpdateBindings` carrier fixes the old-value, result and
+write-completion roles for both environment kinds. The shared binding-object
+operation orders an independent GetBindingValue `HasProperty`/Get, the closed
+Number-or-BigInt update, the independently rechecked SetMutableBinding, and
+result publication after PutValue. A separate non-`Clone`, non-`Copy`
+`GlobalObjectEnvironmentReferencePlan` owns the compiler-known global object,
+name and strictness, performs the initial plain `HasProperty`, and consumes the
+carrier without admitting an unscopables lookup or fallback chain. Lowering
+maps all four prefix/postfix increment/decrement modes exhaustively and only
+selects this plan for an unproven unresolvable global, while invalidating any
+configurable global metadata to fully Dynamic runtime information.
+
+The durable CLI oracle covers successful prefix/postfix Number and BigInt
+updates, all four strict accessor-deletion modes with no recreation, sloppy
+deletion and recreation, an initially absent binding throwing from GetValue
+before ToNumeric, and a Proxy-prototype trace that distinguishes the initial
+HasBinding, GetBindingValue recheck/Get, ToNumeric, SetMutableBinding recheck
+and Set. The bounded source witness owns these exact four `noStrict` files:
+
+- `language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue--1.js`;
+- `language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue--1.js`;
+- `language/expressions/postfix-increment/operator-x-postfix-increment-calls-putvalue-lhs-newvalue--1.js`;
+- `language/expressions/postfix-decrement/operator-x-postfix-decrement-calls-putvalue-lhs-newvalue--1.js`.
+
+The four corresponding bare-suffix `with` files and the eleven odd-suffix
+global eager-compound files remain explicit regression inventories. At
+pre-batch commit `f6b6af6a1779840eaf5d7c88cff2b9ff33db9381`, an isolated
+current-pin run measured the prefix-increment global witness at `0/1` as
+`Runtime/NotImplemented` with the exact diagnostic ``unsupported in lila
+wasm-aot first slice: unbound identifier `x```; the adjacent plain-assignment
+witness was `1/1`. The other three numeric files are source-proven to have
+entered the same closed lowering route and refusal, but were not separately
+measured pre-batch. The current integration checkpoint is green: package checks
+for `lila-ir`, `lila-aot-wasm` and `lila-cli`, plus `cargo xc`, all pass; the
+focused IR lifecycle test is `1/1`, four source-bounded structure executables
+total `17/17`, and the Wasm lifecycle fixture is `1/1` in 45.02 seconds. The
+exact selected global numeric cohort now passes `4/4`, the four bare-suffix
+`with` controls remain `4/4`, and the modern eager-compound prefix remains
+`22/22` with zero unsupported, crash or bug outcomes. These focused results do
+not claim the complete language subtree or pinned matrix is green.
+
 Resumable loops now carry a required closed
 `ResumableLoopIterationEnvironmentIr::{StorageOnly, FreshPerIteration}` policy.
 For the specialized plain-async array `for-of` path, a captured lexical head
@@ -126,7 +169,7 @@ cohort is `44/44`. The broader modern filename filter also exposed 11 adjacent
 global Object Environment cases; they are explicit follow-up evidence, not part
 of this `with`-scope passing claim.
 
-That adjacent global Object Environment follow-up is now dry-written around a
+That adjacent global Object Environment follow-up is now verified around a
 distinct non-copyable `GlobalObjectEnvironmentReferencePlan`. Its constructor
 owns the compiler-provided global object rather than accepting an arbitrary
 expression, and its consuming compound-assignment operation performs the

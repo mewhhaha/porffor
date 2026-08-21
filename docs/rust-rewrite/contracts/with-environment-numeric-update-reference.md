@@ -72,7 +72,8 @@ to reject a program whose `with` binding resolves at run time.
 non-empty `WithEnvironmentReferencePlan`. The plan is neither `Clone` nor
 `Copy`. Its numeric-update consumer takes `self`, a closed `NumericUpdateOp`, a
 closed `UpdateReturnMode`, one opaque
-`WithEnvironmentNumericUpdateBindings` role carrier and the already-lowered
+`NumericUpdateBindings` role carrier shared by Object Environment Records and
+the already-lowered
 fallback. The carrier's sole allocator creates old-value, result and write
 bindings in fixed roles, so three same-typed names cannot be transposed at the
 call boundary.
