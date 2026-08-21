@@ -166,7 +166,7 @@ fn distinct_noncopy_global_plan_selects_plain_has_property_without_unscopables()
 
     let plan = bounded(
         REFERENCE_SOURCE,
-        "#[must_use = \"a global Object Environment Reference must be consumed by numeric update or eager compound assignment\"]",
+        "#[must_use = \"a global Object Environment Reference must be consumed by logical assignment, numeric update, or eager compound assignment\"]",
         "/// Compiler-private bindings used by one Object Environment numeric update.",
     );
     assert!(plan.contains("pub(crate) struct GlobalObjectEnvironmentReferencePlan"));

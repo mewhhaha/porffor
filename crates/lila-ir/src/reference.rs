@@ -455,6 +455,28 @@ impl ObjectEnvironmentBindingObject {
         )
     }
 
+    /// GetValue, logical selection, then same-base PutValue only in the taken
+    /// branch. Initial ResolveBinding selection belongs to the
+    /// environment-specific plan.
+    fn logical_assignment(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        op: LogicalBinaryOp,
+        rhs: TypedExpr,
+    ) -> TypedExpr {
+        let lhs = self.clone().get_value(referenced_name, strictness);
+        let write = self.put_value(referenced_name, strictness, rhs);
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::LogicalShortCircuit {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(write),
+            },
+        )
+    }
+
     /// GetValue, eager operation, same-base PutValue, then result. Initial
     /// ResolveBinding selection belongs to the environment-specific plan.
     fn eager_compound_assignment(
@@ -808,6 +830,33 @@ impl WithEnvironmentResolution {
         )
     }
 
+    /// Compose one selected Object Environment Record's GetBindingValue and
+    /// branch-local SetMutableBinding around a logical assignment. Resolution
+    /// is not restarted after either GetValue or the RHS.
+    fn logical_assignment_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        op: LogicalBinaryOp,
+        rhs: TypedExpr,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let selected = binding_object.logical_assignment(referenced_name, strictness, op, rhs);
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
     /// Compose one selected Object Environment Record's GetBindingValue,
     /// eager operator application and SetMutableBinding. The sealed assignment
     /// carries the only old/result/write roles that can reach this operation.
@@ -864,10 +913,10 @@ impl SelectedWithEnvironmentObjects {
 /// The innermost resolution is a required field instead of the first element
 /// of a `Vec`, so an empty Object Environment chain is not representable. The
 /// plan is deliberately neither `Clone` nor `Copy`; [`Self::get_value`],
-/// [`Self::put_value`], [`Self::numeric_update`] and
-/// [`Self::compound_assignment`] consume it, making a second use E0382.
+/// [`Self::put_value`], [`Self::logical_assignment`], [`Self::numeric_update`]
+/// and [`Self::compound_assignment`] consume it, making a second use E0382.
 #[derive(Debug)]
-#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment"]
+#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment"]
 pub(crate) struct WithEnvironmentReferencePlan {
     innermost: WithEnvironmentResolution,
     outer: Vec<WithEnvironmentResolution>,
@@ -884,7 +933,7 @@ pub(crate) struct WithEnvironmentReferencePlan {
 /// lifecycle. Unlike [`WithEnvironmentReferencePlan`], this type has no
 /// unscopables state or fallback chain.
 #[derive(Debug)]
-#[must_use = "a global Object Environment Reference must be consumed by numeric update or eager compound assignment"]
+#[must_use = "a global Object Environment Reference must be consumed by logical assignment, numeric update, or eager compound assignment"]
 pub(crate) struct GlobalObjectEnvironmentReferencePlan {
     binding_object: ObjectEnvironmentBindingObject,
     referenced_name: String,
@@ -964,6 +1013,35 @@ impl GlobalObjectEnvironmentReferencePlan {
         );
         TypedExpr::from_info(
             result_info,
+            ExprIr::Conditional {
+                condition: Box::new(present),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(missing),
+            },
+        )
+    }
+
+    /// Consume one global Object Record Reference for `&&=`/`||=`/`??=`. An
+    /// initial miss throws before the RHS; a short circuit never enters the
+    /// shared PutValue branch.
+    #[must_use]
+    pub(crate) fn logical_assignment(self, op: LogicalBinaryOp, rhs: TypedExpr) -> TypedExpr {
+        let Self {
+            binding_object,
+            referenced_name,
+            strictness,
+        } = self;
+        let present = binding_object.has_property(&referenced_name);
+        let selected = binding_object.logical_assignment(&referenced_name, strictness, op, rhs);
+        let missing = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+            },
+        );
+        TypedExpr::from_info(
+            dynamic_value_info(),
             ExprIr::Conditional {
                 condition: Box::new(present),
                 then_expr: Box::new(selected),
@@ -1133,6 +1211,35 @@ impl WithEnvironmentReferencePlan {
             &bindings,
             resolved,
         )
+    }
+
+    /// Consume one ResolveBinding result for logical assignment. Each Object
+    /// Environment candidate owns an independent selection condition, while
+    /// the RHS and PutValue remain inside only its taken short-circuit branch.
+    #[must_use]
+    pub(crate) fn logical_assignment(
+        self,
+        op: LogicalBinaryOp,
+        rhs: TypedExpr,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.logical_assignment_or_else(
+                &referenced_name,
+                strictness,
+                op,
+                rhs.clone(),
+                resolved,
+            );
+        }
+        innermost.logical_assignment_or_else(&referenced_name, strictness, op, rhs, resolved)
     }
 
     /// Consume one ResolveBinding result for an eager compound assignment.
@@ -2567,6 +2674,84 @@ mod tests {
             identifier_name(result),
             "$object.environment.compound.result"
         );
+    }
+
+    #[test]
+    fn with_environment_logical_assignment_selects_once_and_puts_only_in_rhs_branch() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .logical_assignment(
+            LogicalBinaryOp::Or,
+            identifier("rhs", ValueKind::Number),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the with Object Record once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+        assert_eq!(identifier_name(fallback), "fallback");
+
+        let ExprIr::LogicalShortCircuit { op, lhs, rhs } = &selected.expr else {
+            panic!("the selected GetValue must control the only PutValue branch");
+        };
+        assert_eq!(*op, LogicalBinaryOp::Or);
+        assert_selected_get_value(lhs, "$with.object", Strictness::Strict);
+        assert_strict_selected_write(rhs, "$with.object", "rhs");
+    }
+
+    #[test]
+    fn global_object_environment_logical_assignment_has_plain_resolution_and_branch_local_put() {
+        for op in [
+            LogicalBinaryOp::And,
+            LogicalBinaryOp::Or,
+            LogicalBinaryOp::Coalesce,
+        ] {
+            let lowered = GlobalObjectEnvironmentReferencePlan::new(
+                ValueInfo::new(ValueKind::Object),
+                "x".to_string(),
+                Strictness::Strict,
+            )
+            .logical_assignment(op, identifier("rhs", ValueKind::Number));
+
+            let ExprIr::Conditional {
+                condition,
+                then_expr: selected,
+                else_expr: missing,
+            } = &lowered.expr
+            else {
+                panic!("global ResolveBinding must precede logical selection");
+            };
+            assert_eq!(has_property_target(condition), GLOBAL_THIS_NAME);
+            assert!(matches!(
+                &missing.expr,
+                ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+                }
+            ));
+
+            let ExprIr::LogicalShortCircuit {
+                op: actual_op,
+                lhs,
+                rhs,
+            } = &selected.expr
+            else {
+                panic!("the selected GetValue must control the only PutValue branch");
+            };
+            assert_eq!(*actual_op, op);
+            assert_selected_get_value(lhs, GLOBAL_THIS_NAME, Strictness::Strict);
+            assert_strict_selected_write(rhs, GLOBAL_THIS_NAME, "rhs");
+        }
     }
 
     #[test]

@@ -1,6 +1,7 @@
 mod array_literal;
 mod builtin_shapes;
 mod dynamic_source;
+mod object_environment_logical;
 mod proxy_traps;
 mod with_environment_compound;
 
@@ -9,6 +10,7 @@ use dynamic_source::{
     already_accounted_optional_calls, resolved_builtin_call_context, BuiltinCallContext,
     OptionalCallSource, ResolvedDynamicSourceCall,
 };
+use object_environment_logical::LogicalAssignmentReachability;
 use proxy_traps::{ProxyTrap, ProxyTrapSignature};
 use with_environment_compound::EagerCompoundAssignmentOp;
 
@@ -181,10 +183,9 @@ enum LocatedIdentifierReference {
     Unresolvable,
 }
 
-/// Whether an identifier update is definitely reached or is the fallback of
-/// a run-time Object Environment Record selection. The latter invalidates the
-/// prior static binding shape because observable HasBinding may mutate the
-/// fallback before either selecting the object or reaching ToNumeric.
+/// Whether an identifier operation is definitely reached or is the fallback
+/// of a run-time Object Environment Record selection. The latter invalidates
+/// prior static binding shape because observable HasBinding may mutate it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IdentifierUpdateReachability {
     Definite,
@@ -24267,128 +24268,72 @@ impl<'a> ScriptLowerer<'a> {
                 TypedExpr::from_info(result_info, expr)
             }
             AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {
+                let logical_op = match op {
+                    AssignOp::BoolAnd => LogicalBinaryOp::And,
+                    AssignOp::BoolOr => LogicalBinaryOp::Or,
+                    AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
+                    AssignOp::Assign
+                    | AssignOp::Add
+                    | AssignOp::Sub
+                    | AssignOp::Mul
+                    | AssignOp::Div
+                    | AssignOp::Mod
+                    | AssignOp::Exp
+                    | AssignOp::And
+                    | AssignOp::Or
+                    | AssignOp::Xor
+                    | AssignOp::Shl
+                    | AssignOp::Shr
+                    | AssignOp::Ushr => {
+                        unreachable!("this match arm covers only the logical operators")
+                    }
+                };
                 let AssignTarget::Identifier(identifier) = lhs else {
                     if let AssignTarget::Access(access) = lhs {
-                        let logical = match op {
-                            AssignOp::BoolAnd => LogicalBinaryOp::And,
-                            AssignOp::BoolOr => LogicalBinaryOp::Or,
-                            AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
-                            _ => unreachable!(),
-                        };
                         return self.lower_property_reference_update(
                             access,
-                            PropertyUpdateOp::Logical(logical),
+                            PropertyUpdateOp::Logical(logical_op),
                             rhs,
                         );
                     }
                     return self.unsupported_expr("logical assignment");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
-                // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
-                // immutability test below, which is the only test this arm used
-                // to make. The RHS is not lowered yet here, so the throw is in
-                // the right place.
-                match self.resolve_binding_reference(&name) {
-                    BindingResolution::Uninitialized(violation) => return violation.into_throw(),
-                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
-                }
-                let binding = self.lookup_binding(&name);
-                let binding_storage_name =
-                    binding.as_ref().map(|binding| binding.storage_name.clone());
-                let global_info = self.lookup_global_property_info(&name).cloned();
-                // 13.15.2 for `&&=` / `||=` / `??=`: PutValue runs only on the
-                // branch that evaluates the RHS. `const x = 1; x ||= 2`
-                // short-circuits, never reaches PutValue, and is not an error
-                // at all; `const x = 1; x &&= 2` does reach it and throws a
-                // TypeError. The immutability throw therefore belongs *inside*
-                // the RHS branch below — which is why this consumer cannot take
-                // the early-return shape the other three do, and why the
-                // refusal that used to sit here was wrong in two directions at
-                // once (it rejected the short-circuiting program too).
-                let const_storage_name = binding.as_ref().and_then(|binding| {
-                    (binding.mode == BindingMode::Const).then(|| binding.storage_name.clone())
-                });
-                if binding.is_none()
-                    && !global_info.as_ref().is_some_and(|info| info.proven_present)
-                {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                    ));
-                    return TypedExpr::undefined();
-                }
-                let lhs_value = TypedExpr::from_info(
-                    binding
-                        .as_ref()
-                        .map(|binding| ValueInfo {
-                            kind: binding.kind,
-                            possible_kinds: binding.possible_kinds,
-                            heap_shape: binding.heap_shape.clone(),
-                            function_targets: binding.function_targets.clone(),
-                        })
-                        .or_else(|| global_info.as_ref().map(|info| info.value_info.clone()))
-                        .unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic)),
-                    if binding.is_some() {
-                        ExprIr::Identifier(binding_storage_name.clone().expect("binding storage"))
-                    } else {
-                        ExprIr::GlobalPropertyRead { name: name.clone() }
+                let reference = self.locate_identifier_logical_assignment(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(reference.declarative_position());
+                let reference = match selected.is_none() {
+                    true => match reference.reject_definite_tdz() {
+                        Ok(reference) => reference,
+                        Err(error) => return error,
                     },
-                );
-                let rhs_value = self.lower_expression(rhs);
-                let logical_op = match op {
-                    AssignOp::BoolAnd => LogicalBinaryOp::And,
-                    AssignOp::BoolOr => LogicalBinaryOp::Or,
-                    AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
-                    _ => unreachable!(),
+                    false => reference,
                 };
-                if let Some(storage_name) = const_storage_name {
-                    let throwing_rhs = self.immutable_binding_write(&storage_name, rhs_value);
-                    // The short-circuit branch yields the old value; the other
-                    // branch diverges (or, under the sloppy carve-out, yields
-                    // the RHS). Merging is sound for both.
-                    let result_info =
-                        self.merge_value_infos(lhs_value.value_info(), throwing_rhs.value_info());
-                    return TypedExpr::from_info(
-                        result_info,
-                        ExprIr::LogicalShortCircuit {
-                            op: logical_op,
-                            lhs: Box::new(lhs_value),
-                            rhs: Box::new(throwing_rhs),
-                        },
+                let rhs_value = self.lower_expression(rhs);
+                if let Some(objects) = selected {
+                    let plan = self.with_environment_reference_plan(name.clone(), objects);
+                    let fallback = self.lower_located_identifier_logical_assignment(
+                        name,
+                        logical_op,
+                        rhs_value.clone(),
+                        reference,
+                        LogicalAssignmentReachability::WithEnvironmentFallback,
+                    );
+                    return plan.logical_assignment(logical_op, rhs_value, fallback);
+                }
+                if reference.is_unproven_global() {
+                    return self.lower_global_object_environment_logical_assignment(
+                        name, logical_op, rhs_value,
                     );
                 }
-                let result_info =
-                    self.merge_value_infos(lhs_value.value_info(), rhs_value.value_info());
-                let value = TypedExpr::from_info(
-                    result_info,
-                    ExprIr::LogicalShortCircuit {
-                        op: logical_op,
-                        lhs: Box::new(lhs_value),
-                        rhs: Box::new(rhs_value),
-                    },
-                );
-                if let Some(storage_name) = binding_storage_name {
-                    self.set_binding_value_info(&name, value.value_info());
-                    TypedExpr::from_info(
-                        value.value_info(),
-                        ExprIr::AssignIdentifier {
-                            name: storage_name,
-                            value: Box::new(value),
-                        },
-                    )
-                } else {
-                    self.set_global_property_value_info(name.clone(), value.value_info());
-                    let strictness = self.reference_strictness();
-                    TypedExpr::from_info(
-                        value.value_info(),
-                        ExprIr::GlobalPropertyWrite {
-                            name,
-                            value: Box::new(value),
-                            implicit: false,
-                            strictness,
-                        },
-                    )
-                }
+                self.lower_located_identifier_logical_assignment(
+                    name,
+                    logical_op,
+                    rhs_value,
+                    reference,
+                    LogicalAssignmentReachability::Definite,
+                )
             }
             AssignOp::And
             | AssignOp::Or

@@ -132,11 +132,11 @@ fn one_nonempty_noncopy_plan_owns_the_complete_numeric_update() {
     assert!(selection.contains("outer: Vec<ObjectEnvironmentBindingObject>"));
 
     assert!(REFERENCE_SOURCE.contains(
-        "#[derive(Debug)]\n#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
+        "#[derive(Debug)]\n#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
     ));
     let plan_type = bounded(
         REFERENCE_SOURCE,
-        "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment\"]",
+        "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment\"]",
         "/// One identifier Reference selected by the Global Environment Record's",
     );
     assert!(!plan_type.contains("Clone"));

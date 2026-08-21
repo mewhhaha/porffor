@@ -134,6 +134,47 @@ exact selected global numeric cohort now passes `4/4`, the four bare-suffix
 `22/22` with zero unsupported, crash or bug outcomes. These focused results do
 not claim the complete language subtree or pinned matrix is green.
 
+Object Environment identifier logical assignment now has a verified shared
+Reference lifecycle for all three closed `LogicalBinaryOp::{And, Or,
+Coalesce}` modes. `ObjectEnvironmentBindingObject::logical_assignment` keeps
+GetBindingValue on one binding-object identity and places SetMutableBinding,
+including its RHS and independent `HasProperty` recheck, wholly inside the
+taken `LogicalShortCircuit` branch. The non-empty, non-copyable
+`WithEnvironmentReferencePlan` wraps that lifecycle in inner-to-outer
+HasProperty/unscopables selection and a pre-located fallback. The separate
+non-copyable `GlobalObjectEnvironmentReferencePlan` performs one initial plain
+HasProperty, emits ReferenceError on a miss, and cannot carry unscopables state.
+
+A private, non-copyable, must-use `LocatedIdentifierLogicalAssignment` owns the
+located Reference and `Option<ValueInfo>` proven-global snapshot before RHS
+lowering; its consuming helper cannot silently reread metadata after the RHS
+has changed it. The durable CLI oracle makes that snapshot load-bearing with an
+untaken String-writing RHS beside an old Number value. It also covers all three
+modes for initially absent globals, dynamically present short circuits with no
+RHS or PutValue, taken global writes, strict getter deletion without Set,
+sloppy recreation, visible and fallback `with` bindings, nested
+`Symbol.unscopables`, and the exact observable `huhgdrhs` order from HasBinding
+through SetMutableBinding.
+
+The exact selected `onlyStrict` Test262 files are:
+
+- `language/expressions/logical-assignment/lgcl-and-assignment-operator-unresolved-lhs.js`;
+- `language/expressions/logical-assignment/lgcl-or-assignment-operator-unresolved-lhs.js`;
+- `language/expressions/logical-assignment/lgcl-nullish-assignment-operator-unresolved-lhs.js`.
+
+The current integration checkpoint is green: package checks for `lila-ir`,
+`lila-aot-wasm` and `lila-cli`, plus `cargo xc`, all pass; the focused IR
+lifecycle tests are `2/2`, and four final source-bounded structure executables
+are `4/4`. One stale derive marker was corrected during that focused structural
+rerun without changing product code. The exact Wasm lifecycle fixture is `1/1`
+in 87.88 seconds, while the broader focused `environment` test selection is
+`12/12` in 270.93 seconds. The three selected strict unresolved-lhs Test262
+files now pass `3/3` with zero unsupported, crash or bug outcomes. The six
+adjacent unresolved-RHS physical files pass all `12/12` sloppy and strict
+executions. No vendored logical-assignment witness contains `with`, so the
+fixture remains the honest evidence for that behavior. These focused results
+do not claim the complete language subtree or pinned matrix is green.
+
 Resumable loops now carry a required closed
 `ResumableLoopIterationEnvironmentIr::{StorageOnly, FreshPerIteration}` policy.
 For the specialized plain-async array `for-of` path, a captured lexical head

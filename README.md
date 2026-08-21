@@ -370,6 +370,29 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- Object Environment identifier `&&=`, `||=` and `??=` now have a verified
+  Reference lifecycle for both global and `with` resolution. The existing
+  closed logical-op enum feeds one private binding-object operation whose
+  PutValue is structurally inside only the taken short-circuit branch; distinct
+  consuming with/global plans own selection, strictness and the same binding
+  object across GetValue and SetMutableBinding. A non-copyable pre-RHS Reference
+  carrier snapshots any proven-global value metadata before lowering the RHS,
+  preventing an untaken RHS write from changing the old value's emitted tag.
+  The durable CLI oracle covers all three modes, initial global misses before
+  RHS, dynamic global short circuits and taken writes, strict getter deletion,
+  sloppy recreation, selected/declarative/nested-unscopables `with` paths, and
+  an observable `huhgdrhs` selection/Get/RHS/Put trace. Package checks for
+  `lila-ir`, `lila-aot-wasm` and `lila-cli`, plus `cargo xc`, pass; the two
+  focused IR lifecycle tests are `2/2`, four final source-bounded structure
+  executables are `4/4`, and the exact Wasm fixture is `1/1` in 87.88 seconds.
+  The broader focused environment test selection is `12/12` in 270.93 seconds.
+  The three selected strict unresolved-lhs Test262 files now pass `3/3`, and
+  the six adjacent unresolved-RHS physical files pass all `12/12` sloppy and
+  strict executions. One stale derive marker was corrected during the final
+  structural rerun; product code was unchanged. No vendored logical-assignment
+  file contains `with`, so that behavior remains fixture evidence rather than
+  part of the exact Test262 counts. These focused results do not claim the
+  complete language subtree or pinned matrix is green.
 - Global Object Environment identifier `++` and `--` now use a verified
   Reference lifecycle beside the retained `with` lifecycle. One private
   fixed-role numeric carrier feeds the shared Object Environment
