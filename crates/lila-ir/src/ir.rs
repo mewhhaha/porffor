@@ -2117,6 +2117,9 @@ pub enum ForInitIr {
     /// keep one DisposeCapability active from before the first initializer
     /// until the loop's final completion.
     SyncDisposable(SyncDisposableResourcesIr),
+    /// A non-empty async-disposable head whose activation-backed capability
+    /// remains live across the whole classic loop.
+    AsyncDisposable(AsyncDisposableForInitIr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2639,6 +2642,39 @@ impl AsyncDisposableResourceIr {
 pub struct AsyncDisposableResourcesIr {
     first: AsyncDisposableResourceIr,
     rest: Vec<AsyncDisposableResourceIr>,
+}
+
+/// The complete async-dispose ownership proof for one classic-for initializer.
+///
+/// Private fields prevent a backend from pairing resources with a different
+/// execution owner or manufacturing an unfinished finalizer. Lowering is the
+/// sole constructor and can call it only after the complete loop region has
+/// allocated its source suspension states.
+#[must_use = "an async-disposable classic-for initializer must be attached to its loop"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableForInitIr {
+    capability: AsyncFunctionAsyncDisposableCapabilityIr,
+    resources: AsyncDisposableResourcesIr,
+}
+
+impl AsyncDisposableForInitIr {
+    pub(crate) fn new(
+        capability: AsyncFunctionAsyncDisposableCapabilityIr,
+        resources: AsyncDisposableResourcesIr,
+    ) -> Self {
+        Self {
+            capability,
+            resources,
+        }
+    }
+
+    pub fn capability(&self) -> &AsyncFunctionAsyncDisposableCapabilityIr {
+        &self.capability
+    }
+
+    pub fn resources(&self) -> &AsyncDisposableResourcesIr {
+        &self.resources
+    }
 }
 
 impl AsyncDisposableResourcesIr {
@@ -3832,6 +3868,12 @@ impl IrSummaryCounts {
                 self.consts += resources.len();
                 for resource in resources.iter() {
                     self.visit_expr(&resource.initializer);
+                }
+            }
+            ForInitIr::AsyncDisposable(init) => {
+                self.consts += init.resources().len();
+                for resource in init.resources().iter() {
+                    self.visit_expr(resource.initializer());
                 }
             }
         }

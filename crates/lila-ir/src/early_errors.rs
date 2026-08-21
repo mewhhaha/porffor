@@ -457,6 +457,11 @@ fn statement_contains_this_before_super(
                             expr_contains_this_before_super(&resource.initializer, state);
                         }
                     }
+                    ForInitIr::AsyncDisposable(init) => {
+                        for resource in init.resources().iter() {
+                            expr_contains_this_before_super(resource.initializer(), state);
+                        }
+                    }
                 }
             }
             if let Some(test) = test {
@@ -501,6 +506,11 @@ fn statement_contains_this_before_super(
                     ForInitIr::SyncDisposable(resources) => {
                         for resource in resources.iter() {
                             expr_contains_this_before_super(&resource.initializer, state);
+                        }
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        for resource in init.resources().iter() {
+                            expr_contains_this_before_super(resource.initializer(), state);
                         }
                     }
                 }

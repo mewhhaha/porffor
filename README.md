@@ -752,6 +752,35 @@ Recent focused progress through `2026-08-21`:
   patterns, suspension inside a resource initializer, nonlinear async-generator
   forms, the complete `await using` directory and the full pinned aggregate
   remain explicit nonclaims.
+- The adjacent plain-async classic-`for` `await using` batch uses the closed
+  `ForInitIr::AsyncDisposable(AsyncDisposableForInitIr)` capability. The direct
+  `StatementIr::For` remains the label target, while its nonempty resource list
+  and activation-owned finalizer span initializer acquisition, test, every body
+  and update, and terminal completion. The source-free CLI oracle contains no
+  explicit Await or Yield expression beyond the `await using` declaration and
+  covers async-first lookup, sync fallback, body-before-disposal, normal exit,
+  local break/continue, labelled control targeting the resource loop, return,
+  throw, abrupt test and update,
+  later acquisition failure, LIFO `SuppressedError`, loop-environment capture
+  and exactly-once disposal. At clean pre-batch commit `bca90f2ff9`, the exact
+  `initializer-Symbol.{asyncDispose,dispose}-{called-at-end-of-forstatement,called-if-subsequent-initializer-throws-in-forstatement-head}.js`
+  cohort reports `0/8`: every sloppy/strict Script execution is
+  `Runtime/NotImplemented` with `unsupported in lila wasm-aot first slice: await
+  using declaration`, and none has a rewrite or known-failure mask. Central
+  verification is green for `cargo check --workspace --all-targets`, `cargo
+  xc`, the focused IR test (`1/1` in 12.11s), and the structure executable
+  (`5/5`). The new CLI fixture passes `1/1` in 22.81s; retained plain-async and
+  async-generator await-using fixtures pass `1/1` in 12.00s and 22.60s, and the
+  retained synchronous classic-for fixture passes `1/1` in 30.22s. The four
+  exact files now each pass `2/2`, for `8/8` total with zero unsupported, crash
+  or bug outcomes. Runtime verification caught an over-broad generic Labelled
+  state scan; the repair forwards resumable state only through a transparent
+  label chain ending directly in an async-disposable For. Async generators,
+  ordinary and generator owners, modules, dynamic source, binding patterns,
+  `for-of` and `for-await-of`, source suspension in any loop region, the
+  complete `await using` directory, outer labelled-block or enclosing-loop
+  control, repeated or nonlinear re-entry of the same resource-loop node, and
+  the full pinned aggregate remain explicit nonclaims.
 - The adjacent classic-`for` extension gives a synchronous
   `using` head the closed, statically non-empty
   `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while

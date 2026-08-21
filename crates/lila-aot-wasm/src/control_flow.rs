@@ -2,8 +2,8 @@ use super::*;
 use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
-    ArrayDestructuringEvaluationIr, AsyncDisposableFinalizerPlanIr, AsyncDisposableResourcesIr,
-    AsyncDisposableScopeExecutionIr, AsyncForOfIteratorPlanIr,
+    ArrayDestructuringEvaluationIr, AsyncDisposableFinalizerPlanIr, AsyncDisposableForInitIr,
+    AsyncDisposableResourcesIr, AsyncDisposableScopeExecutionIr, AsyncForOfIteratorPlanIr,
     AsyncFunctionAsyncDisposableCapabilityIr, AsyncFunctionSyncDisposableCapabilityIr,
     AsyncGeneratorAsyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
     AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
@@ -78,6 +78,28 @@ struct DisposingActivationAsyncDisposeCapability {
 
 #[must_use = "a parked async-dispose completion must be restored exactly once"]
 struct ActiveAsyncDisposePendingCompletion;
+
+/// The only two legal continuations after an asynchronous DisposeCapability
+/// has restored its parked completion.
+///
+/// A scope can dispatch immediately. A classic-for head must first restore its
+/// lexical environment, then dispatch abrupt completions, and route Normal to
+/// the loop's break target. Consuming this role inside the finalizer prevents a
+/// new call site from accidentally dispatching before the environment leave.
+#[must_use = "an async DisposeCapability continuation must be consumed by its finalizer"]
+enum ActivationAsyncDisposeCompletionContinuation {
+    Scope,
+    ClassicFor {
+        lexical_environment: ClassicForAsyncDisposeLexicalEnvironment,
+        break_target: ControlTarget,
+    },
+}
+
+#[must_use = "a classic-for async-disposal environment role must be consumed at finalization"]
+enum ClassicForAsyncDisposeLexicalEnvironment {
+    Absent,
+    Active,
+}
 
 /// The two activation layouts that can own an asynchronous DisposeCapability.
 ///
@@ -1376,6 +1398,14 @@ impl<'a> FunctionBuilder<'a> {
                 .statements
                 .iter()
                 .find_map(Self::async_statement_entry_state),
+            // Labels do not own a resumable region. Forward only a direct
+            // labelled await-using For (including a chain of labels): blindly
+            // scanning a labelled block would schedule code after an earlier
+            // labelled break at an unreachable child's exit state.
+            StatementIr::Labelled { statement, .. } => {
+                Self::labelled_async_disposable_for_finalizer(statement)
+                    .map(AsyncDisposableFinalizerPlanIr::entry_state)
+            }
             StatementIr::TryCatch {
                 async_plan: Some(plan),
                 ..
@@ -1411,6 +1441,10 @@ impl<'a> FunctionBuilder<'a> {
                     .finalizer()
                     .entry_state(),
             ),
+            StatementIr::For {
+                init: Some(ForInitIr::AsyncDisposable(init)),
+                ..
+            } => Some(init.capability().finalizer().entry_state()),
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
@@ -1436,6 +1470,10 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .rev()
                 .find_map(Self::async_statement_exit_state),
+            StatementIr::Labelled { statement, .. } => {
+                Self::labelled_async_disposable_for_finalizer(statement)
+                    .map(AsyncDisposableFinalizerPlanIr::exit_state)
+            }
             StatementIr::TryCatch {
                 async_plan: Some(plan),
                 ..
@@ -1472,12 +1510,31 @@ impl<'a> FunctionBuilder<'a> {
                     .finalizer()
                     .exit_state(),
             ),
+            StatementIr::For {
+                init: Some(ForInitIr::AsyncDisposable(init)),
+                ..
+            } => Some(init.capability().finalizer().exit_state()),
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
                     | SyncDisposableScopeExecutionIr::PlainGenerator(_),
                 ..
             } => None,
+            _ => None,
+        }
+    }
+
+    fn labelled_async_disposable_for_finalizer(
+        statement: &StatementIr,
+    ) -> Option<&AsyncDisposableFinalizerPlanIr> {
+        match statement {
+            StatementIr::Labelled { statement, .. } => {
+                Self::labelled_async_disposable_for_finalizer(statement)
+            }
+            StatementIr::For {
+                init: Some(ForInitIr::AsyncDisposable(init)),
+                ..
+            } => Some(init.capability().finalizer()),
             _ => None,
         }
     }
@@ -5062,8 +5119,7 @@ impl<'a> FunctionBuilder<'a> {
             ));
         }
         let binding = self
-            .owned_env_slot(owner.binding_name())
-            .map(|slot| BindingStorage::EnvSlot { slot, hops: 0 })
+            .activation_owned_binding_storage(owner.binding_name())
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "async DisposeCapability is missing its activation-owned binding",
@@ -5143,7 +5199,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.consume_activation_async_dispose_capability(
-            &owner, disposing, pending, finalizer, function,
+            &owner,
+            disposing,
+            pending,
+            finalizer,
+            ActivationAsyncDisposeCompletionContinuation::Scope,
+            function,
         )?;
 
         self.pop_control(ControlFrameKind::Block);
@@ -5151,6 +5212,21 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
+    }
+
+    /// Resolve a compiler-private activation binding from the environment that
+    /// is current at this source point.
+    ///
+    /// `owned_env_slot` is relative to the activation root. A materialized
+    /// source environment may sit above that root, so spelling `hops: 0` at a
+    /// consumer can silently redirect the capability into an unrelated source
+    /// binding with the same slot index.
+    fn activation_owned_binding_storage(&self, name: &str) -> Option<BindingStorage> {
+        self.owned_env_slot(name)
+            .map(|slot| BindingStorage::EnvSlot {
+                slot,
+                hops: self.environment_depth,
+            })
     }
 
     fn initialize_async_disposable_resource_bindings(
@@ -5804,6 +5880,7 @@ impl<'a> FunctionBuilder<'a> {
         disposing: DisposingActivationAsyncDisposeCapability,
         pending: ActiveAsyncDisposePendingCompletion,
         finalizer: &AsyncDisposableFinalizerPlanIr,
+        continuation: ActivationAsyncDisposeCompletionContinuation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
@@ -6076,7 +6153,24 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.finish_async_dispose_pending_completion(pending, function)?;
         self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
-        self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
+        match continuation {
+            ActivationAsyncDisposeCompletionContinuation::Scope => {
+                self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
+            }
+            ActivationAsyncDisposeCompletionContinuation::ClassicFor {
+                lexical_environment,
+                break_target,
+            } => {
+                match lexical_environment {
+                    ClassicForAsyncDisposeLexicalEnvironment::Absent => {}
+                    ClassicForAsyncDisposeLexicalEnvironment::Active => {
+                        self.emit_leave_lexical_environment(function);
+                    }
+                }
+                self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
+                self.emit_branch_to_target(break_target, function);
+            }
+        }
 
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -7116,6 +7210,17 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
+        if let Some(ForInitIr::AsyncDisposable(init)) = init {
+            return self.compile_async_disposable_for(
+                init,
+                test,
+                update,
+                body,
+                lexical_environment,
+                labels,
+                function,
+            );
+        }
 
         self.push_scope();
         self.emit_statement_result(function, ValueKind::Undefined);
@@ -7193,6 +7298,171 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )
+    }
+
+    fn compile_async_disposable_for(
+        &mut self,
+        init: &AsyncDisposableForInitIr,
+        test: Option<&TypedExpr>,
+        update: Option<&TypedExpr>,
+        body: &StatementIr,
+        lexical_environment: Option<&ForLexicalEnvironmentIr>,
+        labels: &[String],
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if !self
+            .current_function_meta()
+            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async)
+        {
+            return Err(EmitError::unsupported(
+                "await using for head requires a plain async function",
+            ));
+        }
+        if lexical_environment
+            .is_some_and(|environment| !environment.per_iteration_slots.is_empty())
+        {
+            return Err(EmitError::unsupported(
+                "await using for head cannot own per-iteration bindings",
+            ));
+        }
+
+        let resources = init.resources();
+        debug_assert!(!resources.is_empty());
+        let owner = ActivationAsyncDisposeOwner::AsyncFunction(init.capability());
+        let finalizer = owner.finalizer();
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("async disposal requires the function call ABI")
+        })?;
+
+        self.push_scope();
+        self.emit_statement_result(function, ValueKind::Undefined);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.breakable_stack.push(break_frame);
+
+        self.emit_async_state_in_range(
+            activation_local,
+            finalizer.entry_state(),
+            finalizer.exit_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+
+        let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
+            bindings: environment.bindings.clone(),
+        });
+        if let Some(environment) = &runtime_environment {
+            // Async body re-entry reconstructs lexical environments from the
+            // activation root. The original loop record remains reachable by
+            // closures created before disposal; this fresh record is used only
+            // to restore the binding layout and parent chain while finalizing.
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+
+        // Resolve after entering or reattaching the loop environment. Its
+        // hidden activation-owned binding therefore carries the adjusted hop
+        // count instead of aliasing a loop-head slot with the same raw index.
+        let binding = self
+            .activation_owned_binding_storage(owner.binding_name())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "async DisposeCapability is missing its activation-owned binding",
+                )
+            })?;
+        let storage = ActivationAsyncDisposeCapabilityStorage { binding };
+
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(disposal_frame);
+
+        self.emit_async_state_in_range(
+            activation_local,
+            finalizer.entry_state(),
+            finalizer.dispose_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.initialize_async_disposable_resource_bindings(resources, function);
+        self.initialize_activation_async_dispose_capability(&storage, resources, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
+        if let Some(test) = test {
+            self.compile_classic_for_test(test, disposal_frame, function)?;
+        }
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.loop_stack.push(LoopTargets { continue_frame });
+        self.push_labels(labels, break_frame, Some(continue_frame));
+        self.compile_statement(body, function)?;
+        self.pop_labels(labels.len());
+        self.loop_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        if let Some(update) = update {
+            self.compile_classic_for_update(update, function)?;
+        }
+        function.branch_to_label(loop_frame.label);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.finally_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        self.emit_async_finalizer_needs_pending_completion(
+            activation_local,
+            finalizer.dispose_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        let pending = self.begin_async_dispose_pending_completion(function)?;
+        self.set_completion_kind(CompletionKind::Normal, function);
+        let disposing = self.begin_activation_async_dispose_capability(
+            storage,
+            activation_local,
+            finalizer,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.consume_activation_async_dispose_capability(
+            &owner,
+            disposing,
+            pending,
+            finalizer,
+            ActivationAsyncDisposeCompletionContinuation::ClassicFor {
+                lexical_environment: if runtime_environment.is_some() {
+                    ClassicForAsyncDisposeLexicalEnvironment::Active
+                } else {
+                    ClassicForAsyncDisposeLexicalEnvironment::Absent
+                },
+                break_target: break_frame,
+            },
+            function,
+        )?;
+
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.breakable_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.pop_scope();
+        Ok(())
     }
 
     fn compile_sync_disposable_for(
@@ -7632,6 +7902,11 @@ impl<'a> FunctionBuilder<'a> {
             ForInitIr::SyncDisposable(_) => {
                 return Err(EmitError::unsupported(
                     "synchronous using for head requires the classic loop disposal lifecycle",
+                ));
+            }
+            ForInitIr::AsyncDisposable(_) => {
+                return Err(EmitError::unsupported(
+                    "await using for head requires the async classic loop disposal lifecycle",
                 ));
             }
         }

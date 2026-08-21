@@ -5277,6 +5277,14 @@ impl<'a> ScriptLowerer<'a> {
                             )
                         })
                     }
+                    ForInitIr::AsyncDisposable(init) => {
+                        init.resources().iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(resource.initializer()),
+                            )
+                        })
+                    }
                 });
                 info = self.merge_optional_value_info(
                     info,
@@ -5334,6 +5342,14 @@ impl<'a> ScriptLowerer<'a> {
                             self.merge_optional_value_info(
                                 info,
                                 self.infer_expr_throw_info(&resource.initializer),
+                            )
+                        })
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        init.resources().iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(resource.initializer()),
                             )
                         })
                     }
@@ -6179,10 +6195,19 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_for_loop(&mut self, for_loop: &ForLoop) -> (StatementIr, ValueKind) {
+        let async_disposable_head = Self::async_disposable_for_head(for_loop);
+        if async_disposable_head.is_some() {
+            let loop_has_suspension = Self::async_disposable_for_has_source_suspension(for_loop);
+            if loop_has_suspension {
+                self.unsupported("suspension inside an await using classic-for loop");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            }
+        }
         let generator_entry_state = self.current_generator_resume_state;
-        let loop_head_has_await = for_loop
-            .init()
-            .is_some_and(|init| contains(init, ContainsSymbol::AwaitExpression))
+        let loop_head_has_await = async_disposable_head.is_none()
+            && for_loop
+                .init()
+                .is_some_and(|init| contains(init, ContainsSymbol::AwaitExpression))
             || for_loop
                 .condition()
                 .is_some_and(|condition| contains(condition, ContainsSymbol::AwaitExpression))
@@ -6219,14 +6244,9 @@ impl<'a> ScriptLowerer<'a> {
             let declaration = lexical.declaration();
             let (mode, list) = match declaration {
                 LexicalDeclaration::Let(list) => (BindingMode::Let, list),
-                LexicalDeclaration::Const(list) | LexicalDeclaration::Using(list) => {
-                    (BindingMode::Const, list)
-                }
-                LexicalDeclaration::AwaitUsing(_) => {
-                    self.unsupported("await using declaration");
-                    self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                }
+                LexicalDeclaration::Const(list)
+                | LexicalDeclaration::Using(list)
+                | LexicalDeclaration::AwaitUsing(list) => (BindingMode::Const, list),
             };
             for variable in list.as_ref() {
                 if let Some(bound_names) = supported_bound_names(self.interner, variable.binding())
@@ -6243,7 +6263,17 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
-        let init = for_loop.init().and_then(|init| self.lower_for_init(init));
+        let mut pending_async_disposable_init = None;
+        let mut init = if let Some(list) = async_disposable_head {
+            pending_async_disposable_init = self.lower_async_disposable_for_init(list);
+            if pending_async_disposable_init.is_none() {
+                self.pop_scope();
+                return (StatementIr::Empty, ValueKind::Undefined);
+            }
+            None
+        } else {
+            for_loop.init().and_then(|init| self.lower_for_init(init))
+        };
         let lexical_environment = self.lower_for_lexical_environment(for_loop, init.as_ref());
         if resumable_await_loop {
             if lexical_environment.is_some() {
@@ -6275,6 +6305,9 @@ impl<'a> ScriptLowerer<'a> {
                     self.pop_scope();
                     return (StatementIr::Empty, ValueKind::Undefined);
                 }
+                Some(ForInitIr::AsyncDisposable(_)) => {
+                    unreachable!("pending async-disposable init is finalized after loop lowering")
+                }
                 Some(ForInitIr::Var(_)) | Some(ForInitIr::Expression(_)) | None => {}
             }
         }
@@ -6285,6 +6318,11 @@ impl<'a> ScriptLowerer<'a> {
             .final_expr()
             .map(|expr| self.lower_expression(expr));
         let (body, body_kind) = self.lower_loop_body(for_loop.body());
+        if let Some(pending) = pending_async_disposable_init {
+            init = Some(ForInitIr::AsyncDisposable(
+                self.finish_async_disposable_for_init(pending),
+            ));
+        }
         self.pop_scope();
         let after_body_vars = self.var_bindings.clone();
         let after_body_globals = self.global_properties.clone();

@@ -431,6 +431,13 @@ mod tests {
                                         .map(|resource| resource.binding_name.clone()),
                                 );
                             }
+                            ForInitIr::AsyncDisposable(init) => {
+                                names.extend(
+                                    init.resources()
+                                        .iter()
+                                        .map(|resource| resource.binding_name().to_string()),
+                                );
+                            }
                         }
                     }
                     collect(body, names);
@@ -466,6 +473,13 @@ mod tests {
                                     resources
                                         .iter()
                                         .map(|resource| resource.binding_name.clone()),
+                                );
+                            }
+                            ForInitIr::AsyncDisposable(init) => {
+                                names.extend(
+                                    init.resources()
+                                        .iter()
+                                        .map(|resource| resource.binding_name().to_string()),
                                 );
                             }
                         }
@@ -13961,6 +13975,82 @@ target[Symbol.iterator];"#,
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn plain_async_classic_for_await_using_owns_closed_initializer_capability() {
+        let program = lower_script(
+            "async function owner() { outer: for (await using first = null, second = undefined; false; first) { (() => first); continue outer; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::Labelled { labels, statement }] = owner.body.statements.as_slice() else {
+            panic!("source label should remain explicit");
+        };
+        assert_eq!(
+            labels.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["outer"]
+        );
+        let StatementIr::For {
+            init: Some(ForInitIr::AsyncDisposable(init)),
+            update: Some(update),
+            lexical_environment: Some(environment),
+            ..
+        } = statement.as_ref()
+        else {
+            panic!("await using head must remain a direct classic For initializer");
+        };
+
+        assert_eq!(init.resources().len(), 2);
+        assert!(!init.resources().is_empty());
+        let names = init
+            .resources()
+            .iter()
+            .map(AsyncDisposableResourceIr::binding_name)
+            .collect::<Vec<_>>();
+        assert!(names[0].ends_with("first"), "{names:?}");
+        assert!(names[1].ends_with("second"), "{names:?}");
+        assert!(environment
+            .bindings
+            .iter()
+            .any(|binding| binding.name == names[0]));
+        assert!(environment.per_iteration_slots.is_empty());
+        assert_eq!(
+            update.kind,
+            ValueKind::Null,
+            "resource metadata must leave TDZ before test/update/body lowering"
+        );
+
+        let capability = init.capability();
+        assert!(capability
+            .binding_name()
+            .starts_with("$async.function.for.await.dispose.capability."));
+        assert_eq!(
+            owner
+                .owned_env_bindings
+                .iter()
+                .filter(|binding| binding.name == capability.binding_name())
+                .count(),
+            1,
+            "classic-for capability must own exactly one activation slot"
+        );
+        let finalizer = capability.finalizer();
+        assert!(finalizer.entry_state() < finalizer.dispose_state());
+        assert!(finalizer.dispose_state() < finalizer.resume_state());
+        assert!(finalizer.resume_state() < finalizer.exit_state());
+
+        let unsupported = lower_script(
+            "async function owner() { for (await using resource = null; false;) { await 0; } }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("suspension inside an await using classic-for loop")));
     }
 
     #[test]

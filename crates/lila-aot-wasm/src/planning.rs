@@ -3165,6 +3165,10 @@ fn for_init_exposes_global_object(init: &ForInitIr) -> bool {
         ForInitIr::SyncDisposable(resources) => resources
             .iter()
             .any(|resource| expr_exposes_global_object(&resource.initializer)),
+        ForInitIr::AsyncDisposable(init) => init
+            .resources()
+            .iter()
+            .any(|resource| expr_exposes_global_object(resource.initializer())),
     }
 }
 
@@ -3677,6 +3681,11 @@ fn collect_for_init_global_property_names(init: &ForInitIr, names: &mut BTreeSet
         ForInitIr::SyncDisposable(resources) => {
             for resource in resources.iter() {
                 collect_expr_global_property_names(&resource.initializer, names);
+            }
+        }
+        ForInitIr::AsyncDisposable(init) => {
+            for resource in init.resources().iter() {
+                collect_expr_global_property_names(resource.initializer(), names);
             }
         }
     }
@@ -4814,6 +4823,10 @@ pub(crate) fn for_init_references_function(init: &ForInitIr, target: &FunctionId
         ForInitIr::SyncDisposable(resources) => resources
             .iter()
             .any(|resource| expr_references_function(&resource.initializer, target)),
+        ForInitIr::AsyncDisposable(init) => init
+            .resources()
+            .iter()
+            .any(|resource| expr_references_function(resource.initializer(), target)),
     }
 }
 
@@ -6992,7 +7005,7 @@ pub(crate) fn for_init_uses_calls(init: &ForInitIr) -> bool {
             .filter_map(|declarator| declarator.init.as_ref())
             .any(expr_uses_calls),
         ForInitIr::Statements(statements) => statements.iter().any(statement_uses_calls),
-        ForInitIr::SyncDisposable(_) => true,
+        ForInitIr::SyncDisposable(_) | ForInitIr::AsyncDisposable(_) => true,
     }
 }
 
@@ -7179,7 +7192,7 @@ pub(crate) fn for_init_uses_function_table(init: &ForInitIr) -> bool {
             .filter_map(|declarator| declarator.init.as_ref())
             .any(expr_uses_function_table),
         ForInitIr::Statements(statements) => statements.iter().any(statement_uses_function_table),
-        ForInitIr::SyncDisposable(_) => true,
+        ForInitIr::SyncDisposable(_) | ForInitIr::AsyncDisposable(_) => true,
     }
 }
 
@@ -7745,6 +7758,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                         statements.iter().map(count_statement_lexicals).sum()
                     }
                     ForInitIr::SyncDisposable(resources) => 2 * resources.len(),
+                    ForInitIr::AsyncDisposable(init) => 2 * init.resources().len(),
                 })
                 .unwrap_or(0)
                 + count_statement_lexicals(body)
@@ -7765,6 +7779,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                         statements.iter().map(count_statement_lexicals).sum()
                     }
                     ForInitIr::SyncDisposable(resources) => 2 * resources.len(),
+                    ForInitIr::AsyncDisposable(init) => 2 * init.resources().len(),
                 })
                 .unwrap_or(0)
                 + before_suspension
@@ -7984,6 +7999,10 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                         test_temps.max(update_temps).max(body_temps),
                     )
                 }
+                Some(ForInitIr::AsyncDisposable(init)) => count_async_disposable_scope_temp_locals(
+                    init.resources(),
+                    test_temps.max(update_temps).max(body_temps),
+                ),
                 _ => init
                     .as_ref()
                     .map(count_for_init_temp_locals)
@@ -8121,6 +8140,9 @@ pub(crate) fn count_for_init_temp_locals(init: &ForInitIr) -> usize {
             .unwrap_or(0),
         ForInitIr::SyncDisposable(resources) => {
             count_sync_disposable_resources_temp_locals(resources, 0)
+        }
+        ForInitIr::AsyncDisposable(init) => {
+            count_async_disposable_scope_temp_locals(init.resources(), 0)
         }
     }
 }
@@ -8979,7 +9001,8 @@ pub(crate) fn collect_hoisted_vars_for_init(init: &ForInitIr, names: &mut BTreeS
         ForInitIr::Lexical { .. }
         | ForInitIr::LexicalBlock(_)
         | ForInitIr::Expression(_)
-        | ForInitIr::SyncDisposable(_) => {}
+        | ForInitIr::SyncDisposable(_)
+        | ForInitIr::AsyncDisposable(_) => {}
     }
 }
 

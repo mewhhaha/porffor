@@ -11,6 +11,18 @@ pub(super) struct PendingAsyncDisposableScopeIr {
     resources: AsyncDisposableResourcesIr,
 }
 
+/// Lowering-only ownership of an admitted classic-for `await using` head.
+///
+/// The head is lowered before the test, update, and body. Consuming this value
+/// afterward is the only route to the public complete initializer, so a caller
+/// cannot publish finalizer states before the entire loop region is known.
+#[must_use = "a pending async-disposable classic-for initializer must be finalized"]
+pub(super) struct PendingAsyncDisposableForInitIr {
+    entry_state: u32,
+    binding_name: String,
+    resources: AsyncDisposableResourcesIr,
+}
+
 /// The private pre-finalizer owner proof for one async-dispose scope.
 ///
 /// Keeping both admitted owners named prevents async-generator storage from
@@ -64,6 +76,30 @@ enum LoweredDisposableScopeIr {
 }
 
 impl ScriptLowerer<'_> {
+    pub(super) fn async_disposable_for_head(for_loop: &ForLoop) -> Option<&[Variable]> {
+        match for_loop.init() {
+            Some(ForLoopInitializer::Lexical(lexical)) => match lexical.declaration() {
+                LexicalDeclaration::AwaitUsing(list) => Some(list.as_ref()),
+                LexicalDeclaration::Let(_)
+                | LexicalDeclaration::Const(_)
+                | LexicalDeclaration::Using(_) => None,
+            },
+            Some(ForLoopInitializer::Expression(_) | ForLoopInitializer::Var(_)) | None => None,
+        }
+    }
+
+    pub(super) fn async_disposable_for_has_source_suspension(for_loop: &ForLoop) -> bool {
+        [for_loop.condition(), for_loop.final_expr()]
+            .into_iter()
+            .flatten()
+            .any(|expression| {
+                contains(expression, ContainsSymbol::AwaitExpression)
+                    || contains(expression, ContainsSymbol::YieldExpression)
+            })
+            || contains(for_loop.body(), ContainsSymbol::AwaitExpression)
+            || contains(for_loop.body(), ContainsSymbol::YieldExpression)
+    }
+
     /// Replaces each declaration marker with a scope over the remaining suffix.
     ///
     /// A resource is live only if evaluation reached its declaration. Nesting
@@ -132,27 +168,8 @@ impl ScriptLowerer<'_> {
                     body: suffix,
                 },
                 LoweredDisposableScopeIr::Async(scope) => {
-                    let dispose_state = self
-                        .current_async_resume_state
-                        .expect("an async-dispose scope must have an async resume state")
-                        .checked_add(1)
-                        .expect("async-dispose state overflow");
-                    let resume_state = dispose_state
-                        .checked_add(1)
-                        .expect("async-dispose state overflow");
-                    let exit_state = resume_state
-                        .checked_add(1)
-                        .expect("async-dispose state overflow");
-                    self.current_async_resume_state = Some(exit_state);
-                    if self.current_resumable_plan.is_some() {
-                        self.current_generator_resume_state = Some(exit_state);
-                    }
-                    let finalizer = AsyncDisposableFinalizerPlanIr::new(
-                        scope.execution.entry_state(),
-                        dispose_state,
-                        resume_state,
-                        exit_state,
-                    );
+                    let finalizer =
+                        self.allocate_async_disposable_finalizer(scope.execution.entry_state());
                     StatementIr::AsyncDisposableScope {
                         execution: scope.execution.finalize(finalizer),
                         resources: scope.resources,
@@ -168,6 +185,119 @@ impl ScriptLowerer<'_> {
             };
         }
         suffix
+    }
+
+    fn allocate_async_disposable_finalizer(
+        &mut self,
+        entry_state: u32,
+    ) -> AsyncDisposableFinalizerPlanIr {
+        let dispose_state = self
+            .current_async_resume_state
+            .expect("an async-dispose scope must have an async resume state")
+            .checked_add(1)
+            .expect("async-dispose state overflow");
+        let resume_state = dispose_state
+            .checked_add(1)
+            .expect("async-dispose state overflow");
+        let exit_state = resume_state
+            .checked_add(1)
+            .expect("async-dispose state overflow");
+        self.current_async_resume_state = Some(exit_state);
+        if self.current_resumable_plan.is_some() {
+            self.current_generator_resume_state = Some(exit_state);
+        }
+        AsyncDisposableFinalizerPlanIr::new(entry_state, dispose_state, resume_state, exit_state)
+    }
+
+    /// Lowers the resource side of an admitted classic-for `await using` head.
+    /// Finalizer states are deliberately absent until [`Self::finish_async_disposable_for_init`].
+    pub(super) fn lower_async_disposable_for_init(
+        &mut self,
+        list: &[Variable],
+    ) -> Option<PendingAsyncDisposableForInitIr> {
+        if list.is_empty() {
+            self.unsupported("empty await using declaration");
+            return None;
+        }
+        if list
+            .iter()
+            .any(|variable| !matches!(variable.binding(), Binding::Identifier(_)))
+        {
+            self.unsupported("await using classic-for binding pattern");
+            return None;
+        }
+        if list.iter().any(|variable| variable.init().is_none()) {
+            self.unsupported("await using declaration without initializer");
+            return None;
+        }
+        if list.iter().filter_map(Variable::init).any(|initializer| {
+            contains(initializer, ContainsSymbol::AwaitExpression)
+                || contains(initializer, ContainsSymbol::YieldExpression)
+        }) {
+            self.unsupported("suspension inside an await using classic-for initializer");
+            return None;
+        }
+        match self.async_disposable_scope_owner() {
+            AsyncDisposableScopeOwnerPlan::AsyncFunction => {}
+            AsyncDisposableScopeOwnerPlan::AsyncGenerator => {
+                self.unsupported("await using classic-for head in an async generator");
+                return None;
+            }
+            AsyncDisposableScopeOwnerPlan::Generator => {
+                self.unsupported("await using classic-for head in a plain generator");
+                return None;
+            }
+            AsyncDisposableScopeOwnerPlan::Ordinary => {
+                self.unsupported("await using classic-for head outside a plain async function");
+                return None;
+            }
+        }
+
+        let entry_state = self
+            .current_async_resume_state
+            .expect("an admitted plain async owner must publish its current resume state");
+        let binding_name = self.alloc_suspension_owned_binding(
+            "async.function.for.await.dispose.capability.",
+            ValueInfo::new(ValueKind::Object),
+        );
+        let mut resources = Vec::with_capacity(list.len());
+        for variable in list {
+            let Binding::Identifier(identifier) = variable.binding() else {
+                unreachable!("binding patterns were rejected before lowering")
+            };
+            let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let initializer = variable
+                .init()
+                .expect("await using initializers were validated before lowering");
+            let init = self.lower_expression(initializer);
+            self.static_iterator_binding_values.remove(&name);
+            self.static_string_bindings.remove(&name);
+            self.static_to_string_regexp_object_bindings.remove(&name);
+            let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
+            let initialized =
+                InitializedBinding::without_creation(name, BindingMode::Const, storage_name, init);
+            resources.push(initialized.into_async_disposable_resource(self));
+        }
+        let mut resources = resources.into_iter();
+        let first = resources
+            .next()
+            .expect("a parsed await using BindingList is non-empty");
+        Some(PendingAsyncDisposableForInitIr {
+            entry_state,
+            binding_name,
+            resources: AsyncDisposableResourcesIr::new(first, resources.collect()),
+        })
+    }
+
+    pub(super) fn finish_async_disposable_for_init(
+        &mut self,
+        pending: PendingAsyncDisposableForInitIr,
+    ) -> AsyncDisposableForInitIr {
+        let finalizer = self.allocate_async_disposable_finalizer(pending.entry_state);
+        AsyncDisposableForInitIr::new(
+            AsyncFunctionAsyncDisposableCapabilityIr::new(pending.binding_name, finalizer),
+            pending.resources,
+        )
     }
 
     /// Lowers one admitted async-owner `await using` declaration into the

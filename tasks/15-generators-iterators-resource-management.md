@@ -290,6 +290,56 @@ directory and the full pinned aggregate remain outside this batch. The source
 contract is
 `docs/rust-rewrite/contracts/async-generator-await-using-scope.md`.
 
+The next adjacent batch gives a plain-async classic `for` initializer the
+closed `ForInitIr::AsyncDisposable(AsyncDisposableForInitIr)` capability. The
+private carrier pairs a statically nonempty resource list with an
+activation-owned async-function finalizer only after test, update and body
+lowering have allocated their source states. The containing node remains a
+direct `StatementIr::For`, so labels and loop control are not hidden behind a
+synthetic block. Every head binding enters TDZ before acquisition; the
+capability then spans the test, every body and update, and all terminal or
+abrupt completions before the loop lexical environment is restored.
+
+The durable CLI fixture has no explicit Await or Yield expression beyond the
+`await using` declaration. It covers async-first method lookup, synchronous
+fallback with an ignored thenable return, body-before-disposal, normal exit,
+local break/continue, labelled control targeting the resource loop, return,
+throw, abrupt test and update,
+later-initializer failure after earlier registration, later-binding TDZ, reverse
+disposal and nested `SuppressedError` identity, an outer binding plus captured
+loop binding, and exactly-once disposal.
+
+At clean pre-batch commit `bca90f2ff9`, these exact raw files reported `0/8`:
+
+- `language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-forstatement.js`;
+- `language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-forstatement.js`;
+- `language/statements/await-using/initializer-Symbol.asyncDispose-called-if-subsequent-initializer-throws-in-forstatement-head.js`;
+- `language/statements/await-using/initializer-Symbol.dispose-called-if-subsequent-initializer-throws-in-forstatement-head.js`.
+
+All eight sloppy/strict Script executions were `Runtime/NotImplemented` with
+the exact diagnostic `unsupported in lila wasm-aot first slice: await using
+declaration`; none has a Wasm-AOT rewrite or known-failure entry. Central
+verification is green for `cargo check --workspace --all-targets`, `cargo xc`,
+the focused IR test (`1/1` in 12.11s), and the bounded structure executable
+(`5/5`). The new CLI lifecycle fixture passes `1/1` in 22.81s. Retained
+plain-async and async-generator await-using fixtures pass `1/1` in 12.00s and
+`1/1` in 22.60s, and the retained synchronous classic-for using fixture passes
+`1/1` in 30.22s. The four exact paths now each pass `2/2`, for `8/8` total with
+zero unsupported, crash or bug outcomes.
+
+Runtime verification caught a regression in the retained plain-async fixture:
+generic Labelled state recursion incorrectly scheduled an unreachable
+await-using child after an earlier labelled break. The scanner now treats only
+a label chain ending directly in an async-disposable For as transparent, which
+keeps direct labelled resource loops resumable without admitting labelled
+blocks. Async generators, ordinary and generator owners, modules, dynamic
+source, binding patterns, `for-of` and `for-await-of`, source suspension in the
+initializer, test, update or body, the complete `await using` directory, outer
+labelled-block or enclosing-loop control, repeated or nonlinear re-entry of the
+same resource-loop node, and the full pinned aggregate remain outside this
+batch. The source contract is
+`docs/rust-rewrite/contracts/plain-async-function-classic-for-await-using.md`.
+
 The next bounded source batch extends that same synchronous disposal lifecycle
 to classic `for` initializer heads. The producer uses the closed, statically
 non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and

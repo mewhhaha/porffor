@@ -224,6 +224,32 @@ fn wasm_using_classic_for_lifecycle() {
 }
 
 #[test]
+fn wasm_await_using_classic_for_lifecycle() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_await_using_classic_for_lifecycle.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("await-using-classic-for:true"), "{stdout}");
+    assert!(
+        !stdout.contains("await-using-classic-for:FAILED")
+            && !stdout.contains("uncaught throw")
+            && !stderr.contains("uncaught throw"),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
+#[test]
 fn wasm_using_for_of_lifecycle() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
