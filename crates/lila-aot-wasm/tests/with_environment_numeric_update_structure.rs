@@ -128,26 +128,31 @@ fn one_nonempty_noncopy_plan_owns_the_complete_numeric_update() {
         "pub(crate) struct SelectedWithEnvironmentObjects {",
         "/// One dynamically queried Object Environment Record in ResolveBinding.",
     );
-    assert!(selection.contains("innermost: WithEnvironmentBindingObject"));
-    assert!(selection.contains("outer: Vec<WithEnvironmentBindingObject>"));
+    assert!(selection.contains("innermost: ObjectEnvironmentBindingObject"));
+    assert!(selection.contains("outer: Vec<ObjectEnvironmentBindingObject>"));
 
     assert!(REFERENCE_SOURCE.contains(
         "#[derive(Debug)]\n#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
     ));
-    let plan = bounded(
+    let plan_type = bounded(
         REFERENCE_SOURCE,
         "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment\"]",
+        "/// One identifier Reference selected by the Global Environment Record's",
+    );
+    assert!(!plan_type.contains("Clone"));
+    assert!(!plan_type.contains("Copy"));
+    let plan_consumer = bounded(
+        REFERENCE_SOURCE,
+        "impl WithEnvironmentReferencePlan {",
         "/// `[[Strict]]` of a Reference Record (6.2.5).",
     );
-    assert!(!plan.contains("Clone"));
-    assert!(!plan.contains("Copy"));
-    assert!(plan.contains("pub(crate) fn numeric_update("));
-    assert!(plan.contains("op: NumericUpdateOp"));
-    assert!(plan.contains("return_mode: UpdateReturnMode"));
-    assert!(plan.contains("bindings: WithEnvironmentNumericUpdateBindings"));
-    assert!(plan.contains("for environment in outer"));
-    assert!(plan.contains("innermost.numeric_update_or_else("));
-    assert!(!plan.contains("ExprIr::PropertyUpdate"));
+    assert!(plan_consumer.contains("pub(crate) fn numeric_update("));
+    assert!(plan_consumer.contains("op: NumericUpdateOp"));
+    assert!(plan_consumer.contains("return_mode: UpdateReturnMode"));
+    assert!(plan_consumer.contains("bindings: WithEnvironmentNumericUpdateBindings"));
+    assert!(plan_consumer.contains("for environment in outer"));
+    assert!(plan_consumer.contains("innermost.numeric_update_or_else("));
+    assert!(!plan_consumer.contains("ExprIr::PropertyUpdate"));
 
     let bindings = bounded(
         REFERENCE_SOURCE,
@@ -235,7 +240,7 @@ fn selected_branch_orders_get_numeric_delta_put_and_result() {
     assert!(put.contains("name: NativeErrorKind::ReferenceError"));
     assert_before(
         put,
-        "name: WITH_ENVIRONMENT_VALUE_BINDING",
+        "name: OBJECT_ENVIRONMENT_VALUE_BINDING",
         "body: Box::new(after_recheck)",
     );
 }

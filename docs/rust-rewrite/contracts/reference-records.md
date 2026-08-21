@@ -263,8 +263,9 @@ hidden binding is captured unconditionally by ordinary source functions whose
 definition cursor passes through that environment, using the existing lexical
 slot/hop and closure machinery.
 
-`WithEnvironmentBindingObject` admits only identifier reads of one such
-materialized binding. Distinct newtypes represent current scope depth and
+The materialized-with constructor of `ObjectEnvironmentBindingObject` admits
+only identifier reads of one such hidden binding. Distinct newtypes represent
+current scope depth and
 captured cursor depth for both Object and declarative environments; one
 exhaustive cross-product filters the ordered Object chain at the declarative
 fallback located by the same lookup used for the eventual write. A private

@@ -1301,11 +1301,14 @@ owned slots, capture hops, lexical-environment materialization and closure
 capture then carry the Object Environment Records into a fresh nested lowerer;
 there is no new closure ABI or backend operation.
 
-`WithEnvironmentBindingObject` is the only representation admitted to the
-ordered lowering chain. It contains the storage name and type information of
-the already-materialized synthetic binding. Cloning it can only create another
-identifier read of that binding; it cannot re-evaluate the source object
-expression or substitute an arbitrary effectful `TypedExpr`.
+`ObjectEnvironmentBindingObject` is the only representation admitted to the
+ordered lowering chain. Its materialized-with source contains the storage name
+and type information of the already-materialized synthetic binding. Cloning it
+can only create another identifier read of that binding; it cannot re-evaluate
+the source object expression or substitute an arbitrary effectful `TypedExpr`.
+Its distinct compiler-owned global-object source is used by the global Object
+Environment Reference plan and cannot enter the ordered `with` chain through a
+source expression.
 
 The ordered chain uses four closed position types: current Object entry depth,
 current declarative binding depth, captured Object cursor depth and captured
@@ -1434,10 +1437,10 @@ The GetValue exit builds this fixed tree:
    `ReferenceError` for `Strictness::Strict`.
 
 The lowerer locates the declarative fallback before selecting Object
-Environment Records, just as the write path does. `WithEnvironmentBindingObject`
-still names only the stable hidden binding created after the `with` expression
-was evaluated, so no part of either query can re-evaluate or substitute the
-source object expression.
+Environment Records, just as the write path does. The materialized-with source
+of `ObjectEnvironmentBindingObject` still names only the stable hidden binding
+created after the `with` expression was evaluated, so no part of either query
+can re-evaluate or substitute the source object expression.
 
 ### 9.3 Proof and boundary
 

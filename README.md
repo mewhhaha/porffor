@@ -370,6 +370,28 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- Global Object Environment eager compound assignment now has a dry-written
+  Reference lifecycle beside the retained `with` lifecycle. A distinct
+  non-copyable plan performs the global Object Record's initial plain
+  `HasProperty`, then consumes the same sealed old-value/result/write carrier
+  through independent GetBindingValue and SetMutableBinding rechecks; the
+  global path cannot carry `Symbol.unscopables`. The durable CLI oracle covers
+  all eleven directly evidenced operators, an initially absent binding
+  throwing before RHS evaluation, strict accessor deletion without recreation,
+  sloppy accessor deletion with recreation, inherited selection and result
+  publication only after PutValue succeeds. At pre-batch commit `450f67050`,
+  the exact modern filename prefix reported `11/22`: all eleven already-green
+  `with` siblings passed, while the eleven selected global siblings were
+  `Runtime/NotImplemented` with the diagnostic ``unsupported in lila wasm-aot
+  first slice: unbound identifier `x```.
+  The affected-package compile is green; the IR lifecycle test is `1/1`, the
+  new source-bounded suite is `4/4`, the retained compound/numeric suites are
+  `5/5` and `4/4`, and the Wasm lifecycle fixture is `1/1`. All eleven selected
+  Test262 executions now pass `11/11`; the adjacent modern prefix is `22/22`,
+  retaining every `with` sibling with zero unsupported, crash or bug outcomes.
+  `**=` is covered by the closed Rust operation but has no twelfth direct
+  Test262 witness, and neither the full language subtree nor the pinned matrix
+  is claimed.
 - Eager identifier compound assignments inside `with` now use one sealed,
   consuming Object Environment Reference lifecycle. The lowerer
   exhaustively separates the six arithmetic and six bitwise operators from
@@ -386,8 +408,8 @@ Recent focused progress through `2026-08-21`:
   witness. The IR domain test is `1/1`, the source-bounded suite is `5/5`, the
   retained numeric-reference suite remains `4/4`, the Wasm lifecycle fixture is
   `1/1`, and the exact current-source Test262 cohort is `44/44`. The adjacent
-  11 global Object Environment cases remain unsupported and are not part of
-  this focused claim.
+  global Object Environment follow-up remains separate from this focused
+  `with` claim.
 - Identifier `++` and `--` inside `with` now consume the same non-empty,
   non-copyable Object Environment Reference plan as direct reads and writes.
   Each selected branch fixes one binding object across GetBindingValue's second

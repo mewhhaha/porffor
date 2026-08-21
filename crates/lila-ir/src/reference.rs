@@ -26,9 +26,9 @@ use crate::{WellKnownSymbol, WithObjectBindingName};
 const DELETE_SUPER_THIS_BINDING: &str = "$delete.super.this";
 const DELETE_SUPER_KEY_BINDING: &str = "$delete.super.key";
 const DELETE_SUPER_REFERENCE_ERROR: &str = "Cannot delete a super property";
-const WITH_ENVIRONMENT_VALUE_BINDING: &str = "$with.set.value";
-const WITH_ENVIRONMENT_RECHECK_BINDING: &str = "$with.set.exists";
-const WITH_ENVIRONMENT_REFERENCE_ERROR: &str = "with binding no longer exists";
+const OBJECT_ENVIRONMENT_VALUE_BINDING: &str = "$object.environment.set.value";
+const OBJECT_ENVIRONMENT_RECHECK_BINDING: &str = "$object.environment.set.exists";
+const OBJECT_ENVIRONMENT_REFERENCE_ERROR: &str = "object environment binding no longer exists";
 
 fn dynamic_value_info() -> ValueInfo {
     ValueInfo {
@@ -129,33 +129,51 @@ impl DeleteSuperReferencePlan {
     }
 }
 
-/// The already-materialized binding object of one Object Environment Record.
+/// The exact binding object of one Object Environment Record.
 ///
-/// `with (objectExpression)` evaluates `objectExpression` once and stores it in
-/// a synthetic lexical binding before lowering the body. The active `with`
-/// stack admits only this type, not arbitrary [`TypedExpr`] values, so every
-/// later read names that binding and cannot re-evaluate the source expression.
-/// Cloning is safe for the same reason: it clones a storage name and static
-/// value information, never an effectful expression.
+/// The private source domain distinguishes an already-materialized `with`
+/// object from the compiler-owned global object. Callers cannot provide an
+/// arbitrary [`TypedExpr`], so cloning this value never re-evaluates a source
+/// expression and every operation in one Reference reads the same identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WithEnvironmentBindingObject {
-    storage_name: String,
+pub(crate) struct ObjectEnvironmentBindingObject {
+    source: ObjectEnvironmentBindingObjectSource,
     info: ValueInfo,
 }
 
-impl WithEnvironmentBindingObject {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ObjectEnvironmentBindingObjectSource {
+    Materialized(String),
+    GlobalObject,
+}
+
+impl ObjectEnvironmentBindingObject {
     pub(crate) fn materialized(binding_name: &WithObjectBindingName, info: ValueInfo) -> Self {
         Self {
-            storage_name: binding_name.as_str().to_string(),
+            source: ObjectEnvironmentBindingObjectSource::Materialized(
+                binding_name.as_str().to_string(),
+            ),
+            info,
+        }
+    }
+
+    fn global_object(info: ValueInfo) -> Self {
+        Self {
+            source: ObjectEnvironmentBindingObjectSource::GlobalObject,
             info,
         }
     }
 
     fn read(&self) -> TypedExpr {
-        TypedExpr::from_info(
-            self.info.clone(),
-            ExprIr::Identifier(self.storage_name.clone()),
-        )
+        let expr = match &self.source {
+            ObjectEnvironmentBindingObjectSource::Materialized(storage_name) => {
+                ExprIr::Identifier(storage_name.clone())
+            }
+            ObjectEnvironmentBindingObjectSource::GlobalObject => {
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string())
+            }
+        };
+        TypedExpr::from_info(self.info.clone(), expr)
     }
 
     fn has_property(&self, referenced_name: &str) -> TypedExpr {
@@ -299,7 +317,7 @@ impl WithEnvironmentBindingObject {
                 dynamic_value_info(),
                 ExprIr::RuntimeThrow {
                     name: NativeErrorKind::ReferenceError,
-                    message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
                 },
             ),
         };
@@ -323,7 +341,7 @@ impl WithEnvironmentBindingObject {
         let value_info = value.value_info();
         let read_value = TypedExpr::from_info(
             value_info.clone(),
-            ExprIr::Identifier(WITH_ENVIRONMENT_VALUE_BINDING.to_string()),
+            ExprIr::Identifier(OBJECT_ENVIRONMENT_VALUE_BINDING.to_string()),
         );
         let recheck = self.has_property(referenced_name);
         let write = TypedExpr::from_info(
@@ -339,7 +357,7 @@ impl WithEnvironmentBindingObject {
             Strictness::Sloppy => TypedExpr::from_info(
                 value_info.clone(),
                 ExprIr::MaterializeBinding {
-                    name: WITH_ENVIRONMENT_RECHECK_BINDING.to_string(),
+                    name: OBJECT_ENVIRONMENT_RECHECK_BINDING.to_string(),
                     value: Box::new(recheck),
                     body: Box::new(write),
                 },
@@ -353,7 +371,7 @@ impl WithEnvironmentBindingObject {
                         value_info.clone(),
                         ExprIr::RuntimeThrow {
                             name: NativeErrorKind::ReferenceError,
-                            message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                            message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
                         },
                     )),
                 },
@@ -362,9 +380,57 @@ impl WithEnvironmentBindingObject {
         TypedExpr::from_info(
             value_info,
             ExprIr::MaterializeBinding {
-                name: WITH_ENVIRONMENT_VALUE_BINDING.to_string(),
+                name: OBJECT_ENVIRONMENT_VALUE_BINDING.to_string(),
                 value: Box::new(value),
                 body: Box::new(after_recheck),
+            },
+        )
+    }
+
+    /// GetValue, eager operation, same-base PutValue, then result. Initial
+    /// ResolveBinding selection belongs to the environment-specific plan.
+    fn eager_compound_assignment(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        assignment: &EagerCompoundAssignment,
+    ) -> TypedExpr {
+        let EagerCompoundAssignment {
+            bindings:
+                EagerCompoundAssignmentBindings {
+                    old_value: old_value_name,
+                    result: result_name,
+                    write: write_name,
+                },
+            result: applied,
+        } = assignment;
+        let old_value = self.clone().get_value(referenced_name, strictness);
+        let result_info = applied.value_info();
+        let result =
+            TypedExpr::from_info(result_info.clone(), ExprIr::Identifier(result_name.clone()));
+        let write = self.put_value(referenced_name, strictness, result.clone());
+        let after_write = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: write_name.clone(),
+                value: Box::new(write),
+                body: Box::new(result),
+            },
+        );
+        let after_apply = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: result_name.clone(),
+                value: Box::new(applied.clone()),
+                body: Box::new(after_write),
+            },
+        );
+        TypedExpr::from_info(
+            result_info,
+            ExprIr::MaterializeBinding {
+                name: old_value_name.clone(),
+                value: Box::new(old_value),
+                body: Box::new(after_apply),
             },
         )
     }
@@ -495,13 +561,13 @@ impl ObjectEnvironmentPosition {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PositionedWithEnvironment {
-    binding_object: WithEnvironmentBindingObject,
+    binding_object: ObjectEnvironmentBindingObject,
     position: ObjectEnvironmentPosition,
 }
 
 impl PositionedWithEnvironment {
     pub(crate) fn captured(
-        binding_object: WithEnvironmentBindingObject,
+        binding_object: ObjectEnvironmentBindingObject,
         position: CapturedObjectPosition,
     ) -> Self {
         Self {
@@ -521,7 +587,7 @@ pub(crate) struct OrderedWithEnvironmentChain {
 impl OrderedWithEnvironmentChain {
     pub(crate) fn enter_current(
         &mut self,
-        binding_object: WithEnvironmentBindingObject,
+        binding_object: ObjectEnvironmentBindingObject,
         depth: CurrentScopeDepth,
     ) {
         self.current.push(PositionedWithEnvironment {
@@ -580,19 +646,19 @@ impl OrderedWithEnvironmentChain {
 /// only external way to obtain a [`WithEnvironmentReferencePlan`].
 #[derive(Debug)]
 pub(crate) struct SelectedWithEnvironmentObjects {
-    innermost: WithEnvironmentBindingObject,
-    outer: Vec<WithEnvironmentBindingObject>,
+    innermost: ObjectEnvironmentBindingObject,
+    outer: Vec<ObjectEnvironmentBindingObject>,
 }
 
 /// One dynamically queried Object Environment Record in ResolveBinding.
 #[derive(Debug)]
 struct WithEnvironmentResolution {
-    binding_object: WithEnvironmentBindingObject,
+    binding_object: ObjectEnvironmentBindingObject,
     unscopables_binding: String,
 }
 
 impl WithEnvironmentResolution {
-    fn create(binding_object: WithEnvironmentBindingObject, unscopables_binding: String) -> Self {
+    fn create(binding_object: ObjectEnvironmentBindingObject, unscopables_binding: String) -> Self {
         Self {
             binding_object,
             unscopables_binding,
@@ -735,54 +801,17 @@ impl WithEnvironmentResolution {
         self,
         referenced_name: &str,
         strictness: Strictness,
-        assignment: &WithEnvironmentCompoundAssignment,
+        assignment: &EagerCompoundAssignment,
         fallback: TypedExpr,
     ) -> TypedExpr {
         let Self {
             binding_object,
             unscopables_binding,
         } = self;
-        let WithEnvironmentCompoundAssignment {
-            bindings:
-                WithEnvironmentCompoundAssignmentBindings {
-                    old_value: old_value_name,
-                    result: result_name,
-                    write: write_name,
-                },
-            result: applied,
-        } = assignment;
         let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
-        let old_value = binding_object
-            .clone()
-            .get_value(referenced_name, strictness);
-        let result_info = applied.value_info();
-        let result =
-            TypedExpr::from_info(result_info.clone(), ExprIr::Identifier(result_name.clone()));
-        let write = binding_object.put_value(referenced_name, strictness, result.clone());
-        let after_write = TypedExpr::from_info(
-            result_info.clone(),
-            ExprIr::MaterializeBinding {
-                name: write_name.clone(),
-                value: Box::new(write),
-                body: Box::new(result),
-            },
-        );
-        let after_apply = TypedExpr::from_info(
-            result_info.clone(),
-            ExprIr::MaterializeBinding {
-                name: result_name.clone(),
-                value: Box::new(applied.clone()),
-                body: Box::new(after_write),
-            },
-        );
-        let selected_assignment = TypedExpr::from_info(
-            result_info.clone(),
-            ExprIr::MaterializeBinding {
-                name: old_value_name.clone(),
-                value: Box::new(old_value),
-                body: Box::new(after_apply),
-            },
-        );
+        let selected_assignment =
+            binding_object.eager_compound_assignment(referenced_name, strictness, assignment);
+        let result_info = selected_assignment.value_info();
         TypedExpr::from_info(
             result_info,
             ExprIr::Conditional {
@@ -832,6 +861,68 @@ pub(crate) struct WithEnvironmentReferencePlan {
     strictness: Strictness,
 }
 
+/// One identifier Reference selected by the Global Environment Record's
+/// Object Record.
+///
+/// This plan is deliberately neither `Clone` nor `Copy`. Its constructor owns
+/// the compiler-known global object identity, while its only consumer performs
+/// the initial HasBinding/HasProperty before the shared GetValue/apply/PutValue
+/// lifecycle. Unlike [`WithEnvironmentReferencePlan`], this type has no
+/// unscopables state or fallback chain.
+#[derive(Debug)]
+#[must_use = "a global Object Environment Reference must be consumed by eager compound assignment"]
+pub(crate) struct GlobalObjectEnvironmentReferencePlan {
+    binding_object: ObjectEnvironmentBindingObject,
+    referenced_name: String,
+    strictness: Strictness,
+}
+
+impl GlobalObjectEnvironmentReferencePlan {
+    pub(crate) fn new(
+        global_object_info: ValueInfo,
+        referenced_name: String,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            binding_object: ObjectEnvironmentBindingObject::global_object(global_object_info),
+            referenced_name,
+            strictness,
+        }
+    }
+
+    /// ResolveBinding's Object Record HasBinding is a plain HasProperty: the
+    /// global record has `[[IsWithEnvironment]] = false` and never observes
+    /// `Symbol.unscopables`. A miss is an unresolvable Reference whose GetValue
+    /// throws before the sealed operation can evaluate its RHS.
+    #[must_use]
+    pub(crate) fn compound_assignment(self, assignment: EagerCompoundAssignment) -> TypedExpr {
+        let Self {
+            binding_object,
+            referenced_name,
+            strictness,
+        } = self;
+        let present = binding_object.has_property(&referenced_name);
+        let selected =
+            binding_object.eager_compound_assignment(&referenced_name, strictness, &assignment);
+        let result_info = selected.value_info();
+        let missing = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+            },
+        );
+        TypedExpr::from_info(
+            result_info,
+            ExprIr::Conditional {
+                condition: Box::new(present),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(missing),
+            },
+        )
+    }
+}
+
 /// Compiler-private bindings used by one with-environment numeric update.
 ///
 /// All three roles are `String`, so accepting them positionally would allow a
@@ -844,7 +935,7 @@ pub(crate) struct WithEnvironmentNumericUpdateBindings {
     write: String,
 }
 
-/// Compiler-private bindings for one eager with-environment compound
+/// Compiler-private bindings for one eager Object Environment compound
 /// assignment.
 ///
 /// The old-value, result and write-completion roles intentionally cannot be
@@ -853,19 +944,19 @@ pub(crate) struct WithEnvironmentNumericUpdateBindings {
 /// lowerer, and [`Self::seal`] consumes the carrier before the Reference plan
 /// accepts the operation.
 #[derive(Debug)]
-#[must_use = "with-environment compound-assignment bindings must be sealed into an operation"]
-pub(crate) struct WithEnvironmentCompoundAssignmentBindings {
+#[must_use = "eager compound-assignment bindings must be sealed into an operation"]
+pub(crate) struct EagerCompoundAssignmentBindings {
     old_value: String,
     result: String,
     write: String,
 }
 
-impl WithEnvironmentCompoundAssignmentBindings {
+impl EagerCompoundAssignmentBindings {
     pub(crate) fn allocate(mut allocate: impl FnMut(&str) -> String) -> Self {
         Self {
-            old_value: allocate("with.compound.old."),
-            result: allocate("with.compound.result."),
-            write: allocate("with.compound.write."),
+            old_value: allocate("object.environment.compound.old."),
+            result: allocate("object.environment.compound.result."),
+            write: allocate("object.environment.compound.write."),
         }
     }
 
@@ -879,8 +970,8 @@ impl WithEnvironmentCompoundAssignmentBindings {
         )
     }
 
-    pub(crate) fn seal(self, result: TypedExpr) -> WithEnvironmentCompoundAssignment {
-        WithEnvironmentCompoundAssignment {
+    pub(crate) fn seal(self, result: TypedExpr) -> EagerCompoundAssignment {
+        EagerCompoundAssignment {
             bindings: self,
             result,
         }
@@ -890,9 +981,9 @@ impl WithEnvironmentCompoundAssignmentBindings {
 /// One eager operation result sealed to the private bindings which establish
 /// its GetValue/apply/PutValue/result lifecycle.
 #[derive(Debug)]
-#[must_use = "a sealed with-environment compound assignment must consume its Reference plan"]
-pub(crate) struct WithEnvironmentCompoundAssignment {
-    bindings: WithEnvironmentCompoundAssignmentBindings,
+#[must_use = "a sealed eager compound assignment must consume its Reference plan"]
+pub(crate) struct EagerCompoundAssignment {
+    bindings: EagerCompoundAssignmentBindings,
     result: TypedExpr,
 }
 
@@ -1000,7 +1091,7 @@ impl WithEnvironmentReferencePlan {
     #[must_use]
     pub(crate) fn compound_assignment(
         self,
-        assignment: WithEnvironmentCompoundAssignment,
+        assignment: EagerCompoundAssignment,
         fallback: TypedExpr,
     ) -> TypedExpr {
         let Self {
@@ -1900,8 +1991,10 @@ mod tests {
         unscopables_binding: &str,
     ) -> WithEnvironmentResolution {
         WithEnvironmentResolution::create(
-            WithEnvironmentBindingObject {
-                storage_name: storage_name.to_string(),
+            ObjectEnvironmentBindingObject {
+                source: ObjectEnvironmentBindingObjectSource::Materialized(
+                    storage_name.to_string(),
+                ),
                 info: ValueInfo::new(ValueKind::Object),
             },
             unscopables_binding.to_string(),
@@ -1980,7 +2073,7 @@ mod tests {
         else {
             panic!("RHS must be materialized in the selected branch");
         };
-        assert_eq!(value_name, WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(value_name, OBJECT_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(identifier_name(value), expected_value_name);
 
         let ExprIr::Conditional {
@@ -2006,13 +2099,13 @@ mod tests {
             key,
             PropertyKeyIr::StaticString(name) if name == "x"
         ));
-        assert_eq!(identifier_name(value), WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(identifier_name(value), OBJECT_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(*strictness, Strictness::Strict);
         assert!(matches!(
             &else_expr.expr,
             ExprIr::RuntimeThrow {
                 name: NativeErrorKind::ReferenceError,
-                message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
             }
         ));
     }
@@ -2041,7 +2134,7 @@ mod tests {
                 &else_expr.expr,
                 ExprIr::RuntimeThrow {
                     name: NativeErrorKind::ReferenceError,
-                    message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
                 }
             )),
         }
@@ -2119,7 +2212,7 @@ mod tests {
         else {
             panic!("RHS must be materialized before SetMutableBinding");
         };
-        assert_eq!(value_name, WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(value_name, OBJECT_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(identifier_name(value), "rhs");
         let ExprIr::MaterializeBinding {
             name: recheck_name,
@@ -2129,7 +2222,7 @@ mod tests {
         else {
             panic!("sloppy SetMutableBinding must still observe HasProperty");
         };
-        assert_eq!(recheck_name, WITH_ENVIRONMENT_RECHECK_BINDING);
+        assert_eq!(recheck_name, OBJECT_ENVIRONMENT_RECHECK_BINDING);
         assert_eq!(has_property_target(recheck), "$with.object");
         let ExprIr::PropertyWrite {
             target,
@@ -2145,7 +2238,7 @@ mod tests {
             key,
             PropertyKeyIr::StaticString(name) if name == "x"
         ));
-        assert_eq!(identifier_name(value), WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(identifier_name(value), OBJECT_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(*strictness, Strictness::Sloppy);
     }
 
@@ -2271,7 +2364,7 @@ mod tests {
 
     #[test]
     fn with_environment_compound_assignment_sequences_same_object_get_apply_put_then_result() {
-        let bindings = WithEnvironmentCompoundAssignmentBindings::allocate(|prefix| {
+        let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
             format!("${}", prefix.trim_end_matches('.'))
         });
         let old_value = bindings.old_value();
@@ -2312,7 +2405,7 @@ mod tests {
         else {
             panic!("GetBindingValue must be materialized before RHS/application");
         };
-        assert_eq!(old_name, "$with.compound.old");
+        assert_eq!(old_name, "$object.environment.compound.old");
         assert_selected_get_value(old_value, "$with.object", Strictness::Strict);
 
         let ExprIr::MaterializeBinding {
@@ -2323,11 +2416,11 @@ mod tests {
         else {
             panic!("the applied result must be retained across PutValue");
         };
-        assert_eq!(result_name, "$with.compound.result");
+        assert_eq!(result_name, "$object.environment.compound.result");
         let ExprIr::CoerciveAdd { lhs, rhs } = &applied.expr else {
             panic!("the sealed eager operation must remain between GetValue and PutValue");
         };
-        assert_eq!(identifier_name(lhs), "$with.compound.old");
+        assert_eq!(identifier_name(lhs), "$object.environment.compound.old");
         assert_eq!(identifier_name(rhs), "rhs");
 
         let ExprIr::MaterializeBinding {
@@ -2338,15 +2431,100 @@ mod tests {
         else {
             panic!("PutValue must complete before the compound result is returned");
         };
-        assert_eq!(write_name, "$with.compound.write");
-        assert_strict_selected_write(write, "$with.object", "$with.compound.result");
-        assert_eq!(identifier_name(result), "$with.compound.result");
+        assert_eq!(write_name, "$object.environment.compound.write");
+        assert_strict_selected_write(write, "$with.object", "$object.environment.compound.result");
+        assert_eq!(
+            identifier_name(result),
+            "$object.environment.compound.result"
+        );
+    }
+
+    #[test]
+    fn global_object_environment_compound_assignment_has_plain_resolution_then_get_apply_put() {
+        let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
+            format!("${}", prefix.trim_end_matches('.'))
+        });
+        let applied = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CoerciveAdd {
+                lhs: Box::new(bindings.old_value()),
+                rhs: Box::new(identifier("rhs", ValueKind::Number)),
+            },
+        );
+        let lowered = GlobalObjectEnvironmentReferencePlan::new(
+            ValueInfo::new(ValueKind::Object),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .compound_assignment(bindings.seal(applied));
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: missing,
+        } = &lowered.expr
+        else {
+            panic!("global ResolveBinding must branch on Object Record HasBinding");
+        };
+        assert_eq!(has_property_target(condition), GLOBAL_THIS_NAME);
+        assert!(matches!(
+            &missing.expr,
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+            }
+        ));
+
+        let ExprIr::MaterializeBinding {
+            name: old_name,
+            value: old_value,
+            body: after_get,
+        } = &selected.expr
+        else {
+            panic!("GetBindingValue must precede RHS/application");
+        };
+        assert_eq!(old_name, "$object.environment.compound.old");
+        assert_selected_get_value(old_value, GLOBAL_THIS_NAME, Strictness::Strict);
+
+        let ExprIr::MaterializeBinding {
+            name: result_name,
+            value: applied,
+            body: after_apply,
+        } = &after_get.expr
+        else {
+            panic!("the eager result must be retained across PutValue");
+        };
+        assert_eq!(result_name, "$object.environment.compound.result");
+        let ExprIr::CoerciveAdd { lhs, rhs } = &applied.expr else {
+            panic!("the sealed operation must remain after GetBindingValue");
+        };
+        assert_eq!(identifier_name(lhs), "$object.environment.compound.old");
+        assert_eq!(identifier_name(rhs), "rhs");
+
+        let ExprIr::MaterializeBinding {
+            name: write_name,
+            value: write,
+            body: result,
+        } = &after_apply.expr
+        else {
+            panic!("PutValue must complete before exposing the result");
+        };
+        assert_eq!(write_name, "$object.environment.compound.write");
+        assert_strict_selected_write(
+            write,
+            GLOBAL_THIS_NAME,
+            "$object.environment.compound.result",
+        );
+        assert_eq!(
+            identifier_name(result),
+            "$object.environment.compound.result"
+        );
     }
 
     #[test]
     fn selected_with_objects_are_non_empty_and_stop_at_declarative_fallback() {
-        let object = |storage_name: &str| WithEnvironmentBindingObject {
-            storage_name: storage_name.to_string(),
+        let object = |storage_name: &str| ObjectEnvironmentBindingObject {
+            source: ObjectEnvironmentBindingObjectSource::Materialized(storage_name.to_string()),
             info: ValueInfo::new(ValueKind::Object),
         };
         let mut chain = OrderedWithEnvironmentChain::default();
@@ -2358,7 +2536,11 @@ mod tests {
                 CurrentScopeDepth(2),
             )))
             .expect("the inner Object Environment must precede the binding");
-        assert_eq!(selected.innermost.storage_name.as_str(), "$with.inner");
+        assert!(matches!(
+            &selected.innermost.source,
+            ObjectEnvironmentBindingObjectSource::Materialized(storage_name)
+                if storage_name == "$with.inner"
+        ));
         assert!(selected.outer.is_empty());
 
         assert!(

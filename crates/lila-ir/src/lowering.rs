@@ -20,11 +20,11 @@ use with_environment_compound::EagerCompoundAssignmentOp;
 use crate::ir::reference::{
     reference_base_of_lowered_read, CapturedBindingPosition, CapturedCursorDepth,
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
-    DeleteSuperReferencePlan, OrderedWithEnvironmentChain, PositionedWithEnvironment,
-    ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord,
-    SelectedWithEnvironmentObjects, WithEnvironmentBindingObject,
-    WithEnvironmentCompoundAssignmentBindings, WithEnvironmentNumericUpdateBindings,
-    WithEnvironmentReferencePlan,
+    DeleteSuperReferencePlan, EagerCompoundAssignmentBindings,
+    GlobalObjectEnvironmentReferencePlan, ObjectEnvironmentBindingObject,
+    OrderedWithEnvironmentChain, PositionedWithEnvironment, ReferenceBase, ReferenceOperand,
+    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects,
+    WithEnvironmentNumericUpdateBindings, WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -789,7 +789,7 @@ impl<'a> ScriptLowerer<'a> {
                     .get(binding_name.as_str())
                     .expect("surrounding WithObject environment must be captured");
                 PositionedWithEnvironment::captured(
-                    WithEnvironmentBindingObject::materialized(
+                    ObjectEnvironmentBindingObject::materialized(
                         &binding_name,
                         self.capture_value_info(
                             capture.owner_id.as_str(),
@@ -3489,7 +3489,7 @@ impl<'a> ScriptLowerer<'a> {
         if crosses_suspension {
             self.add_suspension_owned_binding(object_name.clone());
         }
-        let with_object = WithEnvironmentBindingObject::materialized(&binding_name, object_info);
+        let with_object = ObjectEnvironmentBindingObject::materialized(&binding_name, object_info);
         self.with_environment_chain.enter_current(
             with_object,
             CurrentScopeDepth::at_with_entry(self.scopes.len()),
@@ -23958,6 +23958,16 @@ impl<'a> ScriptLowerer<'a> {
                         reference,
                     );
                 }
+                if matches!(&reference, LocatedIdentifierReference::Unresolvable)
+                    && !self.global_property_is_proven_present(&name)
+                {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_global_object_environment_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                        value,
+                    );
+                }
                 let value = self.lower_expression(rhs);
                 // 13.15.4 ApplyStringOrNumericAssignment does GetValue then
                 // PutValue, so both 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 apply
@@ -24439,6 +24449,16 @@ impl<'a> ScriptLowerer<'a> {
                         value,
                         objects,
                         reference,
+                    );
+                }
+                if matches!(&reference, LocatedIdentifierReference::Unresolvable)
+                    && !self.global_property_is_proven_present(&name)
+                {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_global_object_environment_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Bitwise(bitwise),
+                        value,
                     );
                 }
                 // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2

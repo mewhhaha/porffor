@@ -107,21 +107,26 @@ fn one_nonempty_noncopy_plan_owns_the_complete_compound_assignment() {
     assert!(REFERENCE_SOURCE.contains(
         "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
     ));
-    let plan = bounded(
+    let plan_type = bounded(
         REFERENCE_SOURCE,
         "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment\"]",
+        "/// One identifier Reference selected by the Global Environment Record's",
+    );
+    assert!(!plan_type.contains("Clone"));
+    assert!(!plan_type.contains("Copy"));
+    let plan_consumer = bounded(
+        REFERENCE_SOURCE,
+        "impl WithEnvironmentReferencePlan {",
         "/// `[[Strict]]` of a Reference Record (6.2.5).",
     );
-    assert!(!plan.contains("Clone"));
-    assert!(!plan.contains("Copy"));
-    assert!(plan.contains("pub(crate) fn compound_assignment("));
-    assert!(plan.contains("assignment: WithEnvironmentCompoundAssignment"));
-    assert!(plan.contains("for environment in outer"));
-    assert!(plan.contains("innermost.compound_assignment_or_else("));
+    assert!(plan_consumer.contains("pub(crate) fn compound_assignment("));
+    assert!(plan_consumer.contains("assignment: EagerCompoundAssignment"));
+    assert!(plan_consumer.contains("for environment in outer"));
+    assert!(plan_consumer.contains("innermost.compound_assignment_or_else("));
 
     let bindings = bounded(
         REFERENCE_SOURCE,
-        "pub(crate) struct WithEnvironmentCompoundAssignmentBindings {",
+        "pub(crate) struct EagerCompoundAssignmentBindings {",
         "impl WithEnvironmentNumericUpdateBindings {",
     );
     for marker in [
@@ -131,24 +136,24 @@ fn one_nonempty_noncopy_plan_owns_the_complete_compound_assignment() {
         "pub(crate) fn allocate(",
         "pub(crate) fn old_value(&self) -> TypedExpr",
         "pub(crate) fn seal(self, result: TypedExpr)",
-        "pub(crate) struct WithEnvironmentCompoundAssignment {",
-        "bindings: WithEnvironmentCompoundAssignmentBindings",
+        "pub(crate) struct EagerCompoundAssignment {",
+        "bindings: EagerCompoundAssignmentBindings",
         "result: TypedExpr",
     ] {
         assert!(bindings.contains(marker), "missing sealed role: {marker}");
     }
     assert_before(
         bindings,
-        "allocate(\"with.compound.old.\")",
-        "allocate(\"with.compound.result.\")",
+        "allocate(\"object.environment.compound.old.\")",
+        "allocate(\"object.environment.compound.result.\")",
     );
     assert_before(
         bindings,
-        "allocate(\"with.compound.result.\")",
-        "allocate(\"with.compound.write.\")",
+        "allocate(\"object.environment.compound.result.\")",
+        "allocate(\"object.environment.compound.write.\")",
     );
     assert!(bindings.contains(
-        "#[must_use = \"a sealed with-environment compound assignment must consume its Reference plan\"]"
+        "#[must_use = \"a sealed eager compound assignment must consume its Reference plan\"]"
     ));
 }
 
@@ -161,15 +166,8 @@ fn selected_branch_orders_get_apply_put_and_result_on_one_object() {
     );
     for marker in [
         "let binding_visible = binding_object.binding_visible(",
-        "let old_value = binding_object",
-        ".clone()\n            .get_value(referenced_name, strictness);",
-        "let result_info = applied.value_info();",
-        "let write = binding_object.put_value(referenced_name, strictness, result.clone());",
-        "name: write_name.clone()",
-        "name: result_name.clone()",
-        "value: Box::new(applied.clone())",
-        "name: old_value_name.clone()",
-        "value: Box::new(old_value)",
+        "binding_object.eager_compound_assignment(referenced_name, strictness, assignment);",
+        "let result_info = selected_assignment.value_info();",
         "condition: Box::new(binding_visible)",
         "then_expr: Box::new(selected_assignment)",
         "else_expr: Box::new(fallback)",
@@ -179,12 +177,12 @@ fn selected_branch_orders_get_apply_put_and_result_on_one_object() {
             "missing assignment boundary: {marker}"
         );
     }
-    assert_before(assignment, "let binding_visible =", "let old_value =");
-    assert_before(assignment, "let old_value =", "let result_info =");
-    assert_before(assignment, "let result_info =", "let write =");
-    assert_before(assignment, "let write =", "let after_write =");
-    assert_before(assignment, "let after_write =", "let after_apply =");
-    assert_before(assignment, "let after_apply =", "let selected_assignment =");
+    assert_before(
+        assignment,
+        "let binding_visible =",
+        "let selected_assignment =",
+    );
+    assert_before(assignment, "let selected_assignment =", "let result_info =");
     assert!(!assignment.contains("ExprIr::PropertyCompoundAssign"));
     assert!(!assignment.contains("ExprIr::PropertyUpdate"));
 }
@@ -276,7 +274,7 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     let apply = bounded(
         COMPOUND_SOURCE,
         "    fn apply_eager_compound_assignment(",
-        "    /// ResolveBinding may reach the global fallback only after observable",
+        "}\n\n#[cfg(test)]",
     );
     for marker in [
         "EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add)",
@@ -307,16 +305,16 @@ fn fallback_is_dynamic_and_runtime_guarded_after_observable_selection() {
     for marker in [
         "let plan = self.with_environment_reference_plan(",
         "rhs.clone()",
-        "WithEnvironmentCompoundAssignmentBindings::allocate(",
+        "EagerCompoundAssignmentBindings::allocate(",
         "let old_value = bindings.old_value();",
         "let applied = Self::apply_eager_compound_assignment(",
         "plan.compound_assignment(bindings.seal(applied), fallback)",
         "self.set_binding_value_info(&name, unknown_runtime_value_info());",
+        "lower_global_object_environment_eager_compound_assignment(",
         "info.value_info = unknown_runtime_value_info();",
         "info.proven_present = false;",
-        "ExprIr::GlobalPropertyRead { name: name.clone() }",
-        "ExprIr::GlobalPropertyWrite {",
-        "self.guard_with_environment_global_get_value(name, write)",
+        "GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)",
+        ".compound_assignment(bindings.seal(applied))",
     ] {
         assert!(
             helper.contains(marker),
@@ -328,27 +326,6 @@ fn fallback_is_dynamic_and_runtime_guarded_after_observable_selection() {
     assert_before(helper, "let bindings =", "let old_value =");
     assert_before(helper, "let old_value =", "let applied =");
     assert_before(helper, "info.value_info =", "info.proven_present = false;");
-
-    let guard = bounded(
-        COMPOUND_SOURCE,
-        "    fn guard_with_environment_global_get_value(",
-        "}\n\n#[cfg(test)]",
-    );
-    assert!(guard.contains("let present = TypedExpr::spec_has_property("));
-    assert!(guard.contains("ExprIr::Identifier(GLOBAL_THIS_NAME.to_string())"));
-    assert!(guard.contains("name: NativeErrorKind::ReferenceError"));
-    assert!(guard.contains("message: \"unbound identifier in with scope\""));
-    assert_before(guard, "let present =", "ExprIr::Conditional {");
-    assert_before(
-        guard,
-        "condition: Box::new(present)",
-        "then_expr: Box::new(present_value)",
-    );
-    assert_before(
-        guard,
-        "then_expr: Box::new(present_value)",
-        "else_expr: Box::new(missing)",
-    );
 }
 
 #[test]

@@ -76,9 +76,9 @@ program whose `with` binding resolves at run time.
 `SelectedWithEnvironmentObjects` remains the only producer of the structurally
 non-empty `WithEnvironmentReferencePlan`. The plan is neither `Clone` nor
 `Copy`. Its eager compound-assignment consumer takes `self`, one sealed
-`WithEnvironmentCompoundAssignment` and the already-lowered fallback. A sealed
+`EagerCompoundAssignment` and the already-lowered fallback. A sealed
 assignment can only be produced by consuming
-`WithEnvironmentCompoundAssignmentBindings`, whose sole allocator creates
+`EagerCompoundAssignmentBindings`, whose sole allocator creates
 old-value, result and write bindings in fixed roles. Callers cannot transpose
 three same-typed names or construct the sealed payload directly.
 

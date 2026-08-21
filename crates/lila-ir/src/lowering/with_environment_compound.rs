@@ -25,7 +25,7 @@ impl<'a> ScriptLowerer<'a> {
             rhs.clone(),
             fallback,
         );
-        let bindings = WithEnvironmentCompoundAssignmentBindings::allocate(|prefix| {
+        let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
             self.alloc_temp_binding_name(prefix)
         });
         let old_value = bindings.old_value();
@@ -59,7 +59,8 @@ impl<'a> ScriptLowerer<'a> {
             let storage_name = binding.storage_name.clone();
             if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
                 self.set_binding_value_info(&name, unknown_runtime_value_info());
-                return self.lower_with_environment_global_eager_compound_assignment(name, op, rhs);
+                return self
+                    .lower_global_object_environment_eager_compound_assignment(name, op, rhs);
             }
 
             let lhs = TypedExpr::from_info(
@@ -81,10 +82,10 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
 
-        self.lower_with_environment_global_eager_compound_assignment(name, op, rhs)
+        self.lower_global_object_environment_eager_compound_assignment(name, op, rhs)
     }
 
-    fn lower_with_environment_global_eager_compound_assignment(
+    pub(super) fn lower_global_object_environment_eager_compound_assignment(
         &mut self,
         name: String,
         op: EagerCompoundAssignmentOp,
@@ -96,22 +97,13 @@ impl<'a> ScriptLowerer<'a> {
                 info.proven_present = false;
             }
         }
-        let lhs = TypedExpr::from_info(
-            unknown_runtime_value_info(),
-            ExprIr::GlobalPropertyRead { name: name.clone() },
-        );
-        let applied = Self::apply_eager_compound_assignment(op, lhs, rhs);
+        let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
+            self.alloc_temp_binding_name(prefix)
+        });
+        let applied = Self::apply_eager_compound_assignment(op, bindings.old_value(), rhs);
         let strictness = self.reference_strictness();
-        let write = TypedExpr::from_info(
-            applied.value_info(),
-            ExprIr::GlobalPropertyWrite {
-                name: name.clone(),
-                value: Box::new(applied),
-                implicit: false,
-                strictness,
-            },
-        );
-        self.guard_with_environment_global_get_value(name, write)
+        GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)
+            .compound_assignment(bindings.seal(applied))
     }
 
     /// The canonical dynamic operation shape used by both a selected Object
@@ -197,38 +189,6 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
     }
-
-    /// ResolveBinding may reach the global fallback only after observable
-    /// `with` HasBinding/@@unscopables work. Recheck presence before GetValue so
-    /// deletion throws and creation is admitted at run time.
-    fn guard_with_environment_global_get_value(
-        &self,
-        name: String,
-        present_value: TypedExpr,
-    ) -> TypedExpr {
-        let present = TypedExpr::spec_has_property(
-            TypedExpr::from_info(
-                self.global_this_info(),
-                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
-            ),
-            TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(name)),
-        );
-        let missing = TypedExpr::from_info(
-            unknown_runtime_value_info(),
-            ExprIr::RuntimeThrow {
-                name: NativeErrorKind::ReferenceError,
-                message: "unbound identifier in with scope",
-            },
-        );
-        TypedExpr::from_info(
-            present_value.value_info(),
-            ExprIr::Conditional {
-                condition: Box::new(present),
-                then_expr: Box::new(present_value),
-                else_expr: Box::new(missing),
-            },
-        )
-    }
 }
 
 #[cfg(test)]
@@ -243,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn with_environment_eager_compound_assignment_domain_is_twelve_closed_operations() {
+    fn eager_compound_assignment_domain_is_twelve_closed_operations() {
         let arithmetic = [
             (ArithmeticOp::Sub, ArithmeticBinaryOp::Sub),
             (ArithmeticOp::Mul, ArithmeticBinaryOp::Mul),

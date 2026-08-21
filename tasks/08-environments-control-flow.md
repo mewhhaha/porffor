@@ -123,8 +123,35 @@ has no additional direct vendored witness. The integrated IR domain test is
 `1/1`, the source-bounded suite is `5/5`, the retained numeric-reference suite
 is `4/4`, the Wasm lifecycle fixture is `1/1`, and the exact current-source
 cohort is `44/44`. The broader modern filename filter also exposed 11 adjacent
-global Object Environment cases that remain unsupported; they are explicit
-follow-up evidence, not part of this `with`-scope passing claim.
+global Object Environment cases; they are explicit follow-up evidence, not part
+of this `with`-scope passing claim.
+
+That adjacent global Object Environment follow-up is now dry-written around a
+distinct non-copyable `GlobalObjectEnvironmentReferencePlan`. Its constructor
+owns the compiler-provided global object rather than accepting an arbitrary
+expression, and its consuming compound-assignment operation performs the
+Global Object Record's initial plain `HasProperty` before reusing the sealed
+old-value/result/write carrier and shared independent GetBindingValue and
+SetMutableBinding rechecks. Unlike `WithEnvironmentReferencePlan`, this type
+cannot carry an outer fallback chain or `Symbol.unscopables` selection. The
+durable CLI fixture covers all eleven directly evidenced operators, an initial
+miss throwing before RHS evaluation, strict accessor deletion without
+recreation, sloppy accessor deletion with recreation, inherited selection and
+result publication only after PutValue succeeds. The source-bounded witness
+owns the exact eleven odd-suffix `noStrict` Test262 files and retains the whole
+22-file modern prefix as an adjacent regression gate for the already-green
+`with` siblings. At pre-batch commit
+`450f67050a270eebb4459b8ebd3cb2b171f5b7ee`, that prefix reported `11/22`: all
+eleven selected global executions were `Runtime/NotImplemented` with the exact
+diagnostic ``unsupported in lila wasm-aot first slice: unbound identifier
+`x```; all eleven `with` executions passed. The affected-package compile is
+green; the IR lifecycle test is `1/1`, the new source-bounded suite is `4/4`,
+the retained compound/numeric suites are `5/5` and `4/4`, and the Wasm
+lifecycle fixture is `1/1`. The selected current-source Test262 cohort now
+passes `11/11`, and the adjacent prefix passes `22/22` with zero unsupported,
+crash or bug outcomes. The shared closed operation includes `**=`, but there is
+no twelfth direct vendored witness and no full language-subtree or pinned-matrix
+claim.
 
 ## Objective
 
