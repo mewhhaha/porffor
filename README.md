@@ -370,6 +370,27 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- Direct identifier calls selected through `with` now have a verified,
+  Reference-preserving lowering seam. A private non-copyable
+  `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty
+  Object Environment chain and can produce a selected indirect call only with
+  the same binding object as both GetBindingValue source and explicit `this`;
+  its complete ordinary fallback retains undefined-this semantics. The
+  lowerer intercepts this form before name-specific builtin folds, locates the
+  fallback before observable HasBinding, and clears mutable fallback value and
+  function-target facts before lowering arguments. The durable CLI oracle
+  covers the exact selected receiver, getter deletion with the retained base,
+  `HasProperty`/unscopables/Get/call order, arguments after callee evaluation,
+  nested-unscopables selection, strict and sloppy fallback `this`, selected
+  builtin shadowing, an empty-with builtin fallback, and a declining Proxy
+  `has` trap that replaces the fallback function. Package checks and `cargo xc`
+  pass; the focused IR filter is `2/2`, the bounded structure executable is
+  `4/4`, and the exact CLI fixture is `1/1` in 23.19 seconds. The broader CLI
+  `environment` slice is `13/13` in 315.07 seconds. One test-only hardcoded-key
+  expectation was corrected during the focused IR rerun. The exact no-strict
+  Test262 file `language/expressions/call/with-base-obj.js` now passes `1/1`
+  with zero unsupported, crash or bug outcomes. These focused results do not
+  claim the complete call/with subtree or pinned matrix is green.
 - Object Environment identifier `&&=`, `||=` and `??=` now have a verified
   Reference lifecycle for both global and `with` resolution. The existing
   closed logical-op enum feeds one private binding-object operation whose

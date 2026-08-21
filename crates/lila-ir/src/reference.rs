@@ -777,6 +777,45 @@ impl WithEnvironmentResolution {
         )
     }
 
+    /// Resolve one identifier-call Reference through this Object Environment
+    /// candidate. The same validated binding object produces both the
+    /// GetBindingValue callee and WithBaseObject receiver; callers cannot
+    /// provide or transpose those roles independently.
+    fn call_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        args: &[TypedExpr],
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let callee = binding_object
+            .clone()
+            .get_value(referenced_name, strictness);
+        let receiver = binding_object.read();
+        let selected = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CallIndirect {
+                callee: Box::new(callee),
+                this_arg: Some(Box::new(receiver)),
+                args: args.to_vec(),
+                static_regexp_compilation: None,
+            },
+        );
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
     fn put_value_or_else(
         self,
         referenced_name: &str,
@@ -905,6 +944,56 @@ impl SelectedWithEnvironmentObjects {
             .collect::<Vec<_>>();
         outer.reverse();
         WithEnvironmentReferencePlan::create(innermost, outer, referenced_name, strictness)
+    }
+
+    /// Consume this non-empty selection into the identifier-call-only
+    /// Reference capability. There is no constructor from a value-only
+    /// identifier, so WithBaseObject cannot be recovered after GetValue.
+    pub(crate) fn into_identifier_call_plan(
+        self,
+        referenced_name: String,
+        strictness: Strictness,
+        allocate_unscopables_binding: impl FnMut() -> String,
+    ) -> WithEnvironmentIdentifierCallReferencePlan {
+        WithEnvironmentIdentifierCallReferencePlan {
+            reference: self.into_reference_plan(
+                referenced_name,
+                strictness,
+                allocate_unscopables_binding,
+            ),
+        }
+    }
+}
+
+/// A non-empty ResolveBinding chain whose only result is an identifier call.
+///
+/// The wrapped Reference is deliberately inaccessible and neither type is
+/// `Clone` or `Copy`. [`Self::call`] is therefore the only way to obtain the
+/// callee/WithBaseObject receiver product, and consuming it twice is E0382.
+#[derive(Debug)]
+#[must_use = "a with-environment identifier-call Reference must be consumed by Call"]
+pub(crate) struct WithEnvironmentIdentifierCallReferencePlan {
+    reference: WithEnvironmentReferencePlan,
+}
+
+impl WithEnvironmentIdentifierCallReferencePlan {
+    /// Consume the Reference into mutually exclusive selected-object calls and
+    /// one ordinary undefined-this fallback call. Argument IR is cloned only
+    /// across runtime-exclusive branches; the source arguments were lowered
+    /// once before entering this transition.
+    #[must_use]
+    pub(crate) fn call(self, args: Vec<TypedExpr>, fallback: TypedExpr) -> TypedExpr {
+        let WithEnvironmentReferencePlan {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self.reference;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.call_or_else(&referenced_name, strictness, &args, resolved);
+        }
+        innermost.call_or_else(&referenced_name, strictness, &args, resolved)
     }
 }
 
@@ -2707,6 +2796,63 @@ mod tests {
         assert_eq!(*op, LogicalBinaryOp::Or);
         assert_selected_get_value(lhs, "$with.object", Strictness::Strict);
         assert_strict_selected_write(rhs, "$with.object", "rhs");
+    }
+
+    #[test]
+    fn with_environment_identifier_call_keeps_callee_and_base_object_together() {
+        let fallback = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CallIndirect {
+                callee: Box::new(identifier("fallback", ValueKind::Dynamic)),
+                this_arg: None,
+                args: vec![identifier("arg", ValueKind::Number)],
+                static_regexp_compilation: None,
+            },
+        );
+        let lowered = WithEnvironmentIdentifierCallReferencePlan {
+            reference: WithEnvironmentReferencePlan::create(
+                with_environment_resolution("$with.object", "$with.unscopables.object"),
+                Vec::new(),
+                "x".to_string(),
+                Strictness::Sloppy,
+            ),
+        }
+        .call(vec![identifier("arg", ValueKind::Number)], fallback);
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the with Object Record once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(receiver),
+            args,
+            ..
+        } = &selected.expr
+        else {
+            panic!("a selected identifier Reference must carry WithBaseObject");
+        };
+        assert_selected_get_value(callee, "$with.object", Strictness::Sloppy);
+        assert_eq!(identifier_name(receiver), "$with.object");
+        assert_eq!(identifier_name(&args[0]), "arg");
+
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: None,
+            args,
+            ..
+        } = &fallback.expr
+        else {
+            panic!("ordinary fallback must retain the undefined-this path");
+        };
+        assert_eq!(identifier_name(callee), "fallback");
+        assert_eq!(identifier_name(&args[0]), "arg");
     }
 
     #[test]

@@ -3,6 +3,7 @@ mod builtin_shapes;
 mod dynamic_source;
 mod object_environment_logical;
 mod proxy_traps;
+mod with_environment_call;
 mod with_environment_compound;
 
 use super::*;
@@ -13633,6 +13634,14 @@ impl<'a> ScriptLowerer<'a> {
                 TypedExpr::undefined()
             }
         };
+
+        // Resolve a direct identifier through any preceding Object
+        // Environment Records before the name-specific builtin folds below.
+        // A selected with binding can shadow even `Number`/`Boolean`/`Symbol`,
+        // and the Reference's base supplies CallExpression's WithBaseObject.
+        if let Some(call) = self.lower_with_environment_identifier_call(callee, args) {
+            return call;
+        }
 
         if let Some(generator) = generator_expression_callee(callee) {
             if args.is_empty() && linear_generator_plan(generator.body()).is_none() {

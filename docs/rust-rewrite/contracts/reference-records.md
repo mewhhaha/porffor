@@ -313,8 +313,15 @@ typed current/captured positions used by writes.
 The `typeof unresolvableName` shortcut remains valid only when no selected
 Object Environment Record may bind the name. A selected plan instead uses
 `undefined` only as its terminal unresolvable fallback, runs any selected
-GetBindingValue first, then applies `typeof`. This does not close identifier-call
-`WithBaseObject`, compound/logical/update/destructuring/delete operations,
-generated contexts or resumable captured Object Environment Records. Its
-Cargo, Wasm and pinned Test262 gates remain deferred to the integration
-checkpoint.
+GetBindingValue first, then applies `typeof`.
+
+The adjacent direct non-eval identifier-call seam now consumes a distinct
+`WithEnvironmentIdentifierCallReferencePlan`. Each selected branch derives
+both its GetBindingValue callee and `WithBaseObject` receiver from the same
+materialized binding object, while the already-located fallback remains a
+Dynamic ordinary call with undefined `this`. This claim does not include
+optional/property/super/eval calls, generated contexts, or resumable captured
+Object Environment Records. Compound/logical/update/destructuring/delete
+operations retain their separately recorded boundaries. Cargo, Wasm and pinned
+Test262 focused gates are green at the integration checkpoint; the broader
+call/with subtree and pinned matrix remain unclaimed.

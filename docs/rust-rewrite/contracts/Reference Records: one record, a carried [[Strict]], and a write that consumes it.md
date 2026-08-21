@@ -1466,8 +1466,11 @@ preserves 13.5.3's exemption without bypassing Object Environment resolution or
 turning a selected record's strict missing recheck into `undefined`.
 
 This follow-up claims direct identifier GetValue, including the operand of
-`typeof`. Identifier calls still need `WithBaseObject` receiver preservation.
-Compound/logical/update/destructuring and delete operations, generated
-class/helper contexts and resumable captured Object Environment Records remain
-explicit debt. No IR variant, backend operation, closure ABI, status count or
-complete `language/statements/with` closure is claimed.
+`typeof`. The adjacent direct non-eval identifier-call contract now preserves
+`WithBaseObject` through a consuming plan which produces the selected callee
+and receiver from one binding object; observable with selection forces its
+ordinary fallback callee to remain Dynamic. Optional/property/super/eval calls,
+generated class/helper contexts and resumable captured Object Environment
+Records remain explicit debt. Compound/logical/update/destructuring and delete
+operations keep their separately recorded boundaries. No new backend
+operation, closure ABI, complete subtree, or pinned-matrix closure is claimed.

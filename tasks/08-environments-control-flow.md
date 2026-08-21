@@ -87,9 +87,9 @@ execution gates remain deferred to the current integration checkpoint. The
 Object Environment seam is intentionally limited to plain assignment, direct
 identifier GetValue (including `typeof` operands), identifier numeric update
 and eager arithmetic/bitwise compound assignment in scripts and ordinary source
-functions. Identifier-call `WithBaseObject`, logical compound assignment,
-destructuring/delete operations, generated class/helper contexts and resumable
-captured WithObject environments remain explicit debt.
+functions, plus direct identifier-call `WithBaseObject`. Logical compound
+assignment, destructuring/delete operations, generated class/helper contexts
+and resumable captured WithObject environments remain explicit debt.
 
 Global Object Environment identifier numeric updates now have a verified
 Reference lifecycle adjacent to the already-green `with` numeric-update lane.
@@ -133,6 +133,42 @@ exact selected global numeric cohort now passes `4/4`, the four bare-suffix
 `with` controls remain `4/4`, and the modern eager-compound prefix remains
 `22/22` with zero unsupported, crash or bug outcomes. These focused results do
 not claim the complete language subtree or pinned matrix is green.
+
+Direct identifier calls selected through a `with` Object Environment Record
+now have a verified Reference capability. The private, non-copyable,
+must-use `WithEnvironmentIdentifierCallReferencePlan` wraps the existing
+non-empty Object Environment chain; its sole consuming `call` transition pairs
+GetBindingValue's callee with the exact same binding object as
+CallExpression's `WithBaseObject()` receiver. Each selected branch carries
+`this_arg: Some(bindingObject)`, while the complete ordinary fallback remains
+outside that path with `this_arg: None`.
+
+The lowerer intercepts direct identifier calls before generator and
+name-specific builtin folds, so a selected `Boolean` or `Number` binding cannot
+bypass ResolveBinding. It locates the declarative/global fallback before the
+observable HasBinding walk, forces mutable fallback value and function-target
+metadata to the full runtime domain, then lowers arguments once. The AOT
+consumer retains the existing callee, explicit-this, arguments and Call order.
+The durable CLI oracle covers selected receiver identity, a getter deleting the
+method before its retained-base call, exact `huhrgac`
+HasProperty/unscopables/Get/getter/argument/call ordering, nested-unscopables
+selection, strict undefined-this and sloppy global-this fallback calls,
+selected builtin shadowing, an empty-with builtin fallback, and a declining
+Proxy HasBinding trap which replaces the known fallback function before its
+runtime GetValue.
+
+The exact selected Test262 inventory is the single `flags: [noStrict]` file
+`language/expressions/call/with-base-obj.js`. At clean pre-batch commit
+`88de596ce22a69b8b7c47dacaed051172adf46b6`, it measured `0/1` under Wasm AOT
+as `Bug/Runtime`, with its `via CallExpression` SameValue assertion observing
+the wrong receiver. The current integration checkpoint is green: package
+checks and `cargo xc` pass; the focused IR filter is `2/2`, the bounded
+structure executable is `4/4`, and the exact CLI fixture is `1/1` in 23.19
+seconds. The broader CLI `environment` slice is `13/13` in 315.07 seconds. One
+test-only hardcoded-key expectation was corrected during the focused IR rerun.
+The exact selected Test262 file now passes `1/1` with zero unsupported, crash
+or bug outcomes. These focused results do not claim the complete
+`language/expressions/call` or `with` subtree, or pinned matrix is green.
 
 Object Environment identifier logical assignment now has a verified shared
 Reference lifecycle for all three closed `LogicalBinaryOp::{And, Or,
