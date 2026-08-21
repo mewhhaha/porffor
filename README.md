@@ -370,6 +370,27 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- A bounded RegExp batch now implements finite UnicodeSets `\q{…}` class-string
+  algebra. At clean pre-batch commit `f580b424d`, one union, one intersection
+  and one subtraction representative each reported `0/2` sloppy/strict
+  Wasm-AOT executions: `string-literal-union-string-literal.js`,
+  `string-literal-intersection-string-literal.js`, and
+  `string-literal-difference-string-literal.js`. All six measured executions
+  were `Runtime/NotImplemented` with `RegExp.prototype.exec unsupported
+  pattern`. The compiler now retains a canonical range-and-string set through
+  union, intersection and subtraction, emits longest strings before the
+  singleton class and empty member, and uses the same exhaustive forward/reverse
+  lowering. Central verification passed
+  workspace/all-target checking, `cargo xc`, the focused IR invariant `1/1`,
+  the bounded structure witness `7/7`, the source-free Wasm lifecycle fixture
+  `1/1`, and the exact unmasked 27-file/54-execution Test262 cohort `54/54`
+  with zero parser, early-error, lowering, runtime, Wasm-backend, harness,
+  unsupported, crash or bug outcomes. The runtime fixture exposed and closed a
+  reverse-lookbehind gap by sharing the canonical Unicode range-membership
+  emitter in both matcher directions. The six adjacent generated files that
+  require Unicode properties of strings and direct class-string `/iv` folding
+  remain explicit typed capability boundaries. This records no broader
+  UnicodeSets or RegExp completion claim.
 - A bounded matcher batch now implements RepeatMatcher's nullable
   unbounded-quantifier progress rule. At clean pre-batch commit `44247b836b`,
   exact unflagged Test262 file `built-ins/RegExp/nullable-quantifier.js`

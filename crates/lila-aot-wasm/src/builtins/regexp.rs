@@ -2340,6 +2340,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LITERAL_ASCII as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_LITERAL_CODE_POINT as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_UNICODE_PROPERTY as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_DOT as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
@@ -2493,10 +2505,81 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LITERAL_ASCII as i64));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_LITERAL_CODE_POINT as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(codepoint));
         function.instruction(&Instruction::LocalGet(operand0));
         function.instruction(&Instruction::I64Ne);
+        self.emit_regexp_backtrack_or_fail(
+            2,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            pc,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(match_utf16));
+        function.instruction(&Instruction::LocalGet(utf16_advance));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(match_utf16));
+        function.instruction(&Instruction::LocalGet(pc));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(pc));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_UNICODE_PROPERTY as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Reverse matching uses the same canonical range slice and membership
+        // test as forward matching. Only cursor movement differs.
+        function.instruction(&Instruction::LocalGet(range_base));
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(REGEXP_RANGE_ENTRY_WIDTH as i64));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(5));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
+        self.emit_regexp_unicode_property_mismatch(
+            range_base,
+            operand0,
+            operand1,
+            codepoint,
+            range_count,
+            range_low,
+            range_high,
+            range_middle,
+            &mut function,
+        );
         self.emit_regexp_backtrack_or_fail(
             2,
             choice_depth,
@@ -2877,59 +2960,17 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        // Binary search the sorted, disjoint range slice
-        // `[operand0, operand0 + operand1 >> 1)` for `codepoint`.
-        function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(range_count));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(range_low));
-        function.instruction(&Instruction::LocalGet(range_count));
-        function.instruction(&Instruction::LocalSet(range_high));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(range_low));
-        function.instruction(&Instruction::LocalGet(range_high));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(range_low));
-        function.instruction(&Instruction::LocalGet(range_high));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(range_middle));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        self.emit_regexp_range_bound_load(range_base, operand0, range_middle, 4, &mut function);
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(range_middle));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(range_low));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(range_middle));
-        function.instruction(&Instruction::LocalSet(range_high));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(range_low));
-        function.instruction(&Instruction::LocalGet(range_count));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        self.emit_regexp_range_bound_load(range_base, operand0, range_low, 0, &mut function);
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Xor);
-        function.instruction(&Instruction::I64Eqz);
+        self.emit_regexp_unicode_property_mismatch(
+            range_base,
+            operand0,
+            operand1,
+            codepoint,
+            range_count,
+            range_low,
+            range_high,
+            range_middle,
+            &mut function,
+        );
         self.emit_regexp_backtrack_or_fail(
             1,
             choice_depth,
@@ -3604,6 +3645,87 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I64Load(Self::memarg8(delta)));
         function.instruction(&Instruction::LocalSet(output_local));
+    }
+
+    /// Pushes whether `codepoint_local` fails the canonical range-set matcher
+    /// encoded by `first_entry_local` and `packed_count_local`.
+    fn emit_regexp_unicode_property_mismatch(
+        &self,
+        range_base_local: u32,
+        first_entry_local: u32,
+        packed_count_local: u32,
+        codepoint_local: u32,
+        range_count_local: u32,
+        range_low_local: u32,
+        range_high_local: u32,
+        range_middle_local: u32,
+        function: &mut Function,
+    ) {
+        // Binary search the sorted, disjoint range slice for the first range
+        // whose inclusive end is not below the input code point.
+        function.instruction(&Instruction::LocalGet(packed_count_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(range_count_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_count_local));
+        function.instruction(&Instruction::LocalSet(range_high_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_high_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_high_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(range_middle_local));
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        self.emit_regexp_range_bound_load(
+            range_base_local,
+            first_entry_local,
+            range_middle_local,
+            4,
+            function,
+        );
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(range_middle_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(range_low_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(range_middle_local));
+        function.instruction(&Instruction::LocalSet(range_high_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_count_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        self.emit_regexp_range_bound_load(
+            range_base_local,
+            first_entry_local,
+            range_low_local,
+            0,
+            function,
+        );
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalGet(packed_count_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Xor);
+        function.instruction(&Instruction::I64Eqz);
     }
 
     /// Pushes the inclusive `start` (`field` 0) or `end` (`field` 4) bound of
