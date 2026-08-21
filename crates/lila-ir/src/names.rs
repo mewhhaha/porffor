@@ -285,6 +285,7 @@ pub const TYPE_ERROR_NAME: &str = NativeErrorKind::TypeError.as_str();
 pub const URI_ERROR_NAME: &str = NativeErrorKind::URIError.as_str();
 pub const REFERENCE_ERROR_NAME: &str = NativeErrorKind::ReferenceError.as_str();
 pub const BUILTIN_FUNCTION_FUNCTION_ID: &str = "$builtin.Function";
+pub const BUILTIN_FUNCTION_PROTOTYPE_FUNCTION_ID: &str = "$builtin.Function.prototype";
 pub const BUILTIN_FUNCTION_PROTOTYPE_CALL_FUNCTION_ID: &str = "$builtin.Function.prototype.call";
 pub const BUILTIN_FUNCTION_PROTOTYPE_APPLY_FUNCTION_ID: &str = "$builtin.Function.prototype.apply";
 pub const BUILTIN_FUNCTION_PROTOTYPE_BIND_FUNCTION_ID: &str = "$builtin.Function.prototype.bind";

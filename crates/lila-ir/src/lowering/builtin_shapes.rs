@@ -2924,6 +2924,19 @@ impl<'a> ScriptLowerer<'a> {
         let mut shape = Self::function_heap_shape(builtin.constructable());
         if let HeapShape::Object(object) = shape.as_mut() {
             match builtin {
+                StandardBuiltinId::FunctionConstructor => {
+                    // `%Function.prototype%` is itself the exact callable
+                    // intrinsic. Keeping its catalog target in the constructor
+                    // shape makes `Function.prototype()` a statically resolved
+                    // call instead of an indirect call through an Object-shaped
+                    // placeholder.
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                            StandardBuiltinId::FunctionPrototype,
+                        )),
+                    );
+                }
                 StandardBuiltinId::PromiseConstructor => {
                     object.properties.insert(
                         "prototype".to_string(),
@@ -4632,6 +4645,12 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Function),
                 Some(Self::standard_builtin_function_shape(builtin)),
                 Self::standard_builtin_value_info(builtin),
+            ),
+            StandardBuiltinId::FunctionPrototype => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::FunctionPrototypeCall
             | StandardBuiltinId::FunctionPrototypeApply => (

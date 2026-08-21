@@ -1460,6 +1460,13 @@ impl RuntimeBootstrapPlan {
         if !self.walked.insert(builtin) {
             return;
         }
+        if builtin == StandardBuiltinId::FunctionConstructor {
+            // `%Function.prototype%` is a callable intrinsic, not an Object
+            // shell. Root its exact body whenever the foundational Function
+            // family is present so bootstrap cannot publish a stubbed call
+            // target.
+            self.require_standard_builtin(StandardBuiltinId::FunctionPrototype);
+        }
         if builtin == StandardBuiltinId::DisposableStackConstructor {
             // The constructor installer publishes the complete prototype as one
             // intrinsic unit. Root every function value it reads so an emitted
@@ -6387,6 +6394,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::ArrayBufferSpeciesGetter
         | StandardBuiltinId::RegExpSpeciesGetter
         | StandardBuiltinId::PromiseSpeciesGetter
+        | StandardBuiltinId::FunctionPrototype
         | StandardBuiltinId::FunctionPrototypeToString
         | StandardBuiltinId::ErrorPrototypeToString
         | StandardBuiltinId::ThrowTypeError

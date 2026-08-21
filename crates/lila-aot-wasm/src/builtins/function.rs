@@ -3,6 +3,7 @@ use super::super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FunctionBuiltin {
     Constructor,
+    Prototype,
     PrototypeCall,
     PrototypeApply,
     PrototypeBind,
@@ -99,6 +100,16 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(realm_aggregate_error_prototype_local);
                 self.release_temp_local(realm_data_view_prototype_local);
                 self.release_temp_local(realm_array_buffer_prototype_local);
+            }
+            FunctionBuiltin::Prototype => {
+                // ECMA-262 %Function.prototype% [[Call]]: accept any receiver
+                // and argument list, perform no observable work, and return
+                // undefined. Constructability is excluded by its catalog
+                // protocol, not by a runtime branch here.
+                self.emit_undefined_payload(function);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
             FunctionBuiltin::PrototypeCall => {
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {

@@ -433,7 +433,7 @@ fi
 require_fixed_string_count \
   "$wasm_standard_builtins" \
   'self.emit_function_builtin(' \
-  6 \
+  7 \
   'Function builtin delegate'
 require_fixed_string_count \
   "$wasm_standard_builtins" \

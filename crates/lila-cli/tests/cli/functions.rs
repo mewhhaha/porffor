@@ -829,10 +829,11 @@ fn run_wasm_backend_succeeds_for_function_prototype_define_property_fixture() {
     assert!(stdout.contains("boolean(true)"));
 }
 
-/// `CreateBuiltinFunction` defaults `[[Prototype]]` from the function's
-/// defining realm. This spans constructors, methods, accessors, namespace and
-/// global functions, plus the canonical parseInt/parseFloat helper across two
-/// distinct synthetic realms.
+/// Each realm owns one callable, non-constructable `%Function.prototype%`
+/// whose own descriptors and Function constructor links keep that exact
+/// identity. `CreateBuiltinFunction` then defaults `[[Prototype]]` from the
+/// defining realm across constructors, methods, accessors, namespace and
+/// global functions, plus canonical parseInt/parseFloat helpers.
 #[test]
 fn run_wasm_backend_uses_created_realm_builtin_function_prototypes() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

@@ -18818,6 +18818,7 @@ impl<'a> ScriptLowerer<'a> {
                     "dynamic-source builtins must consume their resolved disposition before builtin result analysis"
                 )
             }
+            StandardBuiltinId::FunctionPrototype => Some(ValueInfo::undefined()),
             StandardBuiltinId::PromiseConstructor => {
                 if let Some(executor_id) = args
                     .first()

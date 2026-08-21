@@ -8007,6 +8007,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::FunctionConstructor => {
                 self.emit_function_builtin(FunctionBuiltin::Constructor, function)?
             }
+            StandardBuiltinId::FunctionPrototype => {
+                self.emit_function_builtin(FunctionBuiltin::Prototype, function)?
+            }
             StandardBuiltinId::FunctionPrototypeCall => {
                 self.emit_function_builtin(FunctionBuiltin::PrototypeCall, function)?
             }

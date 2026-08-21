@@ -368,7 +368,7 @@ denominators. Unflagged files now contribute separate sloppy and strict
 executions, so only entries that explicitly report execution variants from a
 post-cutover rerun are current focused evidence.
 
-Recent focused progress through `2026-08-20`:
+Recent focused progress through `2026-08-21`:
 
 - Primitive String computed-property reads now preserve every non-index key for
   the ordinary `ToPropertyKey` and `%String.prototype%` path, while canonical
@@ -2308,6 +2308,20 @@ Recent focused progress through `2026-08-20`:
   `proto-from-ctor-realm-sab.js`, which execute zero-argument cross-realm
   `new other.Function()` dynamic source generation. Refresh this cohort with
   `./target/release/lila --jobs 1 test262 run --matrix-node built-ins/DataView --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-direct-current-pin-authoritative-20260722`.
+- The callable `%Function.prototype%` realm lane is implemented and focused-
+  verified. One non-constructable catalog identity supplies the
+  zero-return call body, exact empty `name`, zero `length` and native source;
+  entry and created realms materialize fresh Function-tagged values whose
+  internal prototypes are their own Object prototypes. The Function constructor
+  publishes that exact identity with non-writable, non-enumerable,
+  non-configurable attributes. The existing two-created-realm CLI fixture now
+  also covers call results, tags, source text, non-constructability, own
+  descriptors and distinct identities, while a bounded source witness guards
+  rooting and both realm materialization routes. `cargo xc`, all eight bounded
+  source invariants, both realm-materialization unit tests and the CLI consumer
+  are green. The five selected current-pin Test262 files pass 10/10 strict and
+  sloppy executions, and the adjacent non-constructability case passes 2/2.
+  This remains focused evidence; no new aggregate pass count is claimed.
 - Generic function-to-string conversion in Wasm-AOT now reads the stored
   function/native source payload, so `"" + fn` agrees with
   `Function.prototype.toString.call(fn)` for builtin constructors, builtin

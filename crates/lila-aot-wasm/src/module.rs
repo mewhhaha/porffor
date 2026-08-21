@@ -1934,7 +1934,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::DisposableStackPrototypeDefer
         | StandardBuiltinId::DisposableStackPrototypeMove
         | StandardBuiltinId::DisposableStackPrototypeDispose
-        | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => None,
+        | StandardBuiltinId::DisposableStackPrototypeDisposedGetter
+        | StandardBuiltinId::FunctionPrototype => None,
     }
 }
 
@@ -2249,6 +2250,7 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
 
 pub(crate) fn standard_builtin_function_global_index(builtin: StandardBuiltinId) -> Option<u32> {
     match builtin {
+        StandardBuiltinId::FunctionPrototype => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::RegExpPrototypeSymbolMatch => {
             Some(REGEXP_PROTOTYPE_SYMBOL_MATCH_GLOBAL_INDEX)
         }

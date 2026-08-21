@@ -149,10 +149,10 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             } else {
-                let prototype_kind = if builtin == StandardBuiltinId::ArrayConstructor {
-                    ValueKind::Array
-                } else {
-                    ValueKind::Object
+                let prototype_kind = match builtin {
+                    StandardBuiltinId::ArrayConstructor => ValueKind::Array,
+                    StandardBuiltinId::FunctionConstructor => ValueKind::Function,
+                    _ => ValueKind::Object,
                 };
                 self.store_i64_const_at_offset(
                     object_local,
@@ -2625,24 +2625,34 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.release_temp_local(object_prototype_local);
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
+        let function_prototype_meta = self
+            .functions
+            .get(&StandardBuiltinId::FunctionPrototype.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Function.prototype`",
+                )
+            })?;
+        self.emit_function_value_payload(&function_prototype_meta, function)?;
         function.instruction(&Instruction::GlobalSet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
         let function_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(function_prototype_local));
-        self.emit_object_define_number_data_from_f64_const_with_flags(
+        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.store_i64_local_at_offset(
             function_prototype_local,
-            "length",
-            0.0,
-            false,
-            false,
-            true,
+            HEAP_PROTOTYPE_OFFSET,
+            self.scratch_local,
             function,
-        )?;
+        );
+        self.store_i64_const_at_offset(
+            function_prototype_local,
+            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
+            function,
+        );
         self.release_temp_local(function_prototype_local);
         // Array.prototype is itself an Array exotic object.  Allocate it with
         // the array layout, then repair the allocator's default prototype
@@ -2761,9 +2771,18 @@ impl<'a> FunctionBuilder<'a> {
             NonArrayRealmIntrinsicSlot::GeneratorPrototype,
             function,
         );
-        self.emit_alloc_plain_object_with_prototype(
+        let callable_function_prototype_local = self.reserve_temp_local();
+        let callable_function_prototype_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(callable_function_prototype_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(
+            callable_function_prototype_tag_local,
+        ));
+        self.emit_alloc_plain_object_with_prototype_and_tag(
+            Some(callable_function_prototype_local),
+            Some(callable_function_prototype_tag_local),
             None,
-            Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(
@@ -2787,9 +2806,10 @@ impl<'a> FunctionBuilder<'a> {
             NonArrayRealmIntrinsicSlot::AsyncIteratorPrototype,
             function,
         );
-        self.emit_alloc_plain_object_with_prototype(
+        self.emit_alloc_plain_object_with_prototype_and_tag(
+            Some(callable_function_prototype_local),
+            Some(callable_function_prototype_tag_local),
             None,
-            Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(
@@ -2800,6 +2820,8 @@ impl<'a> FunctionBuilder<'a> {
             NonArrayRealmIntrinsicSlot::AsyncFunctionPrototype,
             function,
         );
+        self.release_temp_local(callable_function_prototype_tag_local);
+        self.release_temp_local(callable_function_prototype_local);
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(ASYNC_ITERATOR_PROTOTYPE_GLOBAL_INDEX),

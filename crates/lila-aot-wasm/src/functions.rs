@@ -41,8 +41,8 @@ impl ProxyCallThrowRouting {
 #[derive(Clone, Copy)]
 pub(crate) struct RealmRecordLocal(u32);
 
-/// Storage reserved for a created realm's `%Function.prototype%` identity
-/// before its Object representation has been initialized.
+/// Storage reserved for a created realm's callable `%Function.prototype%`
+/// identity before its function representation has been initialized.
 ///
 /// The raw local is private and this state is not `Copy`. Realm bootstrap must
 /// consume it together with the matching realm record and Object prototype to
@@ -56,15 +56,13 @@ pub(crate) struct ReservedRealmFunctionPrototypeLocal(u32);
 /// The context is deliberately non-`Copy` and its fields are private. This
 /// prevents a call site from attaching one realm as `[[Realm]]` while leaving
 /// the allocator's entry-realm `%Function.prototype%` in `[[Prototype]]` or
-/// pairing the realm with an arbitrary scratch local. The current partial
-/// `%Function.prototype%` has Object representation; keeping that tag here
-/// makes the representation choice explicit at the same choke point that will
-/// eventually change when the intrinsic becomes callable.
+/// pairing the realm with an arbitrary scratch local. The context can only be
+/// constructed by materializing the catalogued callable intrinsic, so callers
+/// cannot supply a payload with a different value kind.
 #[must_use]
 pub(crate) struct RealmFunctionMaterializationContext {
     realm: RealmRecordLocal,
     function_prototype_local: u32,
-    function_prototype_kind: ValueKind,
 }
 
 /// Storage reserved for a created realm's `%Array.prototype%`, before an
@@ -475,6 +473,7 @@ mod realm_function_materialization_tests {
             "emit_store_function_defining_realm",
             "HEAP_PROTOTYPE_OFFSET",
             "HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET",
+            "ValueKind::Function.tag() as u64",
         ] {
             assert!(
                 materializer.contains(field),
@@ -491,8 +490,22 @@ mod realm_function_materialization_tests {
             .expect("Array lifecycle must follow Function prototype lifecycle")
             .0;
         assert!(
-            function_prototype_lifecycle.contains("function_prototype_kind: ValueKind::Object"),
-            "current created-realm Function prototype representation must remain explicit"
+            function_prototype_lifecycle
+                .contains("StandardBuiltinId::FunctionPrototype.function_id()"),
+            "created realms must materialize the catalogued callable Function prototype"
+        );
+        assert!(
+            function_prototype_lifecycle
+                .contains("self.emit_function_value_payload(&prototype_meta, function)?"),
+            "created realms must allocate Function.prototype through the function-object path"
+        );
+        assert!(
+            function_prototype_lifecycle.contains("ValueKind::Function.tag() as i64"),
+            "the created-realm Function constructor must publish its prototype as a Function"
+        );
+        assert!(
+            !context_attributes.contains("function_prototype_kind"),
+            "a callable Function prototype context must not accept an arbitrary value kind"
         );
 
         let mut remaining = host;
@@ -1467,7 +1480,7 @@ pub(crate) fn emit_function_object_alloc_helper_function(
         &mut function,
         OBJECT_LOCAL,
         HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-        ValueKind::Object.tag() as i64,
+        ValueKind::Function.tag() as i64,
     );
     helper_store_i64_local_at_offset(
         &mut function,
@@ -2750,7 +2763,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             object_local,
             HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Object.tag() as u64,
+            ValueKind::Function.tag() as u64,
             function,
         );
         self.store_i64_const_at_offset(
@@ -4178,6 +4191,12 @@ impl<'a> FunctionBuilder<'a> {
                 self.scratch_local,
                 function,
             );
+            self.store_i64_const_at_offset(
+                object_local,
+                HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+                ValueKind::Object.tag() as u64,
+                function,
+            );
         }
 
         let instance_prototype_global_index =
@@ -4347,7 +4366,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             function_object_local,
             HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            context.function_prototype_kind.tag() as u64,
+            ValueKind::Function.tag() as u64,
             function,
         );
         Ok(())
@@ -4368,15 +4387,33 @@ impl<'a> FunctionBuilder<'a> {
         object_prototype_local: u32,
         function: &mut Function,
     ) -> Result<RealmFunctionMaterializationContext, EmitError> {
-        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
+        let prototype_meta = self
+            .functions
+            .get(&StandardBuiltinId::FunctionPrototype.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Function.prototype`",
+                )
+            })?;
+        self.emit_function_value_payload(&prototype_meta, function)?;
         function.instruction(&Instruction::LocalSet(reserved.0));
-        self.emit_object_define_number_data_from_f64_const_with_flags(
-            reserved.0, "length", 0.0, false, false, true, function,
-        )?;
+        self.emit_store_function_defining_realm(reserved.0, realm.index(), function);
+        self.store_i64_local_at_offset(
+            reserved.0,
+            HEAP_PROTOTYPE_OFFSET,
+            object_prototype_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            reserved.0,
+            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
+            function,
+        );
         Ok(RealmFunctionMaterializationContext {
             realm,
             function_prototype_local: reserved.0,
-            function_prototype_kind: ValueKind::Object,
         })
     }
 
@@ -4403,12 +4440,43 @@ impl<'a> FunctionBuilder<'a> {
         constructor_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_set_function_prototype_data(
+        let tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.store_i64_local_at_offset(
             constructor_local,
+            HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+            tag_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            constructor_local,
+            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
             context.function_prototype_local,
+            function,
+        );
+        self.emit_object_define_local_data_with_flags(
+            constructor_local,
+            "prototype",
+            context.function_prototype_local,
+            tag_local,
+            false,
+            false,
+            false,
+            function,
+        )?;
+        self.emit_object_define_local_data_with_flags(
+            context.function_prototype_local,
+            "constructor",
+            constructor_local,
+            tag_local,
+            true,
+            false,
             true,
             function,
-        )
+        )?;
+        self.release_temp_local(tag_local);
+        Ok(())
     }
 
     pub(crate) fn release_realm_function_materialization_context(

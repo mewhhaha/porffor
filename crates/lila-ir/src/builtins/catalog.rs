@@ -5725,6 +5725,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "get disposed",
     }
+    FunctionPrototype {
+        function: FunctionOrdinal(786) => BUILTIN_FUNCTION_PROTOTYPE_FUNCTION_ID,
+        debug: "%Function.prototype%",
+        flags: [],
+        installer: None,
+        native: "",
+    }
 }
 
 impl StandardBuiltinId {

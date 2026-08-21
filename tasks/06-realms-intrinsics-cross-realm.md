@@ -1,6 +1,6 @@
 # T06 — Realms, intrinsics and cross-realm semantics
 
-**Status:** In progress — typed intrinsic and created-realm function foundations exist; full allocation and isolation remain
+**Status:** In progress — typed callable Function-prototype and created-realm function foundations exist; full allocation and isolation remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T03, T04, T05  
@@ -79,9 +79,22 @@ Dynamic-source-dependent cross-realm cases remain explicit
 unsupported cases, and no current complete Wasm-AOT aggregate proves the full
 realm acceptance matrix. Complete intrinsic allocation, host-capability
 scoping, teardown, borrowed builtins and realm-correct errors therefore remain
-active work. The typed Function-prototype context preserves identity but does
-not make `%Function.prototype%` callable or add it to the Wasm realm-intrinsic
-record. The bounded constructor seams do not repair every intrinsic family or
+active work. The current batch implements `%Function.prototype%` as one
+catalogued, non-constructable function value in the entry realm and every
+created realm. Its call body returns `undefined`, its internal prototype is the
+same realm's Object prototype, and the Function constructor publishes that
+exact Function-tagged identity with the required descriptors. A non-copyable
+created-realm context couples the intrinsic to its defining realm before other
+builtins can consume it. The focused CLI consumer covers callability, tag,
+native source, non-constructability, descriptors, entry identity and two
+distinct created-realm identities; a bounded structural witness pins the
+catalog, body, rooting and both materialization routes. The source-free
+contract and five exact selected Test262 paths are recorded in
+`docs/rust-rewrite/contracts/callable-function-prototype.md`. `cargo xc`, the
+eight bounded source invariants, two realm-materialization unit tests and the
+CLI consumer are green. The five selected current-pin files pass 10/10 strict
+and sloppy Wasm-AOT executions; the adjacent non-constructability case passes
+2/2. The bounded constructor seams do not repair every intrinsic family or
 unrelated partial-bootstrap prototype loader.
 
 ## Objective
