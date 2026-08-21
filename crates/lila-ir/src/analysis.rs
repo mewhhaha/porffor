@@ -167,6 +167,19 @@ pub(crate) enum SyncDisposableScopeOwnerPlan {
     AsyncGenerator,
 }
 
+/// The exhaustive function owner decision for an ordinary statement-list
+/// `await using` declaration.
+///
+/// Unsupported owners stay named instead of collapsing into `Option`, so a new
+/// execution kind cannot silently acquire the plain-async capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableScopeOwnerPlan {
+    Ordinary,
+    Generator,
+    AsyncFunction,
+    AsyncGenerator,
+}
+
 impl FunctionPlan<'_> {
     pub(crate) fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
         match self.protocol.execution_kind() {
@@ -174,6 +187,15 @@ impl FunctionPlan<'_> {
             FunctionExecutionKind::Generator => SyncDisposableScopeOwnerPlan::PlainGenerator,
             FunctionExecutionKind::Async => SyncDisposableScopeOwnerPlan::AsyncFunction,
             FunctionExecutionKind::AsyncGenerator => SyncDisposableScopeOwnerPlan::AsyncGenerator,
+        }
+    }
+
+    pub(crate) fn async_disposable_scope_owner(&self) -> AsyncDisposableScopeOwnerPlan {
+        match self.protocol.execution_kind() {
+            FunctionExecutionKind::Ordinary => AsyncDisposableScopeOwnerPlan::Ordinary,
+            FunctionExecutionKind::Generator => AsyncDisposableScopeOwnerPlan::Generator,
+            FunctionExecutionKind::Async => AsyncDisposableScopeOwnerPlan::AsyncFunction,
+            FunctionExecutionKind::AsyncGenerator => AsyncDisposableScopeOwnerPlan::AsyncGenerator,
         }
     }
 }
@@ -5992,10 +6014,36 @@ impl<'a> AnalysisBuilder<'a> {
                 .owner_plans
                 .get(&function.id)
                 .expect("generator owner must be planned");
+            // A resumable activation owns only bindings whose physical
+            // Environment Record is that activation. `root_bindings` is also
+            // the owner's all-descendants name inventory, so it contains the
+            // unique aliases of captured block/catch/head bindings. Copying
+            // that inventory wholesale into the activation duplicates those
+            // cells and makes capture hops disagree with the lexical
+            // environment chain that lowering emits. The physical-binding
+            // index spans every owner, so same-spelled bindings in sibling
+            // functions are ignored by the owner-local test below.
+            let activation_binding_names = owner
+                .root_bindings
+                .iter()
+                .filter(|name| {
+                    self.physical_binding_environments
+                        .get(*name)
+                        .is_some_and(|environments| {
+                            environments.contains(&owner.activation_environment_id)
+                                && environments.iter().all(|environment_id| {
+                                    let environment = &self.environment_plans[environment_id];
+                                    environment.owner_id != function.id
+                                        || *environment_id == owner.activation_environment_id
+                                })
+                        })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
             owned_names
                 .entry(owner.activation_environment_id)
                 .or_default()
-                .extend(owner.root_bindings.iter().cloned());
+                .extend(activation_binding_names);
         }
         let function_ids = self.function_order.clone();
         for function_id in function_ids {

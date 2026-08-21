@@ -2,7 +2,8 @@ use super::*;
 use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
-    ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr,
+    ArrayDestructuringEvaluationIr, AsyncDisposableFinalizerPlanIr, AsyncDisposableResourcesIr,
+    AsyncForOfIteratorPlanIr, AsyncFunctionAsyncDisposableCapabilityIr,
     AsyncFunctionSyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
     AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
     ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
@@ -47,6 +48,35 @@ struct DetachedActivationSyncDisposeCapabilityLocals {
     entries: u32,
     entry_count: u32,
 }
+
+#[must_use = "an async DisposeCapability storage proof must reach its consuming finalizer"]
+struct ActivationAsyncDisposeCapabilityStorage {
+    binding: BindingStorage,
+}
+
+#[must_use = "an active async DisposeCapability must be published before acquisition"]
+struct ActiveActivationAsyncDisposeCapabilityLocals {
+    object: u32,
+    record: u32,
+    entries: u32,
+}
+
+#[must_use = "an acquired async resource must be published or released"]
+struct AcquiredAsyncDisposableResourceLocals {
+    kind: u32,
+    value_payload: u32,
+    value_tag: u32,
+    method_payload: u32,
+    method_tag: u32,
+}
+
+#[must_use = "a detached async DisposeCapability must finish its parked LIFO walk"]
+struct DisposingActivationAsyncDisposeCapability {
+    storage: ActivationAsyncDisposeCapabilityStorage,
+}
+
+#[must_use = "a parked async-dispose completion must be restored exactly once"]
+struct ActiveAsyncDisposePendingCompletion;
 
 /// The resumable execution owners that share the activation-backed
 /// synchronous DisposeCapability representation.
@@ -1302,6 +1332,9 @@ impl<'a> FunctionBuilder<'a> {
                 .statements
                 .iter()
                 .find_map(Self::async_statement_entry_state),
+            StatementIr::AsyncDisposableScope { capability, .. } => {
+                Some(capability.finalizer().entry_state())
+            }
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
@@ -1358,6 +1391,9 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .rev()
                 .find_map(Self::async_statement_exit_state),
+            StatementIr::AsyncDisposableScope { capability, .. } => {
+                Some(capability.finalizer().exit_state())
+            }
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
@@ -1407,6 +1443,7 @@ impl<'a> FunctionBuilder<'a> {
                     | SyncDisposableScopeExecutionIr::AsyncGenerator(_),
                 ..
             } => None,
+            StatementIr::AsyncDisposableScope { .. } => None,
             _ => None,
         }
     }
@@ -1453,6 +1490,7 @@ impl<'a> FunctionBuilder<'a> {
                     | SyncDisposableScopeExecutionIr::AsyncGenerator(_),
                 ..
             } => None,
+            StatementIr::AsyncDisposableScope { .. } => None,
             _ => None,
         }
     }
@@ -1554,6 +1592,12 @@ impl<'a> FunctionBuilder<'a> {
                     resources, body, ..
                 } => {
                     self.initialize_sync_disposable_resource_bindings(resources, function);
+                    self.initialize_direct_lexical_bindings(&body.statements, function);
+                }
+                StatementIr::AsyncDisposableScope {
+                    resources, body, ..
+                } => {
+                    self.initialize_async_disposable_resource_bindings(resources, function);
                     self.initialize_direct_lexical_bindings(&body.statements, function);
                 }
                 StatementIr::Expression(TypedExpr {
@@ -2410,6 +2454,13 @@ impl<'a> FunctionBuilder<'a> {
                 body,
             } => {
                 self.compile_sync_disposable_scope(execution, resources, body, function)?;
+            }
+            StatementIr::AsyncDisposableScope {
+                capability,
+                resources,
+                body,
+            } => {
+                self.compile_async_disposable_scope(capability, resources, body, function)?;
             }
             StatementIr::AnnexBFunctionCopy {
                 source_name,
@@ -4913,6 +4964,948 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(saved_tag_local);
         self.release_temp_local(saved_payload_local);
         Ok(())
+    }
+
+    fn compile_async_disposable_scope(
+        &mut self,
+        capability: &AsyncFunctionAsyncDisposableCapabilityIr,
+        resources: &AsyncDisposableResourcesIr,
+        body: &BlockIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        debug_assert!(!resources.is_empty());
+        if !self
+            .current_function_meta()
+            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async)
+        {
+            return Err(EmitError::unsupported(
+                "async DisposeCapability has the wrong execution owner",
+            ));
+        }
+        let binding = self
+            .owned_env_slot(capability.binding_name())
+            .map(|slot| BindingStorage::EnvSlot { slot, hops: 0 })
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "async DisposeCapability is missing its activation-owned binding",
+                )
+            })?;
+        let storage = ActivationAsyncDisposeCapabilityStorage { binding };
+        let finalizer = capability.finalizer();
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("async disposal requires the function call ABI")
+        })?;
+
+        self.emit_async_state_in_range(
+            activation_local,
+            finalizer.entry_state(),
+            finalizer.exit_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(disposal_frame);
+
+        self.emit_async_state_in_range(
+            activation_local,
+            finalizer.entry_state(),
+            finalizer.dispose_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.initialize_activation_async_dispose_capability(&storage, resources, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.push_scope();
+        self.compile_async_block_contents(
+            body,
+            finalizer.entry_state(),
+            true,
+            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            function,
+        )?;
+        self.pop_scope();
+        self.emit_branch_to_target(disposal_frame, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.finally_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        self.emit_async_finalizer_needs_pending_completion(
+            activation_local,
+            finalizer.dispose_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        let pending = self.begin_async_dispose_pending_completion(function)?;
+        self.set_completion_kind(CompletionKind::Normal, function);
+        let disposing = self.begin_activation_async_dispose_capability(
+            storage,
+            activation_local,
+            finalizer,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.consume_activation_async_dispose_capability(disposing, pending, finalizer, function)?;
+
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn initialize_async_disposable_resource_bindings(
+        &mut self,
+        resources: &AsyncDisposableResourcesIr,
+        function: &mut Function,
+    ) {
+        for resource in resources.iter() {
+            let storage = self
+                .lookup_current_scope_binding(resource.binding_name())
+                .or_else(|| self.lookup_binding(resource.binding_name()))
+                .unwrap_or_else(|| {
+                    self.allocate_binding(
+                        resource.binding_name().to_string(),
+                        BindingMode::Const,
+                        resource.initializer().kind,
+                    )
+                });
+            self.initialize_binding_uninitialized(storage, function);
+        }
+    }
+
+    fn initialize_activation_async_dispose_capability(
+        &mut self,
+        storage: &ActivationAsyncDisposeCapabilityStorage,
+        resources: &AsyncDisposableResourcesIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let capability = ActiveActivationAsyncDisposeCapabilityLocals {
+            object: self.reserve_temp_local(),
+            record: self.reserve_temp_local(),
+            entries: self.reserve_temp_local(),
+        };
+        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+        function.instruction(&Instruction::LocalSet(capability.object));
+        self.emit_heap_alloc_const(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(capability.record));
+        self.emit_heap_alloc_const(
+            resources.len() as u64 * HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(capability.entries));
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
+            ActivationAsyncDisposeCapabilityState::Pending.word(),
+            function,
+        );
+        self.store_i64_local_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+            capability.entries,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+            resources.len() as u64,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            capability.object,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            capability.record,
+            function,
+        );
+        let object_tag = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(object_tag));
+        self.write_binding_from_locals(storage.binding, capability.object, object_tag, function);
+        self.release_temp_local(object_tag);
+
+        for resource in resources.iter() {
+            let acquired = self.reserve_async_disposable_resource_locals(function);
+            self.compile_expr_to_locals(
+                resource.initializer(),
+                acquired.value_payload,
+                acquired.value_tag,
+                function,
+            )?;
+            self.emit_propagate_throw_from_locals_if_needed(
+                acquired.value_payload,
+                acquired.value_tag,
+                function,
+            )?;
+            self.acquire_async_disposable_resource_from_locals(&acquired, function)?;
+            self.append_activation_async_disposable_resource(&capability, &acquired, function);
+            let resource_storage = self
+                .lookup_current_scope_binding(resource.binding_name())
+                .or_else(|| self.lookup_binding(resource.binding_name()))
+                .unwrap_or_else(|| {
+                    self.allocate_binding(
+                        resource.binding_name().to_string(),
+                        BindingMode::Const,
+                        resource.initializer().kind,
+                    )
+                });
+            self.write_binding_from_locals(
+                resource_storage,
+                acquired.value_payload,
+                acquired.value_tag,
+                function,
+            );
+            self.release_async_disposable_resource_locals(acquired);
+        }
+
+        self.release_temp_local(capability.entries);
+        self.release_temp_local(capability.record);
+        self.release_temp_local(capability.object);
+        Ok(())
+    }
+
+    fn reserve_async_disposable_resource_locals(
+        &mut self,
+        function: &mut Function,
+    ) -> AcquiredAsyncDisposableResourceLocals {
+        let resource = AcquiredAsyncDisposableResourceLocals {
+            kind: self.reserve_temp_local(),
+            value_payload: self.reserve_temp_local(),
+            value_tag: self.reserve_temp_local(),
+            method_payload: self.reserve_temp_local(),
+            method_tag: self.reserve_temp_local(),
+        };
+        function.instruction(&Instruction::I64Const(
+            ActivationAsyncDisposeEntryKind::Empty.word() as i64,
+        ));
+        function.instruction(&Instruction::LocalSet(resource.kind));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(resource.method_payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(resource.method_tag));
+        resource
+    }
+
+    fn release_async_disposable_resource_locals(
+        &mut self,
+        resource: AcquiredAsyncDisposableResourceLocals,
+    ) {
+        self.release_temp_local(resource.method_tag);
+        self.release_temp_local(resource.method_payload);
+        self.release_temp_local(resource.value_tag);
+        self.release_temp_local(resource.value_payload);
+        self.release_temp_local(resource.kind);
+    }
+
+    fn emit_is_nullish_tag_i32(&self, tag_local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+    }
+
+    fn acquire_async_disposable_resource_from_locals(
+        &mut self,
+        resource: &AcquiredAsyncDisposableResourceLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_is_nullish_tag_i32(resource.value_tag, function);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::Else);
+
+        self.emit_is_heap_object_like_tag_i32(resource.value_tag, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            "await using declaration resource is not an object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let key_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.asyncDispose"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            resource.value_payload,
+            resource.value_tag,
+            resource.value_payload,
+            resource.value_tag,
+            key_local,
+            resource.method_payload,
+            resource.method_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            resource.method_payload,
+            resource.method_tag,
+            function,
+        )?;
+
+        self.emit_is_nullish_tag_i32(resource.method_tag, function);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.dispose"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            resource.value_payload,
+            resource.value_tag,
+            resource.value_payload,
+            resource.value_tag,
+            key_local,
+            resource.method_payload,
+            resource.method_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            resource.method_payload,
+            resource.method_tag,
+            function,
+        )?;
+        self.emit_is_nullish_tag_i32(resource.method_tag, function);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            "await using declaration resource has no disposal method",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_is_callable_i32(resource.method_tag, resource.method_payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            "await using declaration [Symbol.dispose] method is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(
+            ActivationAsyncDisposeEntryKind::SyncFallbackMethod.word() as i64,
+        ));
+        function.instruction(&Instruction::LocalSet(resource.kind));
+        function.instruction(&Instruction::Else);
+        self.emit_is_callable_i32(resource.method_tag, resource.method_payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            "await using declaration [Symbol.asyncDispose] method is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(
+            ActivationAsyncDisposeEntryKind::AsyncMethod.word() as i64,
+        ));
+        function.instruction(&Instruction::LocalSet(resource.kind));
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(key_local);
+
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn append_activation_async_disposable_resource(
+        &mut self,
+        capability: &ActiveActivationAsyncDisposeCapabilityLocals,
+        resource: &AcquiredAsyncDisposableResourceLocals,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        let entry = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(capability.entries));
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE as i64,
+        ));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(entry));
+        for (offset, local) in [
+            (HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET, resource.kind),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+                resource.value_tag,
+            ),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+                resource.value_payload,
+            ),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
+                resource.method_tag,
+            ),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
+                resource.method_payload,
+            ),
+        ] {
+            self.store_i64_local_at_offset(entry, offset, local, function);
+        }
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.store_i64_local_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.release_temp_local(entry);
+    }
+
+    fn begin_async_dispose_pending_completion(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<ActiveAsyncDisposePendingCompletion, EmitError> {
+        self.emit_push_async_pending_completion(function)?;
+        Ok(ActiveAsyncDisposePendingCompletion)
+    }
+
+    fn begin_activation_async_dispose_capability(
+        &mut self,
+        storage: ActivationAsyncDisposeCapabilityStorage,
+        activation_local: u32,
+        finalizer: &AsyncDisposableFinalizerPlanIr,
+        function: &mut Function,
+    ) -> Result<DisposingActivationAsyncDisposeCapability, EmitError> {
+        let object_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
+        let record_local = self.reserve_temp_local();
+        self.read_binding_to_locals(storage.binding, object_local, object_tag_local, function)?;
+        self.load_i64_to_local_from_offset(
+            object_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
+            ActivationAsyncDisposeCapabilityState::Disposing.word(),
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            0,
+            function,
+        );
+        self.emit_set_async_resume_state(activation_local, finalizer.dispose_state(), function);
+        self.release_temp_local(record_local);
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_local);
+        Ok(DisposingActivationAsyncDisposeCapability { storage })
+    }
+
+    fn fold_error_into_async_dispose_pending_completion(
+        &mut self,
+        new_error_payload_local: u32,
+        new_error_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("async disposal requires the function call ABI")
+        })?;
+        let (head_offset, _) = self
+            .async_pending_completion_offsets()
+            .expect("async disposal requires an async function activation");
+        let pending_record_local = self.reserve_temp_local();
+        let pending_kind_local = self.reserve_temp_local();
+        let pending_payload_local = self.reserve_temp_local();
+        let pending_tag_local = self.reserve_temp_local();
+        let combined_payload_local = self.reserve_temp_local();
+        let combined_tag_local = self.reserve_temp_local();
+        let prototype_local = self.reserve_temp_local();
+
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            head_offset,
+            pending_record_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(pending_record_local));
+        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            pending_record_local,
+            HEAP_PENDING_COMPLETION_KIND_OFFSET,
+            pending_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(new_error_payload_local));
+        function.instruction(&Instruction::LocalSet(combined_payload_local));
+        function.instruction(&Instruction::LocalGet(new_error_tag_local));
+        function.instruction(&Instruction::LocalSet(combined_tag_local));
+
+        function.instruction(&Instruction::LocalGet(pending_kind_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.load_i64_to_local_from_offset(
+            pending_record_local,
+            HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
+            pending_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            pending_record_local,
+            HEAP_PENDING_COMPLETION_TAG_OFFSET,
+            pending_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::GlobalGet(
+            SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        self.emit_alloc_suppressed_error_instance_from_locals(
+            None,
+            new_error_payload_local,
+            new_error_tag_local,
+            pending_payload_local,
+            pending_tag_local,
+            prototype_local,
+            combined_payload_local,
+            combined_tag_local,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.store_i64_local_at_offset(
+            pending_record_local,
+            HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
+            combined_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            pending_record_local,
+            HEAP_PENDING_COMPLETION_TAG_OFFSET,
+            combined_tag_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            pending_record_local,
+            HEAP_PENDING_COMPLETION_KIND_OFFSET,
+            COMPLETION_KIND_THROW as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            pending_record_local,
+            HEAP_PENDING_COMPLETION_AUX_OFFSET,
+            0,
+            function,
+        );
+
+        self.release_temp_local(prototype_local);
+        self.release_temp_local(combined_tag_local);
+        self.release_temp_local(combined_payload_local);
+        self.release_temp_local(pending_tag_local);
+        self.release_temp_local(pending_payload_local);
+        self.release_temp_local(pending_kind_local);
+        self.release_temp_local(pending_record_local);
+        Ok(())
+    }
+
+    fn emit_rejected_intrinsic_promise_from_error(
+        &mut self,
+        error_payload_local: u32,
+        error_tag_local: u32,
+        promise_payload_local: u32,
+        promise_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let promise_record_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_alloc_promise_with_prototype(
+            self.scratch_local,
+            promise_payload_local,
+            promise_record_local,
+            function,
+        )?;
+        self.emit_settle_promise_record(
+            promise_record_local,
+            PromiseSettlement::Reject,
+            error_payload_local,
+            error_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(promise_tag_local));
+        self.release_temp_local(promise_record_local);
+        Ok(())
+    }
+
+    fn consume_activation_async_dispose_capability(
+        &mut self,
+        disposing: DisposingActivationAsyncDisposeCapability,
+        pending: ActiveAsyncDisposePendingCompletion,
+        finalizer: &AsyncDisposableFinalizerPlanIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("async disposal requires the function call ABI")
+        })?;
+        let object_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
+        let record_local = self.reserve_temp_local();
+        let entries_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let entry_local = self.reserve_temp_local();
+        let kind_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let method_payload_local = self.reserve_temp_local();
+        let method_tag_local = self.reserve_temp_local();
+        let await_payload_local = self.reserve_temp_local();
+        let await_tag_local = self.reserve_temp_local();
+        let should_await_local = self.reserve_temp_local();
+        let new_error_payload_local = self.reserve_temp_local();
+        let new_error_tag_local = self.reserve_temp_local();
+        let no_arguments: [(u32, u32); 0] = [];
+
+        self.read_binding_to_locals(
+            disposing.storage.binding,
+            object_local,
+            object_tag_local,
+            function,
+        )?;
+        self.load_i64_to_local_from_offset(
+            object_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+            entries_local,
+            function,
+        );
+
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(finalizer.resume_state() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let resume_is_throw_local = self.reserve_temp_local();
+        self.emit_load_async_function_resume_is_throw(
+            activation_local,
+            resume_is_throw_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
+        function.instruction(&Instruction::I32WrapI64);
+        self.open_frame(ControlFrameKind::If, function);
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
+            new_error_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_TAG_OFFSET,
+            new_error_tag_local,
+            function,
+        );
+        self.fold_error_into_async_dispose_pending_completion(
+            new_error_payload_local,
+            new_error_tag_local,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_set_async_resume_state(activation_local, finalizer.dispose_state(), function);
+        self.release_temp_local(resume_is_throw_local);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(finalizer.dispose_state() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let done_frame = self.open_frame(ControlFrameKind::Block, function);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
+
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+            index_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Eqz);
+        self.emit_branch_if_to_target(done_frame, function);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(index_local));
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+            index_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(entries_local));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE as i64,
+        ));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(entry_local));
+        for (offset, local) in [
+            (HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET, kind_local),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+                value_payload_local,
+            ),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+                value_tag_local,
+            ),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
+                method_payload_local,
+            ),
+            (
+                HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
+                method_tag_local,
+            ),
+        ] {
+            self.load_i64_to_local_from_offset(entry_local, offset, local, function);
+        }
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(await_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(await_tag_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(should_await_local));
+
+        let mut open_kind_arms = 0;
+        for entry_kind in ActivationAsyncDisposeEntryKind::ALL {
+            function.instruction(&Instruction::LocalGet(kind_local));
+            function.instruction(&Instruction::I64Const(entry_kind.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            match entry_kind {
+                ActivationAsyncDisposeEntryKind::Empty => {}
+                ActivationAsyncDisposeEntryKind::AsyncMethod => {
+                    self.set_completion_kind(CompletionKind::Normal, function);
+                    self.emit_function_or_proxy_call_leave_throw_completion(
+                        method_payload_local,
+                        method_tag_local,
+                        value_payload_local,
+                        value_tag_local,
+                        &no_arguments,
+                        await_payload_local,
+                        await_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(self.completion_local));
+                    function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                    function.instruction(&Instruction::I64Eq);
+                    self.open_frame(ControlFrameKind::If, function);
+                    function.instruction(&Instruction::LocalGet(self.result_local));
+                    function.instruction(&Instruction::LocalSet(new_error_payload_local));
+                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                    function.instruction(&Instruction::LocalSet(new_error_tag_local));
+                    self.set_completion_kind(CompletionKind::Normal, function);
+                    self.fold_error_into_async_dispose_pending_completion(
+                        new_error_payload_local,
+                        new_error_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(should_await_local));
+                    self.pop_control(ControlFrameKind::If);
+                    function.instruction(&Instruction::End);
+                }
+                ActivationAsyncDisposeEntryKind::SyncFallbackMethod => {
+                    self.set_completion_kind(CompletionKind::Normal, function);
+                    self.emit_function_or_proxy_call_leave_throw_completion(
+                        method_payload_local,
+                        method_tag_local,
+                        value_payload_local,
+                        value_tag_local,
+                        &no_arguments,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(self.completion_local));
+                    function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                    function.instruction(&Instruction::I64Eq);
+                    self.open_frame(ControlFrameKind::If, function);
+                    function.instruction(&Instruction::LocalGet(self.result_local));
+                    function.instruction(&Instruction::LocalSet(new_error_payload_local));
+                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                    function.instruction(&Instruction::LocalSet(new_error_tag_local));
+                    self.set_completion_kind(CompletionKind::Normal, function);
+                    self.emit_rejected_intrinsic_promise_from_error(
+                        new_error_payload_local,
+                        new_error_tag_local,
+                        await_payload_local,
+                        await_tag_local,
+                        function,
+                    )?;
+                    self.pop_control(ControlFrameKind::If);
+                    function.instruction(&Instruction::End);
+                }
+            }
+            function.instruction(&Instruction::Else);
+            open_kind_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_kind_arms {
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+
+        function.instruction(&Instruction::LocalGet(should_await_local));
+        function.instruction(&Instruction::I32WrapI64);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_set_async_resume_state(activation_local, finalizer.resume_state(), function);
+        self.emit_async_await_reactions(
+            activation_local,
+            await_payload_local,
+            await_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.set_completion_kind_with_aux(
+            CompletionKind::Normal,
+            i64::from(finalizer.resume_state()),
+            function,
+        );
+        self.emit_return_current_completion(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_branch_to_target(loop_frame, function);
+
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.store_i64_const_at_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
+            ActivationAsyncDisposeCapabilityState::Disposed.word(),
+            function,
+        );
+        self.finish_async_dispose_pending_completion(pending, function)?;
+        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
+        self.emit_dispatch_async_completion(function)?;
+
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(new_error_tag_local);
+        self.release_temp_local(new_error_payload_local);
+        self.release_temp_local(should_await_local);
+        self.release_temp_local(await_tag_local);
+        self.release_temp_local(await_payload_local);
+        self.release_temp_local(method_tag_local);
+        self.release_temp_local(method_payload_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(kind_local);
+        self.release_temp_local(entry_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(entries_local);
+        self.release_temp_local(record_local);
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_local);
+        Ok(())
+    }
+
+    fn finish_async_dispose_pending_completion(
+        &mut self,
+        _pending: ActiveAsyncDisposePendingCompletion,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_pop_and_restore_async_pending_completion(function)
     }
 
     fn compile_sync_disposable_scope(

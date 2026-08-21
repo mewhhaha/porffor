@@ -827,6 +827,7 @@ fn async_generator_contains_suspension(
                 | SyncDisposableScopeExecutionIr::AsyncFunction(_),
             ..
         } => false,
+        StatementIr::AsyncDisposableScope { .. } => false,
         _ => false,
     }
 }
@@ -1058,6 +1059,9 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                 | SyncDisposableScopeExecutionIr::AsyncFunction(_),
             ..
         } => Some("synchronous using scope with a mismatched execution owner"),
+        StatementIr::AsyncDisposableScope { .. } => {
+            Some("await using scope with a mismatched execution owner")
+        }
         StatementIr::Break { .. } | StatementIr::Continue { .. } => {
             Some("loop control completions")
         }
@@ -1090,7 +1094,7 @@ pub(crate) fn async_generator_for_await_is_transparent_yield(
             matches!(block.statements.as_slice(), [statement]
                 if async_generator_for_await_is_transparent_yield(binding, statement))
         }
-        StatementIr::SyncDisposableScope { .. } => false,
+        StatementIr::SyncDisposableScope { .. } | StatementIr::AsyncDisposableScope { .. } => false,
         _ => false,
     }
 }

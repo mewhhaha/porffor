@@ -1,5 +1,6 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_using_synchronous_scope.js");
 const CONTRACT: &str =
@@ -52,15 +53,18 @@ fn lowering_nests_reached_suffixes_without_generic_finally_or_double_initializat
         "enum LoweredStatementListItemIr {",
         "impl LoweredStatementListItemIr {",
     );
-    assert!(marker.contains("SyncDisposableResources(SyncDisposableResourcesIr)"));
+    assert!(marker.contains("SyncDisposableScope {"));
+    assert!(marker.contains("execution: SyncDisposableScopeExecutionIr"));
+    assert!(marker.contains("resources: SyncDisposableResourcesIr"));
 
     let finish = bounded(
-        LOWERING_SOURCE,
-        "    fn finish_sync_disposable_scopes(",
-        "    fn lower_block_function_declarations(",
+        ASYNC_LOWERING_SOURCE,
+        "    pub(super) fn finish_disposable_scopes(",
+        "    pub(super) fn lower_await_using_declaration(",
     );
-    assert!(finish.contains("for (mut prefix, resources) in segments.into_iter().rev()"));
-    assert!(finish.contains("prefix.push(StatementIr::SyncDisposableScope"));
+    assert!(finish.contains("for (mut prefix, scope) in segments.into_iter().rev()"));
+    assert!(finish.contains("LoweredDisposableScopeIr::Sync"));
+    assert!(finish.contains("StatementIr::SyncDisposableScope"));
     assert!(finish.contains("body: suffix"));
     assert!(!finish.contains("StatementIr::TryFinally"));
     assert!(!finish.contains("StatementIr::Lexical"));
@@ -125,7 +129,12 @@ fn noncopyable_completion_is_captured_walked_in_reverse_folded_and_restored_once
     );
     assert!(witnesses.contains("struct PendingSyncDisposeCompletionLocals"));
     assert!(witnesses.contains("struct AcquiredSyncDisposableResourceLocals"));
-    assert!(!witnesses.contains("derive(Clone, Copy)"));
+    assert!(CONTROL_FLOW_SOURCE.contains(
+        "#[must_use = \"a captured using-scope completion must be restored and dispatched\"]\nstruct PendingSyncDisposeCompletionLocals"
+    ));
+    assert!(CONTROL_FLOW_SOURCE.contains(
+        "#[must_use = \"an acquired using resource must be consumed by reverse disposal\"]\nstruct AcquiredSyncDisposableResourceLocals"
+    ));
     assert!(!CONTROL_FLOW_SOURCE.contains("impl Copy for PendingSyncDisposeCompletionLocals"));
     assert!(!CONTROL_FLOW_SOURCE.contains("impl Copy for AcquiredSyncDisposableResourceLocals"));
 
@@ -158,7 +167,7 @@ fn noncopyable_completion_is_captured_walked_in_reverse_folded_and_restored_once
     assert_before(
         scope,
         "self.set_completion_kind(CompletionKind::Normal",
-        "self.consume_sync_disposable_resources(pending, acquired",
+        "self.consume_sync_disposable_resources(",
     );
 
     let walk = bounded(

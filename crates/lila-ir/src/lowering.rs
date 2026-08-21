@@ -1,4 +1,5 @@
 mod array_literal;
+mod async_disposable;
 mod builtin_shapes;
 mod dynamic_source;
 mod object_environment_logical;
@@ -236,7 +237,7 @@ fn captured_environment_positions(
             .get(&current.environment_id)
             .expect("definition cursor must name a planned environment");
         let cursor_depth = CapturedCursorDepth::at(depth);
-        for (storage_name, capture) in function
+        for (storage_name, _) in function
             .captures
             .iter()
             .filter(|(_, capture)| capture.environment_id == environment.id)
@@ -657,7 +658,7 @@ type DirectCallContextKey = (FunctionId, ExactHelperContextId);
 ///
 /// Resource declarations cannot masquerade as finalized public IR: they stay
 /// in this private domain until the containing list nests its remaining suffix
-/// into a [`StatementIr::SyncDisposableScope`].
+/// into a finalized disposable scope node.
 enum LoweredStatementListItemIr {
     Statement {
         statement: StatementIr,
@@ -667,6 +668,27 @@ enum LoweredStatementListItemIr {
         execution: SyncDisposableScopeExecutionIr,
         resources: SyncDisposableResourcesIr,
     },
+    AsyncDisposableScope(PendingAsyncDisposableScopeIr),
+}
+
+/// Lowering-only half of a plain-async `await using` scope.
+///
+/// The declaration fixes acquisition entry and capability storage immediately;
+/// the finalizer states can be minted only after the remaining statement-list
+/// suffix has allocated all of its source Await states.
+#[must_use = "a pending async-dispose scope must be finalized around its suffix"]
+struct PendingAsyncDisposableScopeIr {
+    entry_state: u32,
+    binding_name: String,
+    resources: AsyncDisposableResourcesIr,
+}
+
+enum LoweredDisposableScopeIr {
+    Sync {
+        execution: SyncDisposableScopeExecutionIr,
+        resources: SyncDisposableResourcesIr,
+    },
+    Async(PendingAsyncDisposableScopeIr),
 }
 
 impl LoweredStatementListItemIr {
@@ -2836,7 +2858,7 @@ impl<'a> ScriptLowerer<'a> {
         // what decides that.
         scope.finish(self);
 
-        Self::finish_sync_disposable_scopes(lowered_items)
+        self.finish_disposable_scopes(lowered_items)
     }
 
     /// Lowers one statement list against the BlockDeclarationInstantiation that
@@ -2892,71 +2914,16 @@ impl<'a> ScriptLowerer<'a> {
         // to push before constructing.
         scope.finish(self);
 
-        Self::finish_sync_disposable_scopes(lowered_items)
-    }
-
-    /// Replaces each declaration marker with a scope over the remaining suffix.
-    ///
-    /// A resource is live only if evaluation reached its declaration. Nesting
-    /// the suffix makes that reachability structural and composes the required
-    /// reverse disposal order across interleaved declarations.
-    fn finish_sync_disposable_scopes(items: Vec<LoweredStatementListItemIr>) -> BlockIr {
-        let mut segments = Vec::new();
-        let mut current = Vec::new();
-        let mut current_kind = ValueKind::Undefined;
-        for item in items {
-            match item {
-                LoweredStatementListItemIr::Statement {
-                    statement,
-                    result_kind,
-                } => {
-                    current.push(statement);
-                    current_kind = result_kind;
-                }
-                LoweredStatementListItemIr::SyncDisposableScope {
-                    execution,
-                    resources,
-                } => {
-                    segments.push((current, execution, resources));
-                    current = Vec::new();
-                    current_kind = ValueKind::Undefined;
-                }
-            }
-        }
-
-        if segments.is_empty() {
-            return BlockIr {
-                statements: current,
-                result_kind: current_kind,
-                lexical_environment: None,
-            };
-        }
-
-        let mut suffix = BlockIr {
-            statements: current,
-            result_kind: current_kind,
-            lexical_environment: None,
-        };
-        for (mut prefix, execution, resources) in segments.into_iter().rev() {
-            let result_kind = suffix.result_kind;
-            prefix.push(StatementIr::SyncDisposableScope {
-                execution,
-                resources,
-                body: suffix,
-            });
-            suffix = BlockIr {
-                statements: prefix,
-                result_kind,
-                lexical_environment: None,
-            };
-        }
-        suffix
+        self.finish_disposable_scopes(lowered_items)
     }
 
     fn statement_list_ends_in_return(statements: &[StatementIr]) -> bool {
         match statements.last() {
             Some(StatementIr::Return(_)) => true,
             Some(StatementIr::SyncDisposableScope { body, .. }) => {
+                Self::statement_list_ends_in_return(&body.statements)
+            }
+            Some(StatementIr::AsyncDisposableScope { body, .. }) => {
                 Self::statement_list_ends_in_return(&body.statements)
             }
             _ => false,
@@ -3021,6 +2988,11 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 LoweredStatementListItemIr::SyncDisposableScope { .. } => {
                     self.unsupported("using declaration in a switch CaseBlock");
+                    statements.push(StatementIr::Empty);
+                    result_kind = ValueKind::Undefined;
+                }
+                LoweredStatementListItemIr::AsyncDisposableScope(_) => {
+                    self.unsupported("await using declaration in a switch CaseBlock");
                     statements.push(StatementIr::Empty);
                     result_kind = ValueKind::Undefined;
                 }
@@ -3171,10 +3143,17 @@ impl<'a> ScriptLowerer<'a> {
                             resources,
                         },
                     ),
-                Declaration::Lexical(LexicalDeclaration::AwaitUsing(_)) => {
-                    self.unsupported("await using declaration");
-                    LoweredStatementListItemIr::statement(StatementIr::Empty, ValueKind::Undefined)
-                }
+                Declaration::Lexical(LexicalDeclaration::AwaitUsing(list)) => self
+                    .lower_await_using_declaration(list.as_ref(), scope)
+                    .map_or_else(
+                        || {
+                            LoweredStatementListItemIr::statement(
+                                StatementIr::Empty,
+                                ValueKind::Undefined,
+                            )
+                        },
+                        LoweredStatementListItemIr::AsyncDisposableScope,
+                    ),
                 _ if self.is_static_generator_declaration(declaration.as_ref()) => {
                     LoweredStatementListItemIr::statement(StatementIr::Empty, ValueKind::Undefined)
                 }
@@ -5223,6 +5202,23 @@ impl<'a> ScriptLowerer<'a> {
                     info = self.merge_optional_value_info(
                         info,
                         self.infer_expr_throw_info(&resource.initializer),
+                    );
+                }
+                self.merge_optional_value_info(info, self.infer_block_throw_info(body))
+            }
+            StatementIr::AsyncDisposableScope {
+                resources, body, ..
+            } => {
+                let mut info = Some(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                });
+                for resource in resources.iter() {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_expr_throw_info(resource.initializer()),
                     );
                 }
                 self.merge_optional_value_info(info, self.infer_block_throw_info(body))

@@ -1,6 +1,7 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const FIXTURE: &str =
@@ -138,10 +139,11 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
     );
 
     let finish = bounded(
-        LOWERING_SOURCE,
-        "    fn finish_sync_disposable_scopes(",
-        "    fn statement_list_ends_in_return(",
+        ASYNC_LOWERING_SOURCE,
+        "    pub(super) fn finish_disposable_scopes(",
+        "    pub(super) fn lower_await_using_declaration(",
     );
+    assert!(finish.contains("LoweredDisposableScopeIr::Sync"));
     assert!(finish.contains("execution,"));
     assert!(finish.contains("StatementIr::SyncDisposableScope"));
     assert!(!finish.contains("StatementIr::TryFinally"));

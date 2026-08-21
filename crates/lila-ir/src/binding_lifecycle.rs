@@ -314,6 +314,19 @@ impl InitializedBinding {
             initializer: self.value,
         }
     }
+
+    /// Transfers runtime initialization ownership to an async-dispose resource
+    /// entry while completing the same compile-time binding transition.
+    ///
+    /// The dedicated scope backend must acquire and register the selected
+    /// async-dispose protocol before initializing this immutable binding.
+    pub(crate) fn into_async_disposable_resource(
+        self,
+        lowerer: &mut ScriptLowerer<'_>,
+    ) -> AsyncDisposableResourceIr {
+        lowerer.declare_initialized_binding(self.source_name, self.info);
+        AsyncDisposableResourceIr::new(self.storage_name, self.value)
+    }
 }
 
 /// One statement-list scope's BlockDeclarationInstantiation (14.3.1.2), from the

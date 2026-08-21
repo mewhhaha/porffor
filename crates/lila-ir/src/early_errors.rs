@@ -373,6 +373,22 @@ fn statement_contains_this_before_super(
                 }
             }
         }
+        StatementIr::AsyncDisposableScope {
+            resources, body, ..
+        } => {
+            for resource in resources.iter() {
+                expr_contains_this_before_super(resource.initializer(), state);
+                if state.saw_super {
+                    return;
+                }
+            }
+            for statement in &body.statements {
+                statement_contains_this_before_super(statement, state);
+                if state.saw_super {
+                    break;
+                }
+            }
+        }
         StatementIr::Var(decls) => {
             for decl in decls {
                 if let Some(init) = &decl.init {

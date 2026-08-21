@@ -3216,6 +3216,24 @@ impl StringPool {
                 }
                 self.collect_block(body);
             }
+            StatementIr::AsyncDisposableScope {
+                resources, body, ..
+            } => {
+                for value in [
+                    "Symbol.asyncDispose",
+                    "Symbol.dispose",
+                    "await using declaration resource is not an object",
+                    "await using declaration resource has no disposal method",
+                    "await using declaration [Symbol.dispose] method is not callable",
+                    "await using declaration [Symbol.asyncDispose] method is not callable",
+                ] {
+                    self.intern_string(value);
+                }
+                for resource in resources.iter() {
+                    self.collect_expr(resource.initializer());
+                }
+                self.collect_block(body);
+            }
             StatementIr::Block(block) => self.collect_block(block),
             StatementIr::TryCatch {
                 try_block,

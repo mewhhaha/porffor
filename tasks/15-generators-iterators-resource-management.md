@@ -194,6 +194,58 @@ the complete `using` tree and the full pinned aggregate remain outside this
 batch. The source contract is
 `docs/rust-rewrite/contracts/async-generator-synchronous-using-scope.md`.
 
+The adjacent plain-async-function `await using` batch is implemented around a
+separate `StatementIr::AsyncDisposableScope`. Its
+`AsyncDisposableResourcesIr` is statically non-empty and cannot be converted
+to a synchronous resource list. Only the exhaustive plain-async owner can mint
+the private `AsyncFunctionAsyncDisposableCapabilityIr`; its private
+`AsyncDisposableFinalizerPlanIr` requires strictly ordered entry, dispose,
+resume and exit states and advances the enclosing async state cursor beyond
+all four. This makes the capability binding, resource cursor and saved
+completion activation-owned across each required disposal Await.
+
+Acquisition evaluates initializers in source order, reads `@@asyncDispose`
+before conditionally reading `@@dispose`, validates and registers the selected
+method, and only then initializes the immutable binding. The synchronous
+fallback is represented separately: its spec wrapper calls `@@dispose`,
+discards a normal result even when it is thenable, converts an abrupt call into
+a rejected Promise and awaits the wrapper result. Empty resources also await
+`undefined`; declarations that execution never reaches allocate and await
+nothing. Finalization detaches once, walks entries in reverse, awaits each
+before starting the next and folds rejections through `SuppressedError` before
+restoring normal, return or throw completion.
+
+The exact selected current-pin inventory is two async-flagged files and four
+sloppy/strict Script executions:
+
+- `language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncfunctionbody.js`;
+- `language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncfunctionbody.js`.
+
+At pre-batch source commit `7a89e27ec79fe6210fff04a58b6bb3eace535e09`,
+both files reported `0/2`; all four executions were
+`Runtime/NotImplemented` with the exact diagnostic `unsupported in lila
+wasm-aot first slice: await using declaration`. Neither path has a Wasm-AOT
+rewrite, mask or known-failure entry. The durable CLI fixture covers direct
+async acquisition, synchronous fallback and ignored thenable return, receiver
+identity, registration/binding TDZ order, later acquisition failure, evaluated
+versus unreachable empty-resource scheduling, sequential reverse awaits,
+normal/return/body-throw/disposer-rejection completion, nested scopes, LIFO,
+`SuppressedError` order and exactly-once disposal. Central verification is green
+for `cargo check --workspace --all-targets`, `cargo xc`, the focused `lila-ir`
+`await_using` tests (`2/2`, including capture ownership), and the bounded IR/AOT
+source executable (`6/6`). The complete CLI lifecycle fixture is `1/1` in 13.10
+seconds, while the retained synchronous-using CLI family filter is `6/6` in
+58.29 seconds. The two exact Test262 paths are now `4/4` with zero unsupported,
+crash or bug results.
+
+The other 47 positive plain-async statement-list files form an explicit
+49-file regression inventory rather than a `49/49` claim. Async generators,
+resource loop heads in classic-`for` and `for-of`, modules, dynamic source,
+suspension inside an initializer, nonlinear async control flow, the syntax
+subtree, the complete `await using` directory and the full pinned aggregate
+remain outside this batch. The source contract is
+`docs/rust-rewrite/contracts/plain-async-function-await-using-scope.md`.
+
 The next bounded source batch extends that same synchronous disposal lifecycle
 to classic `for` initializer heads. The producer uses the closed, statically
 non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and

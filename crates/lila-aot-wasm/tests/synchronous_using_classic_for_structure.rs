@@ -193,7 +193,7 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
         "self.compile_statement(body, function)",
         "self.compile_classic_for_update(update, function)?",
         "self.capture_pending_sync_dispose_completion(function)",
-        "self.consume_sync_disposable_resources(pending, acquired, function)",
+        "SyncDisposeCompletionContinuation::Dispatch",
         "self.emit_branch_to_target(break_frame, function)",
         "self.end_lexical_environment_scope()",
     ] {
@@ -251,11 +251,11 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     assert_before(
         lifecycle,
         "self.capture_pending_sync_dispose_completion(function)",
-        "self.consume_sync_disposable_resources(pending, acquired, function)",
+        "self.consume_sync_disposable_resources(",
     );
     assert_before(
         lifecycle,
-        "self.consume_sync_disposable_resources(pending, acquired, function)",
+        "self.consume_sync_disposable_resources(",
         "self.emit_branch_to_target(break_frame, function)",
     );
     assert_before(

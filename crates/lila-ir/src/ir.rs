@@ -2330,6 +2330,16 @@ pub enum StatementIr {
         resources: SyncDisposableResourcesIr,
         body: BlockIr,
     },
+    /// An async DisposeCapability owned by one plain async-function activation.
+    ///
+    /// This is deliberately distinct from `SyncDisposableScope`: each
+    /// registered resource follows the async-dispose protocol and the required
+    /// finalizer plan suspends before the saved completion may leave the scope.
+    AsyncDisposableScope {
+        capability: AsyncFunctionAsyncDisposableCapabilityIr,
+        resources: AsyncDisposableResourcesIr,
+        body: BlockIr,
+    },
     ParameterInitialization {
         parameter_index: usize,
         statements: Vec<StatementIr>,
@@ -2596,6 +2606,137 @@ pub struct SyncDisposableResourcesIr {
     rest: Vec<SyncDisposableResourceIr>,
 }
 
+/// One declarator registered by [`StatementIr::AsyncDisposableScope`].
+///
+/// Fields are private so only lowering can transfer binding initialization to
+/// the async resource protocol. The backend can inspect the entry but cannot
+/// manufacture one from a generic lexical initializer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableResourceIr {
+    binding_name: String,
+    initializer: TypedExpr,
+}
+
+impl AsyncDisposableResourceIr {
+    pub(crate) fn new(binding_name: String, initializer: TypedExpr) -> Self {
+        Self {
+            binding_name,
+            initializer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn initializer(&self) -> &TypedExpr {
+        &self.initializer
+    }
+}
+
+/// A declaration-ordered, statically non-empty async-dispose resource list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableResourcesIr {
+    first: AsyncDisposableResourceIr,
+    rest: Vec<AsyncDisposableResourceIr>,
+}
+
+impl AsyncDisposableResourcesIr {
+    pub(crate) fn new(
+        first: AsyncDisposableResourceIr,
+        rest: Vec<AsyncDisposableResourceIr>,
+    ) -> Self {
+        Self { first, rest }
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &AsyncDisposableResourceIr> {
+        std::iter::once(&self.first).chain(self.rest.iter())
+    }
+
+    pub fn len(&self) -> usize {
+        1 + self.rest.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+}
+
+/// The closed async state transition required to finalize one lexical
+/// async-dispose capability.
+#[must_use = "an async-dispose finalizer plan must be attached to its capability"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableFinalizerPlanIr {
+    entry_state: u32,
+    dispose_state: u32,
+    resume_state: u32,
+    exit_state: u32,
+}
+
+impl AsyncDisposableFinalizerPlanIr {
+    pub(crate) fn new(
+        entry_state: u32,
+        dispose_state: u32,
+        resume_state: u32,
+        exit_state: u32,
+    ) -> Self {
+        assert!(
+            entry_state < dispose_state
+                && dispose_state < resume_state
+                && resume_state < exit_state,
+            "async-dispose finalizer states must be strictly ordered"
+        );
+        Self {
+            entry_state,
+            dispose_state,
+            resume_state,
+            exit_state,
+        }
+    }
+
+    pub fn entry_state(&self) -> u32 {
+        self.entry_state
+    }
+
+    pub fn dispose_state(&self) -> u32 {
+        self.dispose_state
+    }
+
+    pub fn resume_state(&self) -> u32 {
+        self.resume_state
+    }
+
+    pub fn exit_state(&self) -> u32 {
+        self.exit_state
+    }
+}
+
+/// The activation-backed capability for one plain-async-function `await using`
+/// scope.
+#[must_use = "a plain-async-function async DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncFunctionAsyncDisposableCapabilityIr {
+    binding_name: String,
+    finalizer: AsyncDisposableFinalizerPlanIr,
+}
+
+impl AsyncFunctionAsyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String, finalizer: AsyncDisposableFinalizerPlanIr) -> Self {
+        Self {
+            binding_name,
+            finalizer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
+        &self.finalizer
+    }
+}
+
 impl SyncDisposableResourcesIr {
     pub(crate) fn new(
         first: SyncDisposableResourceIr,
@@ -2641,6 +2782,7 @@ impl StatementIr {
             | Self::AnnexBFunctionCopy { .. }
             | Self::LexicalBlock(_)
             | Self::SyncDisposableScope { .. }
+            | Self::AsyncDisposableScope { .. }
             | Self::ParameterInitialization { .. }
             | Self::Var(_)
             | Self::Expression(_)
@@ -3382,6 +3524,14 @@ impl IrSummaryCounts {
             } => {
                 for resource in resources.iter() {
                     self.visit_expr(&resource.initializer);
+                }
+                self.visit_block(body);
+            }
+            StatementIr::AsyncDisposableScope {
+                resources, body, ..
+            } => {
+                for resource in resources.iter() {
+                    self.visit_expr(resource.initializer());
                 }
                 self.visit_block(body);
             }

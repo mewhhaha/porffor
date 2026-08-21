@@ -270,7 +270,8 @@ mod tests {
                         collect(statement, copies);
                     }
                 }
-                StatementIr::SyncDisposableScope { body, .. } => {
+                StatementIr::SyncDisposableScope { body, .. }
+                | StatementIr::AsyncDisposableScope { body, .. } => {
                     for statement in &body.statements {
                         collect(statement, copies);
                     }
@@ -509,6 +510,18 @@ mod tests {
                         collect(statement, names);
                     }
                 }
+                StatementIr::AsyncDisposableScope {
+                    resources, body, ..
+                } => {
+                    names.extend(
+                        resources
+                            .iter()
+                            .map(|resource| resource.binding_name().to_string()),
+                    );
+                    for statement in &body.statements {
+                        collect(statement, names);
+                    }
+                }
                 StatementIr::ForOfArray { head, body, .. }
                 | StatementIr::ForOfString { head, body, .. } => {
                     names.insert(head.name.clone());
@@ -663,7 +676,8 @@ mod tests {
                 | StatementIr::Labelled {
                     statement: body, ..
                 } => statement_owns_binding(body, name, slot),
-                StatementIr::SyncDisposableScope { body, .. } => {
+                StatementIr::SyncDisposableScope { body, .. }
+                | StatementIr::AsyncDisposableScope { body, .. } => {
                     block_environment_owns_binding(body, name, slot)
                 }
                 StatementIr::For {
@@ -13366,6 +13380,169 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn plain_async_function_await_using_owns_closed_finalizer_states() {
+        let program = lower_script(
+            "async function owner() {
+                 await using outer = null;
+                 await 1;
+                 { await using inner = undefined; await 2; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain async function should be lowered");
+        let [StatementIr::AsyncDisposableScope {
+            capability: outer_capability,
+            resources: outer_resources,
+            body: outer_body,
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("await using must own its remaining body suffix");
+        };
+        let [StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("source Await and nested block must remain inside the outer scope");
+        };
+        let [StatementIr::AsyncDisposableScope {
+            capability: inner_capability,
+            resources: inner_resources,
+            body: inner_body,
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested await using must own a distinct capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [StatementIr::AsyncAwait { .. }]
+        ));
+
+        assert_eq!(outer_resources.len(), 1);
+        assert!(!outer_resources.is_empty());
+        assert_eq!(inner_resources.len(), 1);
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert!(capability
+                .binding_name()
+                .starts_with("$async.function.async.dispose.capability."));
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "each async-dispose capability must own one activation slot"
+            );
+            let finalizer = capability.finalizer();
+            assert!(finalizer.entry_state() < finalizer.dispose_state());
+            assert!(finalizer.dispose_state() < finalizer.resume_state());
+            assert!(finalizer.resume_state() < finalizer.exit_state());
+        }
+        assert!(
+            inner_capability.finalizer().exit_state()
+                < outer_capability.finalizer().dispose_state(),
+            "the nested finalizer must complete before the outer finalizer starts"
+        );
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::Async
+        );
+
+        let unsupported = lower_script(
+            "async function owner() {
+                 await using resource = await Promise.resolve(null);
+             }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("suspension inside an await using initializer")));
+    }
+
+    #[test]
+    fn await_using_initializer_capture_hops_include_materialized_tdz_environment() {
+        let program = lower_script(
+            "async function probe(trace, invalid) {
+                 try {
+                     await using registered = {
+                         get [Symbol.asyncDispose]() {
+                             try { registered; } catch (error) {}
+                             return async () => trace.push('dispose');
+                         }
+                     };
+                     await using rejected = invalid;
+                 } catch (error) {}
+             }
+             async function sibling(trace) {
+                 await 0;
+                 return trace;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "probe")
+            .expect("plain async owner should be lowered");
+        let getter = script
+            .functions
+            .iter()
+            .find(|function| function.protocol == FunctionProtocolIr::ObjectGetter)
+            .expect("async disposer getter should be lowered");
+        let disposer = script
+            .functions
+            .iter()
+            .find(|function| function.protocol == FunctionProtocolIr::AsyncArrow)
+            .expect("nested async disposer should be lowered");
+        let registered = getter
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "registered")
+            .expect("getter should capture the uninitialized resource binding");
+        let trace = disposer
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "trace")
+            .expect("nested disposer should capture the owner parameter");
+
+        assert!(getter.owned_env_bindings.is_empty(), "{getter:#?}");
+        assert_eq!(registered.hops, 0);
+        assert_eq!(trace.hops, 1);
+        assert_eq!(registered.slot, trace.slot);
+        assert!(owner
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == "trace" && binding.slot == trace.slot));
+        assert!(
+            !owner
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == registered.name),
+            "the captured resource cell belongs only to the try-block environment"
+        );
+        let [StatementIr::TryCatch { try_block, .. }] = owner.body.statements.as_slice() else {
+            panic!("owner should retain its try statement");
+        };
+        assert!(try_block
+            .lexical_environment
+            .as_ref()
+            .is_some_and(|environment| {
+                environment.bindings.iter().any(|binding| {
+                    binding.name == registered.name && binding.slot == registered.slot
+                })
+            }));
+    }
+
+    #[test]
     fn async_generator_synchronous_using_scope_owns_activation_capability() {
         let program = lower_script(
             "async function * owner() {
@@ -13457,7 +13634,9 @@ target[Symbol.iterator];"#,
                 | StatementIr::ParameterInitialization { statements, .. } => statements
                     .iter()
                     .any(|statement| contains_lexical(statement, name)),
-                StatementIr::SyncDisposableScope { body, .. } | StatementIr::Block(body) => body
+                StatementIr::SyncDisposableScope { body, .. }
+                | StatementIr::AsyncDisposableScope { body, .. }
+                | StatementIr::Block(body) => body
                     .statements
                     .iter()
                     .any(|statement| contains_lexical(statement, name)),

@@ -1140,6 +1140,52 @@ pub(crate) enum AsyncDisposableStackDisposeCall {
     UndefinedReceiverNoArguments,
 }
 
+/// The private lifecycle of one activation-backed async DisposeCapability.
+///
+/// This domain is deliberately distinct from [`AsyncDisposableStackState`]: a
+/// lexical `await using` scope must remain parked in `Disposing` across each
+/// Await, while the user-visible stack only exposes pending/disposed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActivationAsyncDisposeCapabilityState {
+    Pending,
+    Disposing,
+    Disposed,
+}
+
+impl ActivationAsyncDisposeCapabilityState {
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Pending => 0,
+            Self::Disposing => 1,
+            Self::Disposed => 2,
+        }
+    }
+}
+
+/// The three observably distinct disposal shapes acquired by `await using`.
+///
+/// `SyncFallbackMethod` cannot collapse into `AsyncMethod`: its unobservable
+/// spec wrapper ignores a normal return (including a thenable) and converts a
+/// synchronous throw into a rejected Promise before the disposal Await.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActivationAsyncDisposeEntryKind {
+    Empty,
+    AsyncMethod,
+    SyncFallbackMethod,
+}
+
+impl ActivationAsyncDisposeEntryKind {
+    pub(crate) const ALL: [Self; 3] = [Self::Empty, Self::AsyncMethod, Self::SyncFallbackMethod];
+
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Empty => 0,
+            Self::AsyncMethod => 1,
+            Self::SyncFallbackMethod => 2,
+        }
+    }
+}
+
 impl AsyncDisposableStackEntryKind {
     /// Every kind, in the order the emitted comparison chain tests them. See
     /// the type's doc for why this is hand-written and what keeps it honest.

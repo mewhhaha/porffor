@@ -693,6 +693,36 @@ Recent focused progress through `2026-08-21`:
   resource loop heads, modules, dynamic source, nonlinear async-generator
   forms, the complete `using` tree and the full pinned aggregate remain
   explicit nonclaims.
+- The adjacent plain-async-function `await using` batch is implemented as a
+  distinct `StatementIr::AsyncDisposableScope`, not a flag on synchronous
+  `using`. Its private non-empty resource list and activation-owned capability
+  carry a four-state finalizer plan whose strictly ordered entry, dispose,
+  resume and exit states cannot overlap source `await` states. Acquisition
+  observes `@@asyncDispose` first, uses the spec wrapper only for the
+  `@@dispose` fallback, registers before binding initialization and retains the
+  capability across every disposal Await. The backend's closed Empty, async
+  method and sync-fallback entry kinds keep the fallback's ignored normal
+  return separate from a direct async method result. A durable CLI oracle covers
+  both lookup routes, receiver identity, TDZ/acquisition ordering, an empty
+  resource's required Await versus an unreachable declaration, strictly
+  sequential reverse awaits, normal/return/throw/rejection completion, nested
+  LIFO, `SuppressedError` order and exactly-once disposal. At pre-batch source
+  commit `7a89e27ec79fe6210fff04a58b6bb3eace535e09`, the exact
+  `initializer-Symbol.{asyncDispose,dispose}-called-at-end-of-asyncfunctionbody.js`
+  files reported `0/4`: all four sloppy/strict Script executions were
+  `Runtime/NotImplemented` with the exact diagnostic `unsupported in lila
+  wasm-aot first slice: await using declaration`. Central verification is now
+  green for `cargo check --workspace --all-targets`, `cargo xc`, the focused
+  `lila-ir` `await_using` tests (`2/2`, including capture ownership), the
+  bounded IR/AOT structure executable (`6/6`), the complete CLI lifecycle
+  fixture (`1/1` in 13.10 seconds), and the retained synchronous-using CLI
+  family filter (`6/6` in 58.29 seconds). The two exact Test262 paths are now
+  `4/4` with zero unsupported, crash or bug results. The other 47 positive
+  plain-async statement-list files are an explicit regression inventory, not a
+  broad `49/49` claim. Async generators, resource loop heads, modules, dynamic
+  source, suspension inside an initializer, nonlinear async control flow, the
+  complete `await using` directory and the full pinned aggregate remain outside
+  this batch.
 - The adjacent classic-`for` extension gives a synchronous
   `using` head the closed, statically non-empty
   `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while
