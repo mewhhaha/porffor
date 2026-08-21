@@ -370,6 +370,25 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- A bounded matcher batch now implements RepeatMatcher's nullable
+  unbounded-quantifier progress rule. At clean pre-batch commit `44247b836b`,
+  exact unflagged Test262 file `built-ins/RegExp/nullable-quantifier.js`
+  reported `0/2` sloppy/strict Wasm-AOT executions. Both were
+  `Runtime/NotImplemented` with `RegExp.prototype.exec unsupported pattern`,
+  and the path has no exact rewrite, materializer or known-failure entry. The
+  durable CLI oracle covers the exact `(a?b??)*` result, rejection of only
+  a zero-progress optional iteration while suffix backtracking remains live,
+  greedy/lazy and required-minimum behavior, bounded and captured controls,
+  nested nullable loops, reverse lookbehind compilation and global empty-match
+  advancement. Central verification passed workspace/all-target `cargo check`
+  and `cargo xc`; the focused IR test passed `1/1` in `8.37s`, the bounded
+  structure executable passed `5/5` in `22.36s`, the new lifecycle fixture
+  passed `1/1` in `22.83s`, and the retained quantifier fixture passed `1/1` in
+  `27.19s`. The exact Test262 file now passes `2/2` with zero unsupported,
+  crash or bug verdicts. This is focused evidence only: no broader RegExp or
+  full-suite claim is made. Class strings, properties of strings, runtime
+  pattern compilation and the complete RegExp/String trees remain separate T19
+  work.
 - Non-resumable object-literal methods, getters and setters now carry their
   exact function identity and object-method protocol in a dedicated IR value;
   a generic function expression cannot enter any of the six method/accessor

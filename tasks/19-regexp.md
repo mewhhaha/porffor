@@ -18,6 +18,30 @@ typed resource policy and complete zero-timeout RegExp/String-regexp trees are
 not yet present. The README explicitly records broader syntax combinations as
 unsupported, and focused Test262 rewrites remain.
 
+The bounded matcher batch for RepeatMatcher's nullable unbounded quantifier
+progress rule is now verified. At clean pre-batch commit `44247b836b`, the exact
+unflagged `built-ins/RegExp/nullable-quantifier.js` witness reported `0/2`
+sloppy/strict Wasm-AOT executions. Both were `Runtime/NotImplemented` with
+`RegExp.prototype.exec unsupported pattern`; the file has no exact rewrite,
+materializer or known-failure entry. The existing compiler rejects every
+unbounded nullable atom instead of discarding only an optional iteration that
+matched the empty string.
+
+The durable CLI oracle covers the exact `(a?b??)*` result, suffix
+backtracking after an empty-iteration rejection, greedy and lazy repeats,
+required empty minima, a bounded-repeat control, captures, nested nullable
+loops, reverse lookbehind compilation and overall/global empty-match progress.
+The closed IR/bytecode progress authority and its bounded source witness passed
+central verification: workspace/all-target `cargo check` and `cargo xc` were
+green; the focused IR test passed `1/1` in `8.37s`; the structure executable
+passed `5/5` in `22.36s`; the new CLI fixture passed `1/1` in `22.83s`; and the
+retained quantifier CLI fixture passed `1/1` in `27.19s`. The exact Test262 file
+now passes `2/2` with zero unsupported, crash or bug verdicts. No broader RegExp
+or full-suite claim is made. Class-string matching,
+properties of strings, arbitrary runtime pattern compilation, broad
+nullable-pattern closure and the complete RegExp/String trees remain outside
+this batch.
+
 RegExp call and construction now have a bounded realm-correct allocation seam.
 An undefined `NewTarget` becomes the exact entry- or created-realm active
 RegExp constructor, explicit new targets receive one observable `prototype`

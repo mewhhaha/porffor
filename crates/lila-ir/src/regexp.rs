@@ -58,6 +58,13 @@ pub const REGEXP_OPCODE_LOOKBEHIND_START: u64 = 20;
 pub const REGEXP_OPCODE_LOOKBEHIND_END: u64 = 21;
 /// Handle exhaustion of every path through a lookbehind body.
 pub const REGEXP_OPCODE_LOOKBEHIND_FAILURE: u64 = 22;
+/// Enter one optional iteration whose atom may leave the input index unchanged.
+/// `operand0` is the attempt target. `operand1` packs the fallback target in
+/// bits 1 and above and [`QuantifierPreference::Lazy`] in bit 0.
+pub const REGEXP_OPCODE_PROGRESS_SPLIT: u64 = 23;
+/// Complete one nullable optional iteration. `operand0` names its paired
+/// progress split and `operand1` is the continuation for a changed input index.
+pub const REGEXP_OPCODE_PROGRESS_CHECK: u64 = 24;
 
 /// The encoded width of one code-point range-pool entry in bytes.
 pub const REGEXP_RANGE_ENTRY_WIDTH: usize = 8;
@@ -139,6 +146,26 @@ impl RegExpInstruction {
             opcode: REGEXP_OPCODE_SPLIT,
             operand0: primary_pc as u64,
             operand1: fallback_pc as u64,
+        }
+    }
+
+    fn progress_split(
+        attempt_pc: usize,
+        fallback_pc: usize,
+        preference: QuantifierPreference,
+    ) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_PROGRESS_SPLIT,
+            operand0: attempt_pc as u64,
+            operand1: ((fallback_pc as u64) << 1) | preference.word(),
+        }
+    }
+
+    fn progress_check(progress_split_pc: usize, continuation_pc: usize) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_PROGRESS_CHECK,
+            operand0: progress_split_pc as u64,
+            operand1: continuation_pc as u64,
         }
     }
 
@@ -761,9 +788,7 @@ impl SyntaxRule {
             SyntaxRule::UnicodePropertyName => {
                 "22.2.1.1: it is a Syntax Error if UnicodeMatchProperty / UnicodeMatchPropertyValue does not resolve against tables 69-72"
             }
-            SyntaxRule::UnclosedCharacterClass => {
-                "22.2.1 CharacterClass :: `[` ClassContents `]`"
-            }
+            SyntaxRule::UnclosedCharacterClass => "22.2.1 CharacterClass :: `[` ClassContents `]`",
             SyntaxRule::ClassRangeOrder => {
                 "22.2.1.1 range early errors: the CharacterValue of the first ClassAtom or ClassSetCharacter must not be strictly greater than that of the second"
             }
@@ -1262,32 +1287,19 @@ impl PatternParser<'_> {
                 ..
             }))
         ) {
-            quantifier = if quantifier.min == 0 {
+            quantifier = if quantifier.is_optional() {
                 Quantifier {
-                    min: 0,
-                    max: Some(0),
-                    lazy: quantifier.lazy,
+                    required_iterations: 0,
+                    optional_iterations: QuantifierOptionalIterations::Finite(0),
+                    preference: quantifier.preference,
                 }
             } else {
                 Quantifier {
-                    min: 1,
-                    max: Some(1),
-                    lazy: quantifier.lazy,
+                    required_iterations: 1,
+                    optional_iterations: QuantifierOptionalIterations::Finite(0),
+                    preference: quantifier.preference,
                 }
             };
-        }
-        if quantifier.max.is_none()
-            && matches!(
-                &atom,
-                ParsedTermAtom::Ordinary(atom)
-                    if atom_nullable(atom)
-                        && first_required_class_string_semantics_in_atom(atom).is_none()
-            )
-        {
-            return Err(RegExpCompileError::unsupported_feature(
-                quantifier_offset,
-                "unbounded quantifier over a nullable atom is unsupported by this matcher-program grammar",
-            ));
         }
         Ok(match atom {
             ParsedTermAtom::Ordinary(atom) => ParsedTerm::Quantified {
@@ -1673,7 +1685,7 @@ fn term_nullable(term: &ParsedTerm) -> bool {
     match term {
         ParsedTerm::Quantified {
             atom, quantifier, ..
-        } => quantifier.min == 0 || atom_nullable(atom),
+        } => quantifier.is_optional() || atom_nullable(atom),
         ParsedTerm::LegacyUtf16Pair { .. } => false,
     }
 }
@@ -3963,11 +3975,54 @@ fn parse_legacy_octal_escape(bytes: &[u8], escape_offset: usize) -> (u8, usize) 
     (value, cursor)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuantifierOptionalIterations {
+    Finite(usize),
+    Unbounded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuantifierPreference {
+    Greedy,
+    Lazy,
+}
+
+impl QuantifierPreference {
+    const fn word(self) -> u64 {
+        match self {
+            Self::Greedy => 0,
+            Self::Lazy => 1,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Quantifier {
-    min: usize,
-    max: Option<usize>,
-    lazy: bool,
+    required_iterations: usize,
+    optional_iterations: QuantifierOptionalIterations,
+    preference: QuantifierPreference,
+}
+
+impl Quantifier {
+    fn new(min: usize, max: Option<usize>, lazy: bool) -> Self {
+        let optional_iterations = match max {
+            Some(max) => QuantifierOptionalIterations::Finite(max - min),
+            None => QuantifierOptionalIterations::Unbounded,
+        };
+        Self {
+            required_iterations: min,
+            optional_iterations,
+            preference: if lazy {
+                QuantifierPreference::Lazy
+            } else {
+                QuantifierPreference::Greedy
+            },
+        }
+    }
+
+    fn is_optional(self) -> bool {
+        self.required_iterations == 0
+    }
 }
 
 fn parse_postfix_quantifier(
@@ -3975,11 +4030,7 @@ fn parse_postfix_quantifier(
     offset: &mut usize,
 ) -> Result<Quantifier, RegExpCompileError> {
     let Some(&byte) = bytes.get(*offset) else {
-        return Ok(Quantifier {
-            min: 1,
-            max: Some(1),
-            lazy: false,
-        });
+        return Ok(Quantifier::new(1, Some(1), false));
     };
     let start = *offset;
     let (min, max) = match byte {
@@ -3998,19 +4049,11 @@ fn parse_postfix_quantifier(
         b'{' => match parse_braced_quantifier(bytes, offset)? {
             Some(quantifier) => quantifier,
             None => {
-                return Ok(Quantifier {
-                    min: 1,
-                    max: Some(1),
-                    lazy: false,
-                });
+                return Ok(Quantifier::new(1, Some(1), false));
             }
         },
         _ => {
-            return Ok(Quantifier {
-                min: 1,
-                max: Some(1),
-                lazy: false,
-            });
+            return Ok(Quantifier::new(1, Some(1), false));
         }
     };
     let lazy = if bytes.get(*offset) == Some(&b'?') {
@@ -4036,7 +4079,7 @@ fn parse_postfix_quantifier(
         ));
     }
     debug_assert!(start < *offset);
-    Ok(Quantifier { min, max, lazy })
+    Ok(Quantifier::new(min, max, lazy))
 }
 
 fn parse_braced_quantifier(
@@ -4104,6 +4147,41 @@ fn parse_decimal_checked(bytes: &[u8], offset: &mut usize) -> (usize, bool) {
         *offset += 1;
     }
     (value, overflow || *offset == first)
+}
+
+#[derive(Clone, Copy)]
+enum OptionalAtomProgress {
+    MustAdvance,
+    MayRemainAtSameIndex,
+}
+
+impl OptionalAtomProgress {
+    fn for_atom(atom: &ParsedAtom) -> Self {
+        if atom_nullable(atom) {
+            Self::MayRemainAtSameIndex
+        } else {
+            Self::MustAdvance
+        }
+    }
+}
+
+enum NullableQuantifierContinuation {
+    NextInstruction,
+    Repeat,
+}
+
+#[must_use = "a nullable optional quantifier attempt must emit its paired progress check"]
+struct PendingNullableQuantifierProgress {
+    split_pc: usize,
+    attempt_pc: usize,
+    preference: QuantifierPreference,
+}
+
+#[must_use = "a completed nullable quantifier attempt must receive its quantifier fallback"]
+struct PendingNullableQuantifierFallback {
+    split_pc: usize,
+    attempt_pc: usize,
+    preference: QuantifierPreference,
 }
 
 struct ProgramLowerer<'a> {
@@ -4195,47 +4273,143 @@ impl<'a> ProgramLowerer<'a> {
         offset: usize,
     ) -> Result<(), RegExpCompileError> {
         self.error_offset = offset;
-        for _ in 0..quantifier.min {
+        for _ in 0..quantifier.required_iterations {
             self.atom(atom)?;
         }
-        match quantifier.max {
-            Some(max) => {
-                for _ in quantifier.min..max {
-                    self.optional(atom, quantifier.lazy)?;
+        let progress = OptionalAtomProgress::for_atom(atom);
+        match quantifier.optional_iterations {
+            QuantifierOptionalIterations::Finite(count) => match progress {
+                OptionalAtomProgress::MustAdvance => {
+                    for _ in 0..count {
+                        self.optional(atom, quantifier.preference)?;
+                    }
                 }
-            }
-            None => self.star(atom, quantifier.lazy)?,
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.nullable_finite(atom, quantifier.preference, count)?;
+                }
+            },
+            QuantifierOptionalIterations::Unbounded => match progress {
+                OptionalAtomProgress::MustAdvance => self.star(atom, quantifier.preference)?,
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.nullable_star(atom, quantifier.preference)?;
+                }
+            },
         }
         Ok(())
     }
 
-    fn optional(&mut self, atom: &ParsedAtom, lazy: bool) -> Result<(), RegExpCompileError> {
+    fn optional(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
         let split = self.instructions.len();
         self.push(RegExpInstruction::split(0, 0))?;
         let attempt = self.instructions.len();
         self.atom(atom)?;
         let after = self.instructions.len();
-        self.instructions[split] = if lazy {
-            RegExpInstruction::split(after, attempt)
-        } else {
-            RegExpInstruction::split(attempt, after)
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
         };
         Ok(())
     }
 
-    fn star(&mut self, atom: &ParsedAtom, lazy: bool) -> Result<(), RegExpCompileError> {
+    fn star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
         let split = self.instructions.len();
         self.push(RegExpInstruction::split(0, 0))?;
         let attempt = self.instructions.len();
         self.atom(atom)?;
         self.push(RegExpInstruction::jump(split))?;
         let after = self.instructions.len();
-        self.instructions[split] = if lazy {
-            RegExpInstruction::split(after, attempt)
-        } else {
-            RegExpInstruction::split(attempt, after)
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
         };
         Ok(())
+    }
+
+    fn nullable_finite(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+        count: usize,
+    ) -> Result<(), RegExpCompileError> {
+        let mut fallbacks = Vec::with_capacity(count);
+        for _ in 0..count {
+            let pending = self.begin_nullable_optional(preference)?;
+            self.atom(atom)?;
+            fallbacks.push(self.complete_nullable_optional(
+                pending,
+                NullableQuantifierContinuation::NextInstruction,
+            )?);
+        }
+        let after = self.instructions.len();
+        for fallback in fallbacks {
+            self.finish_nullable_optional(fallback, after);
+        }
+        Ok(())
+    }
+
+    fn nullable_star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let pending = self.begin_nullable_optional(preference)?;
+        self.atom(atom)?;
+        let fallback =
+            self.complete_nullable_optional(pending, NullableQuantifierContinuation::Repeat)?;
+        let after = self.instructions.len();
+        self.finish_nullable_optional(fallback, after);
+        Ok(())
+    }
+
+    fn begin_nullable_optional(
+        &mut self,
+        preference: QuantifierPreference,
+    ) -> Result<PendingNullableQuantifierProgress, RegExpCompileError> {
+        let split_pc = self.instructions.len();
+        self.push(RegExpInstruction::progress_split(0, 0, preference))?;
+        Ok(PendingNullableQuantifierProgress {
+            split_pc,
+            attempt_pc: self.instructions.len(),
+            preference,
+        })
+    }
+
+    fn complete_nullable_optional(
+        &mut self,
+        pending: PendingNullableQuantifierProgress,
+        continuation: NullableQuantifierContinuation,
+    ) -> Result<PendingNullableQuantifierFallback, RegExpCompileError> {
+        let check_pc = self.instructions.len();
+        let continuation_pc = match continuation {
+            NullableQuantifierContinuation::NextInstruction => check_pc + 1,
+            NullableQuantifierContinuation::Repeat => pending.split_pc,
+        };
+        self.push(RegExpInstruction::progress_check(
+            pending.split_pc,
+            continuation_pc,
+        ))?;
+        Ok(PendingNullableQuantifierFallback {
+            split_pc: pending.split_pc,
+            attempt_pc: pending.attempt_pc,
+            preference: pending.preference,
+        })
+    }
+
+    fn finish_nullable_optional(
+        &mut self,
+        pending: PendingNullableQuantifierFallback,
+        fallback_pc: usize,
+    ) {
+        self.instructions[pending.split_pc] =
+            RegExpInstruction::progress_split(pending.attempt_pc, fallback_pc, pending.preference);
     }
 
     fn atom(&mut self, atom: &ParsedAtom) -> Result<(), RegExpCompileError> {
@@ -4370,40 +4544,102 @@ impl<'a> ProgramLowerer<'a> {
         offset: usize,
     ) -> Result<(), RegExpCompileError> {
         self.error_offset = offset;
-        for _ in 0..quantifier.min {
+        for _ in 0..quantifier.required_iterations {
             self.reverse_atom(atom)?;
         }
-        match quantifier.max {
-            Some(max) => {
-                for _ in quantifier.min..max {
-                    let split = self.instructions.len();
-                    self.push(RegExpInstruction::split(0, 0))?;
-                    let attempt = self.instructions.len();
-                    self.reverse_atom(atom)?;
-                    let after = self.instructions.len();
-                    self.instructions[split] = if quantifier.lazy {
-                        RegExpInstruction::split(after, attempt)
-                    } else {
-                        RegExpInstruction::split(attempt, after)
-                    };
+        let progress = OptionalAtomProgress::for_atom(atom);
+        match quantifier.optional_iterations {
+            QuantifierOptionalIterations::Finite(count) => match progress {
+                OptionalAtomProgress::MustAdvance => {
+                    for _ in 0..count {
+                        self.reverse_optional(atom, quantifier.preference)?;
+                    }
                 }
-                Ok(())
-            }
-            None => {
-                let split = self.instructions.len();
-                self.push(RegExpInstruction::split(0, 0))?;
-                let attempt = self.instructions.len();
-                self.reverse_atom(atom)?;
-                self.push(RegExpInstruction::jump(split))?;
-                let after = self.instructions.len();
-                self.instructions[split] = if quantifier.lazy {
-                    RegExpInstruction::split(after, attempt)
-                } else {
-                    RegExpInstruction::split(attempt, after)
-                };
-                Ok(())
-            }
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.reverse_nullable_finite(atom, quantifier.preference, count)?;
+                }
+            },
+            QuantifierOptionalIterations::Unbounded => match progress {
+                OptionalAtomProgress::MustAdvance => {
+                    self.reverse_star(atom, quantifier.preference)?;
+                }
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.reverse_nullable_star(atom, quantifier.preference)?;
+                }
+            },
         }
+        Ok(())
+    }
+
+    fn reverse_optional(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let split = self.instructions.len();
+        self.push(RegExpInstruction::split(0, 0))?;
+        let attempt = self.instructions.len();
+        self.reverse_atom(atom)?;
+        let after = self.instructions.len();
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
+        };
+        Ok(())
+    }
+
+    fn reverse_star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let split = self.instructions.len();
+        self.push(RegExpInstruction::split(0, 0))?;
+        let attempt = self.instructions.len();
+        self.reverse_atom(atom)?;
+        self.push(RegExpInstruction::jump(split))?;
+        let after = self.instructions.len();
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
+        };
+        Ok(())
+    }
+
+    fn reverse_nullable_finite(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+        count: usize,
+    ) -> Result<(), RegExpCompileError> {
+        let mut fallbacks = Vec::with_capacity(count);
+        for _ in 0..count {
+            let pending = self.begin_nullable_optional(preference)?;
+            self.reverse_atom(atom)?;
+            fallbacks.push(self.complete_nullable_optional(
+                pending,
+                NullableQuantifierContinuation::NextInstruction,
+            )?);
+        }
+        let after = self.instructions.len();
+        for fallback in fallbacks {
+            self.finish_nullable_optional(fallback, after);
+        }
+        Ok(())
+    }
+
+    fn reverse_nullable_star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let pending = self.begin_nullable_optional(preference)?;
+        self.reverse_atom(atom)?;
+        let fallback =
+            self.complete_nullable_optional(pending, NullableQuantifierContinuation::Repeat)?;
+        let after = self.instructions.len();
+        self.finish_nullable_optional(fallback, after);
+        Ok(())
     }
 
     fn reverse_atom(&mut self, atom: &ParsedAtom) -> Result<(), RegExpCompileError> {
@@ -4878,7 +5114,7 @@ mod tests {
     }
 
     #[test]
-    fn compiles_capture_alternation_quantifier_targets_and_rejects_nullable_loops() {
+    fn compiles_capture_alternation_and_quantifier_targets() {
         let first = compile("((1)|(12))((3)|(23))");
         assert_eq!(first.capture_count, 6);
         assert!(first
@@ -4897,12 +5133,93 @@ mod tests {
             .instructions
             .iter()
             .any(|i| *i == RegExpInstruction::clear_capture_range(2, 6)));
-        for pattern in ["(a?)*", "(a?)+", "(a?){1,}"] {
+    }
+
+    #[test]
+    fn nullable_quantifier_progress() {
+        fn progress_pairs(program: &RegExpProgram) -> Vec<(usize, usize)> {
+            program
+                .instructions
+                .iter()
+                .enumerate()
+                .filter_map(|(check_pc, instruction)| {
+                    (instruction.opcode == REGEXP_OPCODE_PROGRESS_CHECK)
+                        .then_some((instruction.operand0 as usize, check_pc))
+                })
+                .collect()
+        }
+
+        let exact = compile("(a?b??)*");
+        let exact_pairs = progress_pairs(&exact);
+        assert_eq!(exact_pairs.len(), 1);
+        let (split_pc, check_pc) = exact_pairs[0];
+        let split = exact.instructions[split_pc];
+        let check = exact.instructions[check_pc];
+        assert_eq!(split.opcode, REGEXP_OPCODE_PROGRESS_SPLIT);
+        assert_eq!(split.operand1 & 1, QuantifierPreference::Greedy.word());
+        assert_eq!((split.operand1 >> 1) as usize, check_pc + 1);
+        assert_eq!(check.operand0 as usize, split_pc);
+        assert_eq!(check.operand1 as usize, split_pc);
+
+        let lazy = compile("(?:a?)*?");
+        let lazy_pairs = progress_pairs(&lazy);
+        assert_eq!(lazy_pairs.len(), 1);
+        let (lazy_split_pc, lazy_check_pc) = lazy_pairs[0];
+        assert_eq!(
+            lazy.instructions[lazy_split_pc].operand1 & 1,
+            QuantifierPreference::Lazy.word()
+        );
+        assert_eq!(
+            lazy.instructions[lazy_check_pc].operand1 as usize,
+            lazy_split_pc
+        );
+
+        let finite = compile("(){1,3}");
+        let finite_pairs = progress_pairs(&finite);
+        assert_eq!(finite_pairs.len(), 2);
+        assert_eq!(
+            finite
+                .instructions
+                .iter()
+                .filter(|instruction| instruction.opcode == REGEXP_OPCODE_CAPTURE_START)
+                .count(),
+            3,
+            "one required empty iteration and two optional attempts are emitted"
+        );
+        for (split_pc, check_pc) in finite_pairs {
+            assert!(split_pc < check_pc);
             assert_eq!(
-                RegExpProgram::compile(pattern, "").expect_err(pattern).kind,
-                RegExpCompileErrorKind::UnsupportedFeature
+                finite.instructions[check_pc].operand1 as usize,
+                check_pc + 1,
+                "a finite optional iteration continues instead of looping"
+            );
+            assert_eq!(
+                (finite.instructions[split_pc].operand1 >> 1) as usize,
+                finite.instructions.len() - 1,
+                "an empty attempt skips every remaining optional iteration"
             );
         }
+
+        let nested = compile("(?:(?:a?)*)*");
+        let nested_pairs = progress_pairs(&nested);
+        assert_eq!(nested_pairs.len(), 2);
+        assert_ne!(nested_pairs[0].0, nested_pairs[1].0);
+        for (split_pc, check_pc) in nested_pairs {
+            assert_eq!(nested.instructions[check_pc].operand0 as usize, split_pc);
+        }
+
+        let reverse = compile("(?<=(?:a?)*)b");
+        let reverse_pairs = progress_pairs(&reverse);
+        assert_eq!(reverse_pairs.len(), 1);
+        let (reverse_split_pc, reverse_check_pc) = reverse_pairs[0];
+        assert_eq!(
+            reverse.instructions[reverse_check_pc].operand0 as usize,
+            reverse_split_pc
+        );
+        assert_eq!(
+            reverse.instructions[reverse_check_pc].operand1 as usize,
+            reverse_split_pc
+        );
     }
 
     #[test]
@@ -5674,7 +5991,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_syntax_and_unsupported_features_with_offsets() {
+    fn reports_invalid_syntax_with_offsets() {
         let invalid_cases = [("[a", 0), ("[z-a]", 2), ("\\", 0)];
         for (pattern, offset) in invalid_cases {
             let error = RegExpProgram::compile(pattern, "").expect_err("pattern should be invalid");
@@ -5685,11 +6002,6 @@ mod tests {
             );
             assert_eq!(error.offset, offset, "{pattern}");
         }
-
-        let error = RegExpProgram::compile("(a?)*", "")
-            .expect_err("unbounded repetition of a nullable atom should be unsupported");
-        assert_eq!(error.kind, RegExpCompileErrorKind::UnsupportedFeature);
-        assert_eq!(error.offset, 4);
     }
 
     /// No "unsupported" category any more: the `first_unsupported` arm this test

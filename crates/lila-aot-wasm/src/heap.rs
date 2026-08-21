@@ -455,9 +455,9 @@ pub(crate) const HEAP_REGEXP_PROGRAM_PTR_OFFSET: u64 = 144;
 pub(crate) const HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET: u64 = 152;
 /// Number of numbered captures in the immutable AOT-compiled RegExp program.
 pub(crate) const HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET: u64 = 160;
-/// Number of `Split` instructions in the immutable AOT-compiled program.
+/// Number of ordinary and progress-split choices in the immutable program.
 pub(crate) const HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET: u64 = 168;
-/// Number of `Split` instructions that belong to a control-flow cycle.
+/// Number of ordinary and progress-split choices in a control-flow cycle.
 pub(crate) const HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET: u64 = 176;
 /// Absolute linear-memory address of immutable named-capture metadata for the
 /// compiled RegExp program. Zero means that no named-group table is attached.

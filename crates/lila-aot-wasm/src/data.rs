@@ -13,7 +13,8 @@ use lila_ir::{
     BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT,
     REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
     REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT,
+    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
+    REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT,
     REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
 };
 use std::sync::OnceLock;
@@ -4363,7 +4364,12 @@ impl StringPool {
         let split_count = program
             .instructions
             .iter()
-            .filter(|instruction| instruction.opcode == REGEXP_OPCODE_SPLIT)
+            .filter(|instruction| {
+                matches!(
+                    instruction.opcode,
+                    REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
+                )
+            })
             .count() as u32;
         self.pending_regexp_programs.push((
             key,
@@ -4841,6 +4847,14 @@ fn repeatable_split_count(program: &RegExpProgram) -> u32 {
                 .into_iter()
                 .flatten()
                 .collect(),
+            REGEXP_OPCODE_PROGRESS_SPLIT => [
+                valid(instruction.operand0),
+                valid(instruction.operand1 >> 1),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            REGEXP_OPCODE_PROGRESS_CHECK => valid(instruction.operand1).into_iter().collect(),
             REGEXP_OPCODE_JUMP => valid(instruction.operand0).into_iter().collect(),
             REGEXP_OPCODE_ACCEPT => Vec::new(),
             _ if pc + 1 < instructions.len() => vec![pc + 1],
@@ -4851,7 +4865,12 @@ fn repeatable_split_count(program: &RegExpProgram) -> u32 {
     instructions
         .iter()
         .enumerate()
-        .filter(|(_, instruction)| instruction.opcode == REGEXP_OPCODE_SPLIT)
+        .filter(|(_, instruction)| {
+            matches!(
+                instruction.opcode,
+                REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
+            )
+        })
         .filter(|(split_pc, _)| {
             let mut visited = vec![false; instructions.len()];
             let mut stack = successors(*split_pc);
@@ -4890,7 +4909,10 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
         if state[pc] == 1 {
             return true;
         }
-        if state[pc] == 2 || is_consuming(&instructions[pc]) {
+        if state[pc] == 2
+            || is_consuming(&instructions[pc])
+            || instructions[pc].opcode == REGEXP_OPCODE_PROGRESS_CHECK
+        {
             return false;
         }
         state[pc] = 1;
@@ -4904,6 +4926,13 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
             REGEXP_OPCODE_SPLIT => [
                 valid_target(instruction.operand0),
                 valid_target(instruction.operand1),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+            REGEXP_OPCODE_PROGRESS_SPLIT => [
+                valid_target(instruction.operand0),
+                valid_target(instruction.operand1 >> 1),
             ]
             .into_iter()
             .flatten()
