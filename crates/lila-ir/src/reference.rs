@@ -132,6 +132,119 @@ impl EagerCompoundAssignmentOp {
     }
 }
 
+/// One fused eager mutation of an ordinary property Reference.
+///
+/// Fields are private so the backend cannot receive a write which has lost the
+/// Reference's base/receiver identity, raw referenced name, or `[[Strict]]`.
+/// The lowerer can construct this value only by consuming an
+/// [`OrdinaryPropertyReferencePlan`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an ordinary property Reference mutation must be consumed by the backend"]
+pub struct OrdinaryPropertyEagerCompoundAssignmentIr {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+    old_value_binding: String,
+    result: Box<TypedExpr>,
+}
+
+impl OrdinaryPropertyEagerCompoundAssignmentIr {
+    fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+        old_value_binding: String,
+        result: Box<TypedExpr>,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            strictness,
+            old_value_binding,
+            result,
+        }
+    }
+
+    #[must_use]
+    pub fn base_and_receiver(&self) -> &TypedExpr {
+        &self.base_and_receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+
+    #[must_use]
+    pub fn old_value_binding(&self) -> &str {
+        &self.old_value_binding
+    }
+
+    #[must_use]
+    pub fn result(&self) -> &TypedExpr {
+        &self.result
+    }
+}
+
+/// A lowerer-owned ordinary property Reference which must be consumed as one
+/// eager compound assignment rather than decomposed into independent read and
+/// write nodes.
+///
+/// Neither `Clone` nor `Copy`: the same base/raw-key/strictness tuple cannot be
+/// spent twice or rebuilt between GetValue and PutValue.
+#[derive(Debug)]
+#[must_use = "an ordinary property Reference plan must be consumed by one eager mutation"]
+pub(crate) struct OrdinaryPropertyReferencePlan {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+}
+
+impl OrdinaryPropertyReferencePlan {
+    pub(crate) fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            strictness,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn eager_compound_assignment(
+        self,
+        old_value_binding: String,
+        op: EagerCompoundAssignmentOp,
+        rhs: TypedExpr,
+    ) -> TypedExpr {
+        let old_value = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Identifier(old_value_binding.clone()),
+        );
+        let result = op.apply(old_value, rhs);
+        TypedExpr::from_info(
+            result.value_info(),
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(
+                OrdinaryPropertyEagerCompoundAssignmentIr::new(
+                    self.base_and_receiver,
+                    self.referenced_name,
+                    self.strictness,
+                    old_value_binding,
+                    Box::new(result),
+                ),
+            ),
+        )
+    }
+}
+
 /// One fused mutation of a Super Property Reference.
 ///
 /// The fields are private so the backend cannot receive a mutation which has
@@ -1960,7 +2073,6 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         // ReferenceError branch cannot arise for a delete.
         ExprIr::PropertyWrite { strictness, .. }
         | ExprIr::PropertyUpdate { strictness, .. }
-        | ExprIr::PropertyCompoundAssign { strictness, .. }
         | ExprIr::SuperPropertyWrite { strictness, .. }
         | ExprIr::DeleteProperty { strictness, .. }
         | ExprIr::DeleteGlobalProperty { strictness, .. } => {
@@ -1968,6 +2080,9 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         }
         ExprIr::SuperPropertyMutation(mutation) => {
             Some((mutation.strictness(), PutValueFailure::TypeErrorOnly))
+        }
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
+            Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
         }
 
         // Everything else. `AssignIdentifier`, `CompoundAssignIdentifier` and
@@ -2278,7 +2393,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::OptionalPropertyChain { .. }
         | ExprIr::PropertyWrite { .. }
         | ExprIr::PropertyUpdate { .. }
-        | ExprIr::PropertyCompoundAssign { .. }
+        | ExprIr::OrdinaryPropertyEagerCompoundAssignment(_)
         | ExprIr::UpdateIdentifier { .. }
         | ExprIr::GlobalPropertyUpdate { .. }
         | ExprIr::CompoundAssignIdentifier { .. }

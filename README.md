@@ -479,6 +479,28 @@ Recent focused progress through `2026-08-21`:
   mutation, suspension and the broader super-expression matrix remain
   unclaimed. The boundary and exclusions are recorded in
   `docs/rust-rewrite/contracts/super-property-reference-mutation.md`.
+- Computed ordinary-property eager arithmetic and bitwise compound assignment
+  now uses one fused Reference lifecycle. The private producer
+  plan owns the evaluated base/receiver, raw key and `[[Strict]]`; its consuming
+  operation mints the old-value read and one of the twelve closed eager
+  operations. The durable CLI oracle covers all twelve operators (including
+  the local `**=` boundary), base and raw-key abrupt completion, nullish-base
+  rejection before `ToPropertyKey`, one canonical key across `[[Get]]`, RHS
+  and `[[Set]]`, Proxy/accessor receiver identity, RHS mutation of the raw key,
+  strict false-Set rejection and result publication only after PutValue. At
+  clean pre-batch commit `ae1bd994b`, a fresh raw run of the complete legacy
+  `language/expressions/compound-assignment/S11.13.2_A7.1..11_T1..4.js`
+  matrix measured `22/88`: all 22 T3 control executions passed, while all 66
+  T1, T2 and T4 executions were `Runtime/Bug`. No rewrite, matrix mask or
+  known-failure entry owns those results. Post-batch verification is green:
+  workspace/all-target check and `cargo xc`; the focused IR invariant `1/1`;
+  the bounded structure executable `7/7`; retained Super, `with`, and global
+  compound-assignment structures `5/5`, `5/5`, and `4/4`; the compiled Wasm
+  lifecycle fixture `1/1` in `75.42s`; and the exact raw matrix `88/88`, with
+  zero unsupported, not-implemented, crash, or bug outcomes. This focused
+  batch does not change plain,
+  logical or numeric property assignment, `super`, private, identifier,
+  global/Object Environment, `with`, or suspending property References.
 - Direct identifier calls selected through `with` now have a verified,
   Reference-preserving lowering seam. A private non-copyable
   `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty

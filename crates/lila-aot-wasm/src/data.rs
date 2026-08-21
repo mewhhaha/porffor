@@ -87,6 +87,7 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot assign to array property",
     "Cannot assign to inherited accessor without setter",
     "Cannot assign to inherited read only property",
+    "Cannot assign to property",
     "Cannot assign to super property",
     "Cannot change enumerable flag of non-configurable arguments accessor",
     "Cannot change enumerable flag of non-configurable arguments property",
@@ -3647,13 +3648,11 @@ impl StringPool {
                 self.collect_expr(target);
                 self.collect_property_key(key);
             }
-            ExprIr::PropertyCompoundAssign {
-                target, key, value, ..
-            } => {
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
                 self.uses_heap = true;
-                self.collect_expr(target);
-                self.collect_property_key(key);
-                self.collect_expr(value);
+                self.collect_expr(mutation.base_and_receiver());
+                self.collect_property_key(mutation.referenced_name());
+                self.collect_expr(mutation.result());
             }
             ExprIr::AssignIdentifier { name, value } => {
                 self.intern_string(name);

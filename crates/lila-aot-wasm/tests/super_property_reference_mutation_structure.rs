@@ -140,7 +140,7 @@ fn lowering_intercepts_super_before_generic_update_and_keeps_rhs_in_the_fused_op
     );
     assert!(
         LOWERING_SOURCE
-            .matches("return self.lower_super_property_eager_compound_assignment(")
+            .matches(".lower_super_property_eager_compound_assignment(")
             .count()
             >= 2
     );
@@ -164,7 +164,7 @@ fn aot_typestate_forces_one_key_coercion_get_and_putvalue() {
         evaluate,
         &[
             "self.compile_expr_to_locals(receiver, receiver_payload, receiver_tag, function)?;",
-            "self.compile_super_property_key_expression_to_locals(",
+            "self.compile_raw_property_key_expression_to_locals(",
             "self.emit_load_super_base(base_payload, base_tag, function)?;",
             "self.emit_throw_if_null_super_base(base_payload, base_tag, function)?;",
             "Ok(EvaluatedRawSuperPropertyReferenceLocals {",

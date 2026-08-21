@@ -159,17 +159,15 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            expr_contains_this_before_super(target, state);
-            match key {
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
+            expr_contains_this_before_super(assignment.base_and_receiver(), state);
+            match assignment.referenced_name() {
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     expr_contains_this_before_super(expr, state);
                 }
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
-            expr_contains_this_before_super(value, state);
+            expr_contains_this_before_super(assignment.result(), state);
         }
         ExprIr::DeleteProperty { target, key, .. } => {
             expr_contains_this_before_super(target, state);

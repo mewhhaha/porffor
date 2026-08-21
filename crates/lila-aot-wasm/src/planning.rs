@@ -3292,12 +3292,12 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            property_access_exposes_global_object(target, key)
-                || property_key_exposes_global_object(key)
-                || expr_exposes_global_object(value)
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            property_access_exposes_global_object(
+                mutation.base_and_receiver(),
+                mutation.referenced_name(),
+            ) || property_key_exposes_global_object(mutation.referenced_name())
+                || expr_exposes_global_object(mutation.result())
         }
         ExprIr::OptionalPropertyChain { target, chain } => {
             expr_exposes_global_object(target)
@@ -3791,12 +3791,10 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            collect_expr_global_property_names(target, names);
-            collect_property_key_global_property_names(key, names);
-            collect_expr_global_property_names(value, names);
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            collect_expr_global_property_names(mutation.base_and_receiver(), names);
+            collect_property_key_global_property_names(mutation.referenced_name(), names);
+            collect_expr_global_property_names(mutation.result(), names);
         }
         ExprIr::OptionalPropertyChain { target, chain } => {
             collect_expr_global_property_names(target, names);
@@ -5313,18 +5311,13 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     true,
                 )
         }
-        ExprIr::PropertyCompoundAssign {
-            target: object,
-            key,
-            value,
-            ..
-        } => {
-            expr_references_function(object, target)
-                || property_key_references_function(key, target)
-                || expr_references_function(value, target)
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            expr_references_function(mutation.base_and_receiver(), target)
+                || property_key_references_function(mutation.referenced_name(), target)
+                || expr_references_function(mutation.result(), target)
                 || shape_accessor_references_function(
-                    object.heap_shape.as_deref(),
-                    key,
+                    mutation.base_and_receiver().heap_shape.as_deref(),
+                    mutation.referenced_name(),
                     target,
                     true,
                     true,
@@ -6735,6 +6728,9 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
                 expr_result_tag_is_runtime_dynamic(&result.expr)
             }
         },
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            expr_result_tag_is_runtime_dynamic(&mutation.result().expr)
+        }
         ExprIr::AssignIdentifier { value, .. }
         | ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::PropertyWrite { value, .. }
@@ -7316,13 +7312,11 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || expr_uses_function_table(value)
-                || match key {
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            matches!(mutation.base_and_receiver().kind, ValueKind::Object)
+                || expr_uses_function_table(mutation.base_and_receiver())
+                || expr_uses_function_table(mutation.result())
+                || match mutation.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_function_table(expr)
@@ -7520,12 +7514,10 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            expr_uses_calls(target)
-                || expr_uses_calls(value)
-                || match key {
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            expr_uses_calls(mutation.base_and_receiver())
+                || expr_uses_calls(mutation.result())
+                || match mutation.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_calls(expr)
@@ -8218,6 +8210,17 @@ const SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
 const SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
 const SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
 
+// The eager ordinary-property Reference is emitted in two non-overlapping
+// phases. GetValue retains the two old-value locals below the four-local raw
+// base/key carrier. Applying the result adds its payload/tag and the Set result
+// local. The Set helper then reserves four own locals plus its two-local
+// argument-vector phase. The carried Strictness is a compile-time property of
+// this fused Reference, so its false-result branch reserves no runtime local.
+const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4;
+const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 3;
+const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
+const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+
 fn count_sync_disposable_resources_temp_locals(
     resources: &SyncDisposableResourcesIr,
     active_scope_temps: usize,
@@ -8434,18 +8437,21 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             });
             child.max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            let child = count_expr_temp_locals(target)
-                .max(count_expr_temp_locals(value))
-                .max(match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        count_expr_temp_locals(expr)
-                    }
-                });
-            child.max(96) + REFERENCE_STRICTNESS_FLAG_LOCALS
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            let key_child = match mutation.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    count_expr_temp_locals(expr)
+                }
+            };
+            let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(mutation.base_and_receiver())
+                    .max(key_child)
+                    .max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS);
+            let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(mutation.result())
+                    .max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS);
+            read_phase.max(write_phase)
         }
         ExprIr::DeleteIdentifier { .. } => 0,
         ExprIr::DeleteGlobalProperty { .. } => 12,

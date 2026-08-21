@@ -26,8 +26,9 @@ pub mod reference;
 
 pub use reference::{
     carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
-    IdentifierWriteReferenceIr, PutValueFailure, Strictness, SuperPropertyMutationIr,
-    SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
+    IdentifierWriteReferenceIr, OrdinaryPropertyEagerCompoundAssignmentIr, PutValueFailure,
+    Strictness, SuperPropertyMutationIr, SuperPropertyMutationOperationIr,
+    SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -1777,14 +1778,7 @@ pub enum ExprIr {
         /// PutValue step 3.d, for the write-back half of `++`/`--`.
         strictness: Strictness,
     },
-    PropertyCompoundAssign {
-        target: Box<TypedExpr>,
-        key: PropertyKeyIr,
-        op: ArithmeticBinaryOp,
-        value: Box<TypedExpr>,
-        /// PutValue step 3.d, for the write-back half of `op=`.
-        strictness: Strictness,
-    },
+    OrdinaryPropertyEagerCompoundAssignment(OrdinaryPropertyEagerCompoundAssignmentIr),
     UpdateIdentifier {
         name: String,
         op: NumericUpdateOp,
@@ -4140,15 +4134,13 @@ impl IrSummaryCounts {
                 self.visit_expr(target);
                 self.visit_property_key(key);
             }
-            ExprIr::PropertyCompoundAssign {
-                target, key, value, ..
-            } => {
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
                 self.property_reads += 1;
                 self.property_writes += 1;
                 self.compound_assignments += 1;
-                self.visit_expr(target);
-                self.visit_property_key(key);
-                self.visit_expr(value);
+                self.visit_expr(assignment.base_and_receiver());
+                self.visit_property_key(assignment.referenced_name());
+                self.visit_expr(assignment.result());
             }
             ExprIr::UpdateIdentifier { return_mode, .. } => match return_mode {
                 UpdateReturnMode::Prefix => self.prefix_updates += 1,

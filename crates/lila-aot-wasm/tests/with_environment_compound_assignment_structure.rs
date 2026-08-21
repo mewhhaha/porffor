@@ -227,8 +227,8 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     assert!(arithmetic.contains("self.lower_with_scoped_identifier_eager_compound_assignment("));
     let selected_arithmetic = bounded(
         arithmetic,
-        "let name = self.interner.resolve_expect(identifier.sym()).to_string();\n                let arithmetic = match op {",
-        "                let reference = self.locate_identifier_reference(&name);",
+        "let arithmetic = match op {",
+        "                if let AssignTarget::Access(access) = lhs {",
     );
     assert!(!selected_arithmetic.contains("_ =>"));
 
@@ -266,8 +266,8 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     assert!(bitwise.contains("self.lower_with_scoped_identifier_eager_compound_assignment("));
     let selected_bitwise = bounded(
         bitwise,
-        "let name = self.interner.resolve_expect(identifier.sym()).to_string();\n                let bitwise = match op {",
-        "                let reference = self.locate_identifier_reference(&name);",
+        "let bitwise = match op {",
+        "                        return match access {",
     );
     assert!(!selected_bitwise.contains("_ =>"));
 

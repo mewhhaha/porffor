@@ -3,6 +3,7 @@ mod async_disposable;
 mod builtin_shapes;
 mod dynamic_source;
 mod object_environment_logical;
+mod ordinary_property_compound;
 mod proxy_traps;
 mod super_property_mutation;
 mod with_environment_call;
@@ -27,9 +28,9 @@ use crate::ir::reference::{
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
     DeleteSuperReferencePlan, EagerCompoundAssignmentBindings, EagerCompoundAssignmentOp,
     GlobalObjectEnvironmentReferencePlan, NumericUpdateBindings, ObjectEnvironmentBindingObject,
-    OrderedWithEnvironmentChain, PositionedWithEnvironment, ReferenceBase, ReferenceOperand,
-    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects, SuperPropertyReferencePlan,
-    WithEnvironmentReferencePlan,
+    OrderedWithEnvironmentChain, OrdinaryPropertyReferencePlan, PositionedWithEnvironment,
+    ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord,
+    SelectedWithEnvironmentObjects, SuperPropertyReferencePlan, WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5710,13 +5711,16 @@ impl<'a> ScriptLowerer<'a> {
                 self.infer_expr_throw_info(target),
                 self.infer_property_key_throw_info(key),
             ),
-            ExprIr::PropertyCompoundAssign {
-                target, key, value, ..
-            } => {
-                let mut info = self.infer_expr_throw_info(target);
-                info =
-                    self.merge_optional_value_info(info, self.infer_property_key_throw_info(key));
-                self.merge_optional_value_info(info, self.infer_expr_throw_info(value))
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
+                let mut info = self.infer_expr_throw_info(assignment.base_and_receiver());
+                info = self.merge_optional_value_info(
+                    info,
+                    self.infer_property_key_throw_info(assignment.referenced_name()),
+                );
+                self.merge_optional_value_info(
+                    info,
+                    self.infer_expr_throw_info(assignment.result()),
+                )
             }
             ExprIr::BinaryNumber { lhs, rhs, .. }
             | ExprIr::CoerciveAdd { lhs, rhs }
@@ -23902,110 +23906,6 @@ impl<'a> ScriptLowerer<'a> {
             | AssignOp::Div
             | AssignOp::Mod
             | AssignOp::Exp => {
-                if matches!(op, AssignOp::Add) {
-                    if let AssignTarget::Access(access) = lhs {
-                        if let PropertyAccess::Simple(simple_access) = access {
-                            if matches!(simple_access.target(), Expression::Identifier(_)) {
-                                let target =
-                                    Box::new(self.lower_property_target(simple_access.target()));
-                                let key = match simple_access.field() {
-                                    PropertyAccessField::Const(name) => {
-                                        let key_name =
-                                            self.interner.resolve_expect(name.sym()).to_string();
-                                        if target.kind == ValueKind::Array && key_name == "length" {
-                                            PropertyKeyIr::ArrayLength
-                                        } else {
-                                            PropertyKeyIr::StaticString(key_name)
-                                        }
-                                    }
-                                    PropertyAccessField::Expr(expr) => {
-                                        // Only a constant index has a key this
-                                        // specialised node can carry; every
-                                        // other key falls through to the
-                                        // general Reference update below.
-                                        match self.try_constant_array_index_expr(expr) {
-                                            Some(index) => PropertyKeyIr::ArrayIndex(Box::new(
-                                                self.static_number_index_expr(index),
-                                            )),
-                                            None => {
-                                                return self.lower_property_reference_update(
-                                                    access,
-                                                    PropertyUpdateOp::Arithmetic(ArithmeticOp::Add),
-                                                    rhs,
-                                                );
-                                            }
-                                        }
-                                    }
-                                };
-                                let rhs = self.lower_expression(rhs);
-                                let possible_kinds = KindSet::from_kind(ValueKind::String)
-                                    .union(KindSet::from_kind(ValueKind::Number))
-                                    .union(KindSet::from_kind(ValueKind::BigInt));
-                                let value_info = ValueInfo {
-                                    kind: possible_kinds.as_value_kind(),
-                                    possible_kinds,
-                                    heap_shape: None,
-                                    function_targets: BTreeSet::new(),
-                                };
-                                self.update_written_shape(
-                                    simple_access.target(),
-                                    &key,
-                                    &value_info,
-                                );
-                                let strictness = self.reference_strictness();
-                                return TypedExpr::from_info(
-                                    value_info,
-                                    ExprIr::PropertyCompoundAssign {
-                                        target,
-                                        key,
-                                        op: ArithmeticBinaryOp::Add,
-                                        value: Box::new(rhs),
-                                        strictness,
-                                    },
-                                );
-                            }
-                        }
-                    }
-                }
-                let AssignTarget::Identifier(identifier) = lhs else {
-                    if let AssignTarget::Access(access) = lhs {
-                        let arithmetic = match op {
-                            AssignOp::Add => ArithmeticOp::Add,
-                            AssignOp::Sub => ArithmeticOp::Sub,
-                            AssignOp::Mul => ArithmeticOp::Mul,
-                            AssignOp::Div => ArithmeticOp::Div,
-                            AssignOp::Mod => ArithmeticOp::Mod,
-                            AssignOp::Exp => ArithmeticOp::Exp,
-                            AssignOp::Assign
-                            | AssignOp::BoolAnd
-                            | AssignOp::BoolOr
-                            | AssignOp::Coalesce
-                            | AssignOp::And
-                            | AssignOp::Or
-                            | AssignOp::Xor
-                            | AssignOp::Shl
-                            | AssignOp::Shr
-                            | AssignOp::Ushr => {
-                                unreachable!("this match arm covers only the arithmetic operators")
-                            }
-                        };
-                        if let PropertyAccess::Super(super_access) = access {
-                            return self.lower_super_property_eager_compound_assignment(
-                                super_access,
-                                EagerCompoundAssignmentOp::Arithmetic(arithmetic),
-                                rhs,
-                            );
-                        }
-                        return self.lower_property_reference_update(
-                            access,
-                            PropertyUpdateOp::Arithmetic(arithmetic),
-                            rhs,
-                        );
-                    }
-                    return self.unsupported_expr("unsupported property assignment operator");
-                };
-
-                let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let arithmetic = match op {
                     AssignOp::Add => ArithmeticOp::Add,
                     AssignOp::Sub => ArithmeticOp::Sub,
@@ -24026,6 +23926,32 @@ impl<'a> ScriptLowerer<'a> {
                         unreachable!("this match arm covers only the arithmetic operators")
                     }
                 };
+                if let AssignTarget::Access(access) = lhs {
+                    return match access {
+                        PropertyAccess::Simple(access) => self
+                            .lower_ordinary_property_eager_compound_assignment(
+                                access,
+                                EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                                rhs,
+                            ),
+                        PropertyAccess::Super(access) => self
+                            .lower_super_property_eager_compound_assignment(
+                                access,
+                                EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                                rhs,
+                            ),
+                        PropertyAccess::Private(_) => self.lower_property_reference_update(
+                            access,
+                            PropertyUpdateOp::Arithmetic(arithmetic),
+                            rhs,
+                        ),
+                    };
+                }
+                let AssignTarget::Identifier(identifier) = lhs else {
+                    return self.unsupported_expr("unsupported property assignment operator");
+                };
+
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let reference = self.locate_identifier_reference(&name);
                 let selected = self
                     .with_environment_chain
@@ -24445,18 +24371,25 @@ impl<'a> ScriptLowerer<'a> {
                                 unreachable!("this match arm covers only the bitwise operators")
                             }
                         };
-                        if let PropertyAccess::Super(super_access) = access {
-                            return self.lower_super_property_eager_compound_assignment(
-                                super_access,
-                                EagerCompoundAssignmentOp::Bitwise(bitwise),
+                        return match access {
+                            PropertyAccess::Simple(access) => self
+                                .lower_ordinary_property_eager_compound_assignment(
+                                    access,
+                                    EagerCompoundAssignmentOp::Bitwise(bitwise),
+                                    rhs,
+                                ),
+                            PropertyAccess::Super(access) => self
+                                .lower_super_property_eager_compound_assignment(
+                                    access,
+                                    EagerCompoundAssignmentOp::Bitwise(bitwise),
+                                    rhs,
+                                ),
+                            PropertyAccess::Private(_) => self.lower_property_reference_update(
+                                access,
+                                PropertyUpdateOp::Bitwise(bitwise),
                                 rhs,
-                            );
-                        }
-                        return self.lower_property_reference_update(
-                            access,
-                            PropertyUpdateOp::Bitwise(bitwise),
-                            rhs,
-                        );
+                            ),
+                        };
                     }
                     return self.unsupported_expr("unsupported property assignment operator");
                 };

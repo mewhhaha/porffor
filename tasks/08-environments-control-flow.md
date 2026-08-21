@@ -114,6 +114,40 @@ compute `1`, then publish or return a helper temporary instead. The strict
 DisposableStack constructor fixture carries a focused global-write preamble
 that pins both the stored value and expression result for the two IR forms.
 
+Computed ordinary-property eager arithmetic and bitwise compound assignment now
+uses one fused Reference. A private, non-copyable producer plan
+owns the evaluated base/receiver, raw computed key and captured `[[Strict]]`;
+its consuming operation alone can mint the old-value read, apply one closed
+`EagerCompoundAssignmentOp`, and produce the backend carrier. The intended AOT
+lifecycle keeps the raw key distinct from the canonical key: evaluate base,
+evaluate raw key, reject a nullish base, perform exactly one `ToPropertyKey`
+and `[[Get]]`, then lower/apply the RHS and perform `[[Set]]` with the same
+base, receiver and key. A false Set result is routed through the captured
+strictness, and the expression result is published only after PutValue returns
+normally.
+
+The durable CLI fixture covers all twelve eager operators, including `**=` as
+a local closed-domain boundary, and makes each Reference phase observable with
+Proxy and accessor traces. It also covers base/raw-key/ToPropertyKey/RHS abrupt
+completion, nullish ordering, mutation of the raw key during RHS evaluation,
+strict and sloppy false-Set behavior, and nonpublication on abrupt completion.
+The exact raw Test262 inventory is the 44 physical files
+`language/expressions/compound-assignment/S11.13.2_A7.1_T1.js` through
+`S11.13.2_A7.11_T4.js`, each executed in sloppy and strict Script mode. At
+clean pre-batch commit `ae1bd994b`, a fresh full run measured `22/88`: every
+T3 control passed (`22` executions), while every T1, T2 and T4 execution was
+`Runtime/Bug` (`66` executions). No source rewrite, matrix mask or
+known-failure entry owns the cohort. Post-batch verification is green:
+workspace/all-target check and `cargo xc`; the focused IR invariant `1/1`; the
+bounded structure executable `7/7`; retained Super, `with`, and global
+compound-assignment structures `5/5`, `5/5`, and `4/4`; the compiled Wasm
+lifecycle fixture `1/1` in `75.42s`; and the exact raw matrix `88/88`, with zero
+unsupported, not-implemented, crash, or bug outcomes. The legacy matrix
+evidences eleven operators; `**=` adds no
+twelfth Test262 claim. Plain, logical and numeric property assignment,
+`super`, private, identifier/global/Object Environment, `with`, suspending RHS
+and the broader compound-assignment subtree remain explicit nonclaims.
+
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central
