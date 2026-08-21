@@ -98,6 +98,7 @@ pub use dynamic_source::{
 };
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use function_protocol::FunctionProtocolIr;
+pub(crate) use function_protocol::LexicalSuperOwnerRole;
 pub use ir::*;
 pub(crate) use ir::{read_heap_shape_property, summarize_block};
 /// The iterator-protocol obligations of 7.4 and the witness a for-of
@@ -4424,6 +4425,59 @@ mod tests {
                 .any(|binding| binding.name == name));
         }
         assert!(arrow.captures_lexical_this);
+    }
+
+    #[test]
+    fn object_method_arrow_super_captures_paired_home_object_authority() {
+        let source = r#"
+            const object = {
+                parameter(value = (() => super.seed)()) {},
+                body() { return () => super.seed; },
+                nested() { return () => () => super.seed; }
+            };
+        "#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let methods = script
+            .functions
+            .iter()
+            .filter(|function| function.protocol.is_object_literal_method())
+            .collect::<Vec<_>>();
+        assert_eq!(methods.len(), 3);
+        for method in methods {
+            for name in [LEXICAL_THIS_NAME, LEXICAL_HOME_OBJECT_NAME] {
+                assert!(method
+                    .owned_env_bindings
+                    .iter()
+                    .any(|binding| binding.name == name));
+            }
+        }
+
+        let arrows = script
+            .functions
+            .iter()
+            .filter(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .collect::<Vec<_>>();
+        assert_eq!(arrows.len(), 4);
+        let lexical_super_arrows = arrows
+            .into_iter()
+            .filter(|function| function.captures_lexical_this)
+            .collect::<Vec<_>>();
+        assert!(lexical_super_arrows.len() >= 3);
+        for arrow in lexical_super_arrows {
+            let captured = arrow
+                .captured_bindings
+                .iter()
+                .map(|binding| binding.source_name.as_str())
+                .collect::<BTreeSet<_>>();
+            assert!(captured.contains(LEXICAL_THIS_NAME));
+            assert!(captured.contains(LEXICAL_HOME_OBJECT_NAME));
+        }
     }
 
     #[test]

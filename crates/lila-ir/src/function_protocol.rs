@@ -1,5 +1,16 @@
 use crate::{ClassFunctionKind, FunctionExecutionKind, FunctionFlavor};
 
+/// The lexical `super` capability provided by a function owner.
+///
+/// Arrow owners are deliberately `None`: their capability is selected by
+/// walking to the first non-arrow owner, never copied onto the arrow itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LexicalSuperOwnerRole {
+    None,
+    HomeObject,
+    DerivedConstructorActivation,
+}
+
 /// The reachable combinations of function execution, lexical flavor,
 /// constructability and class role.
 ///
@@ -23,6 +34,26 @@ pub enum FunctionProtocolIr {
 }
 
 impl FunctionProtocolIr {
+    #[must_use]
+    pub(crate) const fn lexical_super_owner_role(self) -> LexicalSuperOwnerRole {
+        match self {
+            Self::ObjectMethod(_)
+            | Self::ObjectGetter
+            | Self::ObjectSetter
+            | Self::ClassMethod(_)
+            | Self::ClassGetter
+            | Self::ClassSetter => LexicalSuperOwnerRole::HomeObject,
+            Self::OrdinaryCallOnly
+            | Self::OrdinaryCallAndConstruct
+            | Self::Arrow
+            | Self::Generator
+            | Self::Async
+            | Self::AsyncArrow
+            | Self::AsyncGenerator
+            | Self::ClassConstructor => LexicalSuperOwnerRole::None,
+        }
+    }
+
     #[must_use]
     pub const fn flavor(self) -> FunctionFlavor {
         match self {

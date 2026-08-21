@@ -388,13 +388,32 @@ Recent focused progress through `2026-08-21`:
   `language/expressions/object/setter-super-prop.js` reported `0/10` sloppy and
   strict Script executions; every execution was `Runtime/NotImplemented` with
   ``unsupported in lila wasm-aot first slice: object literal method``. The
-  The shared workspace/all-target check and `cargo xc` are green; the focused
+  shared workspace/all-target check and `cargo xc` are green; the focused
   IR invariant is `1/1`, the bounded structure executable is `5/5`, and the
   Wasm CLI fixture is `1/1` in 19.75s. The exact five-file cohort is now
   `10/10`, with zero unsupported, crash or bug outcomes.
-  Generator, async and async-generator object-method HomeObject transport,
-  nested arrows using an enclosing object method's `super`, and the complete
-  object-expression subtree remain separate gates.
+  The adjacent lexical-arrow lifecycle is now verified against a closed
+  owner-role analysis: an arrow can inherit invocation `this` and
+  `[[HomeObject]]` only through an enclosing object/class method capability,
+  while an intervening ordinary function remains a lexical boundary. At clean
+  pre-batch commit `039253d27`, exact Test262 files
+  `language/expressions/super/prop-dot-obj-val-from-arrow.js` and
+  `language/expressions/super/prop-expr-obj-val-from-arrow.js` reported `0/4`
+  sloppy and strict Script executions, all with the same object-literal-method
+  Runtime/NotImplemented diagnostic. The workspace/all-target check is green;
+  the focused IR invariant is `1/1`, the bounded structure executable is
+  `4/4`, and the Wasm CLI fixture is `1/1` in 19.37s. Both exact files now pass
+  `4/4`, with zero unsupported, crash or bug outcomes. The durable fixture
+  covers named and computed reads, parameter-created and multiply nested
+  arrows, detached alien receivers, and later prototype replacement. As
+  controls, `language/expressions/object/concise-generator.js` remains `2/2`,
+  the two
+  `generator-super-prop-{body,param}.js` files were `4/4`, and the two
+  `async-super-call-{body,param}.js` files were `4/4`. Those controls do not
+  prove complete suspension-safe object-method transport. Async-generator
+  object methods and the complete object-expression subtree remain separate
+  gates. The lexical-arrow boundary and nonclaims are recorded in
+  `docs/rust-rewrite/contracts/object-method-arrow-super.md`.
 - Direct identifier calls selected through `with` now have a verified,
   Reference-preserving lowering seam. A private non-copyable
   `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty
@@ -1332,8 +1351,11 @@ Recent focused progress through `2026-08-21`:
   `ToPropertyKey`, and then throws `ReferenceError` without invoking property
   deletion. Non-resumable object-literal methods and accessors now use a
   separate typed HomeObject lifecycle, verified by the focused Wasm fixture and
-  exact `10/10` cohort. Resumable object methods and nested-arrow transport
-  remain explicit debt.
+  exact `10/10` cohort. Direct generator and async object-method controls are
+  green, but complete suspension-safe and async-generator transport remain
+  explicit debt. Object-method lexical-arrow transport has a separate
+  dry-written closed owner-role boundary; its runtime verification remains
+  deferred.
   The four focused real Test262 arrow files
   `lexical-supercall-from-immediately-invoked-arrow.js`,
   `lexical-super-call-from-within-constructor.js`,

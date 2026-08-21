@@ -39,11 +39,22 @@ bypass declarative cutoff, outer chaining or the recheck. Non-resumable
 object-literal methods and accessors now carry an explicit receiver for each
 super Reference and a typed HomeObject-bearing function carrier; their focused
 IR/structure/CLI gates and exact five-file `10/10` Wasm cohort are green.
-Resumable object-method and nested-arrow HomeObject transport remain explicit
-debt. Async-generator
-property assignment remains an explicit
-activation-ABI gap, as do private and `super` yield-assignment targets. The
-parse-once boundary is landed, several environment/control-flow files remain
+Object-method lexical arrows now have a verified closed owner-role boundary:
+the first non-arrow owner either supplies the paired lexical `this` and
+HomeObject capability, supplies the distinct derived-constructor activation,
+or supplies neither. At clean pre-batch commit `039253d27`, exact
+`prop-dot-obj-val-from-arrow.js` and `prop-expr-obj-val-from-arrow.js` were
+`0/4` with the object-literal-method Runtime/NotImplemented diagnostic. The
+workspace/all-target check, focused IR invariant (`1/1`), bounded structure
+executable (`4/4`), Wasm CLI fixture (`1/1` in 19.37s), and both exact files
+(`4/4`, zero unsupported/crash/bug outcomes) are green. Direct generator and
+async object-method body/parameter controls remain green at `4/4` each and
+`concise-generator.js` remains `2/2`; those results do not establish complete
+suspension-safe transport. Complete async-generator object-method transport
+remains explicit debt, and async-generator property assignment remains an
+explicit activation-ABI gap, as do private and `super` yield-assignment
+targets. The parse-once boundary is landed, several environment/control-flow
+files remain
 large shared hotspots, and the language subtrees assigned to this task have not
 been proven zero-failure on a current complete Wasm-AOT matrix.
 

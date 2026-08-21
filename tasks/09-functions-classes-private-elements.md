@@ -46,10 +46,23 @@ object-literal-method NotImplemented boundary. The implementation, bounded
 witnesses and fixture now pass the workspace/all-target check, `cargo xc`, the
 focused IR invariant (`1/1`), the bounded structure executable (`5/5`), the
 Wasm CLI fixture (`1/1` in 19.75s), and the exact cohort (`10/10`, zero
-unsupported/crash/bug outcomes). Resumable
-object-method HomeObject transport and nested arrows using an enclosing object
-method's `super` remain explicit nonclaims. The boundary is recorded in
-`docs/rust-rewrite/contracts/object-literal-home-object.md`.
+unsupported/crash/bug outcomes). Complete resumable object-method HomeObject
+transport remains an explicit nonclaim of that batch.
+Direct generator and async body/parameter controls are green, but they do not
+establish complete suspension-safe or async-generator transport. Nested arrows
+using an enclosing object method's `super` now have a separate verified
+closed owner-role boundary. At clean pre-batch commit `039253d27`, exact
+Test262 `prop-dot-obj-val-from-arrow.js` and
+`prop-expr-obj-val-from-arrow.js` reported `0/4` sloppy/strict executions, all
+at the object-literal-method Runtime/NotImplemented boundary. The
+workspace/all-target check, focused IR invariant (`1/1`), bounded structure
+executable (`4/4`), Wasm CLI fixture (`1/1` in 19.37s), and exact cohort (`4/4`,
+zero unsupported/crash/bug outcomes) are now green. Its durable fixture covers the
+paired lexical `this`/HomeObject capability, parameter-created and multiply
+nested arrows, detached receivers and later prototype replacement. The two
+boundaries are recorded in
+`docs/rust-rewrite/contracts/object-literal-home-object.md` and
+`docs/rust-rewrite/contracts/object-method-arrow-super.md`.
 
 Private-element heap storage now has the closed five-row
 `PrivateElementHeapKind` protocol. Receiver rows are either a brand or a field;

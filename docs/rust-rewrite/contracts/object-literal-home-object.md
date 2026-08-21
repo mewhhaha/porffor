@@ -115,10 +115,12 @@ keys share the closed IR carrier and property-order invariant; computed-key
 behavior is structural coverage rather than part of the five-file count.
 
 Generator, async, and async-generator object methods remain explicit protocol
-members but their suspension-safe HomeObject transport is outside this batch.
-So are nested arrows using an enclosing object method's `super`, direct
-`super()` early errors, class methods and fields, private elements, optional
-chains, dynamic source generation, and cross-realm function construction.
+members. The direct generator and async SuperProperty witnesses measured after
+this batch are green, but complete suspension-safe HomeObject transport remains
+outside this contract. Nested arrows using an enclosing object method's
+`super` are owned by `object-method-arrow-super.md`. Direct `super()` early
+errors, class methods and fields, private elements, optional chains, dynamic
+source generation, and cross-realm function construction remain separate.
 Nothing here changes ordinary object-literal data properties.
 
 ## Ownership
