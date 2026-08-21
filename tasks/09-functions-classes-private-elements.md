@@ -92,6 +92,18 @@ lowering already preserves their acquired callees through the general
 indirect-call path. The boundary is recorded in
 `docs/rust-rewrite/contracts/non-generic-builtin-method-callee-identity.md`.
 
+The `%Function.prototype%[@@hasInstance]` source batch now gives the ordinary
+algorithm and the `instanceof` operator a shared closed request domain rather
+than a boolean-selected helper. The operator entry owns observable
+`@@hasInstance` lookup and handler invocation; the ordinary entry owns callable
+and primitive rejection, bound-target redispatch, observable `prototype` Get,
+and Proxy-aware prototype-chain traversal. The exact intrinsic is installed
+with its realm-local identity and all-false property attributes. `cargo xc`,
+the five bounded structure checks and the CLI witness are green. The complete
+intrinsic leaf passes 22/22 strict and sloppy Wasm-AOT executions, and the
+adjacent four-file operator-hook prefix passes 8/8. These are focused results,
+not a replacement for the complete current-pin publication.
+
 Cross-realm Function construction remains an explicit dynamic-source
 exclusion, and complete Function/class/private-element subtrees have not been
 verified against the current pin without materializations. This remains an

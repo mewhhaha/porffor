@@ -1462,10 +1462,17 @@ impl RuntimeBootstrapPlan {
         }
         if builtin == StandardBuiltinId::FunctionConstructor {
             // `%Function.prototype%` is a callable intrinsic, not an Object
-            // shell. Root its exact body whenever the foundational Function
-            // family is present so bootstrap cannot publish a stubbed call
-            // target.
-            self.require_standard_builtin(StandardBuiltinId::FunctionPrototype);
+            // shell, and its non-configurable `@@hasInstance` property publishes
+            // another exact function value. Root both bodies whenever the
+            // foundational Function family is present so bootstrap cannot
+            // publish either a stubbed call target or a half-installed
+            // prototype.
+            for dependency in [
+                StandardBuiltinId::FunctionPrototype,
+                StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
+            ] {
+                self.require_standard_builtin(dependency);
+            }
         }
         if builtin == StandardBuiltinId::DisposableStackConstructor {
             // The constructor installer publishes the complete prototype as one
@@ -1731,6 +1738,12 @@ impl RuntimeBootstrapPlan {
             self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptor);
         }
         match builtin {
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
+                // This body is installed only by the Function constructor
+                // intrinsic family. Walking back to its owner closes direct IR
+                // references without leaving property installation optional.
+                self.require_standard_builtin(StandardBuiltinId::FunctionConstructor);
+            }
             StandardBuiltinId::ObjectGroupBy | StandardBuiltinId::ObjectFromEntries => {
                 self.standard_roots
                     .insert(StandardBuiltinId::ObjectConstructor);
@@ -5728,6 +5741,7 @@ pub(crate) fn function_length(params: &[FunctionParamIr]) -> u64 {
 pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
     match builtin {
         StandardBuiltinId::FunctionConstructor
+        | StandardBuiltinId::FunctionPrototypeSymbolHasInstance
         | StandardBuiltinId::WeakRefConstructor
         | StandardBuiltinId::FinalizationRegistryConstructor
         | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => 1,

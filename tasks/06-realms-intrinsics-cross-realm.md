@@ -97,6 +97,17 @@ and sloppy Wasm-AOT executions; the adjacent non-constructability case passes
 2/2. The bounded constructor seams do not repair every intrinsic family or
 unrelated partial-bootstrap prototype loader.
 
+The adjacent `%Function.prototype%[@@hasInstance]` source batch installs one
+exact catalogued function value under the closed `WellKnownSymbol::HasInstance`
+key in both the entry realm and every created realm. Created-realm publication
+uses the existing non-copyable function-materialization context, assigns the
+created realm and its TypeError prototype before publication, and applies the
+required all-false property attributes without exposing the raw intrinsic
+payload. `cargo xc`, the five bounded structure checks and the created-realm
+CLI consumer are green. The complete eleven-file intrinsic leaf passes 22/22
+strict and sloppy Wasm-AOT executions; this is focused evidence and does not
+replace the current-pin aggregate publication.
+
 ## Objective
 
 Turn the minimal Rust `Realm` shell and backend-specific prototype slots into a first-class ECMAScript realm model with independently allocated intrinsics, global environment, host hooks and realm-correct error creation.

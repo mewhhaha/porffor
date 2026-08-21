@@ -1093,6 +1093,17 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
         ];
+        let function_prototype_has_instance_meta = self
+            .functions
+            .get(
+                &StandardBuiltinId::FunctionPrototypeSymbolHasInstance.function_id(),
+            )
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Function.prototype[Symbol.hasInstance]`",
+                )
+            })?;
         let object_meta = self
             .functions
             .get(&StandardBuiltinId::ObjectConstructor.function_id())
@@ -4669,6 +4680,38 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.release_temp_local(method_payload_local);
         }
+        let has_instance_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload_in_realm(
+            &function_prototype_has_instance_meta,
+            &realm_functions,
+            has_instance_payload_local,
+            function,
+        )?;
+        self.store_i64_local_at_offset(
+            has_instance_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            has_instance_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            has_instance_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_define_realm_function_prototype_symbol_data_with_flags(
+            &realm_functions,
+            lila_ir::WellKnownSymbol::HasInstance,
+            has_instance_payload_local,
+            tag_local,
+            false,
+            false,
+            false,
+            function,
+        )?;
+        self.release_temp_local(has_instance_payload_local);
         for (_, prototype_local) in &typed_array_prototype_locals {
             self.emit_alloc_plain_object_with_prototype(
                 Some(typed_array_prototype_local),

@@ -5732,6 +5732,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "",
     }
+    FunctionPrototypeSymbolHasInstance {
+        function: FunctionOrdinal(787) => BUILTIN_FUNCTION_PROTOTYPE_SYMBOL_HAS_INSTANCE_FUNCTION_ID,
+        debug: "Function.prototype[Symbol.hasInstance]",
+        flags: [],
+        installer: None,
+        native: "[Symbol.hasInstance]",
+    }
 }
 
 impl StandardBuiltinId {

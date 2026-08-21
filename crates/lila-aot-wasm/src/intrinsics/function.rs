@@ -84,6 +84,36 @@ impl<'a> FunctionBuilder<'a> {
             to_string_meta,
             function,
         )?;
+        let has_instance_meta = self
+            .functions
+            .get(
+                &StandardBuiltinId::FunctionPrototypeSymbolHasInstance.function_id(),
+            )
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Function.prototype[Symbol.hasInstance]`",
+                )
+            })?;
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload(lila_ir::WellKnownSymbol::HasInstance.description()),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_function_value_payload(&has_instance_meta, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            prototype_object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            false,
+            function,
+        )?;
         self.release_temp_local(prototype_object_local);
 
         Ok(())

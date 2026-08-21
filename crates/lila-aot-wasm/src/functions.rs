@@ -523,7 +523,7 @@ mod realm_function_materialization_tests {
             remaining = after_call;
         }
         assert_eq!(
-            direct_sites, 82,
+            direct_sites, 83,
             "created-realm bootstrap site count drifted"
         );
 
@@ -4432,6 +4432,43 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )
+    }
+
+    /// Define a well-known-symbol property on the exact callable
+    /// `%Function.prototype%` carried by a created-realm context.
+    ///
+    /// Taking the closed symbol domain prevents a string-key spelling from
+    /// silently installing an unrelated property on the intrinsic.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_define_realm_function_prototype_symbol_data_with_flags(
+        &mut self,
+        context: &RealmFunctionMaterializationContext,
+        symbol: lila_ir::WellKnownSymbol,
+        payload_local: u32,
+        tag_local: u32,
+        writable: bool,
+        enumerable: bool,
+        configurable: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload(symbol.description()),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_define_data_with_configurable(
+            context.function_prototype_local,
+            key_local,
+            payload_local,
+            tag_local,
+            writable,
+            enumerable,
+            configurable,
+            function,
+        )?;
+        self.release_temp_local(key_local);
+        Ok(())
     }
 
     pub(crate) fn emit_bind_realm_function_constructor_prototype(

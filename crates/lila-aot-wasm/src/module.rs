@@ -1935,7 +1935,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::DisposableStackPrototypeMove
         | StandardBuiltinId::DisposableStackPrototypeDispose
         | StandardBuiltinId::DisposableStackPrototypeDisposedGetter
-        | StandardBuiltinId::FunctionPrototype => None,
+        | StandardBuiltinId::FunctionPrototype
+        | StandardBuiltinId::FunctionPrototypeSymbolHasInstance => None,
     }
 }
 

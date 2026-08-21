@@ -8010,6 +8010,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::FunctionPrototype => {
                 self.emit_function_builtin(FunctionBuiltin::Prototype, function)?
             }
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
+                self.emit_function_builtin(FunctionBuiltin::PrototypeSymbolHasInstance, function)?
+            }
             StandardBuiltinId::FunctionPrototypeCall => {
                 self.emit_function_builtin(FunctionBuiltin::PrototypeCall, function)?
             }

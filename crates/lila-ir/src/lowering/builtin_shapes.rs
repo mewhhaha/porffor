@@ -2937,6 +2937,19 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
+                StandardBuiltinId::FunctionPrototype => {
+                    // This non-configurable symbol property is part of the exact
+                    // callable intrinsic shape. A computed read through
+                    // `Function.prototype[Symbol.hasInstance]` can therefore
+                    // retain the catalogued call target without treating symbol
+                    // and string property keys as interchangeable.
+                    object.properties.insert(
+                        WellKnownSymbol::HasInstance.description().to_string(),
+                        ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                            StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
+                        )),
+                    );
+                }
                 StandardBuiltinId::PromiseConstructor => {
                     object.properties.insert(
                         "prototype".to_string(),
@@ -3881,6 +3894,7 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::FunctionPrototypeCall
                 | StandardBuiltinId::FunctionPrototypeApply
                 | StandardBuiltinId::FunctionPrototypeBind
+                | StandardBuiltinId::FunctionPrototypeSymbolHasInstance
                 | StandardBuiltinId::FunctionPrototypeToString
                 | StandardBuiltinId::DataViewPrototypeBufferGetter
                 | StandardBuiltinId::DataViewPrototypeByteLengthGetter
@@ -4649,6 +4663,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::FunctionPrototype => (
                 ValueKind::Undefined,
                 KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
                 None,
                 ValueInfo::undefined(),
             ),

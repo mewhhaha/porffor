@@ -4,6 +4,7 @@ use super::super::*;
 pub(super) enum FunctionBuiltin {
     Constructor,
     Prototype,
+    PrototypeSymbolHasInstance,
     PrototypeCall,
     PrototypeApply,
     PrototypeBind,
@@ -102,14 +103,41 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(realm_array_buffer_prototype_local);
             }
             FunctionBuiltin::Prototype => {
-                // ECMA-262 %Function.prototype% [[Call]]: accept any receiver
-                // and argument list, perform no observable work, and return
-                // undefined. Constructability is excluded by its catalog
-                // protocol, not by a runtime branch here.
+                // [[Call]] returns undefined; constructability is catalogued.
                 self.emit_undefined_payload(function);
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+            FunctionBuiltin::PrototypeSymbolHasInstance => {
+                let missing_receiver = || {
+                    EmitError::unsupported(
+                        "unsupported in lila wasm-aot first slice: missing Function.prototype[Symbol.hasInstance] receiver",
+                    )
+                };
+                let constructor_payload_local =
+                    self.this_payload_local.ok_or_else(missing_receiver)?;
+                let constructor_tag_local = self.this_tag_local.ok_or_else(missing_receiver)?;
+                let object_payload_local = self.reserve_temp_local();
+                let object_tag_local = self.reserve_temp_local();
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    object_payload_local,
+                    object_tag_local,
+                    function,
+                );
+                self.emit_ordinary_has_instance_from_locals(
+                    constructor_payload_local,
+                    constructor_tag_local,
+                    object_payload_local,
+                    object_tag_local,
+                    self.result_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.release_temp_local(object_tag_local);
+                self.release_temp_local(object_payload_local);
             }
             FunctionBuiltin::PrototypeCall => {
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {

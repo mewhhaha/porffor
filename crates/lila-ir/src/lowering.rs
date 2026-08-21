@@ -18819,6 +18819,9 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             StandardBuiltinId::FunctionPrototype => Some(ValueInfo::undefined()),
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::PromiseConstructor => {
                 if let Some(executor_id) = args
                     .first()
@@ -22939,6 +22942,31 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         };
+        let exact_function_prototype_has_instance = matches!(
+            &key,
+            PropertyKeyIr::StringExpr(expr)
+                if expr.kind == ValueKind::Symbol
+                    && matches!(
+                        &expr.expr,
+                        ExprIr::String(description)
+                            if WellKnownSymbol::from_description(SymbolDescription::new(description))
+                                == Some(WellKnownSymbol::HasInstance)
+                    )
+        ) && target.function_targets.len() == 1
+            && target
+                .function_targets
+                .contains(&StandardBuiltinId::FunctionPrototype.function_id());
+        if exact_function_prototype_has_instance {
+            return TypedExpr::from_info(
+                Self::standard_builtin_value_info(
+                    StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
+                ),
+                ExprIr::PropertyRead {
+                    target: Box::new(target),
+                    key,
+                },
+            );
+        }
         if matches!(&target.expr, ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME) {
             if let PropertyKeyIr::StaticString(name) = &key {
                 if let Some(info) = self.lookup_global_property(name) {
@@ -27625,22 +27653,6 @@ impl<'a> ScriptLowerer<'a> {
             }
             RelationalOp::In => TypedExpr::spec_has_property(rhs, lhs),
             RelationalOp::InstanceOf => {
-                // 13.10.2 InstanceofOperator: a right-hand side that is not an
-                // object, or is an object that is not callable, throws a
-                // TypeError — which the emitted check already does. Only a
-                // right-hand side that could carry a `Symbol.hasInstance`
-                // handler needs the OrdinaryHasInstance shortcut to be refused.
-                if !rhs.possible_kinds.contains(ValueKind::Function)
-                    && self.may_have_has_instance_handler(&rhs)
-                {
-                    return self.unsupported_expr("unsupported comparison operator");
-                }
-                if Self::static_instanceof_expr(&lhs, &rhs) == Some(true) {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::Boolean(true),
-                    );
-                }
                 if let Some(function_id) = self.resolve_single_function_target(&rhs) {
                     let Some(signature) = self.function_signatures.get(&function_id) else {
                         return self.unsupported_expr("unsupported comparison operator");
@@ -27658,40 +27670,6 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
         }
-    }
-
-    fn static_instanceof_expr(lhs: &TypedExpr, rhs: &TypedExpr) -> Option<bool> {
-        let function_id = rhs.function_targets.iter().next()?;
-        if rhs.function_targets.len() != 1 {
-            return None;
-        }
-        let builtin = StandardBuiltinId::from_function_id(function_id)?;
-        let target_prototype = match builtin {
-            StandardBuiltinId::ErrorConstructor
-            | StandardBuiltinId::EvalErrorConstructor
-            | StandardBuiltinId::AggregateErrorConstructor
-            | StandardBuiltinId::SuppressedErrorConstructor
-            | StandardBuiltinId::RangeErrorConstructor
-            | StandardBuiltinId::SyntaxErrorConstructor
-            | StandardBuiltinId::TypeErrorConstructor
-            | StandardBuiltinId::URIErrorConstructor
-            | StandardBuiltinId::ReferenceErrorConstructor => {
-                Self::standard_error_prototype_shape(builtin)
-            }
-            StandardBuiltinId::NumberConstructor => {
-                Self::standard_boxed_prototype_shape(BoxedPrimitiveKind::Number)
-            }
-            StandardBuiltinId::StringConstructor => {
-                Self::standard_boxed_prototype_shape(BoxedPrimitiveKind::String)
-            }
-            StandardBuiltinId::BooleanConstructor => {
-                Self::standard_boxed_prototype_shape(BoxedPrimitiveKind::Boolean)
-            }
-            _ => return None,
-        };
-        lhs.heap_shape.as_deref().and_then(|shape| {
-            Self::heap_shape_has_prototype(shape, target_prototype.as_ref()).then_some(true)
-        })
     }
 
     fn heap_shape_has_prototype(shape: &HeapShape, target: &HeapShape) -> bool {
@@ -29149,17 +29127,6 @@ impl<'a> ScriptLowerer<'a> {
             } => self.accessor_return_info(&getter.function_id),
             ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
         })
-    }
-
-    /// Whether `instanceof` against `target` could dispatch to a
-    /// `Symbol.hasInstance` handler instead of OrdinaryHasInstance.
-    ///
-    /// A proven primitive never can: 13.10.2 step 1 throws before the handler
-    /// is looked up. Any object might, including one whose recorded shape has
-    /// no `Symbol.hasInstance` entry — a computed literal key is not recorded
-    /// in the shape, so absence there does not prove absence at runtime.
-    fn may_have_has_instance_handler(&self, target: &TypedExpr) -> bool {
-        !target.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
     }
 
     fn read_object_shape_property(

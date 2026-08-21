@@ -2322,6 +2322,18 @@ Recent focused progress through `2026-08-21`:
   are green. The five selected current-pin Test262 files pass 10/10 strict and
   sloppy executions, and the adjacent non-constructability case passes 2/2.
   This remains focused evidence; no new aggregate pass count is claimed.
+- `%Function.prototype%[@@hasInstance]` is now represented by one catalogued,
+  non-constructable builtin identity and installed as a non-writable,
+  non-enumerable, non-configurable well-known-symbol property in the entry
+  realm and each created realm. The shared typed backend request keeps
+  `InstanceofOperator` dispatch distinct from `OrdinaryHasInstance`, including
+  bound-target redispatch, observable `prototype` access and Proxy
+  `[[GetPrototypeOf]]` traversal. A bounded source witness and CLI consumer
+  cover realm-local descriptors plus ordinary, bound, poisoned-prototype and
+  abrupt Proxy behavior. `cargo xc`, the five structure checks and the CLI
+  consumer are green. The complete eleven-file intrinsic leaf passes 22/22
+  strict and sloppy Wasm-AOT executions; the adjacent four-file operator-hook
+  prefix passes 8/8. These are focused checkpoints, not a new aggregate count.
 - Generic function-to-string conversion in Wasm-AOT now reads the stored
   function/native source payload, so `"" + fn` agrees with
   `Function.prototype.toString.call(fn)` for builtin constructors, builtin
