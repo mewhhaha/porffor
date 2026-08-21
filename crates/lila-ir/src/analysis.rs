@@ -1863,7 +1863,8 @@ impl<'a> AnalysisBuilder<'a> {
             Statement::ForOfLoop(for_of) => {
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 bindings.insert(
@@ -1877,7 +1878,8 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 bindings.insert(for_of_loop_binding_storage_name(
@@ -2080,7 +2082,8 @@ impl<'a> AnalysisBuilder<'a> {
                         }
                     }
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 bindings.insert(
@@ -2388,15 +2391,13 @@ impl<'a> AnalysisBuilder<'a> {
         for_of: &'a ForOfLoop,
     ) -> BTreeSet<String> {
         match for_of.initializer() {
-            IterableLoopInitializer::Let(binding) | IterableLoopInitializer::Const(binding) => {
-                supported_bound_names(interner, binding)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|bound| {
-                        TdzPlaceholderName::for_source_name(&bound.source_name).into_string()
-                    })
-                    .collect()
-            }
+            IterableLoopInitializer::Let(binding)
+            | IterableLoopInitializer::Const(binding)
+            | IterableLoopInitializer::Using(binding) => supported_bound_names(interner, binding)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|bound| TdzPlaceholderName::for_source_name(&bound.source_name).into_string())
+                .collect(),
             _ => BTreeSet::new(),
         }
     }
@@ -2408,7 +2409,9 @@ impl<'a> AnalysisBuilder<'a> {
     ) -> BTreeMap<String, BindingMode> {
         let (mode, binding) = match for_of.initializer() {
             IterableLoopInitializer::Let(binding) => (BindingMode::Let, binding),
-            IterableLoopInitializer::Const(binding) => (BindingMode::Const, binding),
+            IterableLoopInitializer::Const(binding) | IterableLoopInitializer::Using(binding) => {
+                (BindingMode::Const, binding)
+            }
             _ => return BTreeMap::new(),
         };
         supported_bound_names(interner, binding)
@@ -2429,13 +2432,13 @@ impl<'a> AnalysisBuilder<'a> {
         for_of: &'a ForOfLoop,
     ) -> BTreeSet<String> {
         match for_of.initializer() {
-            IterableLoopInitializer::Let(binding) | IterableLoopInitializer::Const(binding) => {
-                supported_bound_names(interner, binding)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|bound| for_of_loop_binding_storage_name(for_of, &bound.source_name))
-                    .collect()
-            }
+            IterableLoopInitializer::Let(binding)
+            | IterableLoopInitializer::Const(binding)
+            | IterableLoopInitializer::Using(binding) => supported_bound_names(interner, binding)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|bound| for_of_loop_binding_storage_name(for_of, &bound.source_name))
+                .collect(),
             _ => BTreeSet::new(),
         }
     }
@@ -2447,7 +2450,9 @@ impl<'a> AnalysisBuilder<'a> {
     ) -> BTreeMap<String, BindingMode> {
         let (mode, binding) = match for_of.initializer() {
             IterableLoopInitializer::Let(binding) => (BindingMode::Let, binding),
-            IterableLoopInitializer::Const(binding) => (BindingMode::Const, binding),
+            IterableLoopInitializer::Const(binding) | IterableLoopInitializer::Using(binding) => {
+                (BindingMode::Const, binding)
+            }
             _ => return BTreeMap::new(),
         };
         supported_bound_names(interner, binding)
@@ -4182,7 +4187,9 @@ impl<'a> AnalysisBuilder<'a> {
                 let mut head_aliases = capture_aliases.clone();
                 let lexical_loop = matches!(
                     for_of.initializer(),
-                    IterableLoopInitializer::Let(_) | IterableLoopInitializer::Const(_)
+                    IterableLoopInitializer::Let(_)
+                        | IterableLoopInitializer::Const(_)
+                        | IterableLoopInitializer::Using(_)
                 );
                 let tdz_head_cursor = lexical_loop.then(|| {
                     self.register_lexical_environment_with_modes(
@@ -4202,7 +4209,8 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 head_aliases.insert(
@@ -4234,7 +4242,8 @@ impl<'a> AnalysisBuilder<'a> {
                 let mut body_aliases = capture_aliases.clone();
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 body_aliases.insert(

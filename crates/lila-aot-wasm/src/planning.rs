@@ -6860,7 +6860,6 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. }
         | StatementIr::ForInArray {
             target: iterable,
             body,
@@ -6876,6 +6875,10 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
             body,
             ..
         } => expr_uses_calls(iterable) || statement_uses_calls(body),
+        // The generic protocol always calls @@iterator/next and may call return.
+        // A resource head additionally calls the captured disposer, so neither
+        // closed head can be represented as call-free.
+        StatementIr::ForOfIterator { .. } => true,
         StatementIr::Switch {
             discriminant,
             lexical_declarations,
@@ -7043,7 +7046,6 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. }
         | StatementIr::ForInArray {
             target: iterable,
             body,
@@ -7059,6 +7061,7 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
             body,
             ..
         } => expr_uses_function_table(iterable) || statement_uses_function_table(body),
+        StatementIr::ForOfIterator { .. } => true,
         StatementIr::Switch {
             discriminant,
             lexical_declarations,
@@ -7512,6 +7515,49 @@ pub(crate) fn count_block_temp_locals(block: &BlockIr) -> usize {
         .unwrap_or(0)
 }
 
+fn count_for_in_of_binding_lexicals(
+    mode: BindingMode,
+    name: &str,
+    lexical_environment: Option<&ForInOfEnvironmentIr>,
+) -> usize {
+    if mode == BindingMode::Var {
+        return 0;
+    }
+    let Some(environment) = lexical_environment else {
+        return 2;
+    };
+    let tdz_locals = 2 * environment
+        .tdz_binding_names
+        .iter()
+        .filter(|name| {
+            environment
+                .tdz_environment
+                .as_ref()
+                .map(|tdz_environment| {
+                    !tdz_environment
+                        .bindings
+                        .iter()
+                        .any(|binding| binding.name == ***name)
+                })
+                .unwrap_or(true)
+        })
+        .count();
+    let iteration_locals = if environment
+        .iteration_environment
+        .as_ref()
+        .is_some_and(|iteration| {
+            iteration
+                .bindings
+                .iter()
+                .any(|binding| binding.name == name)
+        }) {
+        0
+    } else {
+        2
+    };
+    tdz_locals + iteration_locals
+}
+
 pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
     match statement {
         StatementIr::ModuleUnitOnce { block, .. } => {
@@ -7666,27 +7712,38 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             .map(count_statement_lexicals)
             .sum(),
         StatementIr::ForOfArray {
-            mode,
-            name,
+            head,
             body,
             lexical_environment,
             ..
         }
         | StatementIr::ForOfString {
-            mode,
-            name,
+            head,
             body,
             lexical_environment,
             ..
+        } => {
+            count_for_in_of_binding_lexicals(head.mode, &head.name, lexical_environment.as_ref())
+                + count_statement_lexicals(body)
         }
-        | StatementIr::ForOfIterator {
-            mode,
-            name,
+        StatementIr::ForOfIterator {
+            head,
             body,
             lexical_environment,
             ..
+        } => {
+            let (mode, name) = match head {
+                ForOfIteratorHeadIr::Assignment { binding, .. } => {
+                    (binding.mode, binding.name.as_str())
+                }
+                ForOfIteratorHeadIr::SyncDisposable(head) => {
+                    (BindingMode::Const, head.binding_name())
+                }
+            };
+            count_for_in_of_binding_lexicals(mode, name, lexical_environment.as_ref())
+                + count_statement_lexicals(body)
         }
-        | StatementIr::ForInArray {
+        StatementIr::ForInArray {
             mode,
             name,
             body,
@@ -7707,44 +7764,8 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             lexical_environment,
             ..
         } => {
-            let binding_locals =
-                if *mode == BindingMode::Var {
-                    0
-                } else if let Some(environment) = lexical_environment {
-                    let tdz_locals = 2 * environment
-                        .tdz_binding_names
-                        .iter()
-                        .filter(|name| {
-                            environment
-                                .tdz_environment
-                                .as_ref()
-                                .map(|tdz_environment| {
-                                    !tdz_environment
-                                        .bindings
-                                        .iter()
-                                        .any(|binding| binding.name == ***name)
-                                })
-                                .unwrap_or(true)
-                        })
-                        .count();
-                    let iteration_locals = if environment
-                        .iteration_environment
-                        .as_ref()
-                        .is_some_and(|iteration| {
-                            iteration
-                                .bindings
-                                .iter()
-                                .any(|binding| binding.name == *name)
-                        }) {
-                        0
-                    } else {
-                        2
-                    };
-                    tdz_locals + iteration_locals
-                } else {
-                    2
-                };
-            binding_locals + count_statement_lexicals(body)
+            count_for_in_of_binding_lexicals(*mode, name, lexical_environment.as_ref())
+                + count_statement_lexicals(body)
         }
         StatementIr::Switch {
             lexical_declarations,
@@ -7933,9 +7954,22 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
         StatementIr::ForOfString { iterable, body, .. } => 12
             .max(count_expr_temp_locals(iterable))
             .max(count_statement_temp_locals(body)),
-        StatementIr::ForOfIterator { iterable, body, .. } => 18
-            .max(count_expr_temp_locals(iterable))
-            .max(count_statement_temp_locals(body)),
+        StatementIr::ForOfIterator {
+            head,
+            iterable,
+            body,
+            ..
+        } => match head {
+            ForOfIteratorHeadIr::Assignment { .. } => 18
+                .max(count_expr_temp_locals(iterable))
+                .max(count_statement_temp_locals(body)),
+            ForOfIteratorHeadIr::SyncDisposable(_) => {
+                18 + 5
+                    + count_expr_temp_locals(iterable)
+                        .max(count_statement_temp_locals(body))
+                        .max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS)
+            }
+        },
         StatementIr::ForInArray { target, body, .. } => 10
             .max(count_expr_temp_locals(target))
             .max(count_statement_temp_locals(body)),
@@ -8836,17 +8870,18 @@ pub(crate) fn collect_hoisted_vars_statement(
                 collect_hoisted_vars_statement(statement, names);
             }
         }
-        StatementIr::ForOfArray {
-            mode, name, body, ..
+        StatementIr::ForOfArray { head, body, .. }
+        | StatementIr::ForOfString { head, body, .. } => {
+            if head.mode == BindingMode::Var {
+                names.insert(head.name.clone());
+            }
+            collect_hoisted_vars_statement(body, names);
         }
-        | StatementIr::ForOfString {
-            mode, name, body, ..
-        }
-        | StatementIr::ForOfIterator {
-            mode, name, body, ..
-        } => {
-            if *mode == BindingMode::Var {
-                names.insert(name.clone());
+        StatementIr::ForOfIterator { head, body, .. } => {
+            if let ForOfIteratorHeadIr::Assignment { binding, .. } = head {
+                if binding.mode == BindingMode::Var {
+                    names.insert(binding.name.clone());
+                }
             }
             collect_hoisted_vars_statement(body, names);
         }

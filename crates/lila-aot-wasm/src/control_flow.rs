@@ -3,7 +3,8 @@ use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget}
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
-    ObjectDestructuringPatternIr, ResumableLoopIterationEnvironmentIr, SyncDisposableResourceIr,
+    ForOfAssignmentIr, ForOfIteratorHeadIr, ObjectDestructuringPatternIr,
+    ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
     SyncDisposableResourcesIr,
 };
 
@@ -22,6 +23,27 @@ struct AcquiredSyncDisposableResourceLocals {
     value_tag: u32,
     method_payload: u32,
     method_tag: u32,
+}
+
+#[must_use = "a synchronous iterator head must consume its iteration lifecycle"]
+pub(crate) enum SyncForOfIteratorHead<'a> {
+    Assignment(&'a ForOfAssignmentIr),
+    SyncDisposable(&'a SyncDisposableForOfHeadIr),
+}
+
+#[must_use = "a synchronous for-of iteration must finish assignment or disposal"]
+enum SyncForOfIterationLifecycleLocals<'a> {
+    Assignment(&'a ForOfAssignmentIr),
+    SyncDisposable {
+        head: &'a SyncDisposableForOfHeadIr,
+        acquired: AcquiredSyncDisposableResourceLocals,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum SyncDisposeCompletionContinuation {
+    Dispatch,
+    DeferToIteratorClose,
 }
 
 fn innermost_target(left: ControlTarget, right: ControlTarget) -> ControlTarget {
@@ -1191,7 +1213,11 @@ impl<'a> FunctionBuilder<'a> {
                 ..
             } => Some(plan.entry_state),
             StatementIr::ForOfIterator {
-                async_plan: Some(plan),
+                head:
+                    ForOfIteratorHeadIr::Assignment {
+                        async_plan: Some(plan),
+                        ..
+                    },
                 ..
             } => Some(plan.entry_state),
             StatementIr::SyncDisposableScope { .. } => None,
@@ -1227,7 +1253,11 @@ impl<'a> FunctionBuilder<'a> {
                 ..
             } => Some(plan.exit_state),
             StatementIr::ForOfIterator {
-                async_plan: Some(plan),
+                head:
+                    ForOfIteratorHeadIr::Assignment {
+                        async_plan: Some(plan),
+                        ..
+                    },
                 ..
             } => Some(plan.exit_state),
             StatementIr::SyncDisposableScope { .. } => None,
@@ -3230,16 +3260,15 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StatementIr::ForOfArray {
-                mode,
-                name,
+                head,
                 iterable,
                 body,
                 lexical_environment,
                 ..
             } => {
                 self.compile_for_of_array(
-                    *mode,
-                    name,
+                    head.mode,
+                    &head.name,
                     iterable,
                     body,
                     lexical_environment.as_ref(),
@@ -3248,15 +3277,14 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StatementIr::ForOfString {
-                mode,
-                name,
+                head,
                 iterable,
                 body,
                 lexical_environment,
                 ..
             } => self.compile_for_of_string(
-                *mode,
-                name,
+                head.mode,
+                &head.name,
                 iterable,
                 body,
                 lexical_environment.as_ref(),
@@ -3264,18 +3292,19 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?,
             StatementIr::ForOfIterator {
-                mode,
-                name,
+                head,
                 iterable,
                 body,
                 lexical_environment,
-                async_plan,
-                ..
-            } => {
-                if let Some(async_plan) = async_plan {
+            } => match head {
+                ForOfIteratorHeadIr::Assignment {
+                    binding,
+                    async_plan: Some(async_plan),
+                    ..
+                } => {
                     if self.current_function_meta().is_some_and(|meta| {
                         meta.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
-                    }) && async_generator_for_await_is_transparent_yield(name, body)
+                    }) && async_generator_for_await_is_transparent_yield(&binding.name, body)
                     {
                         self.compile_async_generator_delegation(
                             iterable,
@@ -3288,8 +3317,8 @@ impl<'a> FunctionBuilder<'a> {
                         return Ok(());
                     }
                     self.compile_async_for_of_iterator(
-                        *mode,
-                        name,
+                        binding.mode,
+                        &binding.name,
                         iterable,
                         body,
                         lexical_environment.as_ref(),
@@ -3297,10 +3326,14 @@ impl<'a> FunctionBuilder<'a> {
                         &[],
                         function,
                     )?;
-                } else {
+                }
+                ForOfIteratorHeadIr::Assignment {
+                    binding,
+                    async_plan: None,
+                    ..
+                } => {
                     self.compile_for_of_iterator(
-                        *mode,
-                        name,
+                        SyncForOfIteratorHead::Assignment(binding),
                         iterable,
                         body,
                         lexical_environment.as_ref(),
@@ -3308,7 +3341,17 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 }
-            }
+                ForOfIteratorHeadIr::SyncDisposable(head) => {
+                    self.compile_for_of_iterator(
+                        SyncForOfIteratorHead::SyncDisposable(head),
+                        iterable,
+                        body,
+                        lexical_environment.as_ref(),
+                        &[],
+                        function,
+                    )?;
+                }
+            },
             StatementIr::ForInArray {
                 mode,
                 name,
@@ -3564,16 +3607,15 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StatementIr::ForOfArray {
-                mode,
-                name,
+                head,
                 iterable,
                 body,
                 lexical_environment,
                 ..
             } => {
                 self.compile_for_of_array(
-                    *mode,
-                    name,
+                    head.mode,
+                    &head.name,
                     iterable,
                     body,
                     lexical_environment.as_ref(),
@@ -3582,15 +3624,14 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StatementIr::ForOfString {
-                mode,
-                name,
+                head,
                 iterable,
                 body,
                 lexical_environment,
                 ..
             } => self.compile_for_of_string(
-                *mode,
-                name,
+                head.mode,
+                &head.name,
                 iterable,
                 body,
                 lexical_environment.as_ref(),
@@ -3598,18 +3639,19 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?,
             StatementIr::ForOfIterator {
-                mode,
-                name,
+                head,
                 iterable,
                 body,
                 lexical_environment,
-                async_plan,
-                ..
-            } => {
-                if let Some(async_plan) = async_plan {
+            } => match head {
+                ForOfIteratorHeadIr::Assignment {
+                    binding,
+                    async_plan: Some(async_plan),
+                    ..
+                } => {
                     self.compile_async_for_of_iterator(
-                        *mode,
-                        name,
+                        binding.mode,
+                        &binding.name,
                         iterable,
                         body,
                         lexical_environment.as_ref(),
@@ -3617,10 +3659,14 @@ impl<'a> FunctionBuilder<'a> {
                         labels,
                         function,
                     )?;
-                } else {
+                }
+                ForOfIteratorHeadIr::Assignment {
+                    binding,
+                    async_plan: None,
+                    ..
+                } => {
                     self.compile_for_of_iterator(
-                        *mode,
-                        name,
+                        SyncForOfIteratorHead::Assignment(binding),
                         iterable,
                         body,
                         lexical_environment.as_ref(),
@@ -3628,7 +3674,17 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 }
-            }
+                ForOfIteratorHeadIr::SyncDisposable(head) => {
+                    self.compile_for_of_iterator(
+                        SyncForOfIteratorHead::SyncDisposable(head),
+                        iterable,
+                        body,
+                        lexical_environment.as_ref(),
+                        labels,
+                        function,
+                    )?;
+                }
+            },
             StatementIr::ForInArray {
                 mode,
                 name,
@@ -4758,7 +4814,12 @@ impl<'a> FunctionBuilder<'a> {
 
         let pending = self.capture_pending_sync_dispose_completion(function);
         self.set_completion_kind(CompletionKind::Normal, function);
-        self.consume_sync_disposable_resources(pending, acquired, function)?;
+        self.consume_sync_disposable_resources(
+            pending,
+            acquired,
+            SyncDisposeCompletionContinuation::Dispatch,
+            function,
+        )?;
 
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
@@ -4796,9 +4857,17 @@ impl<'a> FunctionBuilder<'a> {
             method_payload: self.reserve_temp_local(),
             method_tag: self.reserve_temp_local(),
         };
+        self.reset_sync_disposable_resource_locals(&locals, function);
+        locals
+    }
+
+    fn reset_sync_disposable_resource_locals(
+        &mut self,
+        locals: &AcquiredSyncDisposableResourceLocals,
+        function: &mut Function,
+    ) {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(locals.registered));
-        locals
     }
 
     fn release_sync_disposable_resource_locals(
@@ -4830,6 +4899,25 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        let storage = self
+            .lookup_current_scope_binding(&resource.binding_name)
+            .or_else(|| self.lookup_binding(&resource.binding_name))
+            .unwrap_or_else(|| {
+                self.allocate_binding(
+                    resource.binding_name.clone(),
+                    BindingMode::Const,
+                    resource.initializer.kind,
+                )
+            });
+        self.compile_sync_disposable_resource_from_locals(storage, locals, function)
+    }
+
+    fn compile_sync_disposable_resource_from_locals(
+        &mut self,
+        storage: BindingStorage,
+        locals: &AcquiredSyncDisposableResourceLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(locals.value_tag));
         function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -4913,16 +5001,6 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        let storage = self
-            .lookup_current_scope_binding(&resource.binding_name)
-            .or_else(|| self.lookup_binding(&resource.binding_name))
-            .unwrap_or_else(|| {
-                self.allocate_binding(
-                    resource.binding_name.clone(),
-                    BindingMode::Const,
-                    resource.initializer.kind,
-                )
-            });
         self.write_binding_from_locals(storage, locals.value_payload, locals.value_tag, function);
         Ok(())
     }
@@ -4951,6 +5029,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         pending: PendingSyncDisposeCompletionLocals,
         acquired: Vec<AcquiredSyncDisposableResourceLocals>,
+        continuation: SyncDisposeCompletionContinuation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let call_result_payload_local = self.reserve_temp_local();
@@ -5039,7 +5118,12 @@ impl<'a> FunctionBuilder<'a> {
             pending.aux,
             function,
         );
-        self.emit_dispatch_current_completion(function)?;
+        match continuation {
+            SyncDisposeCompletionContinuation::Dispatch => {
+                self.emit_dispatch_current_completion(function)?;
+            }
+            SyncDisposeCompletionContinuation::DeferToIteratorClose => {}
+        }
 
         self.release_temp_local(prototype_local);
         self.release_temp_local(combined_tag_local);
@@ -5393,7 +5477,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         let pending = self.capture_pending_sync_dispose_completion(function);
         self.set_completion_kind(CompletionKind::Normal, function);
-        self.consume_sync_disposable_resources(pending, acquired, function)?;
+        self.consume_sync_disposable_resources(
+            pending,
+            acquired,
+            SyncDisposeCompletionContinuation::Dispatch,
+            function,
+        )?;
 
         // Normal loop exhaustion has no completion to dispatch. Route it
         // through the loop's break target so the lexical environment is
@@ -7566,14 +7655,26 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn compile_for_of_iterator(
         &mut self,
-        mode: BindingMode,
-        name: &str,
+        head: SyncForOfIteratorHead<'_>,
         iterable: &TypedExpr,
         body: &StatementIr,
         lexical_environment: Option<&ForInOfEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if matches!(&head, SyncForOfIteratorHead::SyncDisposable(_))
+            && self.current_function_meta().is_some_and(|meta| {
+                !matches!(
+                    meta.protocol.execution_kind(),
+                    FunctionExecutionKind::Ordinary
+                )
+            })
+        {
+            return Err(EmitError::unsupported(
+                "unsupported in lila wasm-aot first slice: synchronous using for-of head in a resumable body",
+            ));
+        }
+
         let iterable_payload_local = self.reserve_temp_local();
         let iterable_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
@@ -7597,6 +7698,26 @@ impl<'a> FunctionBuilder<'a> {
         let close_saved_tag_local = self.reserve_temp_local();
         let close_saved_completion_local = self.reserve_temp_local();
         let close_saved_aux_local = self.reserve_temp_local();
+
+        let lifecycle = match head {
+            SyncForOfIteratorHead::Assignment(binding) => {
+                SyncForOfIterationLifecycleLocals::Assignment(binding)
+            }
+            SyncForOfIteratorHead::SyncDisposable(head) => {
+                SyncForOfIterationLifecycleLocals::SyncDisposable {
+                    head,
+                    acquired: self.reserve_sync_disposable_resource_locals(function),
+                }
+            }
+        };
+        let (mode, name) = match &lifecycle {
+            SyncForOfIterationLifecycleLocals::Assignment(binding) => {
+                (binding.mode, binding.name.as_str())
+            }
+            SyncForOfIterationLifecycleLocals::SyncDisposable { head, .. } => {
+                (BindingMode::Const, head.binding_name())
+            }
+        };
 
         if let Some(environment) = lexical_environment {
             self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
@@ -7820,19 +7941,62 @@ impl<'a> FunctionBuilder<'a> {
             .lookup_current_scope_binding(name)
             .or(storage_without_environment)
             .expect("for-of lexical storage must be allocated before assignment");
-        self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
-        self.mirror_binding_to_global_object(name, storage, function)?;
-
         let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
-        self.push_labels(labels, break_frame, Some(continue_frame));
         let finally_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_frame);
+
+        match &lifecycle {
+            SyncForOfIterationLifecycleLocals::Assignment(_) => {
+                self.write_binding_from_locals(
+                    storage,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                );
+                self.mirror_binding_to_global_object(name, storage, function)?;
+            }
+            SyncForOfIterationLifecycleLocals::SyncDisposable { acquired, .. } => {
+                self.initialize_binding_uninitialized(storage, function);
+                self.reset_sync_disposable_resource_locals(acquired, function);
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(acquired.value_payload));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(acquired.value_tag));
+
+                let _disposal_outer_frame = self.open_frame(ControlFrameKind::Block, function);
+                let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
+                self.finally_stack.push(disposal_frame);
+                self.compile_sync_disposable_resource_from_locals(storage, acquired, function)?;
+            }
+        }
+
+        self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
+        self.pop_labels(labels.len());
+
+        match lifecycle {
+            SyncForOfIterationLifecycleLocals::Assignment(_) => {}
+            SyncForOfIterationLifecycleLocals::SyncDisposable { acquired, .. } => {
+                self.finally_stack.pop();
+                self.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
+                let pending = self.capture_pending_sync_dispose_completion(function);
+                self.set_completion_kind(CompletionKind::Normal, function);
+                self.consume_sync_disposable_resources(
+                    pending,
+                    vec![acquired],
+                    SyncDisposeCompletionContinuation::DeferToIteratorClose,
+                    function,
+                )?;
+                self.pop_control(ControlFrameKind::Block);
+                function.instruction(&Instruction::End);
+            }
+        }
+
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.pop_labels(labels.len());
         self.loop_stack.pop();
 
         self.save_current_completion(
@@ -7842,6 +8006,12 @@ impl<'a> FunctionBuilder<'a> {
             saved_aux_local,
             function,
         );
+        if lexical_environment
+            .and_then(|environment| environment.iteration_environment.as_ref())
+            .is_some()
+        {
+            self.emit_leave_lexical_environment(function);
+        }
         function.instruction(&Instruction::LocalGet(saved_completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
         function.instruction(&Instruction::I64Eq);
@@ -7855,12 +8025,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(saved_completion_local));
         function.instruction(&Instruction::LocalSet(self.completion_local));
-        if lexical_environment
-            .and_then(|environment| environment.iteration_environment.as_ref())
-            .is_some()
-        {
-            self.emit_leave_lexical_environment(function);
-        }
         self.emit_iterator_close_condition_i32(
             saved_completion_local,
             saved_aux_local,

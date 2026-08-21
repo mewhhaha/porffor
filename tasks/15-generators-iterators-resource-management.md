@@ -102,6 +102,38 @@ claim about the complete 78-file directory or the full pinned aggregate.
 and dynamic source remain explicit non-claims under
 `docs/rust-rewrite/contracts/synchronous-using-classic-for.md`.
 
+The synchronous resource path supports a single BindingIdentifier in a
+`for (using x of iterable)` head. Array and String
+index-walk nodes accept only `ForOfAssignmentIr`; the generic iterator node
+instead exhaustively owns `ForOfIteratorHeadIr::{Assignment,
+SyncDisposable}`. The synchronous head's private one-name carrier has no
+binding mode, initializer, async plan or protocol flag, so it cannot enter a
+specialized index walk or be combined with asynchronous iteration. Its
+per-iteration capability acquires and initializes one immutable fresh binding,
+disposes before the next iterator step, retains a local continue without
+closing and disposes every other completion before IteratorClose.
+
+The exact current-pin cohort is three unflagged files and therefore six
+sloppy/strict Script executions:
+
+- `language/statements/for-of/head-using-bound-names-fordecl-tdz.js`;
+- `language/statements/for-of/head-using-fresh-binding-per-iteration.js`;
+- `language/statements/using/syntax/using-invalid-assignment-statement-body-for-of.js`.
+
+At pre-batch commit `681ca415ba1e74c220fa8a5982cba1e7adedc151`, focused
+inspection rejected all three through the Wasm-AOT `for-of initializer`
+boundary. The integrated current-SHA checkpoint is green: `cargo xc`, 3/3
+focused IR tests, 5/5 bounded structure tests and the generic-iterator CLI
+lifecycle oracle pass; the three files above report 6/6 sloppy/strict Wasm-AOT
+executions with every failure bucket at zero. This remains a focused batch
+result, not a claim about the complete using directory or the full pinned
+aggregate. Resource heads are BindingIdentifier-only; pattern-looking source
+such as `using[resource]` is an
+ordinary element-access assignment head, not a resource binding pattern.
+`await using`, `for-await-of`, resumable owners, modules, `for-in`, Switch
+CaseBlocks and dynamic source remain explicit non-claims under
+`docs/rust-rewrite/contracts/synchronous-using-for-of.md`.
+
 The generator-yield IR now distinguishes `yield` from `yield*` with the closed
 `YieldForm` domain. Its delegation case carries a one-inhabitant
 `GeneratorDelegationProtocol`, which is compile-time tied to all four iterator

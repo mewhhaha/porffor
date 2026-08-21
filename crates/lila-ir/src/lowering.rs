@@ -650,6 +650,17 @@ impl LoweredStatementListItemIr {
     }
 }
 
+/// Lowering-only classification of a `for-of` source head.
+///
+/// The public IR refines this once more: `Assignment` may select any of the
+/// three iteration strategies, while `SyncDisposable` can construct only the
+/// generic iterator head.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoweredForOfHeadKind {
+    Assignment,
+    SyncDisposable,
+}
+
 pub(crate) struct ScriptLowerer<'a> {
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
@@ -6653,40 +6664,90 @@ impl<'a> ScriptLowerer<'a> {
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
         let mut assignment_pattern_initializer: Option<Pattern> = None;
         let mut access_initializer: Option<PropertyAccess> = None;
-        let (mode, name) = match for_of.initializer() {
+        let (head_kind, mode, name) = match for_of.initializer() {
             IterableLoopInitializer::Identifier(identifier) => (
+                LoweredForOfHeadKind::Assignment,
                 BindingMode::Var,
                 self.interner.resolve_expect(identifier.sym()).to_string(),
             ),
             IterableLoopInitializer::Var(variable) => match variable.binding() {
                 Binding::Identifier(identifier) => (
+                    LoweredForOfHeadKind::Assignment,
                     BindingMode::Var,
                     self.interner.resolve_expect(identifier.sym()).to_string(),
                 ),
                 Binding::Pattern(pattern) => {
                     pattern_initializer = Some((BindingMode::Var, pattern.clone()));
-                    (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                    (
+                        LoweredForOfHeadKind::Assignment,
+                        BindingMode::Let,
+                        self.alloc_temp_binding_name("forof"),
+                    )
                 }
             },
             IterableLoopInitializer::Let(Binding::Identifier(identifier)) => (
+                LoweredForOfHeadKind::Assignment,
                 BindingMode::Let,
                 self.interner.resolve_expect(identifier.sym()).to_string(),
             ),
             IterableLoopInitializer::Const(Binding::Identifier(identifier)) => (
+                LoweredForOfHeadKind::Assignment,
                 BindingMode::Const,
                 self.interner.resolve_expect(identifier.sym()).to_string(),
             ),
             IterableLoopInitializer::Let(Binding::Pattern(pattern)) => {
                 pattern_initializer = Some((BindingMode::Let, pattern.clone()));
-                (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                (
+                    LoweredForOfHeadKind::Assignment,
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forof"),
+                )
             }
             IterableLoopInitializer::Const(Binding::Pattern(pattern)) => {
                 pattern_initializer = Some((BindingMode::Const, pattern.clone()));
-                (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                (
+                    LoweredForOfHeadKind::Assignment,
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forof"),
+                )
+            }
+            IterableLoopInitializer::Using(Binding::Identifier(identifier)) => {
+                if for_of.r#await() {
+                    self.unsupported("using declaration in for-await-of");
+                    return ForOfLoweringIr::no_iteration();
+                }
+                if self.root_this_binding == RootThisBinding::Undefined {
+                    self.unsupported("using declaration in a module");
+                    return ForOfLoweringIr::no_iteration();
+                }
+                if self.current_generator_resume_state.is_some()
+                    || self.current_async_resume_state.is_some()
+                    || self.current_resumable_plan.is_some()
+                {
+                    self.unsupported("using declaration in a generator or async function");
+                    return ForOfLoweringIr::no_iteration();
+                }
+                (
+                    LoweredForOfHeadKind::SyncDisposable,
+                    BindingMode::Const,
+                    self.interner.resolve_expect(identifier.sym()).to_string(),
+                )
+            }
+            IterableLoopInitializer::Using(Binding::Pattern(_)) => {
+                self.unsupported("using declaration binding pattern in for-of");
+                return ForOfLoweringIr::no_iteration();
+            }
+            IterableLoopInitializer::AwaitUsing(_) => {
+                self.unsupported("await using declaration in for-of");
+                return ForOfLoweringIr::no_iteration();
             }
             IterableLoopInitializer::Pattern(pattern) => {
                 assignment_pattern_initializer = Some(pattern.clone());
-                (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                (
+                    LoweredForOfHeadKind::Assignment,
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forof"),
+                )
             }
             // `for (obj.key of …)` and `for (this.#field of …)` both assign to a
             // reference that the spec re-evaluates on every iteration, so the
@@ -6696,6 +6757,7 @@ impl<'a> ScriptLowerer<'a> {
             ) => {
                 access_initializer = Some(access.clone());
                 (
+                    LoweredForOfHeadKind::Assignment,
                     BindingMode::Let,
                     self.alloc_temp_binding_name("forof.access"),
                 )
@@ -6939,12 +7001,15 @@ impl<'a> ScriptLowerer<'a> {
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Array))
             && !for_of.r#await()
+            && head_kind == LoweredForOfHeadKind::Assignment
         {
             let protocol = IteratorProtocolWitness::ARRAY_INDEX_WALK;
             (
                 StatementIr::ForOfArray {
-                    mode,
-                    name: storage_name,
+                    head: ForOfAssignmentIr {
+                        mode,
+                        name: storage_name,
+                    },
                     iterable,
                     body: Box::new(body),
                     lexical_environment,
@@ -6956,12 +7021,15 @@ impl<'a> ScriptLowerer<'a> {
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::String))
             && !for_of.r#await()
+            && head_kind == LoweredForOfHeadKind::Assignment
         {
             let protocol = IteratorProtocolWitness::STRING_CODE_POINT_WALK;
             (
                 StatementIr::ForOfString {
-                    mode,
-                    name: storage_name,
+                    head: ForOfAssignmentIr {
+                        mode,
+                        name: storage_name,
+                    },
                     iterable,
                     body: Box::new(body),
                     lexical_environment,
@@ -6975,76 +7043,98 @@ impl<'a> ScriptLowerer<'a> {
             // which does `ToObject` and then looks `@@iterator` up on the wrapper
             // prototype, so a missing or non-callable method throws a TypeError at
             // runtime instead of being refused at compile time.
-            let async_states = if uses_unified_resumable_plan {
-                async_generator_next_suspension
-                    .zip(async_generator_close_suspension)
-                    .map(|(next, close)| {
-                        (
-                            next.suspend_state,
-                            next.resume_state,
-                            close.suspend_state,
-                            close.resume_state,
-                        )
-                    })
-            } else {
-                async_entry_state.map(|entry_state| {
-                    let value_resume_state = entry_state + 1;
-                    let close_resume_state = entry_state + 2;
-                    let exit_state = entry_state + 3;
-                    self.current_async_resume_state = Some(exit_state);
+            match head_kind {
+                LoweredForOfHeadKind::SyncDisposable => {
+                    let protocol = IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL;
                     (
-                        entry_state,
-                        value_resume_state,
-                        close_resume_state,
-                        exit_state,
+                        StatementIr::ForOfIterator {
+                            head: ForOfIteratorHeadIr::SyncDisposable(
+                                SyncDisposableForOfHeadIr::new(storage_name),
+                            ),
+                            iterable,
+                            body: Box::new(body),
+                            lexical_environment,
+                        },
+                        protocol,
                     )
-                })
-            };
-            let async_plan = async_states.map(
-                |(entry_state, value_resume_state, close_resume_state, exit_state)| {
-                    // Allocation order is load-bearing: `alloc_temp_binding_name`
-                    // numbers bindings as it hands them out, so these five calls
-                    // must stay in this sequence for the emitted names to be the
-                    // ones they were before the Iterator Record retrofit.
-                    let iterator = self.alloc_iterator_slot();
-                    let next_method = self.alloc_next_method_slot();
-                    let async_iterator_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.async_iterator.",
-                        ValueInfo::new(ValueKind::Boolean),
+                }
+                LoweredForOfHeadKind::Assignment => {
+                    let async_states = if uses_unified_resumable_plan {
+                        async_generator_next_suspension
+                            .zip(async_generator_close_suspension)
+                            .map(|(next, close)| {
+                                (
+                                    next.suspend_state,
+                                    next.resume_state,
+                                    close.suspend_state,
+                                    close.resume_state,
+                                )
+                            })
+                    } else {
+                        async_entry_state.map(|entry_state| {
+                            let value_resume_state = entry_state + 1;
+                            let close_resume_state = entry_state + 2;
+                            let exit_state = entry_state + 3;
+                            self.current_async_resume_state = Some(exit_state);
+                            (
+                                entry_state,
+                                value_resume_state,
+                                close_resume_state,
+                                exit_state,
+                            )
+                        })
+                    };
+                    let async_plan = async_states.map(
+                        |(entry_state, value_resume_state, close_resume_state, exit_state)| {
+                            // Allocation order is load-bearing: `alloc_temp_binding_name`
+                            // numbers bindings as it hands them out, so these five calls
+                            // must stay in this sequence for the emitted names to be the
+                            // ones they were before the Iterator Record retrofit.
+                            let iterator = self.alloc_iterator_slot();
+                            let next_method = self.alloc_next_method_slot();
+                            let async_iterator_binding = self.alloc_suspension_owned_binding(
+                                "async.forof.async_iterator.",
+                                ValueInfo::new(ValueKind::Boolean),
+                            );
+                            let done = self.alloc_done_slot();
+                            let close_on_rejection_binding = self.alloc_suspension_owned_binding(
+                                "async.forof.close_on_rejection.",
+                                ValueInfo::new(ValueKind::Boolean),
+                            );
+                            AsyncForOfIteratorPlanIr {
+                                entry_state,
+                                value_resume_state,
+                                close_resume_state,
+                                exit_state,
+                                record: IteratorRecordIr::new(iterator, next_method, done),
+                                async_iterator_binding,
+                                close_on_rejection_binding,
+                            }
+                        },
                     );
-                    let done = self.alloc_done_slot();
-                    let close_on_rejection_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.close_on_rejection.",
-                        ValueInfo::new(ValueKind::Boolean),
-                    );
-                    AsyncForOfIteratorPlanIr {
-                        entry_state,
-                        value_resume_state,
-                        close_resume_state,
-                        exit_state,
-                        record: IteratorRecordIr::new(iterator, next_method, done),
-                        async_iterator_binding,
-                        close_on_rejection_binding,
-                    }
-                },
-            );
-            let protocol = if async_plan.is_some() {
-                IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
-            } else {
-                IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL
-            };
-            (
-                StatementIr::ForOfIterator {
-                    mode,
-                    name: storage_name,
-                    iterable,
-                    body: Box::new(body),
-                    lexical_environment,
-                    protocol,
-                    async_plan,
-                },
-                protocol,
-            )
+                    let protocol = if async_plan.is_some() {
+                        IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
+                    } else {
+                        IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL
+                    };
+                    (
+                        StatementIr::ForOfIterator {
+                            head: ForOfIteratorHeadIr::Assignment {
+                                binding: ForOfAssignmentIr {
+                                    mode,
+                                    name: storage_name,
+                                },
+                                async_plan,
+                                protocol,
+                            },
+                            iterable,
+                            body: Box::new(body),
+                            lexical_environment,
+                        },
+                        protocol,
+                    )
+                }
+            }
         };
         ForOfLoweringIr::new(statement, body_kind, protocol)
     }

@@ -506,10 +506,20 @@ mod tests {
                         collect(statement, names);
                     }
                 }
-                StatementIr::ForOfArray { name, body, .. }
-                | StatementIr::ForOfString { name, body, .. }
-                | StatementIr::ForOfIterator { name, body, .. }
-                | StatementIr::ForInArray { name, body, .. }
+                StatementIr::ForOfArray { head, body, .. }
+                | StatementIr::ForOfString { head, body, .. } => {
+                    names.insert(head.name.clone());
+                    collect(body, names);
+                }
+                StatementIr::ForOfIterator { head, body, .. } => {
+                    let name = match head {
+                        ForOfIteratorHeadIr::Assignment { binding, .. } => &binding.name,
+                        ForOfIteratorHeadIr::SyncDisposable(head) => head.binding_name(),
+                    };
+                    names.insert(name.to_string());
+                    collect(body, names);
+                }
+                StatementIr::ForInArray { name, body, .. }
                 | StatementIr::ForInString { name, body, .. }
                 | StatementIr::ForInObject { name, body, .. } => {
                     names.insert(name.clone());
@@ -7744,7 +7754,11 @@ target[Symbol.iterator];"#,
             ..
         }, StatementIr::ForOfIterator {
             body,
-            async_plan: Some(async_plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(async_plan),
+                    ..
+                },
             ..
         }, StatementIr::AsyncAwait {
             suspend_state: 6,
@@ -7797,7 +7811,11 @@ target[Symbol.iterator];"#,
             .expect("async generator declaration should be collected");
 
         let [StatementIr::ForOfIterator {
-            async_plan: Some(async_plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(async_plan),
+                    ..
+                },
             ..
         }] = function.body.statements.as_slice()
         else {
@@ -8512,7 +8530,11 @@ target[Symbol.iterator];"#,
             })
             .expect("async function should be registered");
         let StatementIr::ForOfIterator {
-            async_plan: Some(plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(plan),
+                    ..
+                },
             ..
         } = &function.body.statements[1]
         else {
@@ -8560,7 +8582,11 @@ target[Symbol.iterator];"#,
             })
             .expect("async function should be registered");
         let StatementIr::ForOfIterator {
-            async_plan: Some(plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(plan),
+                    ..
+                },
             ..
         } = &function.body.statements[0]
         else {
@@ -8616,7 +8642,11 @@ target[Symbol.iterator];"#,
             })
             .expect("async function should be registered");
         let StatementIr::ForOfIterator {
-            async_plan: Some(plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(plan),
+                    ..
+                },
             ..
         } = &function.body.statements[0]
         else {
@@ -13195,6 +13225,114 @@ target[Symbol.iterator];"#,
                 name: NativeErrorKind::ReferenceError,
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_for_of_is_a_closed_generic_iterator_head() {
+        let program = lower_script("for (using resource of [null]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let [StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::SyncDisposable(head),
+            ..
+        }] = script.body.statements.as_slice()
+        else {
+            panic!(
+                "a using head must force generic synchronous iteration: {:?}",
+                script.body.statements
+            );
+        };
+        assert!(head.binding_name().starts_with("$forof.lex."));
+        assert!(head.binding_name().ends_with(".resource"));
+    }
+
+    #[test]
+    fn synchronous_using_for_of_iterable_observes_its_own_tdz() {
+        let program = lower_script("let resource = null; for (using resource of [resource]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfIterator { iterable, .. } = &script.body.statements[1] else {
+            panic!("using head must lower to generic iterator IR");
+        };
+        let ExprIr::ArrayLiteral(elements) = &iterable.expr else {
+            panic!("expected the source array iterable to stay explicit");
+        };
+        assert!(matches!(
+            elements.as_slice(),
+            [TypedExpr {
+                expr: ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    ..
+                },
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_for_of_retains_fresh_captured_iteration_storage() {
+        let program = lower_script(
+            "let callbacks = []; for (using resource of [null, null]) { callbacks.push(() => resource); }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::SyncDisposable(head),
+            lexical_environment: Some(environment),
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("captured using head must retain its iteration environment");
+        };
+        assert!(environment
+            .tdz_binding_names
+            .iter()
+            .any(|name| name == "$tdz.resource"));
+        let iteration_binding = environment
+            .iteration_environment
+            .as_ref()
+            .and_then(|environment| {
+                environment
+                    .bindings
+                    .iter()
+                    .find(|binding| binding.name == head.binding_name())
+            })
+            .expect("using head must own fresh captured iteration storage");
+        let capture = script
+            .functions
+            .iter()
+            .flat_map(|function| &function.captured_bindings)
+            .find(|binding| binding.source_name == "resource")
+            .expect("body arrow must capture the using iteration binding");
+        assert_eq!(capture.name, iteration_binding.name);
+        assert_eq!(capture.slot, iteration_binding.slot);
+        assert_eq!(capture.mode, BindingMode::Const);
+    }
+
+    #[test]
+    fn pattern_looking_using_for_of_head_is_ordinary_element_assignment() {
+        let program = lower_script("for (using [resource] of [[null]]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let [StatementIr::ForOfArray { head, body, .. }] = script.body.statements.as_slice() else {
+            panic!(
+                "using[resource] is an element-access assignment head: {:?}",
+                script.body.statements
+            );
+        };
+        assert_eq!(head.mode, BindingMode::Let);
+        assert!(head.name.starts_with("$forof.access."));
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. })
+                if matches!(
+                    statements.first(),
+                    Some(StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::PropertyWrite { .. },
+                        ..
+                    }))
+                )
         ));
     }
 }

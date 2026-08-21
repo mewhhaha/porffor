@@ -2111,6 +2111,51 @@ pub struct ForInOfEnvironmentIr {
     pub tdz_binding_names: Vec<String>,
 }
 
+/// The assignment performed by an ordinary `for-of` head.
+///
+/// Array and String index-walk specializations accept only this type. A
+/// synchronous resource head is instead a [`ForOfIteratorHeadIr`] and cannot
+/// accidentally enter either specialization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForOfAssignmentIr {
+    pub mode: BindingMode,
+    pub name: String,
+}
+
+/// One immutable synchronous resource binding owned by a `for-of` iteration.
+///
+/// The private field and crate-private constructor keep patterns, multiple
+/// bindings, mutable modes and async disposal out of this closed capability.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncDisposableForOfHeadIr {
+    binding_name: String,
+}
+
+impl SyncDisposableForOfHeadIr {
+    pub(crate) fn new(binding_name: String) -> Self {
+        Self { binding_name }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+}
+
+/// The exhaustive head domain of the generic iterator protocol path.
+///
+/// `SyncDisposable` structurally selects synchronous generic iteration: only
+/// `Assignment` owns an optional async plan and explicit protocol witness, and
+/// Array/String specializations cannot accept this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForOfIteratorHeadIr {
+    Assignment {
+        binding: ForOfAssignmentIr,
+        async_plan: Option<AsyncForOfIteratorPlanIr>,
+        protocol: IteratorProtocolWitness,
+    },
+    SyncDisposable(SyncDisposableForOfHeadIr),
+}
+
 /// The runtime Environment Record lifecycle owned by a resumable loop.
 ///
 /// This is required on every [`StatementIr::GeneratorLoop`] so neither a new
@@ -2298,8 +2343,7 @@ pub enum StatementIr {
         lexical_environment: Option<ForLexicalEnvironmentIr>,
     },
     ForOfArray {
-        mode: BindingMode,
-        name: String,
+        head: ForOfAssignmentIr,
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
@@ -2315,8 +2359,7 @@ pub enum StatementIr {
         protocol: IteratorProtocolWitness,
     },
     ForOfString {
-        mode: BindingMode,
-        name: String,
+        head: ForOfAssignmentIr,
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
@@ -2324,14 +2367,10 @@ pub enum StatementIr {
         protocol: IteratorProtocolWitness,
     },
     ForOfIterator {
-        mode: BindingMode,
-        name: String,
+        head: ForOfIteratorHeadIr,
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
-        /// See `ForOfArray::protocol`.
-        protocol: IteratorProtocolWitness,
-        async_plan: Option<AsyncForOfIteratorPlanIr>,
     },
     ForInArray {
         mode: BindingMode,

@@ -3335,7 +3335,6 @@ impl StringPool {
             }
             StatementIr::ForOfArray { iterable, body, .. }
             | StatementIr::ForOfString { iterable, body, .. }
-            | StatementIr::ForOfIterator { iterable, body, .. }
             | StatementIr::ForInArray {
                 target: iterable,
                 body,
@@ -3351,6 +3350,26 @@ impl StringPool {
                 body,
                 ..
             } => {
+                self.collect_expr(iterable);
+                self.collect_statement(body);
+            }
+            StatementIr::ForOfIterator {
+                head,
+                iterable,
+                body,
+                ..
+            } => {
+                if let ForOfIteratorHeadIr::SyncDisposable(head) = head {
+                    for value in [
+                        "Symbol.dispose",
+                        "using declaration resource is not an object",
+                        "using declaration resource has no [Symbol.dispose] method",
+                        "using declaration [Symbol.dispose] method is not callable",
+                    ] {
+                        self.intern_string(value);
+                    }
+                    self.intern_string(head.binding_name());
+                }
                 self.collect_expr(iterable);
                 self.collect_statement(body);
             }

@@ -747,7 +747,11 @@ fn async_generator_contains_suspension(
         // the body would report a nested for-await as suspension-free and let it
         // through a guard that exists precisely to keep second suspensions out.
         StatementIr::ForOfIterator {
-            async_plan: Some(_),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(_),
+                    ..
+                },
             ..
         } => matches!(suspension, AsyncGeneratorSuspension::Await),
         StatementIr::While { body, .. }
@@ -909,11 +913,15 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                 .find_map(async_generator_dispatcher_unsupported_feature)
         }
         StatementIr::ForOfIterator {
-            name,
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    binding,
+                    async_plan: Some(_),
+                    ..
+                },
             body,
-            async_plan: Some(_),
             ..
-        } if async_generator_for_await_is_transparent_yield(name, body) => None,
+        } if async_generator_for_await_is_transparent_yield(&binding.name, body) => None,
         // A for-await loop owns four states of its own (`entry`,
         // `value_resume`, `close_resume`, `exit`) and re-enters at whichever of
         // them the activation carries. That replay is sound as long as the loop
@@ -924,9 +932,13 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         // suspension-free body compiles like any ordinary loop body, and a
         // suspending one is still refused rather than miscompiled.
         StatementIr::ForOfIterator {
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(_),
+                    ..
+                },
             body,
             lexical_environment,
-            async_plan: Some(_),
             ..
         } => {
             // A nested `for await` allocates its own four states inside this

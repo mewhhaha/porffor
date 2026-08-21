@@ -1313,6 +1313,11 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
                 self.compile_expr_payload(rhs, function)?;
             }
             ExprIr::MaterializeBinding { name, value, body } => {
@@ -3170,6 +3175,11 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::Comma { lhs, rhs } => {
                 self.compile_expr_to_locals(
                     lhs,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
                     self.scratch_local,
                     self.result_tag_local,
                     function,

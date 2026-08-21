@@ -415,6 +415,32 @@ Recent focused progress through `2026-08-21`:
   sloppy/strict Wasm-AOT executions. This remains focused evidence, not a claim
   about the complete 78-file `language/statements/using` directory or the full
   pinned aggregate.
+- Synchronous `using` in `for-of` heads keeps resource heads on the generic
+  iterator protocol. Array and String index-walk nodes accept
+  only `ForOfAssignmentIr`, while `ForOfIteratorHeadIr` exhaustively separates
+  ordinary assignment from a private, one-binding `SyncDisposable` capability
+  that cannot carry an async plan. The intended per-iteration lifecycle creates
+  a fresh immutable binding, disposes before the next iterator step, keeps a
+  local continue inside the loop without closing, and disposes break, return,
+  throw, disposer failure or acquisition failure before IteratorClose. The
+  durable CLI oracle uses only custom iterator objects and covers those orderings,
+  head TDZ and captured-binding freshness. The exact current-pin failure cohort
+  is three unflagged files and six sloppy/strict executions:
+  `head-using-bound-names-fordecl-tdz.js`,
+  `head-using-fresh-binding-per-iteration.js`, and
+  `using-invalid-assignment-statement-body-for-of.js`. At pre-batch commit
+  `681ca415ba1e74c220fa8a5982cba1e7adedc151`, focused inspection rejected all
+  six at the Wasm-AOT `for-of initializer` boundary. The integrated current-SHA
+  checkpoint is green: `cargo xc`, 3/3 focused IR tests, 5/5 bounded structure
+  tests and the end-to-end CLI lifecycle oracle pass; the three files now report
+  6/6 Wasm-AOT executions with every failure bucket at zero. This is focused
+  evidence, not a claim about the complete `language/statements/using`
+  directory or the full pinned aggregate. Resource heads are
+  BindingIdentifier-only; pattern-looking source such as `using[resource]` is
+  ordinary element-access assignment grammar, not a resource binding pattern.
+  `await using`, `for-await-of`,
+  resumable owners, modules, `for-in` and dynamic source remain outside this
+  batch.
 
 - Promise construction now runs executors synchronously through the real
   Wasm-AOT call path, creates branded pending promise records, supplies distinct
