@@ -3,7 +3,7 @@ use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget}
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
-    ObjectDestructuringPatternIr,
+    ObjectDestructuringPatternIr, ResumableLoopIterationEnvironmentIr,
 };
 
 fn innermost_target(left: ControlTarget, right: ControlTarget) -> ControlTarget {
@@ -1439,6 +1439,7 @@ impl<'a> FunctionBuilder<'a> {
             init,
             test,
             update,
+            iteration_environment,
             before_suspension,
             suspension_statement,
             after_suspension,
@@ -1452,6 +1453,25 @@ impl<'a> FunctionBuilder<'a> {
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
             EmitError::unsupported("resumable async loop requires the function call ABI")
         })?;
+        let activation_environment_offset = match self
+            .current_function_meta()
+            .map(|meta| meta.protocol.execution_kind())
+        {
+            Some(FunctionExecutionKind::Async) => HEAP_ASYNC_ENV_OFFSET,
+            Some(FunctionExecutionKind::AsyncGenerator) => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
+            Some(FunctionExecutionKind::Generator) => HEAP_GENERATOR_ENV_OFFSET,
+            Some(FunctionExecutionKind::Ordinary) | None => {
+                return Err(EmitError::unsupported(
+                    "resumable loop requires a resumable function activation",
+                ));
+            }
+        };
+        let fresh_iteration_environment = match iteration_environment {
+            ResumableLoopIterationEnvironmentIr::StorageOnly => None,
+            ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment) => {
+                Some(environment)
+            }
+        };
         let state_local = self.reserve_temp_local();
         self.load_i64_to_local_from_offset(
             activation_local,
@@ -1472,16 +1492,50 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(*entry_state as i64));
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.initialize_direct_lexical_bindings(before_suspension, function);
-        self.initialize_direct_lexical_bindings(after_suspension, function);
+        if fresh_iteration_environment.is_none() {
+            self.initialize_direct_lexical_bindings(before_suspension, function);
+            self.initialize_direct_lexical_bindings(after_suspension, function);
+        }
         if let Some(init) = init {
             self.compile_for_init(init, function)?;
             self.emit_dispatch_async_completion(function)?;
         }
         function.instruction(&Instruction::Else);
+        let resume_cleanup_frame =
+            fresh_iteration_environment.map(|_| self.open_frame(ControlFrameKind::Block, function));
+        if let Some(environment) = fresh_iteration_environment {
+            self.push_scope();
+            // Function entry reloaded this exact pointer from the activation.
+            // Only attach its binding layout here: allocating would give the
+            // resumed body a different cell from pre-suspension closures.
+            self.begin_existing_lexical_environment_scope(environment);
+            self.finally_stack.push(ControlTarget {
+                environment_depth: self.environment_depth,
+                ..resume_cleanup_frame.expect("fresh iteration must have a cleanup frame")
+            });
+        }
         self.compile_statement(suspension_statement, function)?;
         for statement in after_suspension {
             self.compile_statement(statement, function)?;
+        }
+        if fresh_iteration_environment.is_some() {
+            self.finally_stack.pop();
+            self.pop_control(ControlFrameKind::Block);
+            function.instruction(&Instruction::End);
+            // Both normal fallthrough and an abrupt branch reach this one
+            // leave. The cleanup target carries the child depth, so branching
+            // to it cannot also unwind the record on the way here.
+            self.emit_leave_lexical_environment(function);
+            self.pop_scope();
+            self.store_i64_local_at_offset(
+                activation_local,
+                activation_environment_offset,
+                self.current_env_local,
+                function,
+            );
+            // Publish the parent before an abrupt completion leaves the loop;
+            // Normal falls through to update.
+            self.emit_dispatch_async_completion(function)?;
         }
         if let Some(update) = update {
             self.compile_expr_payload(update, function)?;
@@ -1511,12 +1565,47 @@ impl<'a> FunctionBuilder<'a> {
             u64::from(*entry_state),
             function,
         );
+        let entry_cleanup_frame =
+            fresh_iteration_environment.map(|_| self.open_frame(ControlFrameKind::Block, function));
+        if let Some(environment) = fresh_iteration_environment {
+            self.push_scope();
+            // The test ran in the parent environment. A successful test owns
+            // exactly one new cell before the loop binding is initialized.
+            self.emit_enter_lexical_environment(environment, function)?;
+            self.finally_stack.push(ControlTarget {
+                environment_depth: self.environment_depth,
+                ..entry_cleanup_frame.expect("fresh iteration must have a cleanup frame")
+            });
+            self.store_i64_local_at_offset(
+                activation_local,
+                activation_environment_offset,
+                self.current_env_local,
+                function,
+            );
+        }
         self.initialize_direct_lexical_bindings(before_suspension, function);
         self.initialize_direct_lexical_bindings(after_suspension, function);
         for statement in before_suspension {
             self.compile_statement(statement, function)?;
         }
         self.compile_statement(suspension_statement, function)?;
+        if fresh_iteration_environment.is_some() {
+            // The suspension path returns directly and leaves the child in the
+            // activation. Abrupt and non-suspending paths converge after the
+            // block and execute exactly one leave before any later loop work.
+            self.finally_stack.pop();
+            self.pop_control(ControlFrameKind::Block);
+            function.instruction(&Instruction::End);
+            self.emit_leave_lexical_environment(function);
+            self.pop_scope();
+            self.store_i64_local_at_offset(
+                activation_local,
+                activation_environment_offset,
+                self.current_env_local,
+                function,
+            );
+            self.emit_dispatch_async_completion(function)?;
+        }
         function.instruction(&Instruction::Else);
         self.store_i64_const_at_offset(
             activation_local,
@@ -2562,6 +2651,7 @@ impl<'a> FunctionBuilder<'a> {
                 init,
                 test,
                 update,
+                iteration_environment,
                 before_suspension,
                 suspension_statement,
                 after_suspension,
@@ -2572,6 +2662,14 @@ impl<'a> FunctionBuilder<'a> {
                 let activation_local = self.new_target_payload_local().ok_or_else(|| {
                     EmitError::unsupported("generator loop requires the function call ABI")
                 })?;
+                match iteration_environment {
+                    ResumableLoopIterationEnvironmentIr::StorageOnly => {}
+                    ResumableLoopIterationEnvironmentIr::FreshPerIteration(_) => {
+                        return Err(EmitError::unsupported(
+                            "fresh per-iteration environments are only lowered for async loops",
+                        ));
+                    }
+                }
                 let state_local = self.reserve_temp_local();
                 self.load_i64_to_local_from_offset(
                     activation_local,

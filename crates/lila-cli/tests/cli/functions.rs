@@ -524,6 +524,30 @@ fn run_wasm_backend_preserves_parent_linked_lexical_environments() {
 }
 
 #[test]
+fn run_wasm_backend_preserves_async_for_of_iteration_environments() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_async_for_of_closure_capture.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+    assert!(
+        !stdout.contains("uncaught throw") && !stderr.contains("uncaught throw"),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_function_form_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

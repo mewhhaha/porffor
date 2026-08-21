@@ -7222,6 +7222,7 @@ target[Symbol.iterator];"#,
             init: Some(ForInitIr::LexicalBlock(head)),
             test: Some(_),
             update: Some(_),
+            iteration_environment,
             before_suspension,
             ..
         }) = function
@@ -7253,6 +7254,48 @@ target[Symbol.iterator];"#,
             before_suspension.first(),
             Some(StatementIr::Lexical { .. })
         ));
+        assert_eq!(
+            iteration_environment,
+            &ResumableLoopIterationEnvironmentIr::StorageOnly
+        );
+    }
+
+    #[test]
+    fn plain_async_for_of_captured_binding_carries_iteration_environment() {
+        let program = lower_script(
+            "(async function(){ const out = []; for (const v of [1, 2]) { out.push(() => v); await 0; } })();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| {
+                function.protocol.execution_kind() == FunctionExecutionKind::Async
+                    && function
+                        .body
+                        .statements
+                        .iter()
+                        .any(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
+            })
+            .expect("async function expression should own the resumable loop");
+        let StatementIr::GeneratorLoop {
+            iteration_environment:
+                ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment),
+            ..
+        } = function
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
+            .expect("captured async for-of should lower to a resumable loop")
+        else {
+            panic!("captured async for-of must require a fresh iteration environment");
+        };
+        assert_eq!(environment.bindings.len(), 1);
+        assert!(environment.bindings[0].name.ends_with(".v"));
     }
 
     #[test]
@@ -7262,8 +7305,8 @@ target[Symbol.iterator];"#,
         // test is the map of what is deliberately still out, so a case leaves it
         // only by being implemented, never to make room.
         //
-        // The last two are not that: they never miscompiled, they are refused.
-        // What batch 7 changed is only the *reason* each is given — see
+        // The last one is not that: it never miscompiled, it is refused. What
+        // batch 7 changed is only the *reason* it is given — see
         // `AsyncForOfArrayWalkForm` in `lowering_helpers.rs`.
         for (source, message) in [
             (
@@ -7296,24 +7339,6 @@ target[Symbol.iterator];"#,
             (
                 "(async function(){ for (const c of \"ab\") { await 0; } })();",
                 "async for-of with a body await requires an array iterable",
-            ),
-            // The premise that message used to hide, and the reason batch 7
-            // split it. Array literal, plain `const v` binding — both premises
-            // the old string named are satisfied — and the arrow captures `v`,
-            // so 14.7.5.7 needs a fresh environment record per iteration and
-            // `StatementIr::GeneratorLoop` has nowhere to put one. This is the
-            // shape of `built-ins/Array/fromAsync/asyncitems-asynciterator-not-callable.js`
-            // and its `@@iterator` sibling, the only two failures in that
-            // 95-case node on the batch-7 baseline sweep.
-            //
-            // It is still REJECTED, deliberately: the fix is a backend change
-            // (persist the environment pointer across the suspension), not a
-            // lowering one, and hoisting the binding into a single activation
-            // slot to make these two tests pass would give every closure the
-            // same cell. What changed is only that the reason is now true.
-            (
-                "(async function(){ const out = []; for (const v of [1, 2]) { out.push(() => v); await 0; } })();",
-                "a closure in the body captures it",
             ),
         ] {
             let program = lower_script(source);

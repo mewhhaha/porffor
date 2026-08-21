@@ -6291,6 +6291,7 @@ impl<'a> ScriptLowerer<'a> {
                         init: None,
                         test: Some(condition),
                         update: None,
+                        iteration_environment: ResumableLoopIterationEnvironmentIr::StorageOnly,
                         before_suspension,
                         suspension_statement: Box::new(suspension_statement),
                         after_suspension,
@@ -6485,6 +6486,7 @@ impl<'a> ScriptLowerer<'a> {
                             init,
                             test,
                             update,
+                            iteration_environment: ResumableLoopIterationEnvironmentIr::StorageOnly,
                             before_suspension,
                             suspension_statement: Box::new(suspension_statement),
                             after_suspension,
@@ -6611,22 +6613,24 @@ impl<'a> ScriptLowerer<'a> {
         entry_state: Option<u32>,
         head_environment: Option<ForInOfEnvironmentIr>,
     ) -> ForOfLoweringIr {
-        // Four premises, five messages — [`AsyncForOfArrayWalkForm`] carries
-        // four of the five, one per rejecting variant, and the entry state is
-        // the fifth. They used to be one `&&`/`||` chain behind one string —
+        // Four premises and one entry-state safety net used to be one `&&`/`||`
+        // chain behind one string —
         // "requires an array iterable and a plain binding" — which was reported
         // for `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`, whose
         // head is `for (const v of [array literal])`, i.e. a case where both
         // named premises hold. A rejection reason that names the wrong premise
         // is worse than none: it routes triage away from the defect.
         //
-        // The order the messages depend on (typing, then binding shape, then
-        // captured environment) lives inside `classify` rather than here, so a
-        // second call site cannot get it wrong. See the type's doc.
-        if let Some(message) = head_form.rejection() {
-            self.unsupported(message);
-            return ForOfLoweringIr::no_iteration();
-        }
+        // Classification order (typing, then binding shape, then captured
+        // environment) lives inside `classify` rather than here, so a second
+        // call site cannot get it wrong. See the type's doc.
+        let iteration_environment = match head_form.into_plan() {
+            Ok(plan) => plan,
+            Err(message) => {
+                self.unsupported(message);
+                return ForOfLoweringIr::no_iteration();
+            }
+        };
         // A SAFETY NET, not a fifth diagnostic family — do not count it among
         // the messages this split delivers, and do not expect it in a sweep
         // family map. Reaching it requires `plain_async_entry_state()` to answer
@@ -6745,7 +6749,8 @@ impl<'a> ScriptLowerer<'a> {
             Vec::new()
         } else {
             head_environment
-                .map(|environment| environment.tdz_binding_names)
+                .as_ref()
+                .map(|environment| environment.tdz_binding_names.clone())
                 .unwrap_or_default()
         };
         let mut before = Vec::with_capacity(before_suspension.len() + tdz_names.len() + 1);
@@ -6768,6 +6773,7 @@ impl<'a> ScriptLowerer<'a> {
                 init: Some(init),
                 test: Some(test),
                 update: Some(update),
+                iteration_environment,
                 before_suspension: before,
                 suspension_statement: Box::new(suspension_statement),
                 after_suspension,

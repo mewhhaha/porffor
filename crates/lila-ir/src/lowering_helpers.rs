@@ -1709,8 +1709,9 @@ fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
 ///
 /// A wrong reason is worse than no reason: it sent triage at an
 /// iterable-typing problem that was not there. Each variant below names exactly
-/// one premise, and [`Self::rejection`] is the only way to get a message, so a
-/// future variant cannot be added without stating what it means.
+/// one premise, and [`Self::into_plan`] must either produce the closed runtime
+/// plan or a message, so a future variant cannot be added without stating what
+/// it means.
 ///
 /// # What each variant costs to lift
 ///
@@ -1720,17 +1721,13 @@ fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
 /// loop compiler marks uninitialized before running the loop init — the same
 /// observable TDZ (14.7.5.5 ForIn/OfHeadEvaluation, 8.6.2).
 ///
-/// `CapturedPerIterationBinding` is **not** liftable inside `lila-ir`, and
-/// that is a source-verified claim rather than a guess. The specialization
-/// produces a `StatementIr::GeneratorLoop`, which carries no lexical
-/// environment field at all, and its emitter
-/// (`lila-aot-wasm::control_flow::compile_resumable_async_loop`) enters no
-/// environment. The per-iteration environment object that `ForOfArray` gets from
-/// `emit_enter_lexical_environment` is chained through `current_env_local`, a
-/// wasm local, which the return to the job queue discards — so a fix needs the
-/// environment pointer to live in the activation record and be re-attached on
-/// re-entry. Hoisting the binding into one activation slot instead would give
-/// every closure the *same* cell and silently break per-iteration semantics.
+/// `CapturedPerIterationBinding` is liftable only by carrying the analyzed
+/// environment through `StatementIr::GeneratorLoop`. Its backend must allocate
+/// a fresh record for every entered iteration, persist the active pointer across
+/// suspension, and restore the parent before the update or next test. Hoisting
+/// the binding into one activation slot instead would give every closure the
+/// *same* cell and silently break per-iteration semantics. See
+/// `docs/rust-rewrite/contracts/resumable-loop-per-iteration-environment.md`.
 /// # Why the iterable's type is a variant here and not a test at the call site
 ///
 /// Two of the messages below assert that the *iterable type* is fine, which was
@@ -1747,22 +1744,21 @@ fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
 /// unrepresentable-wrong rather than documented: `for (const c of "ab") { f = ()
 /// => c; await 0; }` is captured **and** non-array at once, and answering
 /// "captured" for it would certify a String iterable as fine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AsyncForOfArrayWalkForm {
     /// One plain storage name over an array iterable, and no runtime
     /// environment record to reproduce.
     PlainStorageOnly,
     /// The iterable can be something other than an array, so the walk would
     /// have to be the `@@iterator` protocol instead of an index walk. Tested
-    /// first, because it is the cheapest and most universal premise and because
-    /// the two "captured" messages below claim it holds.
+    /// first, because it is the cheapest and most universal premise.
     NonArrayIterable,
     /// The head destructures, or assigns into a property/member target, so the
     /// per-iteration value is not one storage name.
     DestructuringOrPropertyTarget,
     /// A closure in the body captures the loop binding, so 14.7.5.7 requires a
     /// fresh environment record per iteration.
-    CapturedPerIterationBinding,
+    CapturedPerIterationBinding(LexicalEnvironmentIr),
     /// A closure captures a name the head puts in TDZ while the iterable is
     /// evaluated, so the TDZ scope needs a real environment record too. This is
     /// a different problem from the iteration environment and is left rejected
@@ -1780,9 +1776,9 @@ impl AsyncForOfArrayWalkForm {
     /// (`pattern_initializer`, `assignment_pattern_initializer`,
     /// `access_initializer`).
     ///
-    /// The arm order is the message order: typing, then binding shape, then
-    /// captured environments. Do not reorder — [`Self::rejection`]'s last two
-    /// messages state that the premises above them hold.
+    /// The arm order is the classification order: typing, then binding shape,
+    /// then captured environments. Do not reorder — the TDZ-capture error
+    /// states that the array and plain-binding premises above it hold.
     pub(crate) fn classify(
         iterable_is_array: bool,
         environment: Option<&ForInOfEnvironmentIr>,
@@ -1797,8 +1793,8 @@ impl AsyncForOfArrayWalkForm {
         let Some(environment) = environment else {
             return Self::PlainStorageOnly;
         };
-        if environment.iteration_environment.is_some() {
-            return Self::CapturedPerIterationBinding;
+        if let Some(iteration_environment) = &environment.iteration_environment {
+            return Self::CapturedPerIterationBinding(iteration_environment.clone());
         }
         if environment.tdz_environment.is_some() {
             return Self::CapturedTdzBinding;
@@ -1806,28 +1802,26 @@ impl AsyncForOfArrayWalkForm {
         Self::PlainStorageOnly
     }
 
-    /// `None` when the head is reproducible; otherwise the one premise that
-    /// failed, spelled so that the reader is not sent to check the ones that
-    /// held. Every premise these messages name is one [`Self::classify`] has
-    /// already tested, so none of them is a claim this type cannot back.
-    pub(crate) fn rejection(self) -> Option<&'static str> {
+    /// Converts every supported source shape into the required closed IR plan,
+    /// or returns the one failed premise. A captured iteration binding is a
+    /// supported plan only because the variant owns its analyzed environment;
+    /// there is no path that can lose the layout and silently select storage.
+    pub(crate) fn into_plan(self) -> Result<ResumableLoopIterationEnvironmentIr, &'static str> {
         match self {
-            Self::PlainStorageOnly => None,
-            Self::NonArrayIterable => Some(
+            Self::PlainStorageOnly => Ok(ResumableLoopIterationEnvironmentIr::StorageOnly),
+            Self::CapturedPerIterationBinding(environment) => Ok(
+                ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment),
+            ),
+            Self::NonArrayIterable => Err(
                 "async for-of with a body await requires an array iterable, and this one \
                  can be something else; every other iterable keeps the @@iterator protocol, \
                  whose own suspension points this index walk does not have",
             ),
-            Self::DestructuringOrPropertyTarget => Some(
+            Self::DestructuringOrPropertyTarget => Err(
                 "async for-of with a body await requires a plain single-name binding, \
                  and this head destructures or assigns into a property target",
             ),
-            Self::CapturedPerIterationBinding => Some(
-                "async for-of with a body await cannot give the loop binding a fresh \
-                 per-iteration environment record, and a closure in the body captures it; \
-                 the iterable is an array and the head binds one plain name",
-            ),
-            Self::CapturedTdzBinding => Some(
+            Self::CapturedTdzBinding => Err(
                 "async for-of with a body await cannot materialize the head's TDZ \
                  environment record, and a closure captures a name the head puts in TDZ; \
                  the iterable is an array and the head binds one plain name",

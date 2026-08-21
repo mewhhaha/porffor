@@ -2104,6 +2104,21 @@ pub struct ForInOfEnvironmentIr {
     pub tdz_binding_names: Vec<String>,
 }
 
+/// The runtime Environment Record lifecycle owned by a resumable loop.
+///
+/// This is required on every [`StatementIr::GeneratorLoop`] so neither a new
+/// lowerer nor a backend consumer can silently forget whether the loop needs a
+/// fresh record for each iteration. See
+/// `docs/rust-rewrite/contracts/resumable-loop-per-iteration-environment.md`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResumableLoopIterationEnvironmentIr {
+    /// The loop's carried bindings live entirely in their existing storage.
+    StorageOnly,
+    /// Allocate this environment once for every entered iteration and preserve
+    /// the active record across the loop body's suspension.
+    FreshPerIteration(LexicalEnvironmentIr),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsyncForOfIteratorPlanIr {
     pub entry_state: u32,
@@ -2223,6 +2238,7 @@ pub enum StatementIr {
         init: Option<ForInitIr>,
         test: Option<TypedExpr>,
         update: Option<TypedExpr>,
+        iteration_environment: ResumableLoopIterationEnvironmentIr,
         before_suspension: Vec<StatementIr>,
         suspension_statement: Box<StatementIr>,
         after_suspension: Vec<StatementIr>,

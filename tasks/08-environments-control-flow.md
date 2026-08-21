@@ -64,6 +64,21 @@ source functions. Identifier-call `WithBaseObject`, compound/logical/update/
 destructuring/delete operations, generated class/helper contexts and resumable
 captured WithObject environments remain explicit debt.
 
+Resumable loops now carry a required closed
+`ResumableLoopIterationEnvironmentIr::{StorageOnly, FreshPerIteration}` policy.
+For the specialized plain-async array `for-of` path, a captured lexical head
+selects the fresh policy instead of being rejected. The corresponding backend
+contract allocates the iteration record only after the loop test succeeds,
+preserves that exact record across `await`, then restores and persists its
+parent before the update and next test. A focused CLI fixture invokes all
+capturing closures after the loop and requires six distinct values, with the
+synchronous `for-of` shape as its control. This lane is dry-written and
+statically checked. The integrated current-SHA checkpoint is green: `cargo xc`,
+three source-bounded backend structure tests, two focused IR tests, the existing
+resumable-loop Wasm module test, and the six-closure consumer fixture all pass.
+The two exact pinned `Array.fromAsync` witnesses report `4/4` under Wasm-AOT;
+the complete 95-file leaf was not rerun.
+
 ## Objective
 
 Implement spec-correct binding resolution and structured control flow so lexical scope, TDZ, assignment, loops and `try/finally` all share one model instead of feature-specific lowering shortcuts.

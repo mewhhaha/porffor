@@ -507,6 +507,12 @@ Recent focused progress through `2026-08-20`:
   immediately and linear function bodies resume through the Promise job queue
   after plain `await` statements, identifier assignments, and `return await`;
   rejection resumes as a throw and lexical bindings survive suspension.
+  Array-specialized `for...of` loops with one body `await` now preserve a
+  captured lexical head in a fresh environment for every iteration. The
+  current-SHA consumer oracle retains six closures and calls them after the
+  loop, while the two exact `Array.fromAsync/asyncitems-*-not-callable.js`
+  witnesses report `4/4`; this is focused evidence, not a refreshed complete
+  `Array.fromAsync` publication.
   Named and anonymous async function expressions use the same real activation
   path and are non-constructable; the pinned `expression-returns-promise.js`,
   `name.js`, and `syntax-expression-is-PrimaryExpression.js` roots report
