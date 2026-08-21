@@ -1388,6 +1388,18 @@ pub const BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID: &s
 pub const BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID: &str =
     "$builtin.AsyncDisposableStack.prototype.disposeAsync.rejected";
 pub const BUILTIN_DISPOSABLE_STACK_FUNCTION_ID: &str = "$builtin.DisposableStack";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.use";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.adopt";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.defer";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.move";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.dispose";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.disposed.get";
 pub const BUILTIN_SET_FUNCTION_ID: &str = "$builtin.Set";
 pub const BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Set[Symbol.species].get";
 pub const BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID: &str = "$builtin.Set.prototype.add";

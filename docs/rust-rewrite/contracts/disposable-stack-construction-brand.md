@@ -1,11 +1,17 @@
 # DisposableStack construction and distinct brand
 
+> **Lifecycle status:** the construction boundary in this document remains
+> normative. The former method-absence and deferred-disposal statements are
+> superseded by
+> [`disposable-stack-synchronous-lifecycle.md`](disposable-stack-synchronous-lifecycle.md),
+> which owns the complete synchronous prototype surface.
+
 ## Specification boundary
 
-This contract covers only `%DisposableStack%` construction and its intrinsic
-prototype shell. It does not install `use`, `adopt`, `defer`, `move`,
-`dispose`, `disposed`, or `Symbol.dispose`; those members require the real
-synchronous `DisposeResources` algorithm and are not constructor placeholders.
+This contract covers only `%DisposableStack%` construction and the distinct
+brand shared by its lifecycle operations. The methods and synchronous
+`DisposeResources` algorithm are specified by the lifecycle contract rather
+than duplicated here.
 
 `DisposableStack()` requires a `NewTarget`. Construction performs
 `OrdinaryCreateFromConstructor(NewTarget, "%DisposableStack.prototype%",
@@ -35,9 +41,9 @@ construction.
 The backend represents the initialized sync record as a private,
 non-`Copy`, `#[must_use]` `PendingDisposableStackRecordLocal`. Its constructor
 allocates only the record and writes all four initial fields: `pending`, a null
-entry pointer, zero length, and zero capacity. No synchronous entry layout or
-disposed-state producer exists in this constructor-only slice, and no emitter
-accepts a bare Wasm local as an initialized sync record.
+entry pointer, zero length, and zero capacity. Lifecycle emitters add the typed
+entry layout and `disposed` transition without accepting a bare Wasm local as
+an initialized sync record.
 
 A single consuming finalizer accepts that witness and the freshly allocated
 ordinary object. It installs `OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK`, stores
@@ -54,10 +60,11 @@ receiver checks must reject a real `%DisposableStack%` instance.
 
 The standard-builtin catalog is the sole authority for constructability,
 global installation, function identity, arity, and the family installer.
-Bootstrap creates `%DisposableStack.prototype%` with `%Object.prototype%`,
-links its `constructor`, and defines `Symbol.toStringTag` as
-`"DisposableStack"`. The common installer owns the global property and the
-constructor's `name`, `length`, and non-writable `prototype` property.
+Bootstrap creates `%DisposableStack.prototype%` with `%Object.prototype%` and
+links its `constructor`. The resource-management installer defines the complete
+prototype surface, including `Symbol.toStringTag`; the common installer owns
+the global property and the constructor's `name`, `length`, and non-writable
+`prototype` property.
 
 The constructor is direct-returning: its body owns the sole prototype Get,
 allocation, record initialization, branding, and result. The generic construct
@@ -66,15 +73,15 @@ prototype Get.
 
 ## Durable evidence
 
-The product fixture pins the constructor/global/prototype descriptors,
+The construction fixture pins the constructor/global/prototype descriptors,
 call-without-`new`, extensibility, custom and primitive new-target prototypes,
 one-Get abrupt propagation, and separation from every existing
-`%AsyncDisposableStack.prototype%` receiver brand check. It deliberately never
-reads or calls a synchronous disposal method.
+`%AsyncDisposableStack.prototype%` receiver brand check. The lifecycle fixture
+separately owns the synchronous method contract.
 
 Structural Rust tests pin the private witness, its non-`Copy` consuming
 finalizer, the distinct brand words, direct-returning construct classification,
-and the absence of synchronous method builtin IDs from this slice.
+and the lifecycle catalog/install boundary that consumes the constructed brand.
 
 The pinned Test262 witnesses are the twelve non-dynamic top-level
 `built-ins/DisposableStack/*.js` constructor cases, four prototype-shell cases
@@ -99,8 +106,8 @@ cargo test -p lila-cli --test cli wasm_disposable_stack_constructor_surface --qu
 
 ## Non-claims
 
-This seam does not implement synchronous resource registration, disposal,
-LIFO ordering, suppression, `SuppressedError`, `using` lowering, disposal on
-abrupt completion, `move`, the `disposed` accessor, `Symbol.dispose`, dynamic
-Function construction, or complete T15/Test262 closure. Those remain visible
-resource-management work rather than stubs hidden behind a green constructor.
+This construction seam does not by itself claim `using` lowering, disposal on
+abrupt language completion, dynamic Function construction, or complete
+T15/Test262 closure. Synchronous registration, move, disposal, suppression, the
+`disposed` accessor, and `Symbol.dispose` are claims of the lifecycle contract
+and its verification gates, not of constructor evidence alone.

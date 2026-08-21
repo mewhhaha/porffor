@@ -280,9 +280,12 @@ pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE: u64 = 32;
 /// One `DisposableResource` record: its kind, its `[[ResourceValue]]` and its
 /// `[[DisposeMethod]]`.
 pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE: u64 = 40;
-/// `[[DisposableState]]` plus the `[[DisposeCapability]]`'s empty
+/// `[[DisposableState]]` plus the `[[DisposeCapability]]`'s
 /// `[[DisposableResourceStack]]` (pointer, length, capacity).
 pub(crate) const HEAP_DISPOSABLE_STACK_RECORD_SIZE: u64 = 32;
+/// One synchronous `DisposableResource`: its closed call kind, resource value,
+/// and acquired disposal method.
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_SIZE: u64 = 40;
 pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE: u64 = 32;
@@ -991,7 +994,67 @@ pub(crate) const HEAP_DISPOSABLE_STACK_STATE_OFFSET: u64 = 0;
 pub(crate) const HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET: u64 = 8;
 pub(crate) const HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET: u64 = 16;
 pub(crate) const HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET: u64 = 24;
-pub(crate) const DISPOSABLE_STACK_PENDING_STATE_WORD: u64 = 0;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET: u64 = 0;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET: u64 = 32;
+
+/// The closed `[[DisposableState]]` domain. Keeping this distinct from entry
+/// kinds makes a state word impossible to pass to a kind-emission helper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DisposableStackState {
+    Pending,
+    Disposed,
+}
+
+impl DisposableStackState {
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Pending => 0,
+            Self::Disposed => 1,
+        }
+    }
+}
+
+/// The complete synchronous resource-entry domain. Nullish `use` values do
+/// not create an entry, so the async stack's `Empty` kind has no sync analogue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DisposableStackEntryKind {
+    Use,
+    Adopt,
+    Defer,
+}
+
+/// The only three call conventions a synchronous disposal entry can carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DisposableStackDisposeCall {
+    ResourceReceiver,
+    UndefinedReceiverWithResourceArgument,
+    UndefinedReceiverNoArguments,
+}
+
+impl DisposableStackEntryKind {
+    /// Every kind, in emitted comparison order. `dispose_call`'s exhaustive
+    /// match forces a newly added variant to state its call convention.
+    pub(crate) const ALL: [Self; 3] = [Self::Use, Self::Adopt, Self::Defer];
+
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Use => 0,
+            Self::Adopt => 1,
+            Self::Defer => 2,
+        }
+    }
+
+    pub(crate) const fn dispose_call(self) -> DisposableStackDisposeCall {
+        match self {
+            Self::Use => DisposableStackDisposeCall::ResourceReceiver,
+            Self::Adopt => DisposableStackDisposeCall::UndefinedReceiverWithResourceArgument,
+            Self::Defer => DisposableStackDisposeCall::UndefinedReceiverNoArguments,
+        }
+    }
+}
 
 /// `[[AsyncDisposableState]]` is a two-element domain, so it is stored as a
 /// flag rather than a string: `pending` is the value `AsyncDisposableStack()`
@@ -4618,6 +4681,47 @@ pub(crate) const HEAP_DISPOSABLE_STACK_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     },
 ];
 
+/// A synchronous stack owns both the registered resource and its acquired
+/// method until the entry has been consumed by the LIFO disposal walk.
+#[allow(dead_code)]
+pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "disposable-stack-entry",
+        name: "kind",
+        offset: HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "disposable-stack-entry",
+        name: "value_tag",
+        offset: HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "disposable-stack-entry",
+        name: "value_payload",
+        offset: HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "disposable-stack-entry",
+        name: "method_tag",
+        offset: HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "disposable-stack-entry",
+        name: "method_payload",
+        offset: HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
 #[allow(dead_code)]
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
@@ -6533,7 +6637,12 @@ mod tests {
         assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, 32);
         assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE, 40);
         assert_eq!(HEAP_DISPOSABLE_STACK_RECORD_SIZE, 32);
-        assert_eq!(DISPOSABLE_STACK_PENDING_STATE_WORD, 0);
+        assert_eq!(HEAP_DISPOSABLE_STACK_ENTRY_SIZE, 40);
+        assert_eq!(DisposableStackState::Pending.word(), 0);
+        assert_eq!(DisposableStackState::Disposed.word(), 1);
+        assert_eq!(DisposableStackEntryKind::Use.word(), 0);
+        assert_eq!(DisposableStackEntryKind::Adopt.word(), 1);
+        assert_eq!(DisposableStackEntryKind::Defer.word(), 2);
         assert_ne!(
             OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK,
             OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK
@@ -6620,6 +6729,10 @@ mod tests {
         assert_layout(
             HEAP_DISPOSABLE_STACK_RECORD_LAYOUT,
             HEAP_DISPOSABLE_STACK_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT,
+            HEAP_DISPOSABLE_STACK_ENTRY_SIZE,
         );
         assert_layout(
             HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT,
@@ -6712,6 +6825,7 @@ mod tests {
             .chain(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
             .chain(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT.iter())
             .chain(HEAP_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
+            .chain(HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT.iter())

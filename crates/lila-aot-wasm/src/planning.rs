@@ -1460,6 +1460,26 @@ impl RuntimeBootstrapPlan {
         if !self.walked.insert(builtin) {
             return;
         }
+        if builtin == StandardBuiltinId::DisposableStackConstructor {
+            // The constructor installer publishes the complete prototype as one
+            // intrinsic unit. Root every function value it reads so an emitted
+            // constructor can never observe a half-installed prototype.
+            for dependency in [
+                StandardBuiltinId::DisposableStackPrototypeUse,
+                StandardBuiltinId::DisposableStackPrototypeAdopt,
+                StandardBuiltinId::DisposableStackPrototypeDefer,
+                StandardBuiltinId::DisposableStackPrototypeMove,
+                StandardBuiltinId::DisposableStackPrototypeDispose,
+                StandardBuiltinId::DisposableStackPrototypeDisposedGetter,
+            ] {
+                self.require_standard_builtin(dependency);
+            }
+        }
+        if builtin == StandardBuiltinId::DisposableStackPrototypeDispose {
+            // DisposeResources constructs this intrinsic when a later disposer
+            // suppresses an earlier abrupt completion.
+            self.require_standard_builtin(StandardBuiltinId::SuppressedErrorConstructor);
+        }
         if builtin == StandardBuiltinId::ArrayFromAsync {
             self.standard_roots
                 .insert(StandardBuiltinId::ArrayConstructor);
@@ -2631,6 +2651,14 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
                 self.standard_roots
                     .insert(StandardBuiltinId::AsyncDisposableStackConstructor);
+            }
+            StandardBuiltinId::DisposableStackPrototypeUse
+            | StandardBuiltinId::DisposableStackPrototypeAdopt
+            | StandardBuiltinId::DisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeMove
+            | StandardBuiltinId::DisposableStackPrototypeDispose
+            | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => {
+                self.require_standard_builtin(StandardBuiltinId::DisposableStackConstructor);
             }
             StandardBuiltinId::SetSpeciesGetter
             | StandardBuiltinId::SetPrototypeAdd
@@ -6462,19 +6490,26 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::EncodeUriComponent
         | StandardBuiltinId::DecodeUri
         | StandardBuiltinId::DecodeUriComponent => 1,
-        // Pinned by `built-ins/AsyncDisposableStack/**/length.js`, one file per
-        // row. The settlement callbacks are anonymous reaction handlers and take
-        // the settled value, like the `AsyncIterator` `@@asyncDispose` pair.
+        // Pinned by the two DisposableStack families' `length.js` files, one
+        // file per row. The async settlement callbacks are anonymous reaction
+        // handlers and take the settled value, like the `AsyncIterator`
+        // `@@asyncDispose` pair.
         StandardBuiltinId::AsyncDisposableStackConstructor
         | StandardBuiltinId::DisposableStackConstructor
         | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+        | StandardBuiltinId::DisposableStackPrototypeMove
+        | StandardBuiltinId::DisposableStackPrototypeDispose
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
-        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => 0,
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+        | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => 0,
         StandardBuiltinId::AsyncDisposableStackPrototypeUse
         | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+        | StandardBuiltinId::DisposableStackPrototypeUse
+        | StandardBuiltinId::DisposableStackPrototypeDefer
         | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
         | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => 1,
-        StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => 2,
+        StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+        | StandardBuiltinId::DisposableStackPrototypeAdopt => 2,
     }
 }
 

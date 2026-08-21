@@ -7101,10 +7101,9 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). The return shapes
-            // are deliberately `None`: the lane added no
-            // `async_disposable_stack_instance_shape()`, so the lowerer learns
-            // the kind and nothing else and every member access stays dynamic.
+            // The stack return shapes are deliberately `None`: neither family
+            // has a static instance shape, so the lowerer learns the kind and
+            // nothing else and every member access stays dynamic.
             //
             // The fourth member is `fresh_constructed_instance_info()`, NOT the
             // `ValueInfo::undefined()` the lane note proposed. This builtin is
@@ -7128,13 +7127,17 @@ impl<'a> ScriptLowerer<'a> {
             ),
             // `use` and `adopt` both return their first argument unchanged.
             StandardBuiltinId::AsyncDisposableStackPrototypeUse
-            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => (
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::DisposableStackPrototypeUse
+            | StandardBuiltinId::DisposableStackPrototypeAdopt => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
                 None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDispose
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => (
                 ValueKind::Undefined,
@@ -7145,13 +7148,15 @@ impl<'a> ScriptLowerer<'a> {
             // `move` returns a fresh stack; `disposeAsync` always returns a
             // promise, including on every failure path.
             StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::DisposableStackPrototypeMove
             | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => (
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+            | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
                 None,

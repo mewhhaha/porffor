@@ -84,10 +84,11 @@ What is already in place:
   arrays, promises/async execution, generators/iterators, binary data,
   collections, strings, RegExp, numbers/BigInt/JSON, Date/Temporal and host
   builtins.
-- `%DisposableStack%` has a real constructor, intrinsic prototype shell,
-  pending record and distinct synchronous brand; its disposal methods remain
-  deliberately absent until the synchronous resource-disposal algorithms are
-  implemented.
+- `%DisposableStack%` has a real constructor, distinct synchronous brand and
+  the complete typed `use`/`adopt`/`defer`/`move`/`dispose`/`disposed`
+  lifecycle, including exact `Symbol.dispose` identity, LIFO disposal and
+  `SuppressedError` folding; the focused current-SHA Wasm-AOT checkpoint is
+  green, while the complete 76-file lifecycle sweep remains pending.
 
 The largest remaining closure work is:
 

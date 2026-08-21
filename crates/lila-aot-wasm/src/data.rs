@@ -977,11 +977,21 @@ impl StringPool {
             "AsyncDisposableStack.prototype.use dispose method is not callable",
             "AsyncDisposableStack.prototype.adopt onDisposeAsync is not callable",
             "AsyncDisposableStack.prototype.defer onDisposeAsync is not callable",
-            // Constructor-only `%DisposableStack%` shell. No method names are
-            // interned by this lane because no synchronous disposal members
-            // are installed.
+            // `%DisposableStack%`: the method keys are already interned by the
+            // async stack and Iterator surfaces above. Keep every synchronous
+            // receiver/registration error here beside the constructor error so
+            // a new emitter spelling that bypasses the pool fails during
+            // bootstrap instead of becoming a latent runtime-only path.
             "DisposableStack",
             "DisposableStack constructor requires new",
+            "DisposableStack method receiver is not an object",
+            "DisposableStack method receiver does not have [[DisposableState]]",
+            "DisposableStack is already disposed",
+            "DisposableStack.prototype.use value is not an object",
+            "DisposableStack.prototype.use value is not disposable",
+            "DisposableStack.prototype.use dispose method is not callable",
+            "DisposableStack.prototype.adopt onDispose is not callable",
+            "DisposableStack.prototype.defer onDispose is not callable",
             "Object.groupBy items cannot be null or undefined",
             "Object.groupBy callback must be callable",
             "Object.groupBy iterator method must be callable",

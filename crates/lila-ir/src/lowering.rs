@@ -18970,7 +18970,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
-            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). Every arm is
+            // Explicit-resource-management stack builtins. Every arm is
             // `Some`: `None` here is not "no static information", it is a
             // refusal — the three consumers read it as "this call does not
             // happen" and return `TypedExpr::undefined()` with the argument
@@ -18984,19 +18984,25 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::AsyncDisposableStackConstructor
             | StandardBuiltinId::DisposableStackConstructor
             | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::DisposableStackPrototypeMove
             | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => {
                 Some(ValueInfo::new(ValueKind::Object))
             }
             StandardBuiltinId::AsyncDisposableStackPrototypeUse
-            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => {
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::DisposableStackPrototypeUse
+            | StandardBuiltinId::DisposableStackPrototypeAdopt => {
                 Some(ValueInfo::new(ValueKind::Dynamic))
             }
             StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDispose
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
                 Some(ValueInfo::undefined())
             }
-            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+            | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::SetConstructor => Some(Self::value_info_from_shape(Some(

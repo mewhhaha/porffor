@@ -141,10 +141,13 @@ mod tests {
     }
 
     #[test]
-    fn disposable_stack_construction_is_single_use_and_method_free() {
+    fn disposable_stack_construction_and_lifecycle_are_one_intrinsic_unit() {
         let constructor = include_str!("builtins/disposable_stack.rs");
         let functions = include_str!("functions.rs");
         let heap = include_str!("heap.rs");
+        let installer = include_str!("intrinsics/resource_management.rs");
+        let planning = include_str!("planning.rs");
+        let standard = include_str!("builtins/standard.rs");
         let catalog = include_str!("../../lila-ir/src/builtins/catalog.rs");
         let names = include_str!("../../lila-ir/src/names.rs");
 
@@ -156,7 +159,8 @@ mod tests {
             constructor
                 .matches("emit_alloc_pending_disposable_stack_record(function)?")
                 .count(),
-            1
+            2,
+            "the constructor and move each allocate one fresh pending record"
         );
         assert_eq!(
             constructor
@@ -169,15 +173,36 @@ mod tests {
             constructor
                 .matches("emit_finalize_disposable_stack_instance(")
                 .count(),
-            2,
-            "one consuming call and one private finalizer definition"
+            3,
+            "constructor and move consume one record each through one private finalizer"
         );
+        let finalizer = constructor
+            .split_once("fn emit_finalize_disposable_stack_instance(")
+            .expect("DisposableStack consuming finalizer")
+            .1
+            .split_once("fn emit_take_disposable_stack_capability(")
+            .expect("DisposableStack finalizer must be bounded")
+            .0;
         assert_eq!(
-            constructor
+            finalizer
                 .matches("OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK")
                 .count(),
             1,
             "only the consuming finalizer may install the sync brand"
+        );
+        let receiver_check = constructor
+            .split_once("fn emit_disposable_stack_record_from_receiver(")
+            .expect("DisposableStack receiver checker")
+            .1
+            .split_once("fn emit_disposable_stack_require_pending(")
+            .expect("DisposableStack receiver checker must be bounded")
+            .0;
+        assert_eq!(
+            receiver_check
+                .matches("OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK")
+                .count(),
+            1,
+            "every lifecycle operation checks the distinct sync brand"
         );
         assert!(!constructor.contains("OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK"));
         assert!(heap.contains("pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;"));
@@ -199,15 +224,83 @@ mod tests {
             "the constructor body must run before generic prototype Get/allocation"
         );
 
+        for (builtin, function_id, emitter) in [
+            (
+                "DisposableStackPrototypeUse",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID",
+                "emit_disposable_stack_use(function)?",
+            ),
+            (
+                "DisposableStackPrototypeAdopt",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID",
+                "emit_disposable_stack_adopt(function)?",
+            ),
+            (
+                "DisposableStackPrototypeDefer",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID",
+                "emit_disposable_stack_defer(function)?",
+            ),
+            (
+                "DisposableStackPrototypeMove",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID",
+                "emit_disposable_stack_move(function)?",
+            ),
+            (
+                "DisposableStackPrototypeDispose",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID",
+                "emit_disposable_stack_dispose(function)?",
+            ),
+            (
+                "DisposableStackPrototypeDisposedGetter",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID",
+                "emit_disposable_stack_disposed_getter(function)?",
+            ),
+        ] {
+            assert_eq!(
+                catalog.matches(&format!("\n    {builtin} {{")).count(),
+                1,
+                "the lifecycle member must have exactly one catalog row"
+            );
+            assert_eq!(
+                names.matches(&format!("pub const {function_id}:")).count(),
+                1,
+                "the lifecycle member must have exactly one function id"
+            );
+            assert_eq!(
+                standard.matches(emitter).count(),
+                1,
+                "the lifecycle member must have exactly one dispatcher arm"
+            );
+        }
+
+        let constructor_dependencies = planning
+            .split_once("if builtin == StandardBuiltinId::DisposableStackConstructor {")
+            .expect("DisposableStack constructor dependency closure")
+            .1
+            .split_once("if builtin == StandardBuiltinId::DisposableStackPrototypeDispose {")
+            .expect("constructor dependency closure must be bounded")
+            .0;
+        for builtin in ["Use", "Adopt", "Defer", "Move", "Dispose", "DisposedGetter"] {
+            assert_eq!(
+                constructor_dependencies
+                    .matches(&format!(
+                        "StandardBuiltinId::DisposableStackPrototype{builtin},"
+                    ))
+                    .count(),
+                1,
+                "constructor installation must root {builtin} exactly once"
+            );
+        }
+
         assert_eq!(
-            catalog
-                .matches("\n    DisposableStackConstructor {")
+            installer
+                .matches("emit_object_define_function_data_with_aliases(")
                 .count(),
             1,
-            "the constructor is the only sync stack catalog row"
+            "dispose and Symbol.dispose must share one function value"
         );
-        assert!(!catalog.contains("\n    DisposableStackPrototype"));
-        assert!(!names.contains("BUILTIN_DISPOSABLE_STACK_PROTOTYPE"));
+        assert!(installer.contains("&[\"Symbol.dispose\"]"));
+        assert!(installer.contains("Some((payload_local, tag_local)),\n            None,"));
     }
 
     #[test]

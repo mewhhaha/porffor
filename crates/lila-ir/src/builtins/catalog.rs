@@ -5683,6 +5683,48 @@ standard_builtin_catalog! {
         installer: DisposableStack,
         native: DISPOSABLE_STACK_NAME,
     }
+    DisposableStackPrototypeUse {
+        function: FunctionOrdinal(780) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID,
+        debug: "DisposableStack.prototype.use",
+        flags: [],
+        installer: None,
+        native: "use",
+    }
+    DisposableStackPrototypeAdopt {
+        function: FunctionOrdinal(781) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID,
+        debug: "DisposableStack.prototype.adopt",
+        flags: [],
+        installer: None,
+        native: "adopt",
+    }
+    DisposableStackPrototypeDefer {
+        function: FunctionOrdinal(782) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID,
+        debug: "DisposableStack.prototype.defer",
+        flags: [],
+        installer: None,
+        native: "defer",
+    }
+    DisposableStackPrototypeMove {
+        function: FunctionOrdinal(783) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID,
+        debug: "DisposableStack.prototype.move",
+        flags: [],
+        installer: None,
+        native: "move",
+    }
+    DisposableStackPrototypeDispose {
+        function: FunctionOrdinal(784) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID,
+        debug: "DisposableStack.prototype.dispose",
+        flags: [],
+        installer: None,
+        native: "dispose",
+    }
+    DisposableStackPrototypeDisposedGetter {
+        function: FunctionOrdinal(785) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID,
+        debug: "get DisposableStack.prototype.disposed",
+        flags: [],
+        installer: None,
+        native: "get disposed",
+    }
 }
 
 impl StandardBuiltinId {
@@ -5697,28 +5739,33 @@ impl StandardBuiltinId {
 mod tests {
     use super::*;
 
-    /// This constructor-only slice deliberately registers no synchronous
-    /// disposal methods. Their future catalog rows must arrive with the real
-    /// disposal algorithms rather than becoming callable placeholders.
     #[test]
-    fn disposable_stack_constructor_is_the_only_registered_sync_stack_builtin() {
-        let builtin = StandardBuiltinId::DisposableStackConstructor;
-        assert_eq!(
-            StandardBuiltinId::from_function_id(BUILTIN_DISPOSABLE_STACK_FUNCTION_ID),
-            Some(builtin)
-        );
-        assert_eq!(builtin.native_function_name(), Some("DisposableStack"));
-        assert!(builtin.constructable());
-        assert!(StandardBuiltinId::all_globals().contains(&builtin));
-
-        assert_eq!(
-            StandardBuiltinId::all_functions()
-                .iter()
-                .filter(|candidate| candidate.debug_name().starts_with("DisposableStack"))
-                .copied()
-                .collect::<Vec<_>>(),
-            vec![builtin]
-        );
+    fn disposable_stack_surface_has_one_closed_builtin_identity_per_algorithm() {
+        let constructor = StandardBuiltinId::DisposableStackConstructor;
+        for (builtin, native_name) in [
+            (constructor, "DisposableStack"),
+            (StandardBuiltinId::DisposableStackPrototypeUse, "use"),
+            (StandardBuiltinId::DisposableStackPrototypeAdopt, "adopt"),
+            (StandardBuiltinId::DisposableStackPrototypeDefer, "defer"),
+            (StandardBuiltinId::DisposableStackPrototypeMove, "move"),
+            (
+                StandardBuiltinId::DisposableStackPrototypeDispose,
+                "dispose",
+            ),
+            (
+                StandardBuiltinId::DisposableStackPrototypeDisposedGetter,
+                "get disposed",
+            ),
+        ] {
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+            assert_eq!(builtin.constructable(), builtin == constructor);
+        }
+        assert!(StandardBuiltinId::all_globals().contains(&constructor));
     }
 
     #[test]

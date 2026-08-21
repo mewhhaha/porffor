@@ -1928,7 +1928,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
         | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
-        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => None,
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected
+        | StandardBuiltinId::DisposableStackPrototypeUse
+        | StandardBuiltinId::DisposableStackPrototypeAdopt
+        | StandardBuiltinId::DisposableStackPrototypeDefer
+        | StandardBuiltinId::DisposableStackPrototypeMove
+        | StandardBuiltinId::DisposableStackPrototypeDispose
+        | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => None,
     }
 }
 

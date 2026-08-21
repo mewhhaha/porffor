@@ -15,23 +15,38 @@ materialization, and the README records unsupported suspended/control-flow
 families. General sync/async generator state machines, iterator-close coverage
 across all consumers and complete resource-management filters remain open.
 
-The `%DisposableStack%` constructor and intrinsic prototype shell now form a
-real synchronous resource-stack boundary without pretending disposal exists.
-A private non-`Copy`, `#[must_use]` `PendingDisposableStackRecordLocal` can be
-minted only after the pending state and empty capability storage are fully
-initialized; one consuming finalizer installs the distinct synchronous brand,
-attaches the record and publishes the Object result. The constructor is
-direct-returning and owns the sole observable `NewTarget.prototype` Get,
-custom tagged prototype selection, primitive fallback and allocation.
-Catalog/bootstrap install only the constructor, constructor link and
-`Symbol.toStringTag`: `use`, `adopt`, `defer`, `move`, `dispose`, `disposed`
-and `Symbol.dispose` remain absent until their real synchronous algorithms
-land. The distinct brand also supplies the missing real receiver for five
-otherwise-green `%AsyncDisposableStack%` wrong-brand cases. The dated
-2026-08-13 artifact recorded 0/93 for `DisposableStack` and 98/104 for
-`AsyncDisposableStack`; those counts selected this seam but are not current-SHA
-evidence. The contract and deferred focused gates live in
-`docs/rust-rewrite/contracts/disposable-stack-construction-brand.md`.
+The complete synchronous `%DisposableStack%` lifecycle now extends the real
+constructor/brand foundation. `DisposableStackState::{Pending, Disposed}` and
+`DisposableStackEntryKind::{Use, Adopt, Defer}` are distinct closed heap-word
+domains, and the entry kind's exhaustive `dispose_call` projection is the only
+authority for the three callback conventions. `use`, `adopt` and `defer`
+validate before publishing an entry; `move` consumes a private non-`Copy`,
+`#[must_use]` capability transfer into a fresh base-prototype instance; and
+`dispose` sets the state before callbacks, walks strict LIFO order, continues
+after errors and folds later observations into the specified nested
+`SuppressedError` chain. A single function object backs both `dispose` and
+`Symbol.dispose`, while the `disposed` accessor observes the same state word.
+The fixture pins acquired-method identity, all three call conventions,
+disposed-before-callback re-entry, transfer ownership, exact single-error
+identity and multi-error suppression order.
+
+The catalog, result-shape inference, arity planner, dispatcher, dependency
+closure, intrinsic installer and pooled error strings are wired as one batch.
+The current pin contains exactly 76 synchronous lifecycle files: 19 `use`, 12
+`adopt`, 11 `defer`, 13 `move`, 13 `dispose`, seven `disposed` and one
+`Symbol.dispose` witness. Together with the constructor shell this covers 92
+of 93 `%DisposableStack%` files; the sole remaining
+`proto-from-ctor-realm.js` file constructs dynamic source through another
+Realm's `Function` constructor and remains explicit T13 Wasm-AOT policy debt.
+The integrated current-SHA checkpoint is green: `cargo xc`, eight lifecycle
+structure tests, the AOT/IR focused slices and the consumer fixture all pass.
+Pinned Wasm-AOT evidence is 52/52 executions: the complete `use` subtree
+(38/38), six exact lifecycle witnesses (12/12) and the staging re-entry witness
+(2/2). This is focused evidence, not a claim that the complete 76-file
+lifecycle inventory has run. The construction boundary and full lifecycle
+contract live in
+`docs/rust-rewrite/contracts/disposable-stack-construction-brand.md` and
+`docs/rust-rewrite/contracts/disposable-stack-synchronous-lifecycle.md`.
 
 The generator-yield IR now distinguishes `yield` from `yield*` with the closed
 `YieldForm` domain. Its delegation case carries a one-inhabitant
