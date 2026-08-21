@@ -203,12 +203,27 @@ physical files / 23 executions (`23/23`), the typed structure witness (`3/3`),
 and the expanded source-free Wasm fixture (`1/1`, 55.92 s). The adjacent
 recursive `built-ins/Proxy/isExtensible` and
 `built-ins/Reflect/preventExtensions` leaves are green at `24/24` and `20/20`.
-The broader `built-ins/Object/preventExtensions` regression reports `77/78`;
-the remaining strict `15.2.3.10-3-4.js` failure is the separate array-index
-PutValue/catch path and remains visible. Focused Object freeze,
-primitive-integrity, and TypedArray prevention fixtures remain green at `1/1`
-each. The older path-counted green leaf included the rewrite and is not
-promoted to source-level evidence here.
+At clean pre-batch commit `22ab459107`, the broader
+`built-ins/Object/preventExtensions` regression reported `77/78`; the sole
+failure was the strict-script half of `15.2.3.10-3-4.js`. Its expected
+array-index PutValue `TypeError` returned from the non-main harness function
+instead of entering the catch owned by that same function. The adjacent batch
+now uses one canonical route: fresh runtime errors delegate to
+`emit_propagate_current_throw`, whose typed `ControlTarget` branch wins whenever
+a handler or finalizer is active, and only the no-target case returns the
+current completion. The retained fixture now distinguishes an external catch
+around a strict call from the load-bearing catch inside the same strict
+non-main function, and separately pins two nested finalizers running in order
+before the unchanged array-index TypeError reaches the outer catch. Verification
+on `2026-08-21` is green for workspace/all-target and `cargo xc`, the bounded
+structure witness (`3/3`), the expanded Wasm fixture (`1/1`, 21.08 s), the
+exact file (`2/2`), and the complete `built-ins/Object/preventExtensions` leaf
+(`78/78`, zero unsupported, crashes, timeouts, or runtime failures). Resumable
+throw transport, unrelated throw/catch paths, and
+object-literal method `[[HomeObject]]` remain outside this batch. Focused
+Object freeze, primitive-integrity, and TypedArray prevention fixtures remain
+green at `1/1` each. The older path-counted green leaf included the rewrite and
+is not promoted to source-level evidence here.
 
 The shared proxy-aware `[[GetPrototypeOf]]` emitter now consumes that same typed
 live-slot reader and full object-read seam. It no longer reconstructs every

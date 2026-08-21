@@ -3106,9 +3106,21 @@ Recent focused progress through `2026-08-21`:
   (`3/3`), and the expanded source-free Wasm fixture (`1/1`, 55.92 s). The
   adjacent recursive `built-ins/Proxy/isExtensible` and
   `built-ins/Reflect/preventExtensions` leaves are also green at `24/24` and
-  `20/20`. The broader `built-ins/Object/preventExtensions` regression was
-  `77/78`; its one remaining strict-script failure is the separate
-  `15.2.3.10-3-4.js` array-index PutValue/catch path, not a hidden success.
+  `20/20`. At clean pre-batch commit `22ab459107`, the broader
+  `built-ins/Object/preventExtensions` regression was `77/78`; its one failing
+  execution was the strict-script half of `15.2.3.10-3-4.js`, where the
+  expected array-index PutValue `TypeError` escaped a catch inside the same
+  non-main user function. Fresh runtime errors now use one canonical route
+  through `emit_propagate_current_throw`, and the retained fixture covers that
+  exact internal-catch topology plus nested inner/outer finalizers which must
+  both run before the unchanged TypeError reaches the outer catch. Verification
+  on `2026-08-21` is green for the workspace/all-target and `cargo xc` checks,
+  the bounded structure witness (`3/3`), the expanded Wasm fixture (`1/1`,
+  21.08 s), the exact file (`2/2`), and the complete
+  `built-ins/Object/preventExtensions` leaf (`78/78`, zero unsupported,
+  crashes, timeouts, or runtime failures).
+  This route does not claim resumable throw transport, every throw/catch site,
+  or object-literal method `[[HomeObject]]`.
   Focused Object freeze, primitive-integrity and TypedArray prevention fixtures
   remain green at `1/1` each. The older `12/12` path-counted result used the
   rewrite and remains materialized evidence rather than source-level proof.

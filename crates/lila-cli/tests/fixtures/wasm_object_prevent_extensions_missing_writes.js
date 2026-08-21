@@ -33,6 +33,48 @@ try {
   strictArrayIndexThrew = error instanceof TypeError;
 }
 
+function catchesStrictArrayIndexWriteInOwnBody(target) {
+  "use strict";
+
+  var caught = false;
+  try {
+    target[0] = "strict-index-internal-catch";
+  } catch (error) {
+    caught = error instanceof TypeError;
+  }
+  return caught;
+}
+
+var internalStrictArrayIndexThrew =
+  catchesStrictArrayIndexWriteInOwnBody(array);
+
+function catchesStrictArrayIndexWriteAfterNestedFinally(target) {
+  "use strict";
+
+  var caught;
+  var trace = "";
+  try {
+    try {
+      try {
+        target[0] = "strict-index-nested-finally";
+      } finally {
+        trace += "inner-finally,";
+      }
+    } finally {
+      trace += "outer-finally,";
+    }
+  } catch (error) {
+    caught = error;
+    trace += "catch";
+  }
+  return trace === "inner-finally,outer-finally,catch"
+    && caught instanceof TypeError
+    && caught.message === "Cannot assign to array index";
+}
+
+var internalStrictArrayIndexFinallyThrew =
+  catchesStrictArrayIndexWriteAfterNestedFinally(array);
+
 Object.isExtensible(plain) === false
   && Object.isExtensible(array) === false
   && Object.isExtensible(fn) === false
@@ -45,6 +87,8 @@ Object.isExtensible(plain) === false
   && array.hasOwnProperty("0") === false
   && array.length === 0
   && strictArrayIndexThrew === true
+  && internalStrictArrayIndexThrew === true
+  && internalStrictArrayIndexFinallyThrew === true
   && hasOwn(plain, "exName") === false
   && hasOwn(array, "exName") === false
   && hasOwn(fn, "exName") === false
