@@ -781,6 +781,32 @@ Recent focused progress through `2026-08-21`:
   complete `await using` directory, outer labelled-block or enclosing-loop
   control, repeated or nonlinear re-entry of the same resource-loop node, and
   the full pinned aggregate remain explicit nonclaims.
+- The plain-async resource-loop batch now supports synchronous `for-of` with
+  an `await using` head. Its source-free CLI oracle keeps the
+  generic iterator protocol observable and covers async-first lookup, the
+  ignored-return synchronous fallback, fresh captured bindings, head TDZ and
+  immutability, disposal before the next iterator step, local continue without
+  close, disposal before break/return/throw/IteratorClose, later-iteration
+  acquisition failure, the outer head binding surviving a nested implicit
+  finalizer, nested LIFO `SuppressedError` folding and exactly-once disposal.
+  At clean pre-batch commit `009219b28`, the two per-iteration
+  `Symbol.{asyncDispose,dispose}` protocol files, the for-head TDZ file, the
+  immutable-assignment file and the `for (await using of of ...)` grammar file
+  report `0/10`. Every sloppy/strict Script execution is
+  `Runtime/NotImplemented` with the exact diagnostic `unsupported in lila
+  wasm-aot first slice: await using declaration in for-of`; none has an exact
+  Wasm-AOT rewrite or known-failure entry. Central verification is green for
+  `cargo check --workspace --all-targets`, `cargo xc`, the focused IR test
+  (`1/1` in 12.17s), and the bounded structure executable (`5/5`). The new CLI
+  lifecycle fixture passes `1/1` both in a cached central rerun (`0.23s`) and
+  an uncached focused run (`14.25s`); the retained async await-using fixtures
+  pass `4/4` in 37.83s, and the retained synchronous using-for-of fixture
+  passes `1/1` in 48.82s. Each of the five exact raw Test262 files now passes
+  `2/2`, for `10/10` total with zero unsupported, crash or bug outcomes. This
+  is focused evidence only: the Module-only fresh-binding witness,
+  `for-await-of`, async generators, binding patterns, dynamic source, the
+  complete `await using` directory and the full pinned aggregate remain
+  explicit nonclaims.
 - The adjacent classic-`for` extension gives a synchronous
   `using` head the closed, statically non-empty
   `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while

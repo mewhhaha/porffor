@@ -340,6 +340,43 @@ same resource-loop node, and the full pinned aggregate remain outside this
 batch. The source contract is
 `docs/rust-rewrite/contracts/plain-async-function-classic-for-await-using.md`.
 
+The adjacent batch gives a plain async function's synchronous `for-of`
+head a distinct asynchronous DisposeCapability. The durable source-free CLI
+fixture forces the generic iterator protocol and covers async-first lookup,
+the synchronous fallback whose normal return/thenable is ignored, fresh
+captured iteration bindings, head TDZ and immutability, body-before-disposal,
+sequential disposal before the next iterator step, local continue without
+IteratorClose, disposal before break/return/throw/IteratorClose, a later
+iteration's acquisition failure after the prior iteration was disposed, nested
+implicit-finalizer resume followed by a direct read of the outer head binding,
+nested LIFO `SuppressedError` identity and exactly-once disposal.
+
+At clean pre-batch commit `009219b28`, these exact raw files reported `0/10`:
+
+- `language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-each-iteration-of-forofstatement.js`;
+- `language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-each-iteration-of-forofstatement.js`;
+- `language/statements/for-of/head-await-using-bound-names-fordecl-tdz.js`;
+- `language/statements/await-using/syntax/await-using-invalid-assignment-statement-body-for-of.js`;
+- `language/statements/await-using/syntax/await-using-valid-for-await-using-of-of.js`.
+
+All ten sloppy/strict Script executions were `Runtime/NotImplemented` with the
+exact diagnostic `unsupported in lila wasm-aot first slice: await using
+declaration in for-of`; none has an exact Wasm-AOT rewrite or known-failure
+entry. Central verification is green for `cargo check --workspace
+--all-targets`, `cargo xc`, the focused IR test (`1/1` in 12.17s), and the
+bounded structure executable (`5/5`). The new CLI lifecycle fixture passes
+`1/1` in both a cached central rerun (`0.23s`) and an uncached focused run
+(`14.25s`). The retained async await-using fixtures pass `4/4` in 37.83s, and
+the retained synchronous using-for-of fixture passes `1/1` in 48.82s. Each of
+the five exact files now passes `2/2`, for `10/10` total with zero unsupported,
+crash or bug outcomes.
+
+This is focused evidence only. The Module-only
+fresh-binding-per-iteration witness, `for-await-of`, async-generator owners,
+binding patterns, dynamic source, the complete `await using` directory and the
+full pinned aggregate remain outside this focused claim. The source contract is
+`docs/rust-rewrite/contracts/plain-async-function-for-of-await-using.md`.
+
 The next bounded source batch extends that same synchronous disposal lifecycle
 to classic `for` initializer heads. The producer uses the closed, statically
 non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and

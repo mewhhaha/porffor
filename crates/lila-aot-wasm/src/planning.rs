@@ -7837,6 +7837,9 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 ForOfIteratorHeadIr::SyncDisposable(head) => {
                     (BindingMode::Const, head.binding_name())
                 }
+                ForOfIteratorHeadIr::AsyncDisposable(head) => {
+                    (BindingMode::Const, head.binding_name())
+                }
             };
             count_for_in_of_binding_lexicals(mode, name, lexical_environment.as_ref())
                 + count_statement_lexicals(body)
@@ -8080,6 +8083,16 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                         .max(count_statement_temp_locals(body))
                         .max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS)
             }
+            ForOfIteratorHeadIr::AsyncDisposable(_) => {
+                ASYNC_DISPOSABLE_FOR_OF_PERSISTENT_TEMP_LOCALS
+                    + count_expr_temp_locals(iterable)
+                        .max(count_statement_temp_locals(body))
+                        .max(
+                            ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS
+                                + ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS,
+                        )
+                        .max(ASYNC_DISPOSABLE_FOR_OF_BINDING_RESTORE_TEMP_LOCALS)
+            }
         },
         StatementIr::ForInArray { target, body, .. } => 10
             .max(count_expr_temp_locals(target))
@@ -8183,6 +8196,15 @@ const ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5;
 const ACTIVATION_ASYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5;
 const ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS: usize = 17;
 const ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS: usize = 64;
+
+// State; iterable, method, Iterator, NextMethod, result, done and value pairs;
+// key; two four-local saved-completion bundles; and the five-local acquired
+// resource remain live across the selected phase. The walker/helper allowance
+// is added by the exhaustive head arm above rather than hidden in this count.
+const ASYNC_DISPOSABLE_FOR_OF_PERSISTENT_TEMP_LOCALS: usize = 1 + 7 * 2 + 1 + 2 * 4 + 5;
+// Object/tag, boxed record, first entry and the entry's value pair are one
+// bounded phase used only to restore a nested-body resume's immutable binding.
+const ASYNC_DISPOSABLE_FOR_OF_BINDING_RESTORE_TEMP_LOCALS: usize = 6;
 
 // Five mutation-result locals (old payload/tag, new payload/tag, Set result)
 // stay live below the six-local raw/coerced Super Reference carrier. Each

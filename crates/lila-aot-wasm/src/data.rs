@@ -3380,16 +3380,32 @@ impl StringPool {
                 body,
                 ..
             } => {
-                if let ForOfIteratorHeadIr::SyncDisposable(head) = head {
-                    for value in [
-                        "Symbol.dispose",
-                        "using declaration resource is not an object",
-                        "using declaration resource has no [Symbol.dispose] method",
-                        "using declaration [Symbol.dispose] method is not callable",
-                    ] {
-                        self.intern_string(value);
+                match head {
+                    ForOfIteratorHeadIr::Assignment { .. } => {}
+                    ForOfIteratorHeadIr::SyncDisposable(head) => {
+                        for value in [
+                            "Symbol.dispose",
+                            "using declaration resource is not an object",
+                            "using declaration resource has no [Symbol.dispose] method",
+                            "using declaration [Symbol.dispose] method is not callable",
+                        ] {
+                            self.intern_string(value);
+                        }
+                        self.intern_string(head.binding_name());
                     }
-                    self.intern_string(head.binding_name());
+                    ForOfIteratorHeadIr::AsyncDisposable(head) => {
+                        for value in [
+                            "Symbol.asyncDispose",
+                            "Symbol.dispose",
+                            "await using declaration resource is not an object",
+                            "await using declaration resource has no disposal method",
+                            "await using declaration [Symbol.dispose] method is not callable",
+                            "await using declaration [Symbol.asyncDispose] method is not callable",
+                        ] {
+                            self.intern_string(value);
+                        }
+                        self.intern_string(head.binding_name());
+                    }
                 }
                 self.collect_expr(iterable);
                 self.collect_statement(body);

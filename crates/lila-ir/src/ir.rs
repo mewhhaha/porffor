@@ -2168,9 +2168,9 @@ pub struct ForInOfEnvironmentIr {
 
 /// The assignment performed by an ordinary `for-of` head.
 ///
-/// Array and String index-walk specializations accept only this type. A
-/// synchronous resource head is instead a [`ForOfIteratorHeadIr`] and cannot
-/// accidentally enter either specialization.
+/// Array and String index-walk specializations accept only this type. Resource
+/// heads are instead [`ForOfIteratorHeadIr`] variants and cannot accidentally
+/// enter either specialization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForOfAssignmentIr {
     pub mode: BindingMode,
@@ -2196,11 +2196,81 @@ impl SyncDisposableForOfHeadIr {
     }
 }
 
+/// The activation-backed DisposeCapability for one plain-async-function
+/// `for-of` `await using` head.
+///
+/// This capability is deliberately distinct from a lexical scope or
+/// classic-for capability: its finalizer states are reused once per entered
+/// iteration, while its exit state belongs to the loop as a whole.
+#[must_use = "a plain-async for-of async DisposeCapability must be attached to its head"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncFunctionAsyncDisposableForOfCapabilityIr {
+    binding_name: String,
+    finalizer: AsyncDisposableFinalizerPlanIr,
+}
+
+impl AsyncFunctionAsyncDisposableForOfCapabilityIr {
+    pub(crate) fn new(binding_name: String, finalizer: AsyncDisposableFinalizerPlanIr) -> Self {
+        Self {
+            binding_name,
+            finalizer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
+        &self.finalizer
+    }
+}
+
+/// One immutable async-disposable resource binding owned by every iteration
+/// of a synchronous `for-of` iterator walk in a plain async function.
+///
+/// Private fields and the crate-private constructor make the generic sync
+/// protocol, activation-backed iterator record, and repeating async finalizer
+/// one indivisible producer obligation.
+#[must_use = "an async-disposable for-of head must be attached to its iterator loop"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableForOfHeadIr {
+    binding_name: String,
+    capability: AsyncFunctionAsyncDisposableForOfCapabilityIr,
+    record: IteratorRecordIr,
+}
+
+impl AsyncDisposableForOfHeadIr {
+    pub(crate) fn new(
+        binding_name: String,
+        capability: AsyncFunctionAsyncDisposableForOfCapabilityIr,
+        record: IteratorRecordIr,
+    ) -> Self {
+        Self {
+            binding_name,
+            capability,
+            record,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn capability(&self) -> &AsyncFunctionAsyncDisposableForOfCapabilityIr {
+        &self.capability
+    }
+
+    pub fn record(&self) -> &IteratorRecordIr {
+        &self.record
+    }
+}
+
 /// The exhaustive head domain of the generic iterator protocol path.
 ///
-/// `SyncDisposable` structurally selects synchronous generic iteration: only
-/// `Assignment` owns an optional async plan and explicit protocol witness, and
-/// Array/String specializations cannot accept this type.
+/// Both resource variants structurally select synchronous generic iteration:
+/// only `Assignment` owns an optional async plan and explicit protocol witness,
+/// and Array/String specializations cannot accept this type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForOfIteratorHeadIr {
     Assignment {
@@ -2209,6 +2279,7 @@ pub enum ForOfIteratorHeadIr {
         protocol: IteratorProtocolWitness,
     },
     SyncDisposable(SyncDisposableForOfHeadIr),
+    AsyncDisposable(AsyncDisposableForOfHeadIr),
 }
 
 /// The runtime Environment Record lifecycle owned by a resumable loop.

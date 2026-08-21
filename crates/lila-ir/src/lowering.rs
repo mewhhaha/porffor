@@ -9,7 +9,7 @@ mod with_environment_call;
 mod with_environment_compound;
 
 use super::*;
-use async_disposable::PendingAsyncDisposableScopeIr;
+use async_disposable::{LoweredForOfHeadKind, LoweredStatementListItemIr};
 use dynamic_source::{
     already_accounted_optional_calls, resolved_builtin_call_context, BuiltinCallContext,
     OptionalCallSource, ResolvedDynamicSourceCall,
@@ -654,43 +654,6 @@ pub(crate) fn is_ecmascript_whitespace(ch: char) -> bool {
 type ExactHelperContextId = String;
 type ExactCallbackContextKey = (FunctionId, ExactHelperContextId);
 type DirectCallContextKey = (FunctionId, ExactHelperContextId);
-
-/// A lowering-only statement-list result.
-///
-/// Resource declarations cannot masquerade as finalized public IR: they stay
-/// in this private domain until the containing list nests its remaining suffix
-/// into a finalized disposable scope node.
-enum LoweredStatementListItemIr {
-    Statement {
-        statement: StatementIr,
-        result_kind: ValueKind,
-    },
-    SyncDisposableScope {
-        execution: SyncDisposableScopeExecutionIr,
-        resources: SyncDisposableResourcesIr,
-    },
-    AsyncDisposableScope(PendingAsyncDisposableScopeIr),
-}
-
-impl LoweredStatementListItemIr {
-    fn statement(statement: StatementIr, result_kind: ValueKind) -> Self {
-        Self::Statement {
-            statement,
-            result_kind,
-        }
-    }
-}
-
-/// Lowering-only classification of a `for-of` source head.
-///
-/// The public IR refines this once more: `Assignment` may select any of the
-/// three iteration strategies, while `SyncDisposable` can construct only the
-/// generic iterator head.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LoweredForOfHeadKind {
-    Assignment,
-    SyncDisposable,
-}
 
 pub(crate) struct ScriptLowerer<'a> {
     interner: &'a Interner,
@@ -6798,9 +6761,15 @@ impl<'a> ScriptLowerer<'a> {
                 self.unsupported("using declaration binding pattern in for-of");
                 return ForOfLoweringIr::no_iteration();
             }
-            IterableLoopInitializer::AwaitUsing(_) => {
-                self.unsupported("await using declaration in for-of");
-                return ForOfLoweringIr::no_iteration();
+            IterableLoopInitializer::AwaitUsing(binding) => {
+                let Some(name) = self.admit_async_disposable_for_of_head(for_of, binding) else {
+                    return ForOfLoweringIr::no_iteration();
+                };
+                (
+                    LoweredForOfHeadKind::AsyncDisposable,
+                    BindingMode::Const,
+                    name,
+                )
             }
             IterableLoopInitializer::Pattern(pattern) => {
                 assignment_pattern_initializer = Some(pattern.clone());
@@ -6941,6 +6910,12 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             for_of_loop_binding_storage_name(for_of, &name)
         };
+        let Ok(pending_async_disposable_head) =
+            self.begin_async_disposable_for_of_if_needed(head_kind, &storage_name)
+        else {
+            self.pop_scope();
+            return ForOfLoweringIr::no_iteration();
+        };
         self.declare_binding(
             name.clone(),
             BindingInfo {
@@ -7012,6 +6987,8 @@ impl<'a> ScriptLowerer<'a> {
         };
         let plain_async_entry_state = self.plain_async_entry_state();
         let (mut body, body_kind) = self.lower_loop_body(for_of.body());
+        let async_disposable_head = pending_async_disposable_head
+            .map(|pending| self.finish_async_disposable_for_of_head(pending));
         let async_generator_close_suspension = uses_unified_resumable_plan
             .then(|| self.take_resumable_suspension(ResumableSuspensionKindIr::ForAwaitClose))
             .flatten();
@@ -7119,6 +7096,13 @@ impl<'a> ScriptLowerer<'a> {
                         protocol,
                     )
                 }
+                LoweredForOfHeadKind::AsyncDisposable => Self::async_disposable_for_of_statement(
+                    async_disposable_head
+                        .expect("an admitted async-disposable head must be finalized"),
+                    iterable,
+                    body,
+                    lexical_environment,
+                ),
                 LoweredForOfHeadKind::Assignment => {
                     let async_states = if uses_unified_resumable_plan {
                         async_generator_next_suspension

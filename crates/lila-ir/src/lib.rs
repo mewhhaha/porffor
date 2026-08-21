@@ -545,6 +545,7 @@ mod tests {
                     let name = match head {
                         ForOfIteratorHeadIr::Assignment { binding, .. } => &binding.name,
                         ForOfIteratorHeadIr::SyncDisposable(head) => head.binding_name(),
+                        ForOfIteratorHeadIr::AsyncDisposable(head) => head.binding_name(),
                     };
                     names.insert(name.to_string());
                     collect(body, names);
@@ -14051,6 +14052,137 @@ target[Symbol.iterator];"#,
         assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
             .message
             .contains("suspension inside an await using classic-for loop")));
+    }
+
+    #[test]
+    fn plain_async_for_of_await_using_owns_repeating_iteration_capability() {
+        let program = lower_script(
+            "async function owner() {
+                 for (await using resource of [resource]) {
+                     (() => resource);
+                     resource = null;
+                 }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain async owner should be lowered");
+        let [StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::AsyncDisposable(head),
+            iterable,
+            body,
+            lexical_environment: Some(environment),
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("await using must force the generic iterator head");
+        };
+
+        assert!(head.binding_name().starts_with("$forof.lex."));
+        assert!(head.binding_name().ends_with(".resource"));
+        assert!(environment
+            .tdz_binding_names
+            .iter()
+            .any(|name| name == "$tdz.resource"));
+        assert!(matches!(
+            &iterable.expr,
+            ExprIr::ArrayLiteral(elements)
+                if matches!(
+                    elements.as_slice(),
+                    [TypedExpr {
+                        expr: ExprIr::RuntimeThrow {
+                            name: NativeErrorKind::ReferenceError,
+                            ..
+                        },
+                        ..
+                    }]
+                )
+        ));
+
+        let iteration_binding = environment
+            .iteration_environment
+            .as_ref()
+            .and_then(|environment| {
+                environment
+                    .bindings
+                    .iter()
+                    .find(|binding| binding.name == head.binding_name())
+            })
+            .expect("captured resource must own fresh iteration storage");
+        let capture = script
+            .functions
+            .iter()
+            .flat_map(|function| &function.captured_bindings)
+            .find(|binding| binding.source_name == "resource")
+            .expect("body arrow must capture the resource iteration binding");
+        assert_eq!(capture.name, iteration_binding.name);
+        assert_eq!(capture.slot, iteration_binding.slot);
+        assert_eq!(capture.mode, BindingMode::Const);
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. })
+                if statements.iter().any(|statement| matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::Comma {
+                            lhs,
+                            rhs,
+                        },
+                        ..
+                    }) if matches!(lhs.expr, ExprIr::Null)
+                        && matches!(
+                            rhs.expr,
+                            ExprIr::RuntimeThrow {
+                                name: NativeErrorKind::TypeError,
+                                ref message,
+                            } if *message == "assignment to immutable binding"
+                        )
+                ))
+        ));
+
+        let capability = head.capability();
+        assert!(capability
+            .binding_name()
+            .starts_with("$async.function.forof.await.dispose.capability."));
+        let record = head.record();
+        let owned_names = [
+            capability.binding_name(),
+            record.iterator().as_str(),
+            record.next_method().as_str(),
+            record.done().as_str(),
+        ];
+        assert_eq!(
+            owned_names.iter().copied().collect::<BTreeSet<_>>().len(),
+            4
+        );
+        for name in owned_names {
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == name)
+                    .count(),
+                1,
+                "every activation-backed role must own exactly one slot"
+            );
+        }
+        let finalizer = capability.finalizer();
+        assert!(finalizer.entry_state() < finalizer.dispose_state());
+        assert!(finalizer.dispose_state() < finalizer.resume_state());
+        assert!(finalizer.resume_state() < finalizer.exit_state());
+
+        let unsupported = lower_script(
+            "async function owner(values) {
+                 for (await using resource of values) { await 0; }
+             }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("source suspension in await using for-of loop")));
     }
 
     #[test]

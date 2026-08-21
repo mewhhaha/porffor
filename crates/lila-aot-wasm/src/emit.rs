@@ -763,6 +763,10 @@ fn async_generator_contains_suspension(
                 },
             ..
         } => matches!(suspension, AsyncGeneratorSuspension::Await),
+        StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::AsyncDisposable(_),
+            ..
+        } => matches!(suspension, AsyncGeneratorSuspension::Await),
         StatementIr::While { body, .. }
         | StatementIr::DoWhile { body, .. }
         | StatementIr::For { body, .. }
@@ -998,6 +1002,10 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             }
             None
         }
+        StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::AsyncDisposable(_),
+            ..
+        } => Some("await using for-of requires a plain async function"),
         StatementIr::If {
             then_branch,
             else_branch,

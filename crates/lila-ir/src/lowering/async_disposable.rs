@@ -1,5 +1,36 @@
 use super::*;
 
+/// A lowering-only statement-list result. Resource declarations remain in
+/// this private domain until their containing list finalizes the suffix.
+pub(super) enum LoweredStatementListItemIr {
+    Statement {
+        statement: StatementIr,
+        result_kind: ValueKind,
+    },
+    SyncDisposableScope {
+        execution: SyncDisposableScopeExecutionIr,
+        resources: SyncDisposableResourcesIr,
+    },
+    AsyncDisposableScope(PendingAsyncDisposableScopeIr),
+}
+
+impl LoweredStatementListItemIr {
+    pub(super) fn statement(statement: StatementIr, result_kind: ValueKind) -> Self {
+        Self::Statement {
+            statement,
+            result_kind,
+        }
+    }
+}
+
+/// Lowering-only classification of the resource-bearing for-of heads.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LoweredForOfHeadKind {
+    Assignment,
+    SyncDisposable,
+    AsyncDisposable,
+}
+
 /// Lowering-only half of an admitted async `await using` scope.
 ///
 /// The declaration fixes acquisition entry and capability storage immediately;
@@ -21,6 +52,19 @@ pub(super) struct PendingAsyncDisposableForInitIr {
     entry_state: u32,
     binding_name: String,
     resources: AsyncDisposableResourcesIr,
+}
+
+/// Lowering-only ownership of an admitted plain-async `for-of` resource head.
+///
+/// Iterator storage and capability identity are fixed before the body is
+/// lowered. Consuming this carrier afterward is the only way to mint the
+/// public head with its complete finalizer state plan.
+#[must_use = "a pending async-disposable for-of head must be finalized after its body"]
+pub(super) struct PendingAsyncDisposableForOfHeadIr {
+    entry_state: u32,
+    binding_name: String,
+    capability_binding_name: String,
+    record: IteratorRecordIr,
 }
 
 /// The private pre-finalizer owner proof for one async-dispose scope.
@@ -76,6 +120,33 @@ enum LoweredDisposableScopeIr {
 }
 
 impl ScriptLowerer<'_> {
+    /// Admits only the bounded plain-async, synchronous-iterator identifier
+    /// source form. Keeping the rejection matrix here leaves the main for-of
+    /// classifier as a small exhaustive shape decision.
+    pub(super) fn admit_async_disposable_for_of_head(
+        &mut self,
+        for_of: &ForOfLoop,
+        binding: &Binding,
+    ) -> Option<String> {
+        if for_of.r#await() {
+            self.unsupported("await using declaration in for-await-of");
+            return None;
+        }
+        if contains(for_of.iterable(), ContainsSymbol::AwaitExpression)
+            || contains(for_of.iterable(), ContainsSymbol::YieldExpression)
+            || contains(for_of.body(), ContainsSymbol::AwaitExpression)
+            || contains(for_of.body(), ContainsSymbol::YieldExpression)
+        {
+            self.unsupported("source suspension in await using for-of loop");
+            return None;
+        }
+        let Binding::Identifier(identifier) = binding else {
+            self.unsupported("await using declaration binding pattern in for-of");
+            return None;
+        };
+        Some(self.interner.resolve_expect(identifier.sym()).to_string())
+    }
+
     pub(super) fn async_disposable_for_head(for_loop: &ForLoop) -> Option<&[Variable]> {
         match for_loop.init() {
             Some(ForLoopInitializer::Lexical(lexical)) => match lexical.declaration() {
@@ -297,6 +368,98 @@ impl ScriptLowerer<'_> {
         AsyncDisposableForInitIr::new(
             AsyncFunctionAsyncDisposableCapabilityIr::new(pending.binding_name, finalizer),
             pending.resources,
+        )
+    }
+
+    /// Fixes every activation-owned role of a plain-async `for-of` resource
+    /// head before its body is lowered, but deliberately leaves the finalizer
+    /// states absent until the body has consumed any admitted source states.
+    pub(super) fn begin_async_disposable_for_of_head(
+        &mut self,
+        binding_name: String,
+    ) -> Option<PendingAsyncDisposableForOfHeadIr> {
+        match self.async_disposable_scope_owner() {
+            AsyncDisposableScopeOwnerPlan::AsyncFunction => {}
+            AsyncDisposableScopeOwnerPlan::AsyncGenerator => {
+                self.unsupported("await using for-of head in an async generator");
+                return None;
+            }
+            AsyncDisposableScopeOwnerPlan::Generator => {
+                self.unsupported("await using for-of head in a plain generator");
+                return None;
+            }
+            AsyncDisposableScopeOwnerPlan::Ordinary => {
+                self.unsupported("await using for-of head outside a plain async function");
+                return None;
+            }
+        }
+
+        let entry_state = self
+            .current_async_resume_state
+            .expect("an admitted plain async owner must publish its current resume state");
+        let capability_binding_name = self.alloc_suspension_owned_binding(
+            "async.function.forof.await.dispose.capability.",
+            ValueInfo::new(ValueKind::Object),
+        );
+        let record = IteratorRecordIr::new(
+            self.alloc_iterator_slot(),
+            self.alloc_next_method_slot(),
+            self.alloc_done_slot(),
+        );
+        Some(PendingAsyncDisposableForOfHeadIr {
+            entry_state,
+            binding_name,
+            capability_binding_name,
+            record,
+        })
+    }
+
+    pub(super) fn begin_async_disposable_for_of_if_needed(
+        &mut self,
+        head_kind: LoweredForOfHeadKind,
+        binding_name: &str,
+    ) -> Result<Option<PendingAsyncDisposableForOfHeadIr>, ()> {
+        match head_kind {
+            LoweredForOfHeadKind::Assignment | LoweredForOfHeadKind::SyncDisposable => Ok(None),
+            LoweredForOfHeadKind::AsyncDisposable => self
+                .begin_async_disposable_for_of_head(binding_name.to_string())
+                .map(Some)
+                .ok_or(()),
+        }
+    }
+
+    /// Completes the repeating per-iteration finalizer only after the loop body
+    /// has been lowered.
+    pub(super) fn finish_async_disposable_for_of_head(
+        &mut self,
+        pending: PendingAsyncDisposableForOfHeadIr,
+    ) -> AsyncDisposableForOfHeadIr {
+        let finalizer = self.allocate_async_disposable_finalizer(pending.entry_state);
+        AsyncDisposableForOfHeadIr::new(
+            pending.binding_name,
+            AsyncFunctionAsyncDisposableForOfCapabilityIr::new(
+                pending.capability_binding_name,
+                finalizer,
+            ),
+            pending.record,
+        )
+    }
+
+    pub(super) fn async_disposable_for_of_statement(
+        head: AsyncDisposableForOfHeadIr,
+        iterable: TypedExpr,
+        body: StatementIr,
+        lexical_environment: Option<ForInOfEnvironmentIr>,
+    ) -> (StatementIr, IteratorProtocolWitness) {
+        let protocol = IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL;
+        (
+            StatementIr::ForOfIterator {
+                head: ForOfIteratorHeadIr::AsyncDisposable(head),
+                iterable,
+                body: Box::new(body),
+                lexical_environment,
+            },
+            protocol,
         )
     }
 

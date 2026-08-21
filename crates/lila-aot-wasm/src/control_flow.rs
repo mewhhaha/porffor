@@ -3,8 +3,9 @@ use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget}
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncDisposableFinalizerPlanIr, AsyncDisposableForInitIr,
-    AsyncDisposableResourcesIr, AsyncDisposableScopeExecutionIr, AsyncForOfIteratorPlanIr,
-    AsyncFunctionAsyncDisposableCapabilityIr, AsyncFunctionSyncDisposableCapabilityIr,
+    AsyncDisposableForOfHeadIr, AsyncDisposableResourcesIr, AsyncDisposableScopeExecutionIr,
+    AsyncForOfIteratorPlanIr, AsyncFunctionAsyncDisposableCapabilityIr,
+    AsyncFunctionAsyncDisposableForOfCapabilityIr, AsyncFunctionSyncDisposableCapabilityIr,
     AsyncGeneratorAsyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
     AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
     ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
@@ -79,13 +80,15 @@ struct DisposingActivationAsyncDisposeCapability {
 #[must_use = "a parked async-dispose completion must be restored exactly once"]
 struct ActiveAsyncDisposePendingCompletion;
 
-/// The only two legal continuations after an asynchronous DisposeCapability
+/// The legal continuations after an asynchronous DisposeCapability
 /// has restored its parked completion.
 ///
 /// A scope can dispatch immediately. A classic-for head must first restore its
 /// lexical environment, then dispatch abrupt completions, and route Normal to
-/// the loop's break target. Consuming this role inside the finalizer prevents a
-/// new call site from accidentally dispatching before the environment leave.
+/// the loop's break target. A for-of head must instead leave its fresh
+/// iteration environment and choose between another iterator step and
+/// IteratorClose. Consuming this role inside the finalizer prevents a new call
+/// site from accidentally dispatching before its required environment leave.
 #[must_use = "an async DisposeCapability continuation must be consumed by its finalizer"]
 enum ActivationAsyncDisposeCompletionContinuation {
     Scope,
@@ -93,12 +96,46 @@ enum ActivationAsyncDisposeCompletionContinuation {
         lexical_environment: ClassicForAsyncDisposeLexicalEnvironment,
         break_target: ControlTarget,
     },
+    ForOf(AsyncDisposableForOfCompletionContinuationLocals),
 }
 
 #[must_use = "a classic-for async-disposal environment role must be consumed at finalization"]
 enum ClassicForAsyncDisposeLexicalEnvironment {
     Absent,
     Active,
+}
+
+#[must_use = "a for-of async-disposal environment role must be consumed at finalization"]
+enum AsyncDisposableForOfIterationEnvironment {
+    Absent,
+    Active,
+}
+
+/// Everything needed to choose the one legal continuation after one
+/// async-disposable `for-of` iteration. Keeping the iterator-close locals and
+/// loop targets in this consuming carrier prevents the shared disposal walker
+/// from dispatching before the iteration environment has been left.
+#[must_use = "a for-of async-disposal continuation must be consumed by its finalizer"]
+struct AsyncDisposableForOfCompletionContinuationLocals {
+    iteration_environment: AsyncDisposableForOfIterationEnvironment,
+    state_local: u32,
+    iterator_payload_local: u32,
+    iterator_tag_local: u32,
+    key_local: u32,
+    return_payload_local: u32,
+    return_tag_local: u32,
+    result_payload_local: u32,
+    result_tag_local: u32,
+    saved_payload_local: u32,
+    saved_tag_local: u32,
+    saved_completion_local: u32,
+    saved_aux_local: u32,
+    close_saved_payload_local: u32,
+    close_saved_tag_local: u32,
+    close_saved_completion_local: u32,
+    close_saved_aux_local: u32,
+    continue_target: ControlTarget,
+    loop_target: ControlTarget,
 }
 
 /// The two activation layouts that can own an asynchronous DisposeCapability.
@@ -110,6 +147,7 @@ enum ClassicForAsyncDisposeLexicalEnvironment {
 #[must_use = "an async DisposeCapability owner must reach its consuming finalizer"]
 enum ActivationAsyncDisposeOwner<'a> {
     AsyncFunction(&'a AsyncFunctionAsyncDisposableCapabilityIr),
+    AsyncFunctionForOf(&'a AsyncFunctionAsyncDisposableForOfCapabilityIr),
     AsyncGenerator(&'a AsyncGeneratorAsyncDisposableCapabilityIr),
 }
 
@@ -128,6 +166,7 @@ impl<'a> ActivationAsyncDisposeOwner<'a> {
     fn binding_name(&self) -> &str {
         match self {
             Self::AsyncFunction(capability) => capability.binding_name(),
+            Self::AsyncFunctionForOf(capability) => capability.binding_name(),
             Self::AsyncGenerator(capability) => capability.binding_name(),
         }
     }
@@ -135,34 +174,37 @@ impl<'a> ActivationAsyncDisposeOwner<'a> {
     fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
         match self {
             Self::AsyncFunction(capability) => capability.finalizer(),
+            Self::AsyncFunctionForOf(capability) => capability.finalizer(),
             Self::AsyncGenerator(capability) => capability.finalizer(),
         }
     }
 
     const fn execution_kind(&self) -> FunctionExecutionKind {
         match self {
-            Self::AsyncFunction(_) => FunctionExecutionKind::Async,
+            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => FunctionExecutionKind::Async,
             Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator,
         }
     }
 
     const fn resume_state_offset(&self) -> u64 {
         match self {
-            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET,
+            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_STATE_OFFSET,
             Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
         }
     }
 
     const fn resume_payload_offset(&self) -> u64 {
         match self {
-            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
+            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => {
+                HEAP_ASYNC_RESUME_PAYLOAD_OFFSET
+            }
             Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
         }
     }
 
     const fn resume_tag_offset(&self) -> u64 {
         match self {
-            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_TAG_OFFSET,
+            Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_TAG_OFFSET,
             Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
         }
     }
@@ -1399,7 +1441,7 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .find_map(Self::async_statement_entry_state),
             // Labels do not own a resumable region. Forward only a direct
-            // labelled await-using For (including a chain of labels): blindly
+            // labelled await-using loop (including a chain of labels): blindly
             // scanning a labelled block would schedule code after an earlier
             // labelled break at an unreachable child's exit state.
             StatementIr::Labelled { statement, .. } => {
@@ -1426,6 +1468,10 @@ impl<'a> FunctionBuilder<'a> {
                     },
                 ..
             } => Some(plan.entry_state),
+            StatementIr::ForOfIterator {
+                head: ForOfIteratorHeadIr::AsyncDisposable(head),
+                ..
+            } => Some(head.capability().finalizer().entry_state()),
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::AsyncFunction(_)
@@ -1494,6 +1540,10 @@ impl<'a> FunctionBuilder<'a> {
                     },
                 ..
             } => Some(plan.exit_state),
+            StatementIr::ForOfIterator {
+                head: ForOfIteratorHeadIr::AsyncDisposable(head),
+                ..
+            } => Some(head.capability().finalizer().exit_state()),
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::AsyncFunction(_)
@@ -1535,6 +1585,10 @@ impl<'a> FunctionBuilder<'a> {
                 init: Some(ForInitIr::AsyncDisposable(init)),
                 ..
             } => Some(init.capability().finalizer()),
+            StatementIr::ForOfIterator {
+                head: ForOfIteratorHeadIr::AsyncDisposable(head),
+                ..
+            } => Some(head.capability().finalizer()),
             _ => None,
         }
     }
@@ -3675,6 +3729,16 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 }
+                ForOfIteratorHeadIr::AsyncDisposable(head) => {
+                    self.compile_async_disposable_for_of_iterator(
+                        head,
+                        iterable,
+                        body,
+                        lexical_environment.as_ref(),
+                        &[],
+                        function,
+                    )?;
+                }
             },
             StatementIr::ForInArray {
                 mode,
@@ -4001,6 +4065,16 @@ impl<'a> FunctionBuilder<'a> {
                 ForOfIteratorHeadIr::SyncDisposable(head) => {
                     self.compile_for_of_iterator(
                         SyncForOfIteratorHead::SyncDisposable(head),
+                        iterable,
+                        body,
+                        lexical_environment.as_ref(),
+                        labels,
+                        function,
+                    )?;
+                }
+                ForOfIteratorHeadIr::AsyncDisposable(head) => {
+                    self.compile_async_disposable_for_of_iterator(
+                        head,
                         iterable,
                         body,
                         lexical_environment.as_ref(),
@@ -5255,55 +5329,11 @@ impl<'a> FunctionBuilder<'a> {
         resources: &AsyncDisposableResourcesIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let capability = ActiveActivationAsyncDisposeCapabilityLocals {
-            object: self.reserve_temp_local(),
-            record: self.reserve_temp_local(),
-            entries: self.reserve_temp_local(),
-        };
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(capability.object));
-        self.emit_heap_alloc_const(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(capability.record));
-        self.emit_heap_alloc_const(
-            resources.len() as u64 * HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
+        let capability = self.initialize_empty_activation_async_dispose_capability(
+            storage,
+            resources.len(),
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(capability.entries));
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ActivationAsyncDisposeCapabilityState::Pending.word(),
-            function,
-        );
-        self.store_i64_local_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            capability.entries,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            0,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            capability.record,
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            resources.len() as u64,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            capability.object,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            capability.record,
-            function,
-        );
-        let object_tag = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(object_tag));
-        self.write_binding_from_locals(storage.binding, capability.object, object_tag, function);
-        self.release_temp_local(object_tag);
 
         for resource in resources.iter() {
             let acquired = self.reserve_async_disposable_resource_locals(function);
@@ -5339,9 +5369,138 @@ impl<'a> FunctionBuilder<'a> {
             self.release_async_disposable_resource_locals(acquired);
         }
 
+        self.release_active_activation_async_dispose_capability(capability);
+        Ok(())
+    }
+
+    fn initialize_empty_activation_async_dispose_capability(
+        &mut self,
+        storage: &ActivationAsyncDisposeCapabilityStorage,
+        capacity: usize,
+        function: &mut Function,
+    ) -> Result<ActiveActivationAsyncDisposeCapabilityLocals, EmitError> {
+        let capability = ActiveActivationAsyncDisposeCapabilityLocals {
+            object: self.reserve_temp_local(),
+            record: self.reserve_temp_local(),
+            entries: self.reserve_temp_local(),
+        };
+        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+        function.instruction(&Instruction::LocalSet(capability.object));
+        self.emit_heap_alloc_const(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(capability.record));
+        self.emit_heap_alloc_const(
+            capacity as u64 * HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(capability.entries));
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
+            ActivationAsyncDisposeCapabilityState::Pending.word(),
+            function,
+        );
+        self.store_i64_local_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+            capability.entries,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+            capacity as u64,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            capability.object,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            capability.record,
+            function,
+        );
+        let object_tag = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(object_tag));
+        self.write_binding_from_locals(storage.binding, capability.object, object_tag, function);
+        self.release_temp_local(object_tag);
+        Ok(capability)
+    }
+
+    fn release_active_activation_async_dispose_capability(
+        &mut self,
+        capability: ActiveActivationAsyncDisposeCapabilityLocals,
+    ) {
         self.release_temp_local(capability.entries);
         self.release_temp_local(capability.record);
         self.release_temp_local(capability.object);
+    }
+
+    /// Re-publish the immutable head value when a nested implicit finalizer
+    /// resumes inside a `for (await using ... of ...)` body.
+    ///
+    /// Async-function re-entry reconstructs source environments from the
+    /// activation root. The original iteration record stays alive through any
+    /// closure that captured it, while the outer capability's sole registered
+    /// entry is the activation-backed authority for the same immutable value.
+    fn restore_async_disposable_for_of_binding(
+        &mut self,
+        capability_storage: &ActivationAsyncDisposeCapabilityStorage,
+        binding_storage: BindingStorage,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let object_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
+        let record_local = self.reserve_temp_local();
+        let entry_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        self.read_binding_to_locals(
+            capability_storage.binding,
+            object_local,
+            object_tag_local,
+            function,
+        )?;
+        self.load_i64_to_local_from_offset(
+            object_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+            entry_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            entry_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+            value_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            entry_local,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+            value_tag_local,
+            function,
+        );
+        self.write_binding_from_locals(
+            binding_storage,
+            value_payload_local,
+            value_tag_local,
+            function,
+        );
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(entry_local);
+        self.release_temp_local(record_local);
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_local);
         Ok(())
     }
 
@@ -5356,6 +5515,15 @@ impl<'a> FunctionBuilder<'a> {
             method_payload: self.reserve_temp_local(),
             method_tag: self.reserve_temp_local(),
         };
+        self.reset_async_disposable_resource_locals(&resource, function);
+        resource
+    }
+
+    fn reset_async_disposable_resource_locals(
+        &self,
+        resource: &AcquiredAsyncDisposableResourceLocals,
+        function: &mut Function,
+    ) {
         function.instruction(&Instruction::I64Const(
             ActivationAsyncDisposeEntryKind::Empty.word() as i64,
         ));
@@ -5364,7 +5532,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(resource.method_payload));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(resource.method_tag));
-        resource
     }
 
     fn release_async_disposable_resource_locals(
@@ -5774,7 +5941,8 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         match owner {
-            ActivationAsyncDisposeOwner::AsyncFunction(_) => self
+            ActivationAsyncDisposeOwner::AsyncFunction(_)
+            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => self
                 .emit_load_async_function_resume_is_throw(
                     activation_local,
                     is_throw_local,
@@ -5828,12 +5996,14 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match owner {
-            ActivationAsyncDisposeOwner::AsyncFunction(_) => self.emit_async_await_reactions(
-                activation_local,
-                value_payload_local,
-                value_tag_local,
-                function,
-            ),
+            ActivationAsyncDisposeOwner::AsyncFunction(_)
+            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => self
+                .emit_async_await_reactions(
+                    activation_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                ),
             ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
                 self.emit_async_generator_await_reactions(
                     activation_local,
@@ -5864,7 +6034,8 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match owner {
-            ActivationAsyncDisposeOwner::AsyncFunction(_) => {
+            ActivationAsyncDisposeOwner::AsyncFunction(_)
+            | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => {
                 self.emit_dispatch_current_completion(function)
             }
             ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
@@ -6152,15 +6323,24 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.finish_async_dispose_pending_completion(pending, function)?;
-        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
         match continuation {
             ActivationAsyncDisposeCompletionContinuation::Scope => {
+                self.emit_set_async_resume_state(
+                    activation_local,
+                    finalizer.exit_state(),
+                    function,
+                );
                 self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
             }
             ActivationAsyncDisposeCompletionContinuation::ClassicFor {
                 lexical_environment,
                 break_target,
             } => {
+                self.emit_set_async_resume_state(
+                    activation_local,
+                    finalizer.exit_state(),
+                    function,
+                );
                 match lexical_environment {
                     ClassicForAsyncDisposeLexicalEnvironment::Absent => {}
                     ClassicForAsyncDisposeLexicalEnvironment::Active => {
@@ -6169,6 +6349,14 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
                 self.emit_branch_to_target(break_target, function);
+            }
+            ActivationAsyncDisposeCompletionContinuation::ForOf(continuation) => {
+                self.finish_async_disposable_for_of_iteration(
+                    owner,
+                    finalizer,
+                    continuation,
+                    function,
+                )?;
             }
         }
 
@@ -6192,6 +6380,116 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         Ok(())
+    }
+
+    fn finish_async_disposable_for_of_iteration(
+        &mut self,
+        owner: &ActivationAsyncDisposeOwner<'_>,
+        finalizer: &AsyncDisposableFinalizerPlanIr,
+        continuation: AsyncDisposableForOfCompletionContinuationLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("async disposal requires the function call ABI")
+        })?;
+        match continuation.iteration_environment {
+            AsyncDisposableForOfIterationEnvironment::Absent => {}
+            AsyncDisposableForOfIterationEnvironment::Active => {
+                self.emit_leave_lexical_environment(function);
+            }
+        }
+
+        // LoopContinues is tested only after the iteration capability has been
+        // consumed and the fresh binding environment has been left. A local
+        // continue becomes Normal and is the only abrupt completion that may
+        // advance without IteratorClose.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::I64Const(
+            continuation.continue_target.frame as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_set_async_resume_state(activation_local, finalizer.entry_state(), function);
+        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
+        function.instruction(&Instruction::LocalSet(continuation.state_local));
+        self.emit_branch_to_target(continuation.loop_target, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
+        self.save_current_completion(
+            continuation.saved_payload_local,
+            continuation.saved_tag_local,
+            continuation.saved_completion_local,
+            continuation.saved_aux_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(continuation.saved_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.restore_saved_completion(
+            continuation.saved_payload_local,
+            continuation.saved_tag_local,
+            continuation.saved_completion_local,
+            continuation.saved_aux_local,
+            function,
+        );
+        self.emit_iterator_close_preserving_current_throw(
+            IteratorCloseOnThrowLocals {
+                iterator_payload_local: continuation.iterator_payload_local,
+                iterator_tag_local: continuation.iterator_tag_local,
+                key_local: continuation.key_local,
+                return_payload_local: continuation.return_payload_local,
+                return_tag_local: continuation.return_tag_local,
+                result_payload_local: continuation.result_payload_local,
+                result_tag_local: continuation.result_tag_local,
+                saved_payload_local: continuation.close_saved_payload_local,
+                saved_tag_local: continuation.close_saved_tag_local,
+                saved_completion_local: continuation.close_saved_completion_local,
+                saved_aux_local: continuation.close_saved_aux_local,
+            },
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_iterator_close(
+            continuation.iterator_payload_local,
+            continuation.iterator_tag_local,
+            continuation.key_local,
+            continuation.return_payload_local,
+            continuation.return_tag_local,
+            continuation.result_payload_local,
+            continuation.result_tag_local,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(continuation.saved_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Ne);
+        self.open_frame(ControlFrameKind::If, function);
+        self.restore_saved_completion(
+            continuation.saved_payload_local,
+            continuation.saved_tag_local,
+            continuation.saved_completion_local,
+            continuation.saved_aux_local,
+            function,
+        );
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_dispatch_activation_async_dispose_completion(owner, function)
     }
 
     fn finish_async_dispose_pending_completion(
@@ -9722,6 +10020,533 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(next_payload_local);
         self.release_temp_local(iterator_tag_local);
         self.release_temp_local(iterator_payload_local);
+        self.release_temp_local(iterable_tag_local);
+        self.release_temp_local(iterable_payload_local);
+        self.release_temp_local(state_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_async_disposable_for_of_iterator(
+        &mut self,
+        head: &AsyncDisposableForOfHeadIr,
+        iterable: &TypedExpr,
+        body: &StatementIr,
+        lexical_environment: Option<&ForInOfEnvironmentIr>,
+        labels: &[String],
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if !self
+            .current_function_meta()
+            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async)
+        {
+            return Err(EmitError::unsupported(
+                "await using for-of head requires a plain async function",
+            ));
+        }
+        let owner = ActivationAsyncDisposeOwner::AsyncFunctionForOf(head.capability());
+        let finalizer = owner.finalizer();
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("async disposal requires the function call ABI")
+        })?;
+        let state_local = self.reserve_temp_local();
+        let iterable_payload_local = self.reserve_temp_local();
+        let iterable_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let method_payload_local = self.reserve_temp_local();
+        let method_tag_local = self.reserve_temp_local();
+        let iterator_payload_local = self.reserve_temp_local();
+        let iterator_tag_local = self.reserve_temp_local();
+        let next_payload_local = self.reserve_temp_local();
+        let next_tag_local = self.reserve_temp_local();
+        let result_payload_local = self.reserve_temp_local();
+        let result_tag_local = self.reserve_temp_local();
+        let done_payload_local = self.reserve_temp_local();
+        let done_tag_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let saved_payload_local = self.reserve_temp_local();
+        let saved_tag_local = self.reserve_temp_local();
+        let saved_completion_local = self.reserve_temp_local();
+        let saved_aux_local = self.reserve_temp_local();
+        let close_saved_payload_local = self.reserve_temp_local();
+        let close_saved_tag_local = self.reserve_temp_local();
+        let close_saved_completion_local = self.reserve_temp_local();
+        let close_saved_aux_local = self.reserve_temp_local();
+        let acquired = self.reserve_async_disposable_resource_locals(function);
+
+        self.emit_async_state_in_range(
+            activation_local,
+            finalizer.entry_state(),
+            finalizer.exit_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            state_local,
+            function,
+        );
+
+        self.push_scope();
+        let name = head.binding_name();
+        let storage_without_environment =
+            if !iteration_environment_owns_binding(lexical_environment, name) {
+                Some(self.allocate_binding(
+                    name.to_string(),
+                    BindingMode::Const,
+                    ValueKind::Dynamic,
+                ))
+            } else {
+                None
+            };
+        let iterator_storage = self
+            .activation_owned_binding_storage(head.record().iterator().as_str())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "await using for-of Iterator is missing its activation-owned binding",
+                )
+            })?;
+        let next_storage = self
+            .activation_owned_binding_storage(head.record().next_method().as_str())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "await using for-of NextMethod is missing its activation-owned binding",
+                )
+            })?;
+        let done_storage = self
+            .activation_owned_binding_storage(head.record().done().as_str())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "await using for-of Done is missing its activation-owned binding",
+                )
+            })?;
+
+        // The iterable and sync Iterator Record are evaluated exactly once.
+        // Later disposal resumes enter this node at `resume_state`, skip this
+        // gate, and reload the activation-backed record below.
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        if let Some(environment) = lexical_environment {
+            self.emit_enter_for_in_of_tdz_scope(BindingMode::Const, environment, function)?;
+        }
+        self.compile_expr_to_locals(
+            iterable,
+            iterable_payload_local,
+            iterable_tag_local,
+            function,
+        )?;
+        if let Some(environment) = lexical_environment {
+            self.emit_leave_for_in_of_tdz_scope(environment, function);
+        }
+        self.compile_nullish_tagged_i32(iterable_tag_local, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "for-of target is not iterable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let iterable_object_payload_local = self.reserve_temp_local();
+        let iterable_object_tag_local = self.reserve_temp_local();
+        self.emit_value_to_object_locals(
+            iterable_payload_local,
+            iterable_tag_local,
+            iterable_object_payload_local,
+            iterable_object_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            iterable_object_payload_local,
+            iterable_object_tag_local,
+            iterable_payload_local,
+            iterable_tag_local,
+            key_local,
+            method_payload_local,
+            method_tag_local,
+            function,
+        )?;
+        self.release_temp_local(iterable_object_tag_local);
+        self.release_temp_local(iterable_object_payload_local);
+        self.emit_propagate_throw_from_locals_if_needed(
+            method_payload_local,
+            method_tag_local,
+            function,
+        )?;
+        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "for-of iterator method must be callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            method_payload_local,
+            method_tag_local,
+            iterable_payload_local,
+            iterable_tag_local,
+            &[],
+            iterator_payload_local,
+            iterator_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "for-of iterator method must return object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            iterator_payload_local,
+            iterator_tag_local,
+            iterator_payload_local,
+            iterator_tag_local,
+            key_local,
+            next_payload_local,
+            next_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "for-of iterator next must be callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.write_binding_from_locals(
+            iterator_storage,
+            iterator_payload_local,
+            iterator_tag_local,
+            function,
+        );
+        self.write_binding_from_locals(next_storage, next_payload_local, next_tag_local, function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(done_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(done_tag_local));
+        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.emit_statement_result(function, ValueKind::Undefined);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.breakable_stack.push(break_frame);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
+
+        // `next`, `done`, and `value` all precede the fresh iteration
+        // environment. Their abrupt completions therefore propagate directly
+        // and never enter IteratorClose.
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.read_binding_to_locals(
+            iterator_storage,
+            iterator_payload_local,
+            iterator_tag_local,
+            function,
+        )?;
+        self.read_binding_to_locals(next_storage, next_payload_local, next_tag_local, function)?;
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            next_payload_local,
+            next_tag_local,
+            iterator_payload_local,
+            iterator_tag_local,
+            &[],
+            result_payload_local,
+            result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "for-of iterator next result must be object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            result_payload_local,
+            result_tag_local,
+            result_payload_local,
+            result_tag_local,
+            key_local,
+            done_payload_local,
+            done_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(done_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(done_tag_local));
+        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
+        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
+        self.emit_branch_to_target(break_frame, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            result_payload_local,
+            result_tag_local,
+            result_payload_local,
+            result_tag_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let iteration_environment =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref());
+        if let Some(environment) = iteration_environment {
+            // Re-entry reconstructs the lexical layout from the activation
+            // root. Closures retain the original per-iteration record; when a
+            // nested implicit finalizer resumes source execution, the immutable
+            // head value is republished into this reconstructed record below.
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        let storage = self
+            .lookup_current_scope_binding(name)
+            .or(storage_without_environment)
+            .expect("await using for-of storage must exist before acquisition");
+        let capability_storage = ActivationAsyncDisposeCapabilityStorage {
+            binding: self
+                .activation_owned_binding_storage(owner.binding_name())
+                .ok_or_else(|| {
+                    EmitError::unsupported(
+                        "await using for-of DisposeCapability is missing its activation-owned binding",
+                    )
+                })?,
+        };
+        // A nested implicit await-using finalizer resumes source execution in
+        // a reconstructed iteration environment. Republish the immutable head
+        // value from this iteration's sole activation-backed capability entry
+        // before compiling the resumed suffix. Disposal-only states never
+        // expose the reconstructed binding and therefore skip this transition.
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(finalizer.dispose_state() as i64));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::I32And);
+        self.open_frame(ControlFrameKind::If, function);
+        self.restore_async_disposable_for_of_binding(&capability_storage, storage, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        // Load the retained iterator while the iteration environment is still
+        // current, using the adjusted activation hop. The locals survive the
+        // explicit environment leave and are then consumed by IteratorClose.
+        let iteration_iterator_storage = self
+            .activation_owned_binding_storage(head.record().iterator().as_str())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "await using for-of Iterator is missing its activation-owned binding",
+                )
+            })?;
+        self.read_binding_to_locals(
+            iteration_iterator_storage,
+            iterator_payload_local,
+            iterator_tag_local,
+            function,
+        )?;
+
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.loop_stack.push(LoopTargets { continue_frame });
+        let _disposal_outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(disposal_frame);
+
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(finalizer.entry_state() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.initialize_binding_uninitialized(storage, function);
+        let capability = self.initialize_empty_activation_async_dispose_capability(
+            &capability_storage,
+            1,
+            function,
+        )?;
+        self.reset_async_disposable_resource_locals(&acquired, function);
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::LocalSet(acquired.value_payload));
+        function.instruction(&Instruction::LocalGet(value_tag_local));
+        function.instruction(&Instruction::LocalSet(acquired.value_tag));
+        self.acquire_async_disposable_resource_from_locals(&acquired, function)?;
+        self.append_activation_async_disposable_resource(&capability, &acquired, function);
+        self.write_binding_from_locals(
+            storage,
+            acquired.value_payload,
+            acquired.value_tag,
+            function,
+        );
+        self.release_active_activation_async_dispose_capability(capability);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        // The producer excludes source `await`/`yield`, but a nested
+        // await-using scope owns implicit finalizer states inside this span.
+        // Resume those states through the body without reacquiring the outer
+        // resource or requesting another iterator value.
+        self.emit_async_state_in_range(
+            activation_local,
+            finalizer.entry_state(),
+            finalizer.dispose_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        self.push_labels(labels, break_frame, Some(continue_frame));
+        self.compile_statement(body, function)?;
+        self.pop_labels(labels.len());
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        // Body compilation has encoded any local continue with this frame's
+        // id. The disposal continuation consumes that completion explicitly
+        // before leaving the iteration environment. Do not expose the now
+        // deeper target to generic completion dispatch after the leave.
+        self.loop_stack.pop();
+
+        self.finally_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.emit_async_finalizer_needs_pending_completion(
+            activation_local,
+            finalizer.dispose_state(),
+            function,
+        );
+        self.open_frame(ControlFrameKind::If, function);
+        let pending = self.begin_async_dispose_pending_completion(function)?;
+        self.set_completion_kind(CompletionKind::Normal, function);
+        let disposing = self.begin_activation_async_dispose_capability(
+            capability_storage,
+            activation_local,
+            finalizer,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.consume_activation_async_dispose_capability(
+            &owner,
+            disposing,
+            pending,
+            finalizer,
+            ActivationAsyncDisposeCompletionContinuation::ForOf(
+                AsyncDisposableForOfCompletionContinuationLocals {
+                    iteration_environment: if iteration_environment.is_some() {
+                        AsyncDisposableForOfIterationEnvironment::Active
+                    } else {
+                        AsyncDisposableForOfIterationEnvironment::Absent
+                    },
+                    state_local,
+                    iterator_payload_local,
+                    iterator_tag_local,
+                    key_local,
+                    return_payload_local: method_payload_local,
+                    return_tag_local: method_tag_local,
+                    result_payload_local,
+                    result_tag_local,
+                    saved_payload_local,
+                    saved_tag_local,
+                    saved_completion_local,
+                    saved_aux_local,
+                    close_saved_payload_local,
+                    close_saved_tag_local,
+                    close_saved_completion_local,
+                    close_saved_aux_local,
+                    continue_target: continue_frame,
+                    loop_target: loop_frame,
+                },
+            ),
+            function,
+        )?;
+
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.breakable_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
+        self.pop_scope();
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.release_async_disposable_resource_locals(acquired);
+        self.release_temp_local(close_saved_aux_local);
+        self.release_temp_local(close_saved_completion_local);
+        self.release_temp_local(close_saved_tag_local);
+        self.release_temp_local(close_saved_payload_local);
+        self.release_temp_local(saved_aux_local);
+        self.release_temp_local(saved_completion_local);
+        self.release_temp_local(saved_tag_local);
+        self.release_temp_local(saved_payload_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(done_tag_local);
+        self.release_temp_local(done_payload_local);
+        self.release_temp_local(result_tag_local);
+        self.release_temp_local(result_payload_local);
+        self.release_temp_local(next_tag_local);
+        self.release_temp_local(next_payload_local);
+        self.release_temp_local(iterator_tag_local);
+        self.release_temp_local(iterator_payload_local);
+        self.release_temp_local(method_tag_local);
+        self.release_temp_local(method_payload_local);
+        self.release_temp_local(key_local);
         self.release_temp_local(iterable_tag_local);
         self.release_temp_local(iterable_payload_local);
         self.release_temp_local(state_local);
