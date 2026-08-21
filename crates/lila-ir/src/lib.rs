@@ -269,6 +269,11 @@ mod tests {
                         collect(statement, copies);
                     }
                 }
+                StatementIr::SyncDisposableScope { body, .. } => {
+                    for statement in &body.statements {
+                        collect(statement, copies);
+                    }
+                }
                 StatementIr::Block(block) => {
                     for statement in &block.statements {
                         collect(statement, copies);
@@ -477,6 +482,16 @@ mod tests {
                         collect(statement, names);
                     }
                 }
+                StatementIr::SyncDisposableScope { resources, body } => {
+                    names.extend(
+                        resources
+                            .iter()
+                            .map(|resource| resource.binding_name.clone()),
+                    );
+                    for statement in &body.statements {
+                        collect(statement, names);
+                    }
+                }
                 StatementIr::ForOfArray { name, body, .. }
                 | StatementIr::ForOfString { name, body, .. }
                 | StatementIr::ForOfIterator { name, body, .. }
@@ -621,6 +636,9 @@ mod tests {
                 | StatementIr::Labelled {
                     statement: body, ..
                 } => statement_owns_binding(body, name, slot),
+                StatementIr::SyncDisposableScope { body, .. } => {
+                    block_environment_owns_binding(body, name, slot)
+                }
                 StatementIr::For {
                     body,
                     lexical_environment,
@@ -12899,5 +12917,143 @@ target[Symbol.iterator];"#,
             vec![Some("a".to_string()), Some("b".to_string())]
         );
         assert_eq!(template.raw, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn synchronous_using_declarators_are_one_non_empty_scope_resource_list() {
+        let program =
+            lower_script("function owner() { using first = null, second = undefined; return 1; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::SyncDisposableScope { resources, body }] =
+            owner.body.statements.as_slice()
+        else {
+            panic!("using declaration must own the function-body suffix");
+        };
+
+        assert_eq!(resources.len(), 2);
+        assert!(!resources.is_empty());
+        assert_eq!(
+            resources
+                .iter()
+                .map(|resource| resource.binding_name.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert!(matches!(
+            resources
+                .iter()
+                .next()
+                .map(|resource| &resource.initializer.expr),
+            Some(ExprIr::Null)
+        ));
+        assert_eq!(
+            resources
+                .iter()
+                .nth(1)
+                .map(|resource| resource.initializer.kind),
+            Some(ValueKind::Undefined)
+        );
+        assert!(matches!(
+            body.statements.as_slice(),
+            [StatementIr::Return(_)]
+        ));
+        assert!(owner
+            .body
+            .statements
+            .iter()
+            .all(|statement| !matches!(statement, StatementIr::TryFinally { .. })));
+    }
+
+    #[test]
+    fn synchronous_using_nests_only_the_reached_statement_list_suffix() {
+        let program = lower_script(
+            "function owner() { before(); using a = null; middle(); using b = null; after(); }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::Expression(_), StatementIr::SyncDisposableScope {
+            resources: outer,
+            body: outer_body,
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("statements before using must remain outside its scope");
+        };
+        assert_eq!(
+            outer
+                .iter()
+                .next()
+                .map(|resource| resource.binding_name.as_str()),
+            Some("a")
+        );
+        let [StatementIr::Expression(_), StatementIr::SyncDisposableScope {
+            resources: inner,
+            body: inner_body,
+        }] = outer_body.statements.as_slice()
+        else {
+            panic!("a later using declaration must own only its remaining suffix");
+        };
+        assert_eq!(
+            inner
+                .iter()
+                .next()
+                .map(|resource| resource.binding_name.as_str()),
+            Some("b")
+        );
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [StatementIr::Expression(_)]
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_entry_is_the_only_runtime_binding_initializer() {
+        fn contains_lexical(statement: &StatementIr, name: &str) -> bool {
+            match statement {
+                StatementIr::Lexical {
+                    name: binding_name, ..
+                } => binding_name == name,
+                StatementIr::LexicalBlock(statements)
+                | StatementIr::ParameterInitialization { statements, .. } => statements
+                    .iter()
+                    .any(|statement| contains_lexical(statement, name)),
+                StatementIr::SyncDisposableScope { body, .. } | StatementIr::Block(body) => body
+                    .statements
+                    .iter()
+                    .any(|statement| contains_lexical(statement, name)),
+                _ => false,
+            }
+        }
+
+        let program = lower_script("function owner() { { using resource = null; resource; } }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let StatementIr::Block(block) = &owner.body.statements[0] else {
+            panic!("inner source block should remain explicit");
+        };
+        let StatementIr::SyncDisposableScope { resources, .. } = &block.statements[0] else {
+            panic!("inner using should lower to a dedicated scope");
+        };
+        let binding_name = &resources
+            .iter()
+            .next()
+            .expect("resource list is statically non-empty")
+            .binding_name;
+        assert!(!contains_lexical(&owner.body.statements[0], binding_name));
     }
 }

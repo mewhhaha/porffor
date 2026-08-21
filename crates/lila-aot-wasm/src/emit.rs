@@ -799,6 +799,7 @@ fn async_generator_contains_suspension(
             .chain(&catch_block.statements)
             .chain(&finally_block.statements)
             .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::SyncDisposableScope { .. } => false,
         _ => false,
     }
 }
@@ -1007,6 +1008,7 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         StatementIr::TryCatch { .. }
         | StatementIr::TryFinally { .. }
         | StatementIr::TryCatchFinally { .. } => Some("try statements without a resume plan"),
+        StatementIr::SyncDisposableScope { .. } => Some("synchronous using scopes"),
         StatementIr::Break { .. } | StatementIr::Continue { .. } => {
             Some("loop control completions")
         }
@@ -1039,6 +1041,7 @@ pub(crate) fn async_generator_for_await_is_transparent_yield(
             matches!(block.statements.as_slice(), [statement]
                 if async_generator_for_await_is_transparent_yield(binding, statement))
         }
+        StatementIr::SyncDisposableScope { .. } => false,
         _ => false,
     }
 }

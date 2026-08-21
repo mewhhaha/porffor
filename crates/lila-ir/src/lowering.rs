@@ -628,38 +628,26 @@ type ExactHelperContextId = String;
 type ExactCallbackContextKey = (FunctionId, ExactHelperContextId);
 type DirectCallContextKey = (FunctionId, ExactHelperContextId);
 
-/// One entry of a scope's DisposeCapability `[[DisposableResourceStack]]`.
+/// A lowering-only statement-list result.
 ///
-/// `value_name` holds the resource (spec `[[ResourceValue]]`) and
-/// `method_name` its `[[Symbol.dispose]]` method (spec `[[DisposeMethod]]`).
-/// `method_name` staying `undefined` marks the entry as never registered —
-/// either the declaration was not reached before an abrupt completion, or the
-/// resource was null/undefined and ECMA-262 27.3.1.1 step 1.a adds nothing.
-#[derive(Clone)]
-struct UsingSlot {
-    value_name: String,
-    method_name: String,
-    /// `true` for an `await using` declarator (spec hint `async-dispose`): the
-    /// disposal call result is awaited, and the dispose method is looked up as
-    /// `@@asyncDispose` with an `@@dispose` fallback.
-    is_async: bool,
-    /// Temporary holding the disposal call result of an `await using` entry so
-    /// the `Await` can stay a top-level statement of the finally block.
-    result_name: Option<String>,
+/// Resource declarations cannot masquerade as finalized public IR: they stay
+/// in this private domain until the containing list nests its remaining suffix
+/// into a [`StatementIr::SyncDisposableScope`].
+enum LoweredStatementListItemIr {
+    Statement {
+        statement: StatementIr,
+        result_kind: ValueKind,
+    },
+    SyncDisposableResources(SyncDisposableResourcesIr),
 }
 
-/// The DisposeCapability of one statement list being lowered.
-///
-/// Slots are pre-allocated from a scan of the list so the temporaries can be
-/// declared ahead of the guarded region; `next` walks them in declaration
-/// order as `using` declarations are lowered.
-struct UsingFrame {
-    slots: Vec<UsingSlot>,
-    next: usize,
-    /// Resume state the guarded region starts at, when the enclosing body is a
-    /// linear async function. Used to build the `AsyncTryPlanIr` of the
-    /// `try`/`finally` that [`ScriptLowerer::finish_using_frame`] emits.
-    async_entry_state: Option<u32>,
+impl LoweredStatementListItemIr {
+    fn statement(statement: StatementIr, result_kind: ValueKind) -> Self {
+        Self::Statement {
+            statement,
+            result_kind,
+        }
+    }
 }
 
 pub(crate) struct ScriptLowerer<'a> {
@@ -739,15 +727,6 @@ pub(crate) struct ScriptLowerer<'a> {
     generated_owned_env_bindings: Vec<OwnedEnvBindingIr>,
     next_generated_function_index: usize,
     next_temp_binding_index: usize,
-    /// Dispose capabilities of the statement lists currently being lowered.
-    ///
-    /// ECMA-262 explicit resource management gives every Block-like scope a
-    /// DisposeCapability; a `using` declaration in that scope registers its
-    /// resource on the innermost one and the scope disposes them in reverse on
-    /// any completion. Frames are pushed by the statement-list lowering entry
-    /// points, so `lower_using_declaration` always registers against the scope
-    /// that syntactically contains it.
-    using_frames: Vec<UsingFrame>,
     is_prepass: bool,
     active_direct_call_propagations: BTreeSet<FunctionId>,
     completed_direct_call_propagations: BTreeSet<DirectCallContextKey>,
@@ -1251,7 +1230,6 @@ impl<'a> ScriptLowerer<'a> {
             generated_owned_env_bindings: Vec::new(),
             next_generated_function_index: 0,
             next_temp_binding_index: 0,
-            using_frames: Vec::new(),
             is_prepass: false,
             active_direct_call_propagations: BTreeSet::new(),
             completed_direct_call_propagations: BTreeSet::new(),
@@ -2776,14 +2754,18 @@ impl<'a> ScriptLowerer<'a> {
         scope: LexicalScopeInstantiation,
     ) -> BlockIr {
         let mut scope = scope;
-        let mut statements = Vec::new();
-        let mut result_kind = ValueKind::Undefined;
+        let mut lowered_items = Vec::new();
 
         self.prepare_annex_b_function_bindings();
         self.prepare_static_generator_declarations(items);
         self.prepare_root_function_binding_ids(root_functions);
-        statements.extend(self.root_function_init_statements(root_functions));
-        self.push_using_frame(items);
+        lowered_items.extend(
+            self.root_function_init_statements(root_functions)
+                .into_iter()
+                .map(|statement| {
+                    LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
+                }),
+        );
 
         for item in items {
             match item {
@@ -2804,9 +2786,7 @@ impl<'a> ScriptLowerer<'a> {
                 StatementListItem::Declaration(declaration)
                     if self.is_static_generator_declaration(declaration) => {}
                 _ => {
-                    let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
-                    statements.push(statement);
-                    result_kind = kind;
+                    lowered_items.push(self.lower_statement_list_item(item, &mut scope));
                 }
             }
         }
@@ -2817,11 +2797,7 @@ impl<'a> ScriptLowerer<'a> {
         // what decides that.
         scope.finish(self);
 
-        self.finish_using_frame(BlockIr {
-            statements,
-            result_kind,
-            lexical_environment: None,
-        })
+        Self::finish_sync_disposable_scopes(lowered_items)
     }
 
     /// Lowers one statement list against the BlockDeclarationInstantiation that
@@ -2835,17 +2811,24 @@ impl<'a> ScriptLowerer<'a> {
         scope: LexicalScopeInstantiation,
     ) -> BlockIr {
         let mut scope = scope;
-        let mut statements = Vec::new();
-        let mut result_kind = ValueKind::Undefined;
+        let mut lowered_items = Vec::new();
 
-        statements.extend(self.lower_block_function_declarations(items));
-        self.push_using_frame(items);
+        lowered_items.extend(
+            self.lower_block_function_declarations(items)
+                .into_iter()
+                .map(|statement| {
+                    LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
+                }),
+        );
 
         for item in items {
             if let StatementListItem::Declaration(declaration) = item {
                 if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
                     if let Some(copy) = self.lower_annex_b_function_copy(function) {
-                        statements.push(copy);
+                        lowered_items.push(LoweredStatementListItemIr::statement(
+                            copy,
+                            ValueKind::Undefined,
+                        ));
                     }
                     continue;
                 }
@@ -2861,9 +2844,7 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
-            statements.push(statement);
-            result_kind = kind;
+            lowered_items.push(self.lower_statement_list_item(item, &mut scope));
         }
 
         // 14.3.1.2's `env` ends with the statement list. The token pushed it and
@@ -2872,308 +2853,71 @@ impl<'a> ScriptLowerer<'a> {
         // to push before constructing.
         scope.finish(self);
 
-        self.finish_using_frame(BlockIr {
-            statements,
-            result_kind,
-            lexical_environment: None,
-        })
+        Self::finish_sync_disposable_scopes(lowered_items)
     }
 
-    /// The resources a statement list can register on its DisposeCapability:
-    /// one per `using` or `await using` declarator directly in the list. `true`
-    /// marks an `await using` declarator, whose disposal is awaited (spec hint
-    /// `async-dispose`).
-    fn using_declarator_hints(items: &[StatementListItem]) -> Vec<bool> {
-        items
-            .iter()
-            .flat_map(|item| match item {
-                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
-                    Declaration::Lexical(LexicalDeclaration::Using(list)) => {
-                        vec![false; list.as_ref().len()]
-                    }
-                    Declaration::Lexical(LexicalDeclaration::AwaitUsing(list)) => {
-                        vec![true; list.as_ref().len()]
-                    }
-                    _ => Vec::new(),
-                },
-                StatementListItem::Statement(_) => Vec::new(),
-            })
-            .collect()
-    }
-
-    /// Opens the DisposeCapability of a statement list (ECMA-262 14.2.2
-    /// step 1: `NewDeclarativeEnvironment` + `NewDisposeCapability`).
+    /// Replaces each declaration marker with a scope over the remaining suffix.
     ///
-    /// The resource stack has a statically known depth, so the temporaries per
-    /// entry are allocated and declared here, ahead of the guarded region, and
-    /// left `undefined` until the matching declaration runs.
-    fn push_using_frame(&mut self, items: &[StatementListItem]) {
-        let mut hints = Self::using_declarator_hints(items);
-        // A generator body (or an async generator, which is compiled from a
-        // pre-planned resumable state machine) does not thread the emitted
-        // `try`/`finally` through its resume dispatch, so the finalizer would
-        // simply never run on the resume path that completes the body. Report
-        // that instead of silently dropping the disposal. A *linear* async body
-        // is fine: `finish_using_frame` builds the matching `AsyncTryPlanIr`.
-        if !hints.is_empty()
-            && (self.current_generator_resume_state.is_some()
-                || self.current_resumable_plan.is_some())
-        {
-            self.unsupported("using declaration in a generator or resumable async body");
-            hints.clear();
-        }
-        // A linear async body numbers its resume states once, statically, so a
-        // `try`/`finally` whose plan sits inside a loop would replay the same
-        // states on every iteration. Plain `try`/`finally` in an async loop has
-        // the same limitation; refuse rather than emit a body that runs one
-        // iteration and then traps.
-        if !hints.is_empty() && self.current_async_resume_state.is_some() && self.loop_depth > 0 {
-            self.unsupported("using declaration in an async loop body");
-            hints.clear();
-        }
-        // `await using` needs a suspension point per entry, which only a linear
-        // async body provides.
-        if hints.iter().any(|is_async| *is_async) && self.current_async_resume_state.is_none() {
-            self.unsupported("await using declaration outside an async body");
-            hints.clear();
-        }
-        let async_entry_state = (!hints.is_empty())
-            .then_some(self.current_async_resume_state)
-            .flatten();
-        let mut slots = Vec::with_capacity(hints.len());
-        for is_async in hints {
-            // Inside an async body the guarded region can suspend between the
-            // declaration and the finalizer, and plain locals do not survive a
-            // suspension — the activation is re-entered with fresh locals. The
-            // resource and its dispose method therefore have to live in the
-            // suspension-owned environment.
-            let dynamic_info = ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            };
-            let alloc = |lowerer: &mut Self, hint: &str| {
-                if async_entry_state.is_some() {
-                    lowerer.alloc_suspension_owned_binding(hint, dynamic_info.clone())
-                } else {
-                    let name = lowerer.alloc_temp_binding_name(hint);
-                    lowerer.declare_binding(
-                        name.clone(),
-                        BindingInfo {
-                            mode: BindingMode::Let,
-                            storage_name: name.clone(),
-                            kind: dynamic_info.kind,
-                            possible_kinds: dynamic_info.possible_kinds,
-                            heap_shape: None,
-                            function_targets: BTreeSet::new(),
-                            initialization: Initialization::Initialized,
-                        },
-                    );
-                    name
+    /// A resource is live only if evaluation reached its declaration. Nesting
+    /// the suffix makes that reachability structural and composes the required
+    /// reverse disposal order across interleaved declarations.
+    fn finish_sync_disposable_scopes(items: Vec<LoweredStatementListItemIr>) -> BlockIr {
+        let mut segments = Vec::new();
+        let mut current = Vec::new();
+        let mut current_kind = ValueKind::Undefined;
+        for item in items {
+            match item {
+                LoweredStatementListItemIr::Statement {
+                    statement,
+                    result_kind,
+                } => {
+                    current.push(statement);
+                    current_kind = result_kind;
                 }
-            };
-            let value_name = alloc(self, "using.value.");
-            let method_name = alloc(self, "using.method.");
-            let result_name = is_async.then(|| alloc(self, "using.dispose.result."));
-            slots.push(UsingSlot {
-                value_name,
-                method_name,
-                is_async,
-                result_name,
-            });
+                LoweredStatementListItemIr::SyncDisposableResources(resources) => {
+                    segments.push((current, resources));
+                    current = Vec::new();
+                    current_kind = ValueKind::Undefined;
+                }
+            }
         }
-        self.using_frames.push(UsingFrame {
-            slots,
-            next: 0,
-            async_entry_state,
-        });
-    }
 
-    /// Closes the DisposeCapability opened by [`Self::push_using_frame`].
-    ///
-    /// A list that registered nothing is returned unchanged. Otherwise the
-    /// lowered list becomes the try block of a `try`/`finally` whose finally
-    /// runs `DisposeResources` (ECMA-262 27.3.1.2) — every registered entry, in
-    /// reverse registration order — so it also covers the abrupt completions
-    /// (`throw`, `return`, `break`, `continue`) that leave the scope early.
-    fn finish_using_frame(&mut self, block: BlockIr) -> BlockIr {
-        let frame = self
-            .using_frames
-            .pop()
-            .expect("using frame stack must match statement list lowering");
-        if frame.slots.is_empty() {
-            return block;
-        }
-        let mut statements = Vec::with_capacity(frame.slots.len() * 3 + 1);
-        for slot in &frame.slots {
-            for name in [&slot.value_name, &slot.method_name]
-                .into_iter()
-                .chain(slot.result_name.as_ref())
-            {
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: name.clone(),
-                    init: TypedExpr::undefined(),
-                });
-            }
-        }
-        // Mirror `lower_try`'s resume-state accounting: the guarded region is
-        // the try block (already lowered, so the state counter has advanced
-        // over its awaits), then one state for the try exit, then the finally
-        // block's own awaits, then one state for the whole statement's exit.
-        let async_try_exit_state = frame.async_entry_state.map(|_| {
-            if let Some(state) = self.current_async_resume_state.as_mut() {
-                *state += 1;
-            }
-            self.current_async_resume_state.unwrap_or_default()
-        });
-        let mut finally_statements = Vec::with_capacity(frame.slots.len() * 3);
-        for slot in frame.slots.iter().rev() {
-            self.append_using_dispose_statements(slot, &mut finally_statements);
-        }
-        let async_plan = frame.async_entry_state.map(|entry_state| {
-            let finally_entry_state = async_try_exit_state.unwrap_or(entry_state);
-            if let Some(state) = self.current_async_resume_state.as_mut() {
-                *state += 1;
-            }
-            let exit_state = self.current_async_resume_state.unwrap_or(entry_state);
-            AsyncTryPlanIr {
-                entry_state,
-                try_exit_state: async_try_exit_state.unwrap_or(entry_state),
-                catch_entry_state: None,
-                catch_exit_state: None,
-                finally_entry_state: Some(finally_entry_state),
-                finally_exit_state: Some(exit_state),
-                exit_state,
-            }
-        });
-        let result_kind = block.result_kind;
-        statements.push(StatementIr::TryFinally {
-            try_block: block,
-            finally_block: BlockIr {
-                statements: finally_statements,
-                result_kind: ValueKind::Undefined,
+        if segments.is_empty() {
+            return BlockIr {
+                statements: current,
+                result_kind: current_kind,
                 lexical_environment: None,
-            },
-            generator_plan: None,
-            async_plan,
-        });
-        BlockIr {
-            statements,
-            result_kind,
-            lexical_environment: None,
+            };
         }
-    }
 
-    /// One `DisposeResources` step: `Call(method, resource)` for an entry that
-    /// was actually registered.
-    ///
-    /// An entry whose method is still `undefined` was either never reached or
-    /// held a null/undefined resource, which ECMA-262 27.3.1.1 step 1.a never
-    /// adds to the stack.
-    fn append_using_dispose_statements(
-        &mut self,
-        slot: &UsingSlot,
-        statements: &mut Vec<StatementIr>,
-    ) {
-        let method = self.lower_identifier_name(slot.method_name.clone(), false);
-        let value = self.lower_identifier_name(slot.value_name.clone(), false);
-        let condition = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::StrictEquality {
-                op: EqualityBinaryOp::StrictNotEqual,
-                lhs: Box::new(method.clone()),
-                rhs: Box::new(TypedExpr::undefined()),
-            },
-        );
-        let call = TypedExpr::spec_call(method, value, Vec::new());
-        let Some(result_name) = slot.result_name.clone() else {
-            statements.push(StatementIr::If {
-                condition,
-                then_branch: Box::new(StatementIr::Expression(call)),
-                else_branch: None,
-            });
-            return;
+        let mut suffix = BlockIr {
+            statements: current,
+            result_kind: current_kind,
+            lexical_environment: None,
         };
-        // `await using`: `Await(Call(method, resource))` (ECMA-262 27.3.1.2
-        // step 3.a.ii for an `async-dispose` entry). The call result is parked
-        // in a temporary so the `Await` stays a top-level statement of the
-        // finally block — the async resume dispatch only reaches suspension
-        // points at statement-list level.
-        statements.push(StatementIr::If {
-            condition,
-            then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                call.value_info(),
-                ExprIr::AssignIdentifier {
-                    name: result_name.clone(),
-                    value: Box::new(call),
-                },
-            ))),
-            else_branch: None,
-        });
-        let awaited = self.lower_identifier_name(result_name, false);
-        let (await_statement, _) =
-            self.lower_linear_async_await_value(awaited, AsyncResumeModeIr::Ignore);
-        statements.push(await_statement);
+        for (mut prefix, resources) in segments.into_iter().rev() {
+            let result_kind = suffix.result_kind;
+            prefix.push(StatementIr::SyncDisposableScope {
+                resources,
+                body: suffix,
+            });
+            suffix = BlockIr {
+                statements: prefix,
+                result_kind,
+                lexical_environment: None,
+            };
+        }
+        suffix
     }
 
-    /// The next free DisposeCapability entry of the innermost open frame.
-    fn take_using_slot(&mut self) -> Option<UsingSlot> {
-        let frame = self.using_frames.last_mut()?;
-        let slot = frame.slots.get(frame.next)?.clone();
-        frame.next += 1;
-        Some(slot)
-    }
-
-    /// `%Symbol%.dispose`, the well-known `@@dispose` symbol used as the
-    /// dispose-method key.
-    ///
-    /// Read off the global `Symbol` object rather than a scope lookup so a
-    /// local binding named `Symbol` cannot redirect it.
-    fn symbol_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value(WellKnownSymbol::Dispose)
-    }
-
-    /// `%Symbol%.asyncDispose`, the `@@asyncDispose` key an `await using`
-    /// declaration looks up first (ECMA-262 27.3.1.4 `GetDisposeMethod` with
-    /// hint `async-dispose`).
-    fn symbol_async_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value(WellKnownSymbol::AsyncDispose)
-    }
-
-    /// Reads `%Symbol%.<member>` for a well-known symbol.
-    ///
-    /// Takes the symbol, not its member name. The member name is load-bearing
-    /// twice here — it is the shape lookup key *and* the emitted
-    /// `PropertyKeyIr::StaticString` — and this used to be a `&str` parameter
-    /// called with the literals `"dispose"` and `"asyncDispose"`. Misspelling
-    /// one compiled, emitted a read of a property that does not exist, resolved
-    /// to `undefined`, and made `await using` silently never dispose. The shape
-    /// half of that was masked (the modelled `Symbol` constructor shape carries
-    /// only `prototype`, `for` and `keyFor`, so the lookup always missed and
-    /// fell back to `ValueKind::Symbol`); the emitted-key half was not.
-    fn symbol_well_known_value(&mut self, symbol: WellKnownSymbol) -> TypedExpr {
-        let property = symbol.member_name();
-        let symbol_info = self
-            .lookup_global_property(SYMBOL_NAME)
-            .unwrap_or_else(|| ValueInfo::new(ValueKind::Object));
-        let symbol_global = TypedExpr::from_info(
-            symbol_info,
-            ExprIr::GlobalPropertyRead {
-                name: SYMBOL_NAME.to_string(),
-            },
-        );
-        let info = self
-            .read_object_shape(&symbol_global, property)
-            .unwrap_or_else(|| ValueInfo::new(ValueKind::Symbol));
-        TypedExpr::from_info(
-            info,
-            ExprIr::PropertyRead {
-                target: Box::new(symbol_global),
-                key: PropertyKeyIr::StaticString(property.to_string()),
-            },
-        )
+    fn statement_list_ends_in_return(statements: &[StatementIr]) -> bool {
+        match statements.last() {
+            Some(StatementIr::Return(_)) => true,
+            Some(StatementIr::SyncDisposableScope { body, .. }) => {
+                Self::statement_list_ends_in_return(&body.statements)
+            }
+            _ => false,
+        }
     }
 
     fn lower_block_function_declarations(
@@ -3204,7 +2948,6 @@ impl<'a> ScriptLowerer<'a> {
     ) -> BlockIr {
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
-        self.push_using_frame(items);
         for item in items {
             if let StatementListItem::Declaration(declaration) = item {
                 if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
@@ -3225,15 +2968,26 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item, scope);
-            statements.push(statement);
-            result_kind = kind;
+            match self.lower_statement_list_item(item, scope) {
+                LoweredStatementListItemIr::Statement {
+                    statement,
+                    result_kind: kind,
+                } => {
+                    statements.push(statement);
+                    result_kind = kind;
+                }
+                LoweredStatementListItemIr::SyncDisposableResources(_) => {
+                    self.unsupported("using declaration in a switch CaseBlock");
+                    statements.push(StatementIr::Empty);
+                    result_kind = ValueKind::Undefined;
+                }
+            }
         }
-        self.finish_using_frame(BlockIr {
+        BlockIr {
             statements,
             result_kind,
             lexical_environment: None,
-        })
+        }
     }
 
     fn prepare_annex_b_function_bindings(&mut self) {
@@ -3353,16 +3107,36 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         item: &StatementListItem,
         scope: &mut LexicalScopeInstantiation,
-    ) -> (StatementIr, ValueKind) {
+    ) -> LoweredStatementListItemIr {
         match item {
-            StatementListItem::Statement(statement) => self.lower_statement(statement),
-            StatementListItem::Declaration(declaration) => {
-                if self.is_static_generator_declaration(declaration.as_ref()) {
-                    (StatementIr::Empty, ValueKind::Undefined)
-                } else {
-                    self.lower_declaration(declaration, scope)
-                }
+            StatementListItem::Statement(statement) => {
+                let (statement, result_kind) = self.lower_statement(statement);
+                LoweredStatementListItemIr::statement(statement, result_kind)
             }
+            StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                Declaration::Lexical(LexicalDeclaration::Using(list)) => self
+                    .lower_using_declaration(list.as_ref(), scope)
+                    .map_or_else(
+                        || {
+                            LoweredStatementListItemIr::statement(
+                                StatementIr::Empty,
+                                ValueKind::Undefined,
+                            )
+                        },
+                        LoweredStatementListItemIr::SyncDisposableResources,
+                    ),
+                Declaration::Lexical(LexicalDeclaration::AwaitUsing(_)) => {
+                    self.unsupported("await using declaration");
+                    LoweredStatementListItemIr::statement(StatementIr::Empty, ValueKind::Undefined)
+                }
+                _ if self.is_static_generator_declaration(declaration.as_ref()) => {
+                    LoweredStatementListItemIr::statement(StatementIr::Empty, ValueKind::Undefined)
+                }
+                _ => {
+                    let (statement, result_kind) = self.lower_declaration(declaration, scope);
+                    LoweredStatementListItemIr::statement(statement, result_kind)
+                }
+            },
         }
     }
 
@@ -5389,6 +5163,21 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
                 info
+            }
+            StatementIr::SyncDisposableScope { resources, body } => {
+                let mut info = Some(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                });
+                for resource in resources.iter() {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_expr_throw_info(&resource.initializer),
+                    );
+                }
+                self.merge_optional_value_info(info, self.infer_block_throw_info(body))
             }
             StatementIr::If {
                 condition,
@@ -8489,8 +8278,7 @@ impl<'a> ScriptLowerer<'a> {
             .current_return_info
             .clone()
             .unwrap_or_else(ValueInfo::undefined);
-        let final_statement_is_return =
-            matches!(body.statements.last(), Some(StatementIr::Return(_)));
+        let final_statement_is_return = Self::statement_list_ends_in_return(&body.statements);
         if !final_statement_is_return {
             return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
         }
@@ -9690,8 +9478,8 @@ impl<'a> ScriptLowerer<'a> {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(list) | LexicalDeclaration::AwaitUsing(list) => {
-                return self.lower_using_declaration(list.as_ref(), scope);
+            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+                unreachable!("statement-list lowering owns dedicated using declarations")
             }
         };
 
@@ -10004,33 +9792,54 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    /// Lowers `using a = expr, b = expr;` (ECMA-262 14.3.4).
+    /// Lowers `using a = expr, b = expr;` into one non-empty resource list.
     ///
-    /// Each declarator binds immutably like `const`, then runs
-    /// `AddDisposableResource` (27.3.1.1) against the enclosing scope's
-    /// DisposeCapability. The matching `DisposeResources` call is emitted by
-    /// [`Self::finish_using_frame`] once the whole statement list is lowered.
+    /// The returned entries, not generic lexical statements, own runtime
+    /// InitializeBinding. This preserves 14.3.1.3's order: evaluate, validate
+    /// and register through AddDisposableResource, then initialize the binding.
     fn lower_using_declaration(
         &mut self,
         list: &[Variable],
         scope: &mut LexicalScopeInstantiation,
-    ) -> (StatementIr, ValueKind) {
-        let mut statements = Vec::with_capacity(list.len() * 3);
+    ) -> Option<SyncDisposableResourcesIr> {
+        if self.root_this_binding == RootThisBinding::Undefined {
+            self.unsupported("using declaration in a module");
+            return None;
+        }
+        if self.current_generator_resume_state.is_some()
+            || self.current_async_resume_state.is_some()
+            || self.current_resumable_plan.is_some()
+        {
+            self.unsupported("using declaration in a generator or async function");
+            return None;
+        }
+        if list.is_empty() {
+            self.unsupported("empty using declaration");
+            return None;
+        }
+        if list
+            .iter()
+            .any(|variable| !matches!(variable.binding(), Binding::Identifier(_)))
+        {
+            self.unsupported("using declaration binding pattern");
+            return None;
+        }
+        if list.iter().any(|variable| variable.init().is_none()) {
+            self.unsupported("using declaration without initializer");
+            return None;
+        }
+
+        let mut resources = Vec::with_capacity(list.len());
         for variable in list {
             let Binding::Identifier(identifier) = variable.binding() else {
-                self.unsupported("using declaration binding pattern");
-                return (StatementIr::Empty, ValueKind::Undefined);
-            };
-            let Some(slot) = self.take_using_slot() else {
-                self.unsupported("using declaration outside a disposable scope");
-                return (StatementIr::Empty, ValueKind::Undefined);
+                unreachable!("binding patterns were rejected before lowering")
             };
             let name = self.interner.resolve_expect(identifier.sym()).to_string();
             let pending = scope.take(&name);
-            let init = variable
+            let initializer = variable
                 .init()
-                .map(|expression| self.lower_expression(expression))
-                .unwrap_or_else(TypedExpr::undefined);
+                .expect("using initializers were validated before lowering");
+            let init = self.lower_expression(initializer);
             self.static_iterator_binding_values.remove(&name);
             self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
@@ -10047,170 +9856,14 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 }
             };
-            statements.push(initialized.declare(self));
-            statements.extend(self.add_disposable_resource_statements(&name, &slot));
+            resources.push(initialized.into_sync_disposable_resource(self));
         }
 
-        if statements.len() == 1 {
-            (statements.remove(0), ValueKind::Undefined)
-        } else {
-            (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
-        }
-    }
-
-    /// `AddDisposableResource(disposeCapability, resource, sync-dispose)`
-    /// (ECMA-262 27.3.1.1) for one already-bound `using` declarator.
-    ///
-    /// A null or undefined resource registers nothing (step 1.a), so the
-    /// entry's method stays `undefined` and disposal skips it. Anything else
-    /// goes through `CreateDisposableResource` (27.3.1.3): a non-Object is a
-    /// TypeError, then `GetMethod(resource, @@dispose)` — which itself throws
-    /// when the property is present but not callable — must yield a method.
-    fn add_disposable_resource_statements(
-        &mut self,
-        name: &str,
-        slot: &UsingSlot,
-    ) -> Vec<StatementIr> {
-        let resource = self.lower_identifier_name(name.to_string(), false);
-        let store_value = StatementIr::Expression(TypedExpr::from_info(
-            resource.value_info(),
-            ExprIr::AssignIdentifier {
-                name: slot.value_name.clone(),
-                value: Box::new(resource),
-            },
-        ));
-
-        let value_read = self.lower_identifier_name(slot.value_name.clone(), false);
-        let not_nullish = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LooseEquality {
-                op: EqualityBinaryOp::LooseNotEqual,
-                lhs: Box::new(value_read.clone()),
-                rhs: Box::new(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Null),
-                    ExprIr::Null,
-                )),
-            },
-        );
-
-        // `typeof` separates the two Object cases from every primitive, which
-        // is what CreateDisposableResource step 1.b.i rejects — a primitive
-        // that inherits a callable `[Symbol.dispose]` is still a TypeError.
-        let type_of_value = |lowerer: &mut Self| {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::String),
-                ExprIr::TypeOf {
-                    expr: Box::new(lowerer.lower_identifier_name(slot.value_name.clone(), false)),
-                },
-            )
-        };
-        let type_is_not = |lowerer: &mut Self, expected: &str| {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Boolean),
-                ExprIr::StrictEquality {
-                    op: EqualityBinaryOp::StrictNotEqual,
-                    lhs: Box::new(type_of_value(lowerer)),
-                    rhs: Box::new(TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::String),
-                        ExprIr::String(expected.to_string()),
-                    )),
-                },
-            )
-        };
-        let throw_not_object = StatementIr::If {
-            condition: type_is_not(self, "object"),
-            then_branch: Box::new(StatementIr::If {
-                condition: type_is_not(self, "function"),
-                then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                    ValueInfo::undefined(),
-                    ExprIr::RuntimeThrow {
-                        name: NativeErrorKind::TypeError,
-                        message: "using declaration resource is not an object",
-                    },
-                ))),
-                else_branch: None,
-            }),
-            else_branch: None,
-        };
-
-        let primary_key = if slot.is_async {
-            self.symbol_async_dispose_value()
-        } else {
-            self.symbol_dispose_value()
-        };
-        let get_method = TypedExpr::spec_get_method(value_read, primary_key);
-        let store_method = StatementIr::Expression(TypedExpr::from_info(
-            get_method.value_info(),
-            ExprIr::AssignIdentifier {
-                name: slot.method_name.clone(),
-                value: Box::new(get_method),
-            },
-        ));
-
-        let method_is_undefined = |lowerer: &mut Self| {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Boolean),
-                ExprIr::StrictEquality {
-                    op: EqualityBinaryOp::StrictEqual,
-                    lhs: Box::new(lowerer.lower_identifier_name(slot.method_name.clone(), false)),
-                    rhs: Box::new(TypedExpr::undefined()),
-                },
-            )
-        };
-
-        // `GetDisposeMethod(V, async-dispose)` (ECMA-262 27.3.1.4): when
-        // `@@asyncDispose` is absent, fall back to `@@dispose`. The spec wraps
-        // the sync method in a closure whose result the caller awaits; awaiting
-        // the sync call's own result is the same observable sequence, so the
-        // fallback method is stored directly.
-        let sync_fallback = slot.is_async.then(|| {
-            let value_read = self.lower_identifier_name(slot.value_name.clone(), false);
-            let dispose_key = self.symbol_dispose_value();
-            let fallback = TypedExpr::spec_get_method(value_read, dispose_key);
-            StatementIr::If {
-                condition: method_is_undefined(self),
-                then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                    fallback.value_info(),
-                    ExprIr::AssignIdentifier {
-                        name: slot.method_name.clone(),
-                        value: Box::new(fallback),
-                    },
-                ))),
-                else_branch: None,
-            }
-        });
-
-        let missing_message = if slot.is_async {
-            "await using declaration resource has no [Symbol.asyncDispose] method"
-        } else {
-            "using declaration resource has no [Symbol.dispose] method"
-        };
-        let throw_missing = StatementIr::If {
-            condition: method_is_undefined(self),
-            then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::RuntimeThrow {
-                    name: NativeErrorKind::TypeError,
-                    message: missing_message,
-                },
-            ))),
-            else_branch: None,
-        };
-
-        vec![
-            store_value,
-            StatementIr::If {
-                condition: not_nullish,
-                then_branch: Box::new(StatementIr::LexicalBlock(
-                    [throw_not_object, store_method]
-                        .into_iter()
-                        .chain(sync_fallback)
-                        .chain([throw_missing])
-                        .collect(),
-                )),
-                else_branch: None,
-            },
-        ]
+        let mut resources = resources.into_iter();
+        let first = resources
+            .next()
+            .expect("a parsed using BindingList is non-empty");
+        Some(SyncDisposableResourcesIr::new(first, resources.collect()))
     }
 
     fn hoist_root_statement_items(&mut self, items: &[StatementListItem]) {
@@ -13385,7 +13038,7 @@ impl<'a> ScriptLowerer<'a> {
             .current_return_info
             .clone()
             .unwrap_or_else(ValueInfo::undefined);
-        if !matches!(body_ir.statements.last(), Some(StatementIr::Return(_))) {
+        if !Self::statement_list_ends_in_return(&body_ir.statements) {
             return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
         }
         if execution_kind == FunctionExecutionKind::Generator {

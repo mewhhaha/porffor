@@ -2215,6 +2215,16 @@ pub enum StatementIr {
         target: AnnexBFunctionCopyTargetIr,
     },
     LexicalBlock(Vec<StatementIr>),
+    /// A non-resumable synchronous DisposeCapability.
+    ///
+    /// `resources` is non-empty and in declaration order. Each entry owns its
+    /// binding initialization; the backend acquires and registers its dispose
+    /// method before initializing `binding_name`, then evaluates `body` and
+    /// disposes every registered entry in reverse on every completion.
+    SyncDisposableScope {
+        resources: SyncDisposableResourcesIr,
+        body: BlockIr,
+    },
     ParameterInitialization {
         parameter_index: usize,
         statements: Vec<StatementIr>,
@@ -2383,6 +2393,48 @@ pub enum StatementIr {
     },
 }
 
+/// One declarator registered by [`StatementIr::SyncDisposableScope`].
+///
+/// There is deliberately no disposal-kind flag: this closed node only accepts
+/// synchronous `using`. `binding_name` is the immutable lexical binding's IR
+/// storage name, and this entry is its sole runtime initialization owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncDisposableResourceIr {
+    pub binding_name: String,
+    pub initializer: TypedExpr,
+}
+
+/// A declaration-ordered, statically non-empty synchronous resource list.
+///
+/// Fields stay private so a backend consumer can inspect but cannot mint an
+/// empty DisposeCapability. Lowering is the sole constructor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncDisposableResourcesIr {
+    first: SyncDisposableResourceIr,
+    rest: Vec<SyncDisposableResourceIr>,
+}
+
+impl SyncDisposableResourcesIr {
+    pub(crate) fn new(
+        first: SyncDisposableResourceIr,
+        rest: Vec<SyncDisposableResourceIr>,
+    ) -> Self {
+        Self { first, rest }
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &SyncDisposableResourceIr> {
+        std::iter::once(&self.first).chain(self.rest.iter())
+    }
+
+    pub fn len(&self) -> usize {
+        1 + self.rest.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnexBFunctionCopyTargetIr {
     OwnerBinding { storage_name: String },
@@ -2406,6 +2458,7 @@ impl StatementIr {
             | Self::Lexical { .. }
             | Self::AnnexBFunctionCopy { .. }
             | Self::LexicalBlock(_)
+            | Self::SyncDisposableScope { .. }
             | Self::ParameterInitialization { .. }
             | Self::Var(_)
             | Self::Expression(_)
@@ -3141,6 +3194,12 @@ impl IrSummaryCounts {
                 for statement in statements {
                     self.visit_statement(statement);
                 }
+            }
+            StatementIr::SyncDisposableScope { resources, body } => {
+                for resource in resources.iter() {
+                    self.visit_expr(&resource.initializer);
+                }
+                self.visit_block(body);
             }
             StatementIr::Var(declarators) => {
                 self.vars += declarators.len();

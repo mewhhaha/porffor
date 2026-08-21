@@ -48,6 +48,28 @@ contract live in
 `docs/rust-rewrite/contracts/disposable-stack-construction-brand.md` and
 `docs/rust-rewrite/contracts/disposable-stack-synchronous-lifecycle.md`.
 
+The adjacent non-resumable synchronous `using` source batch now covers direct
+children of ordinary Block and function-body statement lists through one
+dedicated `StatementIr::SyncDisposableScope`. Its `SyncDisposableResourcesIr`
+carrier is statically non-empty, retains declaration order and makes each
+resource entry the sole lexical-binding initializer after validation,
+`@@dispose` acquisition and registration. Interleaved statements become nested
+suffix scopes rather than a generic `TryFinally`. The Wasm backend consumes
+private non-`Copy` pending-completion and acquired-resource witnesses, walks the
+registered entries in reverse, continues after every disposer throw, folds a
+new `SuppressedError` only over an already-Throw completion and restores the
+final normal/throw/return/break/continue completion once. The bounded source
+test and CLI fixture cover acquisition once, TDZ ordering, nullish skipping,
+receiver identity, normal and throwing LIFO, subsequent initializer failure,
+single-error identity, Return preservation/replacement and nested suppression
+over a body error. `await using`, resumable bodies, loop heads, Switch
+CaseBlocks, modules and dynamic source remain explicit non-claims under
+`docs/rust-rewrite/contracts/synchronous-using-scope-ir.md`. The integrated
+current-SHA checkpoint is green: `cargo xc`, 3/3 focused IR tests, 4/4 source
+structure tests and the CLI consumer pass. The exact 18-file non-dynamic
+lifecycle cohort is 36/36 under Wasm-AOT. This focused result does not claim the
+complete 78-file `language/statements/using` directory or full pinned aggregate.
+
 The generator-yield IR now distinguishes `yield` from `yield*` with the closed
 `YieldForm` domain. Its delegation case carries a one-inhabitant
 `GeneratorDelegationProtocol`, which is compile-time tied to all four iterator

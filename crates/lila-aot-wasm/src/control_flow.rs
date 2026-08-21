@@ -3,8 +3,26 @@ use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget}
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
-    ObjectDestructuringPatternIr, ResumableLoopIterationEnvironmentIr,
+    ObjectDestructuringPatternIr, ResumableLoopIterationEnvironmentIr, SyncDisposableResourceIr,
+    SyncDisposableResourcesIr,
 };
+
+#[must_use = "a captured using-scope completion must be restored and dispatched"]
+struct PendingSyncDisposeCompletionLocals {
+    payload: u32,
+    tag: u32,
+    kind: u32,
+    aux: u32,
+}
+
+#[must_use = "an acquired using resource must be consumed by reverse disposal"]
+struct AcquiredSyncDisposableResourceLocals {
+    registered: u32,
+    value_payload: u32,
+    value_tag: u32,
+    method_payload: u32,
+    method_tag: u32,
+}
 
 fn innermost_target(left: ControlTarget, right: ControlTarget) -> ControlTarget {
     if left.frame >= right.frame {
@@ -1174,6 +1192,7 @@ impl<'a> FunctionBuilder<'a> {
                 async_plan: Some(plan),
                 ..
             } => Some(plan.entry_state),
+            StatementIr::SyncDisposableScope { .. } => None,
             _ => None,
         }
     }
@@ -1209,6 +1228,7 @@ impl<'a> FunctionBuilder<'a> {
                 async_plan: Some(plan),
                 ..
             } => Some(plan.exit_state),
+            StatementIr::SyncDisposableScope { .. } => None,
             _ => None,
         }
     }
@@ -1237,6 +1257,7 @@ impl<'a> FunctionBuilder<'a> {
                 generator_plan: Some(plan),
                 ..
             } => Some(plan.entry_state),
+            StatementIr::SyncDisposableScope { .. } => None,
             _ => None,
         }
     }
@@ -1267,6 +1288,7 @@ impl<'a> FunctionBuilder<'a> {
                 generator_plan: Some(plan),
                 ..
             } => Some(plan.exit_state),
+            StatementIr::SyncDisposableScope { .. } => None,
             _ => None,
         }
     }
@@ -1363,6 +1385,22 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 StatementIr::LexicalBlock(statements) => {
                     self.initialize_direct_lexical_bindings(statements, function);
+                }
+                StatementIr::SyncDisposableScope { resources, body } => {
+                    for resource in resources.iter() {
+                        let storage = self
+                            .lookup_current_scope_binding(&resource.binding_name)
+                            .or_else(|| self.lookup_binding(&resource.binding_name))
+                            .unwrap_or_else(|| {
+                                self.allocate_binding(
+                                    resource.binding_name.clone(),
+                                    BindingMode::Const,
+                                    resource.initializer.kind,
+                                )
+                            });
+                        self.initialize_binding_uninitialized(storage, function);
+                    }
+                    self.initialize_direct_lexical_bindings(&body.statements, function);
                 }
                 StatementIr::Expression(TypedExpr {
                     expr:
@@ -2211,6 +2249,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
                 self.emit_statement_result(function, ValueKind::Undefined);
+            }
+            StatementIr::SyncDisposableScope { resources, body } => {
+                self.compile_sync_disposable_scope(resources, body, function)?;
             }
             StatementIr::AnnexBFunctionCopy {
                 source_name,
@@ -4687,6 +4728,323 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(saved_completion_local);
         self.release_temp_local(saved_tag_local);
         self.release_temp_local(saved_payload_local);
+        Ok(())
+    }
+
+    fn compile_sync_disposable_scope(
+        &mut self,
+        resources: &SyncDisposableResourcesIr,
+        body: &BlockIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if self.current_function_meta().is_some_and(|meta| {
+            !matches!(
+                meta.protocol.execution_kind(),
+                FunctionExecutionKind::Ordinary
+            )
+        }) {
+            return Err(EmitError::unsupported(
+                "unsupported in lila wasm-aot first slice: synchronous using scope in a resumable body",
+            ));
+        }
+        debug_assert!(!resources.is_empty());
+        let acquired = resources
+            .iter()
+            .map(|_| self.reserve_sync_disposable_resource_locals(function))
+            .collect::<Vec<_>>();
+
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(disposal_frame);
+        for (resource, locals) in resources.iter().zip(&acquired) {
+            self.compile_sync_disposable_resource(resource, locals, function)?;
+        }
+        self.push_scope();
+        self.compile_block_contents(body, function)?;
+        self.pop_scope();
+        self.finally_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        let pending = self.capture_pending_sync_dispose_completion(function);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.consume_sync_disposable_resources(pending, acquired, function)?;
+
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn reserve_sync_disposable_resource_locals(
+        &mut self,
+        function: &mut Function,
+    ) -> AcquiredSyncDisposableResourceLocals {
+        let locals = AcquiredSyncDisposableResourceLocals {
+            registered: self.reserve_temp_local(),
+            value_payload: self.reserve_temp_local(),
+            value_tag: self.reserve_temp_local(),
+            method_payload: self.reserve_temp_local(),
+            method_tag: self.reserve_temp_local(),
+        };
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(locals.registered));
+        locals
+    }
+
+    fn release_sync_disposable_resource_locals(
+        &mut self,
+        resource: AcquiredSyncDisposableResourceLocals,
+    ) {
+        self.release_temp_local(resource.method_tag);
+        self.release_temp_local(resource.method_payload);
+        self.release_temp_local(resource.value_tag);
+        self.release_temp_local(resource.value_payload);
+        self.release_temp_local(resource.registered);
+    }
+
+    fn compile_sync_disposable_resource(
+        &mut self,
+        resource: &SyncDisposableResourceIr,
+        locals: &AcquiredSyncDisposableResourceLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.compile_expr_to_locals(
+            &resource.initializer,
+            locals.value_payload,
+            locals.value_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            locals.value_payload,
+            locals.value_tag,
+            function,
+        )?;
+
+        function.instruction(&Instruction::LocalGet(locals.value_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(locals.value_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::Else);
+
+        self.emit_is_heap_object_like_tag_i32(locals.value_tag, function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            "using declaration resource is not an object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let key_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.dispose"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            locals.value_payload,
+            locals.value_tag,
+            locals.value_payload,
+            locals.value_tag,
+            key_local,
+            locals.method_payload,
+            locals.method_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            locals.method_payload,
+            locals.method_tag,
+            function,
+        )?;
+        self.release_temp_local(key_local);
+
+        function.instruction(&Instruction::LocalGet(locals.method_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(locals.method_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            "using declaration resource has no [Symbol.dispose] method",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        self.emit_is_callable_i32(locals.method_tag, locals.method_payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            "using declaration [Symbol.dispose] method is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        // Publication is the final acquisition step. An abrupt validation or
+        // GetMethod path branches to disposal while this flag is still zero.
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(locals.registered));
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
+        let storage = self
+            .lookup_current_scope_binding(&resource.binding_name)
+            .or_else(|| self.lookup_binding(&resource.binding_name))
+            .unwrap_or_else(|| {
+                self.allocate_binding(
+                    resource.binding_name.clone(),
+                    BindingMode::Const,
+                    resource.initializer.kind,
+                )
+            });
+        self.write_binding_from_locals(storage, locals.value_payload, locals.value_tag, function);
+        Ok(())
+    }
+
+    fn capture_pending_sync_dispose_completion(
+        &mut self,
+        function: &mut Function,
+    ) -> PendingSyncDisposeCompletionLocals {
+        let pending = PendingSyncDisposeCompletionLocals {
+            payload: self.reserve_temp_local(),
+            tag: self.reserve_temp_local(),
+            kind: self.reserve_temp_local(),
+            aux: self.reserve_temp_local(),
+        };
+        self.save_current_completion(
+            pending.payload,
+            pending.tag,
+            pending.kind,
+            pending.aux,
+            function,
+        );
+        pending
+    }
+
+    fn consume_sync_disposable_resources(
+        &mut self,
+        pending: PendingSyncDisposeCompletionLocals,
+        acquired: Vec<AcquiredSyncDisposableResourceLocals>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let call_result_payload_local = self.reserve_temp_local();
+        let call_result_tag_local = self.reserve_temp_local();
+        let new_error_payload_local = self.reserve_temp_local();
+        let new_error_tag_local = self.reserve_temp_local();
+        let combined_payload_local = self.reserve_temp_local();
+        let combined_tag_local = self.reserve_temp_local();
+        let prototype_local = self.reserve_temp_local();
+        let no_arguments: [(u32, u32); 0] = [];
+
+        for resource in acquired.iter().rev() {
+            function.instruction(&Instruction::LocalGet(resource.registered));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            self.open_frame(ControlFrameKind::If, function);
+
+            self.set_completion_kind(CompletionKind::Normal, function);
+            self.emit_function_or_proxy_call_leave_throw_completion(
+                resource.method_payload,
+                resource.method_tag,
+                resource.value_payload,
+                resource.value_tag,
+                &no_arguments,
+                call_result_payload_local,
+                call_result_tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalGet(self.completion_local));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+
+            function.instruction(&Instruction::LocalGet(self.result_local));
+            function.instruction(&Instruction::LocalSet(new_error_payload_local));
+            function.instruction(&Instruction::LocalGet(self.result_tag_local));
+            function.instruction(&Instruction::LocalSet(new_error_tag_local));
+            function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+            function.instruction(&Instruction::LocalSet(pending.aux));
+            self.set_completion_kind(CompletionKind::Normal, function);
+            function.instruction(&Instruction::LocalGet(new_error_payload_local));
+            function.instruction(&Instruction::LocalSet(combined_payload_local));
+            function.instruction(&Instruction::LocalGet(new_error_tag_local));
+            function.instruction(&Instruction::LocalSet(combined_tag_local));
+
+            function.instruction(&Instruction::LocalGet(pending.kind));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            function.instruction(&Instruction::GlobalGet(
+                SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(prototype_local));
+            self.emit_alloc_suppressed_error_instance_from_locals(
+                None,
+                new_error_payload_local,
+                new_error_tag_local,
+                pending.payload,
+                pending.tag,
+                prototype_local,
+                combined_payload_local,
+                combined_tag_local,
+                function,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+
+            function.instruction(&Instruction::LocalGet(combined_payload_local));
+            function.instruction(&Instruction::LocalSet(pending.payload));
+            function.instruction(&Instruction::LocalGet(combined_tag_local));
+            function.instruction(&Instruction::LocalSet(pending.tag));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+            function.instruction(&Instruction::LocalSet(pending.kind));
+
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+
+        self.restore_saved_completion(
+            pending.payload,
+            pending.tag,
+            pending.kind,
+            pending.aux,
+            function,
+        );
+        self.emit_dispatch_current_completion(function)?;
+
+        self.release_temp_local(prototype_local);
+        self.release_temp_local(combined_tag_local);
+        self.release_temp_local(combined_payload_local);
+        self.release_temp_local(new_error_tag_local);
+        self.release_temp_local(new_error_payload_local);
+        self.release_temp_local(call_result_tag_local);
+        self.release_temp_local(call_result_payload_local);
+        self.release_temp_local(pending.aux);
+        self.release_temp_local(pending.kind);
+        self.release_temp_local(pending.tag);
+        self.release_temp_local(pending.payload);
+        for resource in acquired.into_iter().rev() {
+            self.release_sync_disposable_resource_locals(resource);
+        }
         Ok(())
     }
 

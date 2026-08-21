@@ -3103,6 +3103,12 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                 })
         }
         StatementIr::Labelled { statement, .. } => statement_exposes_global_object(statement),
+        StatementIr::SyncDisposableScope { resources, body } => {
+            resources
+                .iter()
+                .any(|resource| expr_exposes_global_object(&resource.initializer))
+                || block_exposes_global_object(body)
+        }
         StatementIr::TryCatch {
             try_block,
             catch_block,
@@ -3571,6 +3577,12 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         }
         StatementIr::Labelled { statement, .. } => {
             collect_statement_global_property_names(statement, names);
+        }
+        StatementIr::SyncDisposableScope { resources, body } => {
+            for resource in resources.iter() {
+                collect_expr_global_property_names(&resource.initializer, names);
+            }
+            collect_block_global_property_names(body, names);
         }
         StatementIr::TryCatch {
             try_block,
@@ -4681,6 +4693,12 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                 })
         }
         StatementIr::Labelled { statement, .. } => statement_references_function(statement, target),
+        StatementIr::SyncDisposableScope { resources, body } => {
+            resources
+                .iter()
+                .any(|resource| expr_references_function(&resource.initializer, target))
+                || block_references_function(body, target)
+        }
         StatementIr::TryCatch {
             try_block,
             catch_block,
@@ -6736,6 +6754,7 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
         | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().any(statement_uses_calls)
         }
+        StatementIr::SyncDisposableScope { .. } => true,
         StatementIr::Return(value) | StatementIr::Throw(value) => expr_uses_calls(value),
         StatementIr::Var(declarators) => declarators
             .iter()
@@ -6913,6 +6932,7 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
         | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().any(statement_uses_function_table)
         }
+        StatementIr::SyncDisposableScope { .. } => true,
         StatementIr::Var(declarators) => declarators
             .iter()
             .filter_map(|declarator| declarator.init.as_ref())
@@ -7527,6 +7547,9 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().map(count_statement_lexicals).sum()
         }
+        StatementIr::SyncDisposableScope { resources, body } => {
+            resources.len() * 2 + count_block_lexicals(body)
+        }
         StatementIr::Block(block) => count_block_lexicals(block),
         StatementIr::TryCatch {
             try_block,
@@ -7773,6 +7796,17 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .map(count_statement_temp_locals)
             .max()
             .unwrap_or(0),
+        StatementIr::SyncDisposableScope { resources, body } => {
+            let initializer_temps = resources
+                .iter()
+                .map(|resource| count_expr_temp_locals(&resource.initializer))
+                .max()
+                .unwrap_or(0);
+            resources.len() * 5
+                + initializer_temps
+                    .max(count_block_temp_locals(body))
+                    .max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS)
+        }
         StatementIr::Block(block) => count_block_temp_locals(block),
         StatementIr::TryCatch {
             try_block,
@@ -7956,6 +7990,12 @@ fn call_args_have_spread(args: &[TypedExpr]) -> bool {
 /// a second flag local and a planner that still says one is a panic in the
 /// middle of code generation, not a compile error.
 pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
+
+// Four captured-completion locals, seven disposal-walker locals, and the same
+// 64-local indirect-call allowance used by `ExprIr::CallIndirect` below. The
+// phases do not overlap initializer/body child temporaries, so their maximum
+// is the accurate budget rather than an additive guess.
+const SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS: usize = 4 + 7 + 64;
 
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
@@ -8813,6 +8853,9 @@ pub(crate) fn collect_hoisted_vars_statement(
             collect_hoisted_vars_block(try_block, names);
             collect_hoisted_vars_block(catch_block, names);
             collect_hoisted_vars_block(finally_block, names);
+        }
+        StatementIr::SyncDisposableScope { body, .. } => {
+            collect_hoisted_vars_block(body, names);
         }
         StatementIr::Expression(TypedExpr {
             expr:

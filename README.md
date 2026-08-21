@@ -381,6 +381,20 @@ Recent focused progress through `2026-08-21`:
   `#constructor` form. The adjacent expression and statement early-error
   subtrees are each `444/444` under Wasm-AOT; this is bounded parser evidence,
   not full language or aggregate closure.
+- Non-resumable synchronous `using` declarations that are direct children of
+  ordinary blocks or function bodies now lower to the dedicated, statically
+  non-empty `StatementIr::SyncDisposableScope` capability instead of generic
+  `TryFinally`. The Wasm consumer acquires each `@@dispose` method before
+  initializing its lexical binding, captures every outgoing completion, walks
+  registered resources in reverse, continues after disposer throws, folds
+  nested `SuppressedError` values and restores the final completion exactly
+  once. A bounded source witness and CLI consumer cover TDZ method
+  acquisition, nullish skipping, LIFO, initializer/return/body abrupt paths and
+  suppression descriptors. The integrated current-SHA checkpoint is green:
+  `cargo xc`, 3/3 focused IR tests, 4/4 structure tests and the end-to-end CLI
+  consumer pass. The exact 18-file non-dynamic lifecycle cohort is 36/36 under
+  Wasm-AOT. This is focused evidence, not a claim about the complete 78-file
+  `language/statements/using` directory or the full pinned aggregate.
 
 - Promise construction now runs executors synchronously through the real
   Wasm-AOT call path, creates branded pending promise records, supplies distinct

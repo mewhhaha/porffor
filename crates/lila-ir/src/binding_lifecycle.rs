@@ -295,6 +295,23 @@ impl InitializedBinding {
             init: self.value,
         }
     }
+
+    /// Transfers runtime initialization ownership to a synchronous resource
+    /// entry while completing the lowerer's compile-time lifecycle transition.
+    ///
+    /// Unlike [`Self::declare`], this emits no `Lexical`: the dedicated scope
+    /// backend must acquire and register `@@dispose` before it initializes the
+    /// binding, so a generic lexical statement would encode the wrong order.
+    pub(crate) fn into_sync_disposable_resource(
+        self,
+        lowerer: &mut ScriptLowerer<'_>,
+    ) -> SyncDisposableResourceIr {
+        lowerer.declare_initialized_binding(self.source_name, self.info);
+        SyncDisposableResourceIr {
+            binding_name: self.storage_name,
+            initializer: self.value,
+        }
+    }
 }
 
 /// One statement-list scope's BlockDeclarationInstantiation (14.3.1.2), from the
