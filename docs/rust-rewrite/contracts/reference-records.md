@@ -242,13 +242,12 @@ operand or new state compile-visible while reusing the existing exhaustive
 variant and a second AOT implementation would add surface without carrying
 another invariant.
 
-Object-literal methods still lack the home-object/class-context lowering needed
-to construct this plan and remain explicit unsupported debt. In particular,
-the pinned `super-property-topropertykey.js` object-literal case is not claimed
-by this class-context seam. This closes only the supported delete half of the
-old L6 note. `SuperPropertyWrite` still
-lacks its distinct `[[ThisValue]]` receiver, and super compound/update and
-suspended assignment remain gaps. A structural unit and a Wasm fixture cover
+The later object-literal HomeObject contract closes the old L6 receiver debt
+for supported non-resumable object methods: `SuperPropertyRead`,
+`SuperPropertyWrite`, and `ReferenceBase::Super` now carry the distinct actual
+`this` receiver. See `object-literal-home-object.md`. Delete-super remains the
+independent fused path described above; super update and suspended assignment
+remain gaps. A structural unit and a Wasm fixture cover
 the fused tree, uninitialized-this/key order, raw-key abrupt completion, absent
 key coercion, null base, and absence of a proxy delete trap. Their Cargo and
 Test262 execution gates remain deferred to the integration checkpoint.

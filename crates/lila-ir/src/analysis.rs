@@ -5050,20 +5050,8 @@ impl<'a> AnalysisBuilder<'a> {
                                         CallableToStringRepresentation::ExactSource(
                                             object_method_source_slice(method, source_text),
                                         ),
-                                    protocol: match method.kind() {
-                                        MethodDefinitionKind::Generator => {
-                                            FunctionProtocolIr::Generator
-                                        }
-                                        MethodDefinitionKind::Async => FunctionProtocolIr::Async,
-                                        MethodDefinitionKind::AsyncGenerator => {
-                                            FunctionProtocolIr::AsyncGenerator
-                                        }
-                                        MethodDefinitionKind::Ordinary
-                                        | MethodDefinitionKind::Get
-                                        | MethodDefinitionKind::Set => {
-                                            FunctionProtocolIr::OrdinaryCallOnly
-                                        }
-                                    },
+                                    protocol: object_method_protocol(method.kind())
+                                        .function_protocol(),
                                     strict: self
                                         .owner_plans
                                         .get(owner_id)

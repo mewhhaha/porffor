@@ -13,6 +13,9 @@ pub enum FunctionProtocolIr {
     Async,
     AsyncArrow,
     AsyncGenerator,
+    ObjectMethod(FunctionExecutionKind),
+    ObjectGetter,
+    ObjectSetter,
     ClassConstructor,
     ClassMethod(FunctionExecutionKind),
     ClassGetter,
@@ -29,6 +32,9 @@ impl FunctionProtocolIr {
             | Self::Generator
             | Self::Async
             | Self::AsyncGenerator
+            | Self::ObjectMethod(_)
+            | Self::ObjectGetter
+            | Self::ObjectSetter
             | Self::ClassConstructor
             | Self::ClassMethod(_)
             | Self::ClassGetter
@@ -43,11 +49,14 @@ impl FunctionProtocolIr {
             | Self::OrdinaryCallAndConstruct
             | Self::Arrow
             | Self::ClassConstructor
+            | Self::ObjectGetter
+            | Self::ObjectSetter
             | Self::ClassGetter
             | Self::ClassSetter => FunctionExecutionKind::Ordinary,
             Self::Generator => FunctionExecutionKind::Generator,
             Self::Async | Self::AsyncArrow => FunctionExecutionKind::Async,
             Self::AsyncGenerator => FunctionExecutionKind::AsyncGenerator,
+            Self::ObjectMethod(kind) => kind,
             Self::ClassMethod(kind) => kind,
         }
     }
@@ -73,7 +82,18 @@ impl FunctionProtocolIr {
             | Self::Generator
             | Self::Async
             | Self::AsyncArrow
-            | Self::AsyncGenerator => ClassFunctionKind::None,
+            | Self::AsyncGenerator
+            | Self::ObjectMethod(_)
+            | Self::ObjectGetter
+            | Self::ObjectSetter => ClassFunctionKind::None,
         }
+    }
+
+    #[must_use]
+    pub const fn is_object_literal_method(self) -> bool {
+        matches!(
+            self,
+            Self::ObjectMethod(_) | Self::ObjectGetter | Self::ObjectSetter
+        )
     }
 }

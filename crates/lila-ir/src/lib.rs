@@ -4383,6 +4383,7 @@ mod tests {
             callee.expr,
             ExprIr::SuperPropertyRead {
                 key: PropertyKeyIr::StaticString(ref key),
+                ..
             } if key == "increment"
         ));
         assert!(matches!(this_arg.expr, ExprIr::This));
@@ -6289,8 +6290,8 @@ target[Symbol.iterator];"#,
             .expect("async function should be registered");
 
         assert_eq!(
-            function.protocol.execution_kind(),
-            FunctionExecutionKind::Async
+            function.protocol,
+            FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Async)
         );
         assert!(!function.protocol.is_constructable());
         assert!(function.body.statements.iter().any(|statement| {
@@ -8155,11 +8156,94 @@ target[Symbol.iterator];"#,
             property,
             ObjectPropertyIr::Method {
                 key,
-                function: TypedExpr {
-                    expr: ExprIr::FunctionValue(function_id),
-                    ..
-                },
-            } if key == "method" && function_id == &function.id
+                function: object_method,
+            } if key == "method" && object_method.function_id() == &function.id
+        )));
+    }
+
+    #[test]
+    fn object_literal_home_object_is_carried_by_method_protocol_and_super_references() {
+        let program = lower_script(
+            r#"
+                const key = "computed";
+                const holder = {
+                    method(value = super.seed) { return super.seed; },
+                    get read() { return super.seed; },
+                    set write(value) { super.seed = value; },
+                    [key]() { return super.seed; }
+                };
+            "#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[1] else {
+            panic!("expected object binding");
+        };
+        let ExprIr::ObjectLiteral(properties) = &init.expr else {
+            panic!("expected object literal");
+        };
+
+        let mut method_id = None;
+        let mut setter_id = None;
+        let mut protocols = Vec::new();
+        for property in properties {
+            let function = match property {
+                ObjectPropertyIr::Method { key, function } if key == "method" => {
+                    method_id = Some(function.function_id().clone());
+                    function
+                }
+                ObjectPropertyIr::Getter { function, .. } => function,
+                ObjectPropertyIr::Setter { function, .. } => {
+                    setter_id = Some(function.function_id().clone());
+                    function
+                }
+                ObjectPropertyIr::ComputedMethod { function, .. } => function,
+                _ => continue,
+            };
+            protocols.push(function.protocol());
+            let lowered = script
+                .functions
+                .iter()
+                .find(|candidate| &candidate.id == function.function_id())
+                .expect("method carrier must name a lowered function");
+            assert_eq!(lowered.protocol, function.protocol());
+        }
+        assert_eq!(
+            protocols,
+            [
+                FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Ordinary),
+                FunctionProtocolIr::ObjectGetter,
+                FunctionProtocolIr::ObjectSetter,
+                FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Ordinary),
+            ]
+        );
+
+        let method = script
+            .functions
+            .iter()
+            .find(|function| Some(&function.id) == method_id.as_ref())
+            .expect("ordinary method function");
+        let default_init = method.params[0]
+            .default_init
+            .as_ref()
+            .expect("method default initializer");
+        assert!(matches!(
+            &default_init.expr,
+            ExprIr::SuperPropertyRead { receiver, .. }
+                if matches!(&receiver.expr, ExprIr::This)
+        ));
+
+        let setter = script
+            .functions
+            .iter()
+            .find(|function| Some(&function.id) == setter_id.as_ref())
+            .expect("setter function");
+        assert!(setter.body.statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::SuperPropertyWrite { receiver, .. },
+                ..
+            }) if matches!(&receiver.expr, ExprIr::This)
         )));
     }
 
@@ -9321,16 +9405,14 @@ target[Symbol.iterator];"#,
                         ObjectPropertyIr::ComputedData { key, value } => {
                             has_reference_error_throw(key) || has_reference_error_throw(value)
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function }
-                        | ObjectPropertyIr::ComputedGetter { key, function }
-                        | ObjectPropertyIr::ComputedSetter { key, function } => {
-                            has_reference_error_throw(key) || has_reference_error_throw(function)
+                        ObjectPropertyIr::ComputedMethod { key, .. }
+                        | ObjectPropertyIr::ComputedGetter { key, .. }
+                        | ObjectPropertyIr::ComputedSetter { key, .. } => {
+                            has_reference_error_throw(key)
                         }
-                        ObjectPropertyIr::Method { function, .. }
-                        | ObjectPropertyIr::Getter { function, .. }
-                        | ObjectPropertyIr::Setter { function, .. } => {
-                            has_reference_error_throw(function)
-                        }
+                        ObjectPropertyIr::Method { .. }
+                        | ObjectPropertyIr::Getter { .. }
+                        | ObjectPropertyIr::Setter { .. } => false,
                     })
                 }
                 ExprIr::TypeOf { expr } => has_reference_error_throw(expr),
@@ -12095,6 +12177,7 @@ target[Symbol.iterator];"#,
             &target.expr,
             ExprIr::SuperPropertyRead {
                 key: PropertyKeyIr::StaticString(key),
+                ..
             } if key == "method"
         ));
         assert!(matches!(

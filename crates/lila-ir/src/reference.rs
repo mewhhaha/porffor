@@ -1814,7 +1814,10 @@ pub(crate) enum ReferenceBase {
         private_name_id: PrivateNameId,
     },
     /// `IsSuperReference` true.
-    Super { key: PropertyKeyIr },
+    Super {
+        key: PropertyKeyIr,
+        receiver: TypedExpr,
+    },
     /// `[[Base]]` is unresolvable, or is the global object. The two are not
     /// separable at compile time, so they share a variant and the backend
     /// performs the presence test that PutValue 2.a needs.
@@ -1837,7 +1840,10 @@ impl ReferenceBase {
                 target: Box::new(target.clone()),
                 private_name_id: *private_name_id,
             },
-            Self::Super { key } => ExprIr::SuperPropertyRead { key: key.clone() },
+            Self::Super { key, receiver } => ExprIr::SuperPropertyRead {
+                key: key.clone(),
+                receiver: Box::new(receiver.clone()),
+            },
             Self::Global { name } => ExprIr::GlobalPropertyRead { name: name.clone() },
         }
     }
@@ -1861,8 +1867,9 @@ impl ReferenceBase {
                 private_name_id,
                 value: Box::new(value),
             },
-            Self::Super { key } => ExprIr::SuperPropertyWrite {
+            Self::Super { key, receiver } => ExprIr::SuperPropertyWrite {
                 key,
+                receiver: Box::new(receiver),
                 value: Box::new(value),
                 strictness,
             },
@@ -1889,7 +1896,7 @@ impl ReferenceBase {
     /// is one.
     pub(crate) fn computed_key_mut(&mut self) -> Option<&mut TypedExpr> {
         let key = match self {
-            Self::Property { key, .. } | Self::Super { key } => key,
+            Self::Property { key, .. } | Self::Super { key, .. } => key,
             Self::Private { .. } | Self::Global { .. } => return None,
         };
         match key {
@@ -1944,7 +1951,10 @@ pub(crate) fn reference_base_of_lowered_read(
             target: *target,
             private_name_id,
         }),
-        ExprIr::SuperPropertyRead { key } => Ok(ReferenceBase::Super { key }),
+        ExprIr::SuperPropertyRead { key, receiver } => Ok(ReferenceBase::Super {
+            key,
+            receiver: *receiver,
+        }),
         // `globalThis.x` on a known global resolves to the global binding
         // itself rather than to a property of an object.
         ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {

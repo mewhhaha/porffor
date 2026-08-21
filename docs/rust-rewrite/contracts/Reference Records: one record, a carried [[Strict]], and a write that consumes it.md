@@ -744,9 +744,10 @@ Add to **none** of: `AssignIdentifier`, `CompoundAssignIdentifier`,
 `OptionalPropertyChain` (read-only; not a valid assignment target — 13.3.9.1
 early error).
 
-`SuperPropertyWrite` additionally gains **`this_value: Box<TypedExpr>`**. See
-§3, MC4b, and §5.3: the backend currently writes to the super base, which is
-the wrong object.
+`SuperPropertyWrite` additionally gains **`receiver: Box<TypedExpr>`**. The
+later `object-literal-home-object.md` contract landed that field on both super
+read and write IR and retains it in `ReferenceBase::Super`; see §3, MC4b, and
+§5.3 for the historical failure.
 
 ### 2.8 The runtime-checked ledger
 
@@ -760,7 +761,7 @@ why a type cannot carry the invariant.
 | **L3** | `ReferencePins::materialize` is spent on the write of *its own* Reference, not a sibling's. **Shrunk at DISCREPANCY-FIXER stage:** the *empty* chain is no longer constructible (no `Default`, no `none()`, sole producer `ReferenceRecord::pin_operands`), so what remains is only "two live records at once, chains crossed". | Distinguishing two live pairs needs a lifetime brand (`GhostToken`-style), which is more machinery than the one nesting case in the tree justifies. | `pin_operands` needs a record to be called on, and no lowering function holds two live `(record, pins)` pairs at once — checkable by reading the one call site (`lower_property_reference_update`). |
 | **L4** | The backend's emitted strict guard matches the `Strictness` on the node. | The IR/Wasm boundary is `i64` words; `helper_flag_word` is the last typed point. | The b361b4815 oracle pair (§6, corpus 4/5) is precisely this test, and it is a byte-identical source pair differing only in the directive prologue. |
 | **L5** | `ExprIr::PropertyWrite`'s new field is actually *read* by the backend rather than merely present. | Rust does not warn on an unread field of a public enum variant. | §4.3 stage 3 is not optional: the field and its consumer land together, and dry-run ADVERSARIAL-MC3 (§6) fails until they do. **The entry fired at ENCODER stage and is now closed for all nine variants** — see the note below this table. |
-| **L6** | `SuperPropertyWrite`'s Receiver is `[[ThisValue]]`, not the super base (MC4b, §5.3). | The IR node has no `this_value` field and the backend has no receiver parameter to thread it into; S5 was deferred. | **Open for writes.** The related `delete super.x` refusal is closed independently by the fused delete-super plan below: deletion never consumes the base or receiver, so fixing it does not pretend to supply the missing write receiver. |
+| **L6** | `SuperPropertyWrite`'s Receiver is `[[ThisValue]]`, not the super base (MC4b, §5.3). | The typed IR can require the receiver but cannot prove the backend passes that local as `Receiver`. | **Closed structurally by `object-literal-home-object.md`.** `SuperPropertyRead`, `SuperPropertyWrite`, and `ReferenceBase::Super` carry the actual receiver; the focused HomeObject fixture remains the behavioral oracle. |
 | **L7** | `ToPropertyKey` on a computed key runs *after* the RHS on the plain-assignment path (C5, corrected). | `PropertyKeyIr::StringExpr` conflates the key operand with the property key, so the IR cannot record that the coercion is owed; the typed fix changes a shared enum matched across the whole backend. | Open, and **pre-existing** — not a regression of this landing. Corpus entry 6's second half is the oracle. Follow-up lane with build access; see C5. |
 | **L8** | The runtime strictness guard's block depth and the `Br` immediates emitted inside it. | Wasm label depths are `u32` immediates computed against a control stack the raw `If`/`Else` instructions in these guards are not on. No type distinguishes "depth relative to the guard" from "depth relative to the frame". | `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` and `NON_EXTENSIBLE_THROW_EXTRA_DEPTH` are named once in `objects.rs` and added at every branch inside the guard, so the two arms of one helper cannot disagree — which is how the defect arose. The behavioural oracle is the fixture pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`; a wrong depth is a wasm validation failure or a throw caught by the wrong handler. |
 
@@ -888,8 +889,9 @@ and absence of a proxy `deleteProperty` trap.
 No claim is made for object-literal-method `super` deletion, whose home-object
 context is not yet represented by this class-context lowering path. The pinned
 `super-property-topropertykey.js` object-literal case therefore remains
-unsupported. Nor is a claim made for `SuperPropertyWrite`, super
-compound/update targets, suspended super assignment, the plain-assignment
+unsupported. The later `object-literal-home-object.md` contract closes the
+distinct Receiver half of `SuperPropertyWrite` for its non-resumable cohort.
+Super compound/update targets, suspended super assignment, the plain-assignment
 `ToPropertyKey` gap in L7, or the complete T08/Test262 matrix.
 
 **L5, closed.** At ENCODER stage the field was read for six of the nine variants:
@@ -918,7 +920,7 @@ budget entries at all three global-write arms.
 | **MC3** | Write a reference-shaped IR node with nowhere to record `[[Strict]]`. | **LIVE, VERIFIED.** `ExprIr::PropertyWrite { target, key, value }` (`ir.rs:1392`–`1396`) has no strict field. The backend arm (`expressions.rs:344`) calls `compile_property_write_payload(target, key, value, function)` (`objects.rs:5770`) — no strictness parameter — and the guard deep inside reads the **ambient** `object_write_strict_flag_local` / `is_current_function_strict()` (`objects.rs:14684`, `environments.rs:754`). `"use strict"; const o = Object.freeze({x:1}); o.x = 2;` has no IR that can express the required TypeError as a property of *the reference*. Same for `PropertyUpdate`, `PropertyCompoundAssign`, `SuperPropertyWrite`, `GlobalPropertyUpdate`, `GlobalPropertyCompoundAssign`. | **E0063 missing field `strictness` in initializer** at each of the counted construction sites (§4.2), and **E0027 pattern does not mention field `strictness`** at each backend arm that binds all fields (§4.3). | the six `ExprIr` variants of §2.7 |
 | **MC3′** | Fix MC3 by hardcoding `strictness: Strictness::Strict` on `PropertyWrite` — b361b4815 repeated one layer up. | n/a | Not a compile error. **This is the one mistake the types do not catch**, and it is why the sloppy control (§6 corpus 12) is mandatory and why L1 exists. | ledger L1/L4 |
 | **MC4a** | Reconstruct a Reference by pattern-matching a lowered read and fall into `_`, downgrading a legal target to `unsupported_expr`. | Two sites, not one: `lowering.rs:32248` (5 of 77 shapes) and `lowering.rs:32871` + `32867` (2 of 77). Any new read specialisation added anywhere in the 38,003-line lowering silently removes compound assignment or `++` for that shape, with no compile error. | Both reconstructions are deleted. `lower_reference` matches `AssignTarget` (4) / `UpdateTarget` (3) / `PropertyAccess` (3) exhaustively; a new AST shape is **E0004**, and a new `ExprIr` read shape is *irrelevant* because the record is built from the AST. | `ReferenceTarget`, `UnsupportedTarget` |
-| **MC4b** | Drop `[[ThisValue]]` from a Super Reference. | `PropertyReference::Super { key }` (`lowering.rs:80`–`82`) carries no this-value, and so does `ExprIr::SuperPropertyWrite { key, value }` (`ir.rs:1605`). The backend (`expressions.rs:1445`–`1470`) calls `emit_object_write(super_base_local, …)` — it writes **to the super base**, i.e. the home object's prototype, not to `this`. PutValue 3.c requires `GetThisValue(V)` as the Receiver. The lowerer's own comment at `lowering.rs:32385`–`32389` says the write goes to `this`; the backend disagrees. | `ReferenceBase::Super` cannot be constructed without a `SuperThisValue`, whose only constructor is `from_class_context` (§2.2) → **E0063** at construction, **E0027** at every backend arm that binds `SuperPropertyWrite`'s fields. | `SuperThisValue`, `ReferenceBase::Super` |
+| **MC4b** | Drop `[[ThisValue]]` from a Super Reference. | **Closed by `object-literal-home-object.md`.** The former IR omitted the receiver and the backend used the super base for both target and Receiver. | `ReferenceBase::Super` and both super-property IR nodes now require `receiver`; exhaustive backend arms fail until they consume the added field. | `ReferenceBase::Super`, `SuperPropertyRead`, `SuperPropertyWrite` |
 | **MC5** | Evaluate the Reference twice, re-running an effectful base or computed key. | `PropertyReference::read_ir` (`lowering.rs:89`–`105`) and `build_property_reference_write` (`lowering.rs:32357`) are separately callable; the pinning at `32251`–`32279` and the `MaterializeBinding` wrap at `32328`–`32338` are joined only by convention. | Second write → **E0382 use of moved value: `record`** (`write(self, …)`, and `ReferenceRecord` is not `Clone`). Forgotten pin discharge → **E0308** (a `PendingReferenceWrite` where a `TypedExpr` is wanted). Double discharge → **E0382** on `ReferencePins`. | `ReferenceRecord::write`, `ReferencePins`, `PendingReferenceWrite` |
 | **MC6** *(new)* | Add a new reference-shaped `ExprIr` variant and forget `[[Strict]]` entirely. | Not covered by MC1–MC5: a brand-new variant has no construction site to break. | **E0004 non-exhaustive patterns** in `carried_put_value_failure` (§2.6). | `carried_put_value_failure` |
 | **MC7** *(new, DISCREPANCY-FIXER)* | Add a new global-write variant and forget that PutValue **2.a** is a **ReferenceError**, not a TypeError. | The `Option<Strictness>` return of `carried_strictness` could not express the distinction; every strict write contributed a TypeError shape to the enclosing `catch` binding's inferred type. | **E0004** in `carried_put_value_failure`, whose arms return a `PutValueFailure` the consumer matches exhaustively (§2.6). | `PutValueFailure` |
@@ -1155,6 +1157,11 @@ and a nested `_ =>` at **32867**, matching **2** of 77 shapes against the other'
 compile error to say so.
 
 ### 5.3 `SuperPropertyWrite` does not merely *lack* `[[ThisValue]]` — it writes to the wrong object.
+
+**Current amendment:** `object-literal-home-object.md` closes this historical
+gap for its supported non-resumable cohort by carrying an explicit receiver in
+the super Reference and read/write IR. The remainder of this subsection records
+the failure that motivated that carrier.
 
 `expressions.rs:1445`–`1470` emits `emit_object_write(super_base_local,
 super_base_tag_local, key_local, …)`. `super_base_local` is loaded by

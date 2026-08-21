@@ -35,9 +35,13 @@ inner to outer, the selected record performs GetBindingValue's second
 `HasProperty`, and deletion during `@@unscopables` returns `undefined` in
 sloppy code or throws `ReferenceError` in a captured strict function. The raw
 innermost-object/read accessors are private or deleted, so lowering cannot
-bypass declarative cutoff, outer chaining or the recheck. Object-literal
-methods still lack the required home-object context
-and remain explicit unsupported debt. Async-generator property assignment remains an explicit
+bypass declarative cutoff, outer chaining or the recheck. Non-resumable
+object-literal methods and accessors now carry an explicit receiver for each
+super Reference and a typed HomeObject-bearing function carrier; their focused
+IR/structure/CLI gates and exact five-file `10/10` Wasm cohort are green.
+Resumable object-method and nested-arrow HomeObject transport remain explicit
+debt. Async-generator
+property assignment remains an explicit
 activation-ABI gap, as do private and `super` yield-assignment targets. The
 parse-once boundary is landed, several environment/control-flow files remain
 large shared hotspots, and the language subtrees assigned to this task have not

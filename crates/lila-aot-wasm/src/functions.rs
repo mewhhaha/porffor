@@ -1943,7 +1943,7 @@ impl<'a> FunctionBuilder<'a> {
         // Constructors are allocated before their `.prototype` exists.  Now
         // that the exact instance home object has been created, complete the
         // immutable class-function context used by direct constructor `super`.
-        self.store_class_function_home_object(
+        self.store_function_home_object(
             constructor_local,
             prototype_payload_local,
             ValueKind::Object,
@@ -4773,7 +4773,7 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             ValueKind::Object
         };
-        self.store_class_function_home_object(
+        self.store_function_home_object(
             function_local,
             home_object_local,
             home_object_tag,
@@ -4800,7 +4800,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn store_class_function_home_object(
+    pub(crate) fn store_function_home_object(
         &mut self,
         function_local: u32,
         home_object_local: u32,
@@ -9676,7 +9676,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         if self
             .current_function_meta()
-            .is_some_and(WasmFunctionMeta::has_class_execution_context)
+            .is_some_and(WasmFunctionMeta::has_home_object_execution_context)
         {
             let home_object_local = self.reserve_temp_local();
             let home_object_tag_local = self.reserve_temp_local();

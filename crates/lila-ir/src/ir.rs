@@ -647,6 +647,54 @@ pub enum ClassElementExecutionKind {
     StaticBlock,
 }
 
+/// Exact function identity for an object-literal method whose materializer
+/// must attach the allocated literal as `[[HomeObject]]`.
+///
+/// The fields are private so a generic function expression cannot be placed in
+/// a method property without first proving the corresponding function protocol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an object-method function must be materialized with its HomeObject"]
+pub struct ObjectMethodFunctionIr {
+    function_id: FunctionId,
+    protocol: FunctionProtocolIr,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObjectMethodProtocolIr {
+    Method(FunctionExecutionKind),
+    Getter,
+    Setter,
+}
+
+impl ObjectMethodProtocolIr {
+    pub(crate) const fn function_protocol(self) -> FunctionProtocolIr {
+        match self {
+            Self::Method(execution) => FunctionProtocolIr::ObjectMethod(execution),
+            Self::Getter => FunctionProtocolIr::ObjectGetter,
+            Self::Setter => FunctionProtocolIr::ObjectSetter,
+        }
+    }
+}
+
+impl ObjectMethodFunctionIr {
+    pub(crate) fn new(function_id: FunctionId, protocol: ObjectMethodProtocolIr) -> Self {
+        Self {
+            function_id,
+            protocol: protocol.function_protocol(),
+        }
+    }
+
+    #[must_use]
+    pub fn function_id(&self) -> &FunctionId {
+        &self.function_id
+    }
+
+    #[must_use]
+    pub const fn protocol(&self) -> FunctionProtocolIr {
+        self.protocol
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectPropertyIr {
     PrototypeSetter {
@@ -670,27 +718,27 @@ pub enum ObjectPropertyIr {
     },
     ComputedMethod {
         key: TypedExpr,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     ComputedGetter {
         key: TypedExpr,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     ComputedSetter {
         key: TypedExpr,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     Method {
         key: String,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     Getter {
         key: String,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     Setter {
         key: String,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
 }
 
@@ -1942,14 +1990,15 @@ pub enum ExprIr {
     },
     SuperPropertyRead {
         key: PropertyKeyIr,
+        receiver: Box<TypedExpr>,
     },
     SuperPropertyWrite {
         key: PropertyKeyIr,
+        /// GetThisValue of the super Reference, evaluated before the RHS and
+        /// passed as the Receiver to `superBase.[[Set]]`.
+        receiver: Box<TypedExpr>,
         value: Box<TypedExpr>,
-        /// PutValue step 3.d. The Receiver of the `[[Set]]` is `[[ThisValue]]`
-        /// (GetThisValue, 6.2.5.4) and is still implicit in the backend; see
-        /// the MC4b entry in
-        /// `docs/rust-rewrite/contracts/reference-records.md`.
+        /// PutValue step 3.d.
         strictness: Strictness,
     },
     PrivateRead {
@@ -3563,32 +3612,32 @@ impl IrSummaryCounts {
                             self.visit_expr(key);
                             self.visit_expr(value);
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function } => {
+                        ObjectPropertyIr::ComputedMethod { key, .. } => {
                             self.object_methods += 1;
+                            self.function_values += 1;
                             self.visit_expr(key);
-                            self.visit_expr(function);
                         }
-                        ObjectPropertyIr::Method { function, .. } => {
+                        ObjectPropertyIr::Method { .. } => {
                             self.object_methods += 1;
-                            self.visit_expr(function);
+                            self.function_values += 1;
                         }
-                        ObjectPropertyIr::ComputedGetter { key, function } => {
+                        ObjectPropertyIr::ComputedGetter { key, .. } => {
                             self.object_getters += 1;
+                            self.function_values += 1;
                             self.visit_expr(key);
-                            self.visit_expr(function);
                         }
-                        ObjectPropertyIr::Getter { function, .. } => {
+                        ObjectPropertyIr::Getter { .. } => {
                             self.object_getters += 1;
-                            self.visit_expr(function);
+                            self.function_values += 1;
                         }
-                        ObjectPropertyIr::ComputedSetter { key, function } => {
+                        ObjectPropertyIr::ComputedSetter { key, .. } => {
                             self.object_setters += 1;
+                            self.function_values += 1;
                             self.visit_expr(key);
-                            self.visit_expr(function);
                         }
-                        ObjectPropertyIr::Setter { function, .. } => {
+                        ObjectPropertyIr::Setter { .. } => {
                             self.object_setters += 1;
-                            self.visit_expr(function);
+                            self.function_values += 1;
                         }
                     }
                 }
@@ -4004,13 +4053,20 @@ impl IrSummaryCounts {
                     self.visit_expr(arg);
                 }
             }
-            ExprIr::SuperPropertyRead { key } => {
+            ExprIr::SuperPropertyRead { key, receiver } => {
                 self.super_uses += 1;
                 self.visit_property_key(key);
+                self.visit_expr(receiver);
             }
-            ExprIr::SuperPropertyWrite { key, value, .. } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                receiver,
+                value,
+                ..
+            } => {
                 self.super_uses += 1;
                 self.visit_property_key(key);
+                self.visit_expr(receiver);
                 self.visit_expr(value);
             }
             ExprIr::PrivateRead {

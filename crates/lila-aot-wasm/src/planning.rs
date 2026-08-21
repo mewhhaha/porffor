@@ -58,9 +58,13 @@ impl WasmFunctionMeta {
             )
     }
 
+    pub(crate) const fn has_home_object_execution_context(&self) -> bool {
+        self.has_class_execution_context() || self.protocol.is_object_literal_method()
+    }
+
     pub(crate) const fn has_function_context(&self) -> bool {
         self.needs_active_function_identity
-            || self.has_class_execution_context()
+            || self.has_home_object_execution_context()
             || self.captures_private_environment
     }
 }
@@ -3182,24 +3186,16 @@ fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
         ObjectPropertyIr::PrototypeSetter { value }
         | ObjectPropertyIr::Spread { source: value }
         | ObjectPropertyIr::Data { value, .. }
-        | ObjectPropertyIr::NonEnumerableData { value, .. }
-        | ObjectPropertyIr::Method {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Getter {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Setter {
-            function: value, ..
-        } => expr_exposes_global_object(value),
+        | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_exposes_global_object(value),
+        ObjectPropertyIr::Method { .. }
+        | ObjectPropertyIr::Getter { .. }
+        | ObjectPropertyIr::Setter { .. } => false,
         ObjectPropertyIr::ComputedData { key, value } => {
             expr_exposes_global_object(key) || expr_exposes_global_object(value)
         }
-        ObjectPropertyIr::ComputedMethod { key, function }
-        | ObjectPropertyIr::ComputedGetter { key, function }
-        | ObjectPropertyIr::ComputedSetter { key, function } => {
-            expr_exposes_global_object(key) || expr_exposes_global_object(function)
-        }
+        ObjectPropertyIr::ComputedMethod { key, .. }
+        | ObjectPropertyIr::ComputedGetter { key, .. }
+        | ObjectPropertyIr::ComputedSetter { key, .. } => expr_exposes_global_object(key),
     }
 }
 
@@ -3371,9 +3367,18 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                 || property_key_exposes_global_object(key)
                 || args.iter().any(expr_exposes_global_object)
         }
-        ExprIr::SuperPropertyRead { key } => property_key_exposes_global_object(key),
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
-            property_key_exposes_global_object(key) || expr_exposes_global_object(value)
+        ExprIr::SuperPropertyRead { key, receiver } => {
+            property_key_exposes_global_object(key) || expr_exposes_global_object(receiver)
+        }
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
+            property_key_exposes_global_object(key)
+                || expr_exposes_global_object(receiver)
+                || expr_exposes_global_object(value)
         }
         ExprIr::PrivateRead { target, .. } => expr_exposes_global_object(target),
         ExprIr::PrivateWrite { target, value, .. } => {
@@ -3663,27 +3668,20 @@ fn collect_object_property_global_property_names(
         ObjectPropertyIr::PrototypeSetter { value }
         | ObjectPropertyIr::Spread { source: value }
         | ObjectPropertyIr::Data { value, .. }
-        | ObjectPropertyIr::NonEnumerableData { value, .. }
-        | ObjectPropertyIr::Method {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Getter {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Setter {
-            function: value, ..
-        } => {
+        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
             collect_expr_global_property_names(value, names);
         }
+        ObjectPropertyIr::Method { .. }
+        | ObjectPropertyIr::Getter { .. }
+        | ObjectPropertyIr::Setter { .. } => {}
         ObjectPropertyIr::ComputedData { key, value } => {
             collect_expr_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
         }
-        ObjectPropertyIr::ComputedMethod { key, function }
-        | ObjectPropertyIr::ComputedGetter { key, function }
-        | ObjectPropertyIr::ComputedSetter { key, function } => {
+        ObjectPropertyIr::ComputedMethod { key, .. }
+        | ObjectPropertyIr::ComputedGetter { key, .. }
+        | ObjectPropertyIr::ComputedSetter { key, .. } => {
             collect_expr_global_property_names(key, names);
-            collect_expr_global_property_names(function, names);
         }
     }
 }
@@ -3963,9 +3961,18 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(arg, names);
             }
         }
-        ExprIr::SuperPropertyRead { key } => collect_property_key_global_property_names(key, names),
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
+        ExprIr::SuperPropertyRead { key, receiver } => {
             collect_property_key_global_property_names(key, names);
+            collect_expr_global_property_names(receiver, names);
+        }
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
+            collect_property_key_global_property_names(key, names);
+            collect_expr_global_property_names(receiver, names);
             collect_expr_global_property_names(value, names);
         }
         ExprIr::PrivateRead { target, .. } => collect_expr_global_property_names(target, names),
@@ -4820,16 +4827,12 @@ pub(crate) fn object_property_references_function(
     match property {
         ObjectPropertyIr::PrototypeSetter { value }
         | ObjectPropertyIr::Data { value, .. }
-        | ObjectPropertyIr::NonEnumerableData { value, .. }
-        | ObjectPropertyIr::Method {
-            function: value, ..
+        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
+            expr_references_function(value, target)
         }
-        | ObjectPropertyIr::Getter {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Setter {
-            function: value, ..
-        } => expr_references_function(value, target),
+        ObjectPropertyIr::Method { function, .. }
+        | ObjectPropertyIr::Getter { function, .. }
+        | ObjectPropertyIr::Setter { function, .. } => function.function_id() == target,
         ObjectPropertyIr::Spread { source } => {
             expr_references_function(source, target)
                 || *target == StandardBuiltinId::ReflectOwnKeys.function_id()
@@ -4841,7 +4844,7 @@ pub(crate) fn object_property_references_function(
         ObjectPropertyIr::ComputedMethod { key, function }
         | ObjectPropertyIr::ComputedGetter { key, function }
         | ObjectPropertyIr::ComputedSetter { key, function } => {
-            expr_references_function(key, target) || expr_references_function(function, target)
+            expr_references_function(key, target) || function.function_id() == target
         }
     }
 }
@@ -5362,9 +5365,19 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                 || optimized_call_method_references_function(key, target)
                 || args.iter().any(|arg| expr_references_function(arg, target))
         }
-        ExprIr::SuperPropertyRead { key } => property_key_references_function(key, target),
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
-            property_key_references_function(key, target) || expr_references_function(value, target)
+        ExprIr::SuperPropertyRead { key, receiver } => {
+            property_key_references_function(key, target)
+                || expr_references_function(receiver, target)
+        }
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
+            property_key_references_function(key, target)
+                || expr_references_function(receiver, target)
+                || expr_references_function(value, target)
         }
         ExprIr::PrivateRead { target: object, .. } => expr_references_function(object, target),
         ExprIr::PrivateWrite {
@@ -7147,14 +7160,12 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
             ObjectPropertyIr::ComputedData { key, value } => {
                 expr_uses_function_table(key) || expr_uses_function_table(value)
             }
-            ObjectPropertyIr::ComputedMethod { key, function }
-            | ObjectPropertyIr::ComputedGetter { key, function }
-            | ObjectPropertyIr::ComputedSetter { key, function } => {
-                expr_uses_function_table(key) || expr_uses_function_table(function)
-            }
-            ObjectPropertyIr::Method { function, .. }
-            | ObjectPropertyIr::Getter { function, .. }
-            | ObjectPropertyIr::Setter { function, .. } => expr_uses_function_table(function),
+            ObjectPropertyIr::ComputedMethod { .. }
+            | ObjectPropertyIr::ComputedGetter { .. }
+            | ObjectPropertyIr::ComputedSetter { .. } => true,
+            ObjectPropertyIr::Method { .. }
+            | ObjectPropertyIr::Getter { .. }
+            | ObjectPropertyIr::Setter { .. } => true,
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_function_table),
         ExprIr::ArrayAccumulation(accumulation) => {
@@ -7359,14 +7370,12 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
             ObjectPropertyIr::ComputedData { key, value } => {
                 expr_uses_calls(key) || expr_uses_calls(value)
             }
-            ObjectPropertyIr::ComputedMethod { key, function }
-            | ObjectPropertyIr::ComputedGetter { key, function }
-            | ObjectPropertyIr::ComputedSetter { key, function } => {
-                expr_uses_calls(key) || expr_uses_calls(function)
-            }
-            ObjectPropertyIr::Method { function, .. }
-            | ObjectPropertyIr::Getter { function, .. }
-            | ObjectPropertyIr::Setter { function, .. } => expr_uses_calls(function),
+            ObjectPropertyIr::ComputedMethod { key, .. }
+            | ObjectPropertyIr::ComputedGetter { key, .. }
+            | ObjectPropertyIr::ComputedSetter { key, .. } => expr_uses_calls(key),
+            ObjectPropertyIr::Method { .. }
+            | ObjectPropertyIr::Getter { .. }
+            | ObjectPropertyIr::Setter { .. } => false,
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_calls),
         ExprIr::ArrayAccumulation(accumulation) => {
@@ -8117,18 +8126,19 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     ObjectPropertyIr::ComputedData { key, value } => {
                         count_expr_temp_locals(key).max(count_expr_temp_locals(value))
                     }
-                    ObjectPropertyIr::ComputedMethod { key, function }
-                    | ObjectPropertyIr::ComputedGetter { key, function }
-                    | ObjectPropertyIr::ComputedSetter { key, function } => {
-                        count_expr_temp_locals(key).max(count_expr_temp_locals(function))
-                    }
-                    ObjectPropertyIr::Method { function, .. }
-                    | ObjectPropertyIr::Getter { function, .. }
-                    | ObjectPropertyIr::Setter { function, .. } => count_expr_temp_locals(function),
+                    ObjectPropertyIr::ComputedMethod { key, .. }
+                    | ObjectPropertyIr::ComputedGetter { key, .. }
+                    | ObjectPropertyIr::ComputedSetter { key, .. } => count_expr_temp_locals(key),
+                    ObjectPropertyIr::Method { .. }
+                    | ObjectPropertyIr::Getter { .. }
+                    | ObjectPropertyIr::Setter { .. } => 0,
                 })
                 .max()
                 .unwrap_or(0);
-            child.max(12)
+            // A named getter followed by its paired setter retains both
+            // accessor values while the second HomeObject-bearing function
+            // context is materialized.
+            child.max(13)
         }
         ExprIr::ArrayLiteral(elements) => {
             let child = elements
@@ -8713,20 +8723,33 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .max()
             .unwrap_or(0)
             .max(if call_args_have_spread(args) { 192 } else { 12 }),
-        ExprIr::SuperPropertyRead { key } => match key {
-            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 8,
+        ExprIr::SuperPropertyRead { key, receiver } => match key {
+            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {
+                count_expr_temp_locals(receiver).max(8)
+            }
             PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                count_expr_temp_locals(expr).max(8)
+                count_expr_temp_locals(expr)
+                    .max(count_expr_temp_locals(receiver))
+                    .max(8)
             }
         },
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
             let key_child = match key {
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     count_expr_temp_locals(expr)
                 }
             };
-            count_expr_temp_locals(value).max(key_child).max(10) + REFERENCE_STRICTNESS_FLAG_LOCALS
+            count_expr_temp_locals(receiver)
+                .max(count_expr_temp_locals(value))
+                .max(key_child)
+                .max(12)
+                + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::PrivateRead { target, .. } => count_expr_temp_locals(target).max(8),
         ExprIr::PrivateWrite { target, value, .. } => count_expr_temp_locals(target)

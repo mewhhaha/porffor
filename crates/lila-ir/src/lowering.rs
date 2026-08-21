@@ -5536,8 +5536,8 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::UpdateIdentifier { .. }
             | ExprIr::GlobalPropertyUpdate { .. }
             | ExprIr::NewTarget
-            | ExprIr::TypeOfUnresolvedIdentifier { .. }
-            | ExprIr::SuperPropertyRead { .. } => None,
+            | ExprIr::TypeOfUnresolvedIdentifier { .. } => None,
+            ExprIr::SuperPropertyRead { receiver, .. } => self.infer_expr_throw_info(receiver),
             ExprIr::GlobalIdentifierRead { .. } => Some(Self::standard_error_instance_info(
                 StandardBuiltinId::ReferenceErrorConstructor,
             )),
@@ -5560,16 +5560,7 @@ impl<'a> ScriptLowerer<'a> {
                         ObjectPropertyIr::PrototypeSetter { value }
                         | ObjectPropertyIr::Spread { source: value }
                         | ObjectPropertyIr::Data { value, .. }
-                        | ObjectPropertyIr::NonEnumerableData { value, .. }
-                        | ObjectPropertyIr::Getter {
-                            function: value, ..
-                        }
-                        | ObjectPropertyIr::Setter {
-                            function: value, ..
-                        }
-                        | ObjectPropertyIr::Method {
-                            function: value, ..
-                        } => {
+                        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(value));
                         }
@@ -5579,16 +5570,15 @@ impl<'a> ScriptLowerer<'a> {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(value));
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function }
-                        | ObjectPropertyIr::ComputedGetter { key, function }
-                        | ObjectPropertyIr::ComputedSetter { key, function } => {
+                        ObjectPropertyIr::ComputedMethod { key, .. }
+                        | ObjectPropertyIr::ComputedGetter { key, .. }
+                        | ObjectPropertyIr::ComputedSetter { key, .. } => {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(key));
-                            info = self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(function),
-                            );
                         }
+                        ObjectPropertyIr::Method { .. }
+                        | ObjectPropertyIr::Getter { .. }
+                        | ObjectPropertyIr::Setter { .. } => {}
                     }
                 }
                 info
@@ -5637,8 +5627,13 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::LogicalNot { expr: value }
             | ExprIr::UnaryNumber { expr: value, .. }
             | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
-            | ExprIr::StringFromCharCode { code: value }
-            | ExprIr::SuperPropertyWrite { value, .. } => self.infer_expr_throw_info(value),
+            | ExprIr::StringFromCharCode { code: value } => self.infer_expr_throw_info(value),
+            ExprIr::SuperPropertyWrite {
+                receiver, value, ..
+            } => self.merge_optional_value_info(
+                self.infer_expr_throw_info(receiver),
+                self.infer_expr_throw_info(value),
+            ),
             ExprIr::StringCharCodeAt { target, index } => self.merge_optional_value_info(
                 self.infer_expr_throw_info(target),
                 self.infer_expr_throw_info(index),
@@ -8130,7 +8125,9 @@ impl<'a> ScriptLowerer<'a> {
                 is_derived_constructor: true,
                 ..ClassLoweringContext::default()
             });
-        } else if function.captures.contains_key(LEXICAL_HOME_OBJECT_NAME) {
+        } else if function.protocol.is_object_literal_method()
+            || function.captures.contains_key(LEXICAL_HOME_OBJECT_NAME)
+        {
             lowerer.class_context = Some(ClassLoweringContext::default());
         }
         let Some(parameters) =
@@ -21245,7 +21242,7 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         method: &ObjectMethodDefinition,
         function_name: &str,
-    ) -> Option<TypedExpr> {
+    ) -> Option<(ObjectMethodFunctionIr, ValueInfo)> {
         let Some(parameters) = self.lower_function_parameters(method.parameters(), function_name)
         else {
             return None;
@@ -21284,7 +21281,10 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported_expr("object literal method");
             return None;
         };
-        Some(self.function_value_expr(function_id))
+        let info = self.function_value_info(&function_id);
+        let function =
+            ObjectMethodFunctionIr::new(function_id, object_method_protocol(method.kind()));
+        Some((function, info))
     }
 
     fn observe_proxy_handler_trap_expression_hints(&mut self, args: &[Expression]) {
@@ -21473,7 +21473,9 @@ impl<'a> ScriptLowerer<'a> {
 
                     if let Some(key) = static_key {
                         self.observe_proxy_trap_method_hint(&key, method);
-                        let Some(function) = self.lower_object_method_function(method, &key) else {
+                        let Some((function, function_info)) =
+                            self.lower_object_method_function(method, &key)
+                        else {
                             return TypedExpr::undefined();
                         };
                         match method.kind() {
@@ -21484,14 +21486,12 @@ impl<'a> ScriptLowerer<'a> {
                                 Self::insert_string_keyed_shape_property(
                                     &mut shape,
                                     &key,
-                                    ObjectShapeProperty::Data(function.value_info()),
+                                    ObjectShapeProperty::Data(function_info),
                                 );
                                 properties.push(ObjectPropertyIr::Method { key, function });
                             }
                             MethodDefinitionKind::Get => {
-                                let function_id = self
-                                    .resolve_single_function_target(&function)
-                                    .expect("getter should resolve single target");
+                                let function_id = function.function_id().clone();
                                 let entry = shape.properties.remove(&key);
                                 let setter = match entry {
                                     Some(ObjectShapeProperty::Accessor { setter, .. }) => setter,
@@ -21508,9 +21508,7 @@ impl<'a> ScriptLowerer<'a> {
                                 properties.push(ObjectPropertyIr::Getter { key, function });
                             }
                             MethodDefinitionKind::Set => {
-                                let function_id = self
-                                    .resolve_single_function_target(&function)
-                                    .expect("setter should resolve single target");
+                                let function_id = function.function_id().clone();
                                 let entry = shape.properties.remove(&key);
                                 let getter = match entry {
                                     Some(ObjectShapeProperty::Accessor { getter, .. }) => getter,
@@ -21542,7 +21540,8 @@ impl<'a> ScriptLowerer<'a> {
                         return self.unsupported_expr("computed object key");
                     }
                     let key_may_be_string = Self::computed_key_may_be_string(&key);
-                    let Some(function) = self.lower_object_method_function(method, "<computed>")
+                    let Some((function, function_info)) =
+                        self.lower_object_method_function(method, "<computed>")
                     else {
                         return TypedExpr::undefined();
                     };
@@ -21558,7 +21557,7 @@ impl<'a> ScriptLowerer<'a> {
                                 Some(symbol) => {
                                     shape.properties.insert(
                                         shape_namespace_key(symbol),
-                                        ObjectShapeProperty::Data(function.value_info()),
+                                        ObjectShapeProperty::Data(function_info),
                                     );
                                 }
                                 None => has_unknown_key |= key_may_be_string,
@@ -22467,6 +22466,7 @@ impl<'a> ScriptLowerer<'a> {
         let Some(key) = self.lower_super_property_key(access.field()) else {
             return TypedExpr::undefined();
         };
+        let receiver = self.lower_current_this();
         let info = match &key {
             PropertyKeyIr::StaticString(key_name) => self
                 .class_context
@@ -22500,7 +22500,13 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: BTreeSet::new(),
             },
         };
-        TypedExpr::from_info(info, ExprIr::SuperPropertyRead { key })
+        TypedExpr::from_info(
+            info,
+            ExprIr::SuperPropertyRead {
+                key,
+                receiver: Box::new(receiver),
+            },
+        )
     }
 
     fn lower_private_property_access(&mut self, access: &PrivatePropertyAccess) -> TypedExpr {
@@ -22934,8 +22940,13 @@ impl<'a> ScriptLowerer<'a> {
                 && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
                     || self.dynamic_object_prototype_method_resolution_is_safe(&target, "toString"))
             {
-                return self
-                    .function_value_expr(StandardBuiltinId::ObjectPrototypeToString.function_id());
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ObjectPrototypeToString),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: key.clone(),
+                    },
+                );
             }
             if name == "toLocaleString"
                 && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
@@ -26016,7 +26027,7 @@ impl<'a> ScriptLowerer<'a> {
             // PrivateSet writes a fixed slot of a known class shape; there is
             // no tracked property shape to invalidate.
             ReferenceBase::Private { .. } => {}
-            ReferenceBase::Super { key } => {
+            ReferenceBase::Super { key, .. } => {
                 // A super Reference reads through the home object's prototype
                 // but writes with `this` as the Receiver (PutValue 3.c via
                 // GetThisValue), so it is `this`'s recorded shape that goes
@@ -26460,12 +26471,14 @@ impl<'a> ScriptLowerer<'a> {
                 let Some(key) = self.lower_super_property_key(access.field()) else {
                     return TypedExpr::undefined();
                 };
+                let receiver = self.lower_current_this();
                 let value = self.lower_expression(rhs);
                 let strictness = self.reference_strictness();
                 TypedExpr::from_info(
                     value.value_info(),
                     ExprIr::SuperPropertyWrite {
                         key,
+                        receiver: Box::new(receiver),
                         value: Box::new(value),
                         strictness,
                     },

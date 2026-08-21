@@ -1872,6 +1872,23 @@ pub(crate) fn object_method_key(method: &ObjectMethodDefinition) -> String {
     format!("object-method:{}:{}", span.start().pos(), span.end().pos())
 }
 
+pub(crate) const fn object_method_protocol(kind: MethodDefinitionKind) -> ObjectMethodProtocolIr {
+    match kind {
+        MethodDefinitionKind::Ordinary => {
+            ObjectMethodProtocolIr::Method(FunctionExecutionKind::Ordinary)
+        }
+        MethodDefinitionKind::Generator => {
+            ObjectMethodProtocolIr::Method(FunctionExecutionKind::Generator)
+        }
+        MethodDefinitionKind::Async => ObjectMethodProtocolIr::Method(FunctionExecutionKind::Async),
+        MethodDefinitionKind::AsyncGenerator => {
+            ObjectMethodProtocolIr::Method(FunctionExecutionKind::AsyncGenerator)
+        }
+        MethodDefinitionKind::Get => ObjectMethodProtocolIr::Getter,
+        MethodDefinitionKind::Set => ObjectMethodProtocolIr::Setter,
+    }
+}
+
 pub(crate) fn for_in_loop_binding_storage_name(
     for_in: &boa_ast::statement::iteration::ForInLoop,
     source_name: &str,

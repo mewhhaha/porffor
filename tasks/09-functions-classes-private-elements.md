@@ -27,6 +27,30 @@ AsyncGeneratorFunction while suppressing their automatically generated
 `prototype` object. The exact matrix and boundary choices are recorded in
 `docs/rust-rewrite/contracts/function-protocol.md`.
 
+Object-literal methods, getters and setters now extend that closed function
+protocol without masquerading as class members. A public
+`ObjectMethodFunctionIr` with private construction state is the only value the
+six method/accessor `ObjectPropertyIr` rows accept, so every exhaustive IR and
+AOT consumer must acknowledge the HomeObject-bearing lifecycle. The backend
+pairs that carrier with the already allocated literal, stores the literal as
+the function's `[[HomeObject]]` before property definition, and consumes the
+invocation `this` as the distinct Receiver for super reads and writes. The
+durable oracle covers method/getter/setter bodies, parameter-initializer super,
+computed/static key order, detached alien receivers and later prototype
+replacement. At clean pre-batch commit `304e4bbad3`, the exact five-file cohort
+under `language/expressions/object` is `method.js`,
+`method-definition/name-super-prop-body.js`,
+`method-definition/name-super-prop-param.js`, `getter-super-prop.js`, and
+`setter-super-prop.js`; it reported `0/10` sloppy/strict executions, all at the
+object-literal-method NotImplemented boundary. The implementation, bounded
+witnesses and fixture now pass the workspace/all-target check, `cargo xc`, the
+focused IR invariant (`1/1`), the bounded structure executable (`5/5`), the
+Wasm CLI fixture (`1/1` in 19.75s), and the exact cohort (`10/10`, zero
+unsupported/crash/bug outcomes). Resumable
+object-method HomeObject transport and nested arrows using an enclosing object
+method's `super` remain explicit nonclaims. The boundary is recorded in
+`docs/rust-rewrite/contracts/object-literal-home-object.md`.
+
 Private-element heap storage now has the closed five-row
 `PrivateElementHeapKind` protocol. Receiver rows are either a brand or a field;
 shared definition rows are a setter, method or getter. The entry writer accepts

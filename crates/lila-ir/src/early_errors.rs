@@ -208,28 +208,21 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                     ObjectPropertyIr::PrototypeSetter { value }
                     | ObjectPropertyIr::Spread { source: value }
                     | ObjectPropertyIr::Data { value, .. }
-                    | ObjectPropertyIr::NonEnumerableData { value, .. }
-                    | ObjectPropertyIr::Method {
-                        function: value, ..
-                    }
-                    | ObjectPropertyIr::Getter {
-                        function: value, ..
-                    }
-                    | ObjectPropertyIr::Setter {
-                        function: value, ..
-                    } => {
+                    | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                         expr_contains_this_before_super(value, state);
                     }
                     ObjectPropertyIr::ComputedData { key, value } => {
                         expr_contains_this_before_super(key, state);
                         expr_contains_this_before_super(value, state);
                     }
-                    ObjectPropertyIr::ComputedMethod { key, function }
-                    | ObjectPropertyIr::ComputedGetter { key, function }
-                    | ObjectPropertyIr::ComputedSetter { key, function } => {
+                    ObjectPropertyIr::ComputedMethod { key, .. }
+                    | ObjectPropertyIr::ComputedGetter { key, .. }
+                    | ObjectPropertyIr::ComputedSetter { key, .. } => {
                         expr_contains_this_before_super(key, state);
-                        expr_contains_this_before_super(function, state);
                     }
+                    ObjectPropertyIr::Method { .. }
+                    | ObjectPropertyIr::Getter { .. }
+                    | ObjectPropertyIr::Setter { .. } => {}
                 }
             }
         }
@@ -272,13 +265,20 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         | ExprIr::CompoundAssignIdentifier { .. }
         | ExprIr::GlobalPropertyCompoundAssign { .. }
         | ExprIr::TypeOfUnresolvedIdentifier { .. }
-        | ExprIr::SuperPropertyRead { .. }
-        | ExprIr::SuperPropertyWrite { .. }
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateIn { .. }
         | ExprIr::InstanceOf { .. }
         | ExprIr::CallNamed { .. }
         | ExprIr::RuntimeThrow { .. } => {}
+        ExprIr::SuperPropertyRead { receiver, .. } => {
+            expr_contains_this_before_super(receiver, state);
+        }
+        ExprIr::SuperPropertyWrite {
+            receiver, value, ..
+        } => {
+            expr_contains_this_before_super(receiver, state);
+            expr_contains_this_before_super(value, state);
+        }
     }
 }
 

@@ -124,6 +124,122 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn compile_super_property_read_to_locals(
+        &mut self,
+        key: &PropertyKeyIr,
+        receiver: &TypedExpr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let super_base_local = self.reserve_temp_local();
+        let super_base_tag_local = self.reserve_temp_local();
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
+
+        self.compile_expr_to_locals(
+            receiver,
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        self.compile_super_property_key_expression_to_locals(
+            key,
+            key_local,
+            key_tag_local,
+            function,
+        )?;
+        self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
+        self.emit_throw_if_null_super_base(super_base_local, super_base_tag_local, function)?;
+        self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
+        self.emit_object_read_with_key_tag(
+            super_base_local,
+            super_base_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            Some(key_tag_local),
+            payload_local,
+            tag_local,
+            function,
+        )?;
+
+        self.release_temp_local(key_tag_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        self.release_temp_local(super_base_tag_local);
+        self.release_temp_local(super_base_local);
+        Ok(())
+    }
+
+    fn compile_super_property_write_to_locals(
+        &mut self,
+        key: &PropertyKeyIr,
+        receiver: &TypedExpr,
+        value: &TypedExpr,
+        strictness: Strictness,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let super_base_local = self.reserve_temp_local();
+        let super_base_tag_local = self.reserve_temp_local();
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
+        let set_result_local = self.reserve_temp_local();
+
+        self.compile_expr_to_locals(
+            receiver,
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        self.compile_super_property_key_expression_to_locals(
+            key,
+            key_local,
+            key_tag_local,
+            function,
+        )?;
+        self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
+        self.emit_throw_if_null_super_base(super_base_local, super_base_tag_local, function)?;
+        self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
+        self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
+        self.emit_ordinary_set_result_via_helper(
+            super_base_local,
+            super_base_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            key_tag_local,
+            payload_local,
+            tag_local,
+            set_result_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(set_result_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.with_reference_strictness(strictness, function, |emitter, function| {
+            emitter.emit_object_write_set_failure_else("Cannot assign to super property", function)
+        })?;
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(set_result_local);
+        self.release_temp_local(key_tag_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        self.release_temp_local(super_base_tag_local);
+        self.release_temp_local(super_base_local);
+        Ok(())
+    }
+
     pub(crate) fn compile_expr_payload(
         &mut self,
         expr: &TypedExpr,
@@ -1499,112 +1615,31 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(ctor_tag_local);
                 self.release_temp_local(ctor_payload_local);
             }
-            ExprIr::SuperPropertyRead { key } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                let activation_receiver = self.lexical_derived_activation.is_some();
-                let lexical_arrow_receiver = self.function_flavor == FunctionFlavor::Arrow
-                    && self.lookup_binding(LEXICAL_HOME_OBJECT_NAME).is_some();
-                let (this_payload_local, this_tag_local) = if activation_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.emit_get_derived_this_to_locals(
-                        this_payload_local,
-                        this_tag_local,
-                        function,
-                    )?;
-                    (this_payload_local, this_tag_local)
-                } else if lexical_arrow_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.compile_this_to_locals(this_payload_local, this_tag_local, function)?;
-                    (this_payload_local, this_tag_local)
-                } else {
-                    let Some(this_payload_local) = self.this_payload_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    let Some(this_tag_local) = self.this_tag_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    (this_payload_local, this_tag_local)
-                };
-                let key_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                // Evaluate the raw key (including its side effects) before
-                // GetSuperBase; ToPropertyKey is intentionally deferred.
-                self.compile_super_property_key_expression_to_locals(
+            ExprIr::SuperPropertyRead { key, receiver } => {
+                self.compile_super_property_read_to_locals(
                     key,
-                    key_local,
-                    key_tag_local,
-                    function,
-                )?;
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
-                    function,
-                )?;
-                self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
-                self.emit_object_read_with_key_tag(
-                    super_base_local,
-                    super_base_tag_local,
-                    this_payload_local,
-                    this_tag_local,
-                    key_local,
-                    Some(key_tag_local),
+                    receiver,
                     self.scratch_local,
                     self.result_tag_local,
                     function,
                 )?;
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_local);
-                if activation_receiver || lexical_arrow_receiver {
-                    self.release_temp_local(this_tag_local);
-                    self.release_temp_local(this_payload_local);
-                }
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::SuperPropertyWrite {
                 key,
+                receiver,
                 value,
                 strictness,
             } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
-                    function,
-                )?;
-                let key_local = self.compile_object_key_to_local(key, function)?;
-                self.compile_expr_to_locals(
+                self.compile_super_property_write_to_locals(
+                    key,
+                    receiver,
                     value,
+                    *strictness,
                     self.scratch_local,
                     self.result_tag_local,
                     function,
                 )?;
-                let scratch_local = self.scratch_local;
-                let result_tag_local = self.result_tag_local;
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.emit_object_write(
-                        super_base_local,
-                        super_base_tag_local,
-                        key_local,
-                        scratch_local,
-                        result_tag_local,
-                        function,
-                    )
-                })?;
-                self.release_temp_local(key_local);
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::PrivateRead {
@@ -3031,105 +3066,28 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(ctor_tag_local);
                 self.release_temp_local(ctor_payload_local);
             }
-            ExprIr::SuperPropertyRead { key } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                let activation_receiver = self.lexical_derived_activation.is_some();
-                let lexical_arrow_receiver = self.function_flavor == FunctionFlavor::Arrow
-                    && self.lookup_binding(LEXICAL_HOME_OBJECT_NAME).is_some();
-                let (this_payload_local, this_tag_local) = if activation_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.emit_get_derived_this_to_locals(
-                        this_payload_local,
-                        this_tag_local,
-                        function,
-                    )?;
-                    (this_payload_local, this_tag_local)
-                } else if lexical_arrow_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.compile_this_to_locals(this_payload_local, this_tag_local, function)?;
-                    (this_payload_local, this_tag_local)
-                } else {
-                    let Some(this_payload_local) = self.this_payload_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    let Some(this_tag_local) = self.this_tag_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    (this_payload_local, this_tag_local)
-                };
-                let key_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                // Evaluate the raw key (including its side effects) before
-                // GetSuperBase; ToPropertyKey is intentionally deferred.
-                self.compile_super_property_key_expression_to_locals(
+            ExprIr::SuperPropertyRead { key, receiver } => self
+                .compile_super_property_read_to_locals(
                     key,
-                    key_local,
-                    key_tag_local,
-                    function,
-                )?;
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
-                    function,
-                )?;
-                self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
-                self.emit_object_read_with_key_tag(
-                    super_base_local,
-                    super_base_tag_local,
-                    this_payload_local,
-                    this_tag_local,
-                    key_local,
-                    Some(key_tag_local),
+                    receiver,
                     payload_local,
                     tag_local,
                     function,
-                )?;
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_local);
-                if activation_receiver || lexical_arrow_receiver {
-                    self.release_temp_local(this_tag_local);
-                    self.release_temp_local(this_payload_local);
-                }
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
-            }
+                )?,
             ExprIr::SuperPropertyWrite {
                 key,
+                receiver,
                 value,
                 strictness,
-            } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
-                    function,
-                )?;
-                let key_local = self.compile_object_key_to_local(key, function)?;
-                self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.emit_object_write(
-                        super_base_local,
-                        super_base_tag_local,
-                        key_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )
-                })?;
-                self.release_temp_local(key_local);
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
-            }
+            } => self.compile_super_property_write_to_locals(
+                key,
+                receiver,
+                value,
+                *strictness,
+                payload_local,
+                tag_local,
+                function,
+            )?,
             ExprIr::LogicalShortCircuit { op, lhs, rhs } => {
                 self.compile_expr_to_locals(lhs, payload_local, tag_local, function)?;
                 match op {

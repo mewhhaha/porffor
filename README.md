@@ -370,6 +370,31 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- Non-resumable object-literal methods, getters and setters now carry their
+  exact function identity and object-method protocol in a dedicated IR value;
+  a generic function expression cannot enter any of the six method/accessor
+  property rows. The AOT lifecycle pairs that carrier with the already
+  allocated literal, installs the literal as `[[HomeObject]]` before defining
+  the property, and keeps the invocation `this` distinct from the super base
+  for reads and writes. The durable CLI oracle covers named and computed
+  methods/accessors, a super read in a parameter initializer before the body,
+  source-order computed keys around a static key, detached calls with an alien
+  receiver, later literal-prototype replacement, and nonconstructability. At
+  clean pre-batch commit `304e4bbad3`, the five exact Test262 files
+  `language/expressions/object/method.js`,
+  `language/expressions/object/method-definition/name-super-prop-body.js`,
+  `language/expressions/object/method-definition/name-super-prop-param.js`,
+  `language/expressions/object/getter-super-prop.js`, and
+  `language/expressions/object/setter-super-prop.js` reported `0/10` sloppy and
+  strict Script executions; every execution was `Runtime/NotImplemented` with
+  ``unsupported in lila wasm-aot first slice: object literal method``. The
+  The shared workspace/all-target check and `cargo xc` are green; the focused
+  IR invariant is `1/1`, the bounded structure executable is `5/5`, and the
+  Wasm CLI fixture is `1/1` in 19.75s. The exact five-file cohort is now
+  `10/10`, with zero unsupported, crash or bug outcomes.
+  Generator, async and async-generator object-method HomeObject transport,
+  nested arrows using an enclosing object method's `super`, and the complete
+  object-expression subtree remain separate gates.
 - Direct identifier calls selected through `with` now have a verified,
   Reference-preserving lowering seam. A private non-copyable
   `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty
@@ -1305,7 +1330,10 @@ Recent focused progress through `2026-08-21`:
   `delete super[key]` use a fused Reference plan which checks current `this`,
   evaluates the raw computed value without
   `ToPropertyKey`, and then throws `ReferenceError` without invoking property
-  deletion; object-literal-method home-object lowering remains explicit debt.
+  deletion. Non-resumable object-literal methods and accessors now use a
+  separate typed HomeObject lifecycle, verified by the focused Wasm fixture and
+  exact `10/10` cohort. Resumable object methods and nested-arrow transport
+  remain explicit debt.
   The four focused real Test262 arrow files
   `lexical-supercall-from-immediately-invoked-arrow.js`,
   `lexical-super-call-from-within-constructor.js`,

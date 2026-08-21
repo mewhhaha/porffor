@@ -2,6 +2,8 @@ use super::*;
 
 use std::marker::PhantomData;
 
+use lila_ir::ObjectMethodFunctionIr;
+
 // The Property Descriptor lattice (ECMA-262 6.2.6). Imported here rather than
 // through the crate root's `use lila_ir::{..}` list because that list is a
 // shared hub this lane does not own. See
@@ -35,6 +37,21 @@ enum PrivateElementEntryLocals {
     GetterDefinition {
         value: (u32, u32),
     },
+}
+
+#[must_use = "an object-method function must be attached to its literal before publication"]
+struct ObjectMethodHomeObjectMaterialization<'a> {
+    method: &'a ObjectMethodFunctionIr,
+    home_object_local: u32,
+}
+
+impl<'a> ObjectMethodHomeObjectMaterialization<'a> {
+    fn new(method: &'a ObjectMethodFunctionIr, home_object_local: u32) -> Self {
+        Self {
+            method,
+            home_object_local,
+        }
+    }
 }
 
 impl PrivateElementEntryLocals {
@@ -3543,6 +3560,42 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_object_method_value_to_locals(
+        &mut self,
+        request: ObjectMethodHomeObjectMaterialization<'_>,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let meta = self
+            .functions
+            .get(request.method.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing object-method function `{}`",
+                    request.method.function_id()
+                ))
+            })?;
+        if meta.protocol != request.method.protocol() {
+            return Err(EmitError::unsupported(format!(
+                "unsupported in lila wasm-aot first slice: object-method protocol mismatch for `{}`",
+                request.method.function_id()
+            )));
+        }
+        self.emit_function_value_payload(&meta, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.store_function_home_object(
+            payload_local,
+            request.home_object_local,
+            ValueKind::Object,
+            function,
+        );
+        Ok(())
+    }
+
     pub(crate) fn compile_object_literal_payload(
         &mut self,
         properties: &[ObjectPropertyIr],
@@ -3774,17 +3827,35 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(value_payload);
                 }
                 ObjectPropertyIr::Data { value, .. }
-                | ObjectPropertyIr::ComputedData { value, .. }
-                | ObjectPropertyIr::Method {
-                    function: value, ..
-                }
-                | ObjectPropertyIr::ComputedMethod {
-                    function: value, ..
-                } => {
+                | ObjectPropertyIr::ComputedData { value, .. } => {
                     let value_payload = self.reserve_temp_local();
                     let value_tag = self.reserve_temp_local();
                     self.compile_expr_to_locals(value, value_payload, value_tag, function)?;
                     self.emit_propagate_throw_from_locals_if_needed(
+                        value_payload,
+                        value_tag,
+                        function,
+                    )?;
+                    self.emit_object_define_enumerable_data(
+                        object_local,
+                        key_local,
+                        value_payload,
+                        value_tag,
+                        function,
+                    )?;
+                    self.release_temp_local(value_tag);
+                    self.release_temp_local(value_payload);
+                }
+                ObjectPropertyIr::Method {
+                    function: method, ..
+                }
+                | ObjectPropertyIr::ComputedMethod {
+                    function: method, ..
+                } => {
+                    let value_payload = self.reserve_temp_local();
+                    let value_tag = self.reserve_temp_local();
+                    self.emit_object_method_value_to_locals(
+                        ObjectMethodHomeObjectMaterialization::new(method, object_local),
                         value_payload,
                         value_tag,
                         function,
@@ -3805,8 +3876,8 @@ impl<'a> FunctionBuilder<'a> {
                 } => {
                     let getter_payload = self.reserve_temp_local();
                     let getter_tag = self.reserve_temp_local();
-                    self.compile_expr_to_locals(getter, getter_payload, getter_tag, function)?;
-                    self.emit_propagate_throw_from_locals_if_needed(
+                    self.emit_object_method_value_to_locals(
+                        ObjectMethodHomeObjectMaterialization::new(getter, object_local),
                         getter_payload,
                         getter_tag,
                         function,
@@ -3824,8 +3895,8 @@ impl<'a> FunctionBuilder<'a> {
                     let setter_locals = if let Some(setter) = paired_setter {
                         let setter_payload = self.reserve_temp_local();
                         let setter_tag = self.reserve_temp_local();
-                        self.compile_expr_to_locals(setter, setter_payload, setter_tag, function)?;
-                        self.emit_propagate_throw_from_locals_if_needed(
+                        self.emit_object_method_value_to_locals(
+                            ObjectMethodHomeObjectMaterialization::new(setter, object_local),
                             setter_payload,
                             setter_tag,
                             function,
@@ -3854,8 +3925,8 @@ impl<'a> FunctionBuilder<'a> {
                 } => {
                     let getter_payload = self.reserve_temp_local();
                     let getter_tag = self.reserve_temp_local();
-                    self.compile_expr_to_locals(getter, getter_payload, getter_tag, function)?;
-                    self.emit_propagate_throw_from_locals_if_needed(
+                    self.emit_object_method_value_to_locals(
+                        ObjectMethodHomeObjectMaterialization::new(getter, object_local),
                         getter_payload,
                         getter_tag,
                         function,
@@ -3886,8 +3957,8 @@ impl<'a> FunctionBuilder<'a> {
                     }
                     let setter_payload = self.reserve_temp_local();
                     let setter_tag = self.reserve_temp_local();
-                    self.compile_expr_to_locals(setter, setter_payload, setter_tag, function)?;
-                    self.emit_propagate_throw_from_locals_if_needed(
+                    self.emit_object_method_value_to_locals(
+                        ObjectMethodHomeObjectMaterialization::new(setter, object_local),
                         setter_payload,
                         setter_tag,
                         function,
@@ -3907,8 +3978,8 @@ impl<'a> FunctionBuilder<'a> {
                 } => {
                     let setter_payload = self.reserve_temp_local();
                     let setter_tag = self.reserve_temp_local();
-                    self.compile_expr_to_locals(setter, setter_payload, setter_tag, function)?;
-                    self.emit_propagate_throw_from_locals_if_needed(
+                    self.emit_object_method_value_to_locals(
+                        ObjectMethodHomeObjectMaterialization::new(setter, object_local),
                         setter_payload,
                         setter_tag,
                         function,

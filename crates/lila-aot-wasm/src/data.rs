@@ -86,6 +86,7 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot assign to array property",
     "Cannot assign to inherited accessor without setter",
     "Cannot assign to inherited read only property",
+    "Cannot assign to super property",
     "Cannot change enumerable flag of non-configurable arguments accessor",
     "Cannot change enumerable flag of non-configurable arguments property",
     "Cannot change enumerable flag of non-configurable arguments.callee",
@@ -3521,17 +3522,15 @@ impl StringPool {
                             self.collect_expr(key);
                             self.collect_expr(value);
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function }
-                        | ObjectPropertyIr::ComputedGetter { key, function }
-                        | ObjectPropertyIr::ComputedSetter { key, function } => {
+                        ObjectPropertyIr::ComputedMethod { key, .. }
+                        | ObjectPropertyIr::ComputedGetter { key, .. }
+                        | ObjectPropertyIr::ComputedSetter { key, .. } => {
                             self.collect_expr(key);
-                            self.collect_expr(function);
                         }
-                        ObjectPropertyIr::Method { key, function }
-                        | ObjectPropertyIr::Getter { key, function }
-                        | ObjectPropertyIr::Setter { key, function } => {
+                        ObjectPropertyIr::Method { key, .. }
+                        | ObjectPropertyIr::Getter { key, .. }
+                        | ObjectPropertyIr::Setter { key, .. } => {
                             self.intern_string(key);
-                            self.collect_expr(function);
                         }
                     }
                 }
@@ -4069,13 +4068,20 @@ impl StringPool {
                     self.collect_expr(arg);
                 }
             }
-            ExprIr::SuperPropertyRead { key } => {
+            ExprIr::SuperPropertyRead { key, receiver } => {
                 self.uses_heap = true;
                 self.collect_property_key(key);
+                self.collect_expr(receiver);
             }
-            ExprIr::SuperPropertyWrite { key, value, .. } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                receiver,
+                value,
+                ..
+            } => {
                 self.uses_heap = true;
                 self.collect_property_key(key);
+                self.collect_expr(receiver);
                 self.collect_expr(value);
             }
             ExprIr::ClassDefinition(class) => {
