@@ -663,7 +663,10 @@ enum LoweredStatementListItemIr {
         statement: StatementIr,
         result_kind: ValueKind,
     },
-    SyncDisposableResources(SyncDisposableResourcesIr),
+    SyncDisposableScope {
+        execution: SyncDisposableScopeExecutionIr,
+        resources: SyncDisposableResourcesIr,
+    },
 }
 
 impl LoweredStatementListItemIr {
@@ -2910,8 +2913,11 @@ impl<'a> ScriptLowerer<'a> {
                     current.push(statement);
                     current_kind = result_kind;
                 }
-                LoweredStatementListItemIr::SyncDisposableResources(resources) => {
-                    segments.push((current, resources));
+                LoweredStatementListItemIr::SyncDisposableScope {
+                    execution,
+                    resources,
+                } => {
+                    segments.push((current, execution, resources));
                     current = Vec::new();
                     current_kind = ValueKind::Undefined;
                 }
@@ -2931,9 +2937,10 @@ impl<'a> ScriptLowerer<'a> {
             result_kind: current_kind,
             lexical_environment: None,
         };
-        for (mut prefix, resources) in segments.into_iter().rev() {
+        for (mut prefix, execution, resources) in segments.into_iter().rev() {
             let result_kind = suffix.result_kind;
             prefix.push(StatementIr::SyncDisposableScope {
+                execution,
                 resources,
                 body: suffix,
             });
@@ -3012,7 +3019,7 @@ impl<'a> ScriptLowerer<'a> {
                     statements.push(statement);
                     result_kind = kind;
                 }
-                LoweredStatementListItemIr::SyncDisposableResources(_) => {
+                LoweredStatementListItemIr::SyncDisposableScope { .. } => {
                     self.unsupported("using declaration in a switch CaseBlock");
                     statements.push(StatementIr::Empty);
                     result_kind = ValueKind::Undefined;
@@ -3159,7 +3166,10 @@ impl<'a> ScriptLowerer<'a> {
                                 ValueKind::Undefined,
                             )
                         },
-                        LoweredStatementListItemIr::SyncDisposableResources,
+                        |(execution, resources)| LoweredStatementListItemIr::SyncDisposableScope {
+                            execution,
+                            resources,
+                        },
                     ),
                 Declaration::Lexical(LexicalDeclaration::AwaitUsing(_)) => {
                     self.unsupported("await using declaration");
@@ -5200,7 +5210,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            StatementIr::SyncDisposableScope { resources, body } => {
+            StatementIr::SyncDisposableScope {
+                resources, body, ..
+            } => {
                 let mut info = Some(ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -10011,22 +10023,16 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         list: &[Variable],
         scope: &mut LexicalScopeInstantiation,
-    ) -> Option<SyncDisposableResourcesIr> {
+    ) -> Option<(SyncDisposableScopeExecutionIr, SyncDisposableResourcesIr)> {
         if self.root_this_binding == RootThisBinding::Undefined {
             self.unsupported("using declaration in a module");
-            return None;
-        }
-        if self.current_generator_resume_state.is_some()
-            || self.current_async_resume_state.is_some()
-            || self.current_resumable_plan.is_some()
-        {
-            self.unsupported("using declaration in a generator or async function");
             return None;
         }
         if list.is_empty() {
             self.unsupported("empty using declaration");
             return None;
         }
+
         if list
             .iter()
             .any(|variable| !matches!(variable.binding(), Binding::Identifier(_)))
@@ -10038,6 +10044,8 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("using declaration without initializer");
             return None;
         }
+
+        let execution = self.sync_disposable_scope_execution()?;
 
         let mut resources = Vec::with_capacity(list.len());
         for variable in list {
@@ -10073,7 +10081,45 @@ impl<'a> ScriptLowerer<'a> {
         let first = resources
             .next()
             .expect("a parsed using BindingList is non-empty");
-        Some(SyncDisposableResourcesIr::new(first, resources.collect()))
+        Some((
+            execution,
+            SyncDisposableResourcesIr::new(first, resources.collect()),
+        ))
+    }
+
+    /// Selects the only legal lifetime for an ordinary statement-list `using`.
+    ///
+    /// This consumes the analyzed function protocol exhaustively. In
+    /// particular, a plain generator capability can only be minted through the
+    /// suspension-owned allocator below; an async owner cannot fall through to
+    /// the immediate representation.
+    fn sync_disposable_scope_execution(&mut self) -> Option<SyncDisposableScopeExecutionIr> {
+        let owner = self
+            .current_function_id
+            .as_ref()
+            .and_then(|function_id| self.analysis.function_plans.get(function_id))
+            .map_or(SyncDisposableScopeOwnerPlan::Immediate, |function| {
+                function.sync_disposable_scope_owner()
+            });
+        match owner {
+            SyncDisposableScopeOwnerPlan::Immediate => {
+                Some(SyncDisposableScopeExecutionIr::Immediate)
+            }
+            SyncDisposableScopeOwnerPlan::PlainGenerator => {
+                let binding_name = self.alloc_suspension_owned_binding(
+                    "generator.dispose.capability.",
+                    ValueInfo::new(ValueKind::Object),
+                );
+                Some(SyncDisposableScopeExecutionIr::PlainGenerator(
+                    PlainGeneratorSyncDisposableCapabilityIr::new(binding_name),
+                ))
+            }
+            SyncDisposableScopeOwnerPlan::AsyncFunction
+            | SyncDisposableScopeOwnerPlan::AsyncGenerator => {
+                self.unsupported("using declaration in an async function or async generator");
+                None
+            }
+        }
     }
 
     fn hoist_root_statement_items(&mut self, items: &[StatementListItem]) {

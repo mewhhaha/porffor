@@ -3200,7 +3200,9 @@ impl StringPool {
                     self.collect_statement(statement);
                 }
             }
-            StatementIr::SyncDisposableScope { resources, body } => {
+            StatementIr::SyncDisposableScope {
+                resources, body, ..
+            } => {
                 for value in [
                     "Symbol.dispose",
                     "using declaration resource is not an object",

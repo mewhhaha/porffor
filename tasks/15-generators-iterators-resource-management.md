@@ -70,6 +70,43 @@ structure tests and the CLI consumer pass. The exact 18-file non-dynamic
 lifecycle cohort is 36/36 under Wasm-AOT. This focused result does not claim the
 complete 78-file `language/statements/using` directory or full pinned aggregate.
 
+The selected plain-generator extension is implemented around a required
+`SyncDisposableScopeExecutionIr::{Immediate, PlainGenerator}` owner rather than
+an optional resumability flag. Analysis exhaustively classifies ordinary,
+generator, async-function and async-generator owners; only the generator route
+can mint the private `PlainGeneratorSyncDisposableCapabilityIr` through the
+suspension-owned binding allocator. The AOT consumer publishes the capability
+when execution first reaches the declaration, retains the heap record across
+`GeneratorYield`, and consumes a non-`Copy`
+`PlainGeneratorSyncDisposeCapabilityStorage` into a detached capability only
+when the scope exits. Detachment marks the record disposed and clears its live
+entry count before the existing reverse disposal and completion-folding path
+runs. The durable CLI fixture covers no acquisition or disposal before start,
+no disposal while yielded, normal completion, external `return()` and
+`throw()`, acquisition failure, nested capabilities, LIFO, disposer failures,
+nested `SuppressedError` order and exactly-once terminal disposal.
+
+The exact current-pin inventory for this batch is one unflagged file and two
+sloppy/strict Script executions:
+
+- `language/statements/using/initializer-disposed-at-end-of-generatorbody.js`.
+
+At pre-batch source commit `904da7b355811ad399ff284bf0ddeac47d2cc9c2`,
+both executions reported `Runtime/NotImplemented` with the diagnostic `using
+declaration in a generator or async function`. The integrated current-SHA
+checkpoint is green: the workspace/all-target check and `cargo xc` pass after
+correcting one stale exhaustive lowering match, the focused IR invariant is
+`1/1`, the bounded structure suite is `6/6`, and the generator CLI fixture is
+`1/1` in 55.90 seconds. The passing fixture retains a nested non-yielding scope;
+only the unsupported nested-yield shape was removed. The exact Test262 witness
+is now `2/2` with zero unsupported, crash or bug results, and the retained ordinary
+synchronous-using fixture remains `1/1` in 42.05 seconds. This is not a claim
+about async functions or generators, `await using`, resource heads in classic
+`for` or `for-of` beyond their separate batches, modules, dynamic source, the
+complete 78-file `language/statements/using` directory or the full pinned
+aggregate. The lifetime contract lives in
+`docs/rust-rewrite/contracts/plain-generator-synchronous-using-scope.md`.
+
 The next bounded source batch extends that same synchronous disposal lifecycle
 to classic `for` initializer heads. The producer uses the closed, statically
 non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and

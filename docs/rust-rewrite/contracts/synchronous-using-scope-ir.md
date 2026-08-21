@@ -6,8 +6,10 @@ This contract covers non-resumable synchronous `using` declarations that are
 direct children of an ordinary Script, Block, or ordinary function body. This
 batch does not claim modules. It deliberately does not cover `await using`,
 generators, async functions, async generators, classic `for` heads,
-`for-in`/`for-of` heads, Switch CaseBlocks, or dynamic `eval`.
-Those forms must remain explicit unsupported boundaries until they acquire
+`for-in`/`for-of` heads, Switch CaseBlocks, or dynamic `eval`. Plain synchronous
+generators are the one resumable extension defined by
+[`plain-generator-synchronous-using-scope.md`](plain-generator-synchronous-using-scope.md);
+the other forms remain explicit unsupported boundaries until they acquire
 their own environment, iteration, suspension, or dynamic-source contract.
 
 An ordinary ECMAScript `try`/`finally` remains `StatementIr::TryFinally`.
@@ -20,6 +22,7 @@ The producer emits exactly this capability:
 
 ```rust
 StatementIr::SyncDisposableScope {
+    execution: SyncDisposableScopeExecutionIr,
     resources: SyncDisposableResourcesIr,
     body: BlockIr,
 }
@@ -38,6 +41,10 @@ backend only appends a runtime resource record after acquisition succeeds.
 only constructor requires the first entry. It is therefore non-empty by type,
 and its public iterator exposes entries in source declaration order without
 letting backend crates construct an empty capability.
+
+`execution` is required. `Immediate` retains this contract's non-resumable
+local lifetime; `PlainGenerator` carries the activation-backed capability from
+the generator extension contract. There is no absent/default execution plan.
 
 The node does not create a Declarative Environment Record. The surrounding
 Script, Block, or function-body instantiation already created every lexical

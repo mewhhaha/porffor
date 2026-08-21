@@ -4,8 +4,9 @@ use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
     ForOfAssignmentIr, ForOfIteratorHeadIr, ObjectDestructuringPatternIr,
-    ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
-    SyncDisposableResourcesIr,
+    PlainGeneratorSyncDisposableCapabilityIr, ResumableLoopIterationEnvironmentIr,
+    SyncDisposableForOfHeadIr, SyncDisposableResourceIr, SyncDisposableResourcesIr,
+    SyncDisposableScopeExecutionIr,
 };
 
 #[must_use = "a captured using-scope completion must be restored and dispatched"]
@@ -23,6 +24,27 @@ struct AcquiredSyncDisposableResourceLocals {
     value_tag: u32,
     method_payload: u32,
     method_tag: u32,
+}
+
+#[must_use = "a generator DisposeCapability binding must reach its consuming detach path"]
+struct PlainGeneratorSyncDisposeCapabilityStorage {
+    binding: BindingStorage,
+}
+
+#[must_use = "an activation-backed DisposeCapability must be published before acquisition"]
+struct ActivePlainGeneratorSyncDisposeCapabilityLocals {
+    object: u32,
+    record: u32,
+    entries: u32,
+}
+
+#[must_use = "a detached generator DisposeCapability must be consumed exactly once"]
+struct DetachedPlainGeneratorSyncDisposeCapabilityLocals {
+    object: u32,
+    object_tag: u32,
+    record: u32,
+    entries: u32,
+    entry_count: u32,
 }
 
 #[must_use = "a synchronous iterator head must consume its iteration lifecycle"]
@@ -1289,7 +1311,18 @@ impl<'a> FunctionBuilder<'a> {
                 generator_plan: Some(plan),
                 ..
             } => Some(plan.entry_state),
-            StatementIr::SyncDisposableScope { .. } => None,
+            StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::PlainGenerator(_),
+                body,
+                ..
+            } => body
+                .statements
+                .iter()
+                .find_map(Self::generator_statement_entry_state),
+            StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::Immediate,
+                ..
+            } => None,
             _ => None,
         }
     }
@@ -1320,7 +1353,19 @@ impl<'a> FunctionBuilder<'a> {
                 generator_plan: Some(plan),
                 ..
             } => Some(plan.exit_state),
-            StatementIr::SyncDisposableScope { .. } => None,
+            StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::PlainGenerator(_),
+                body,
+                ..
+            } => body
+                .statements
+                .iter()
+                .rev()
+                .find_map(Self::generator_statement_exit_state),
+            StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::Immediate,
+                ..
+            } => None,
             _ => None,
         }
     }
@@ -1418,7 +1463,9 @@ impl<'a> FunctionBuilder<'a> {
                 StatementIr::LexicalBlock(statements) => {
                     self.initialize_direct_lexical_bindings(statements, function);
                 }
-                StatementIr::SyncDisposableScope { resources, body } => {
+                StatementIr::SyncDisposableScope {
+                    resources, body, ..
+                } => {
                     self.initialize_sync_disposable_resource_bindings(resources, function);
                     self.initialize_direct_lexical_bindings(&body.statements, function);
                 }
@@ -2270,8 +2317,12 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(value_local);
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
-            StatementIr::SyncDisposableScope { resources, body } => {
-                self.compile_sync_disposable_scope(resources, body, function)?;
+            StatementIr::SyncDisposableScope {
+                execution,
+                resources,
+                body,
+            } => {
+                self.compile_sync_disposable_scope(execution, resources, body, function)?;
             }
             StatementIr::AnnexBFunctionCopy {
                 source_name,
@@ -4779,20 +4830,28 @@ impl<'a> FunctionBuilder<'a> {
 
     fn compile_sync_disposable_scope(
         &mut self,
+        execution: &SyncDisposableScopeExecutionIr,
         resources: &SyncDisposableResourcesIr,
         body: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.current_function_meta().is_some_and(|meta| {
-            !matches!(
-                meta.protocol.execution_kind(),
-                FunctionExecutionKind::Ordinary
-            )
-        }) {
-            return Err(EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: synchronous using scope in a resumable body",
-            ));
+        match execution {
+            SyncDisposableScopeExecutionIr::Immediate => {
+                self.compile_immediate_sync_disposable_scope(resources, body, function)
+            }
+            SyncDisposableScopeExecutionIr::PlainGenerator(capability) => self
+                .compile_plain_generator_sync_disposable_scope(
+                    capability, resources, body, function,
+                ),
         }
+    }
+
+    fn compile_immediate_sync_disposable_scope(
+        &mut self,
+        resources: &SyncDisposableResourcesIr,
+        body: &BlockIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         debug_assert!(!resources.is_empty());
         let acquired = resources
             .iter()
@@ -4826,6 +4885,134 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn compile_plain_generator_sync_disposable_scope(
+        &mut self,
+        capability: &PlainGeneratorSyncDisposableCapabilityIr,
+        resources: &SyncDisposableResourcesIr,
+        body: &BlockIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        debug_assert!(!resources.is_empty());
+        if !self
+            .current_function_meta()
+            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Generator)
+        {
+            return Err(EmitError::unsupported(
+                "plain-generator synchronous DisposeCapability requires a generator owner",
+            ));
+        }
+        let capability_storage = PlainGeneratorSyncDisposeCapabilityStorage {
+            binding: self
+                .lookup_binding(capability.binding_name())
+                .unwrap_or_else(|| {
+                    self.allocate_binding(
+                        capability.binding_name().to_string(),
+                        BindingMode::Let,
+                        ValueKind::Object,
+                    )
+                }),
+        };
+        let entry_state = body
+            .statements
+            .iter()
+            .find_map(Self::generator_statement_entry_state);
+        let exit_state = body
+            .statements
+            .iter()
+            .rev()
+            .find_map(Self::generator_statement_exit_state);
+        let suspension_span = match (entry_state, exit_state) {
+            (None, None) => None,
+            (Some(entry_state), Some(exit_state)) => Some((entry_state, exit_state)),
+            _ => {
+                return Err(EmitError::unsupported(
+                    "generator using body has an incomplete suspension-state span",
+                ));
+            }
+        };
+
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("generator using requires the function call ABI")
+        })?;
+        if let Some((entry_state, exit_state)) = suspension_span {
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                self.scratch_local,
+                function,
+            );
+            Self::emit_state_in_inclusive_range_i32(
+                self.scratch_local,
+                entry_state,
+                exit_state,
+                function,
+            );
+            self.open_frame(ControlFrameKind::If, function);
+        }
+
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(disposal_frame);
+
+        if let Some((entry_state, _)) = suspension_span {
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                self.scratch_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function.instruction(&Instruction::I64Const(entry_state as i64));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+        }
+        self.initialize_plain_generator_sync_dispose_capability(
+            &capability_storage,
+            resources,
+            function,
+        )?;
+        if suspension_span.is_some() {
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+
+        self.push_scope();
+        if let Some((entry_state, _)) = suspension_span {
+            self.compile_generator_block_contents(body, entry_state, true, function)?;
+        } else {
+            self.compile_block_contents(body, function)?;
+        }
+        self.pop_scope();
+        self.finally_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+
+        let detached =
+            self.detach_plain_generator_sync_dispose_capability(capability_storage, function)?;
+        let acquired = self.load_detached_plain_generator_sync_disposable_resources(
+            &detached,
+            resources.len(),
+            function,
+        );
+        let pending = self.capture_pending_sync_dispose_completion(function);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.consume_sync_disposable_resources(
+            pending,
+            acquired,
+            SyncDisposeCompletionContinuation::Dispatch,
+            function,
+        )?;
+        self.release_detached_plain_generator_sync_dispose_capability(detached);
+
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        if suspension_span.is_some() {
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        Ok(())
+    }
+
     fn initialize_sync_disposable_resource_bindings(
         &mut self,
         resources: &SyncDisposableResourcesIr,
@@ -4844,6 +5031,284 @@ impl<'a> FunctionBuilder<'a> {
                 });
             self.initialize_binding_uninitialized(storage, function);
         }
+    }
+
+    fn initialize_plain_generator_sync_dispose_capability(
+        &mut self,
+        storage: &PlainGeneratorSyncDisposeCapabilityStorage,
+        resources: &SyncDisposableResourcesIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let capability = ActivePlainGeneratorSyncDisposeCapabilityLocals {
+            object: self.reserve_temp_local(),
+            record: self.reserve_temp_local(),
+            entries: self.reserve_temp_local(),
+        };
+        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+        function.instruction(&Instruction::LocalSet(capability.object));
+        self.emit_heap_alloc_const(HEAP_DISPOSABLE_STACK_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(capability.record));
+        self.emit_heap_alloc_const(
+            resources.len() as u64 * HEAP_DISPOSABLE_STACK_ENTRY_SIZE,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(capability.entries));
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
+            DisposableStackState::Pending.word(),
+            function,
+        );
+        self.store_i64_local_at_offset(
+            capability.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+            capability.entries,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            capability.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+            resources.len() as u64,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            capability.object,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            capability.object,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            capability.record,
+            function,
+        );
+        let object_tag = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(object_tag));
+        self.write_binding_from_locals(storage.binding, capability.object, object_tag, function);
+        self.release_temp_local(object_tag);
+
+        for resource in resources.iter() {
+            let acquired = self.reserve_sync_disposable_resource_locals(function);
+            self.compile_expr_to_locals(
+                &resource.initializer,
+                acquired.value_payload,
+                acquired.value_tag,
+                function,
+            )?;
+            self.emit_propagate_throw_from_locals_if_needed(
+                acquired.value_payload,
+                acquired.value_tag,
+                function,
+            )?;
+            self.acquire_sync_disposable_resource_from_locals(&acquired, function)?;
+            self.append_plain_generator_sync_disposable_resource(&capability, &acquired, function);
+            let resource_storage = self
+                .lookup_current_scope_binding(&resource.binding_name)
+                .or_else(|| self.lookup_binding(&resource.binding_name))
+                .unwrap_or_else(|| {
+                    self.allocate_binding(
+                        resource.binding_name.clone(),
+                        BindingMode::Const,
+                        resource.initializer.kind,
+                    )
+                });
+            self.write_binding_from_locals(
+                resource_storage,
+                acquired.value_payload,
+                acquired.value_tag,
+                function,
+            );
+            self.release_sync_disposable_resource_locals(acquired);
+        }
+
+        self.release_temp_local(capability.entries);
+        self.release_temp_local(capability.record);
+        self.release_temp_local(capability.object);
+        Ok(())
+    }
+
+    fn append_plain_generator_sync_disposable_resource(
+        &mut self,
+        capability: &ActivePlainGeneratorSyncDisposeCapabilityLocals,
+        resource: &AcquiredSyncDisposableResourceLocals,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(resource.registered));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+
+        self.load_i64_to_local_from_offset(
+            capability.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        let entry = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(capability.entries));
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(
+            HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
+        ));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(entry));
+        self.store_i64_const_at_offset(
+            entry,
+            HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
+            DisposableStackEntryKind::Use.word(),
+            function,
+        );
+        for (offset, local) in [
+            (
+                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+                resource.value_payload,
+            ),
+            (
+                HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+                resource.value_tag,
+            ),
+            (
+                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
+                resource.method_payload,
+            ),
+            (
+                HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
+                resource.method_tag,
+            ),
+        ] {
+            self.store_i64_local_at_offset(entry, offset, local, function);
+        }
+        function.instruction(&Instruction::LocalGet(self.scratch_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.store_i64_local_at_offset(
+            capability.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            self.scratch_local,
+            function,
+        );
+        self.release_temp_local(entry);
+
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+    }
+
+    fn detach_plain_generator_sync_dispose_capability(
+        &mut self,
+        storage: PlainGeneratorSyncDisposeCapabilityStorage,
+        function: &mut Function,
+    ) -> Result<DetachedPlainGeneratorSyncDisposeCapabilityLocals, EmitError> {
+        let detached = DetachedPlainGeneratorSyncDisposeCapabilityLocals {
+            object: self.reserve_temp_local(),
+            object_tag: self.reserve_temp_local(),
+            record: self.reserve_temp_local(),
+            entries: self.reserve_temp_local(),
+            entry_count: self.reserve_temp_local(),
+        };
+        self.read_binding_to_locals(
+            storage.binding,
+            detached.object,
+            detached.object_tag,
+            function,
+        )?;
+        self.load_i64_to_local_from_offset(
+            detached.object,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            detached.record,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            detached.record,
+            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
+            DisposableStackState::Disposed.word(),
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            detached.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+            detached.entries,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            detached.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            detached.entry_count,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            detached.record,
+            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+            0,
+            function,
+        );
+        Ok(detached)
+    }
+
+    fn load_detached_plain_generator_sync_disposable_resources(
+        &mut self,
+        detached: &DetachedPlainGeneratorSyncDisposeCapabilityLocals,
+        resource_count: usize,
+        function: &mut Function,
+    ) -> Vec<AcquiredSyncDisposableResourceLocals> {
+        (0..resource_count)
+            .map(|index| {
+                let resource = self.reserve_sync_disposable_resource_locals(function);
+                function.instruction(&Instruction::I64Const(index as i64));
+                function.instruction(&Instruction::LocalGet(detached.entry_count));
+                function.instruction(&Instruction::I64LtU);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(resource.registered));
+
+                function.instruction(&Instruction::LocalGet(detached.entries));
+                function.instruction(&Instruction::I64Const(
+                    index as i64 * HEAP_DISPOSABLE_STACK_ENTRY_SIZE as i64,
+                ));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(self.scratch_local));
+                for (offset, local) in [
+                    (
+                        HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+                        resource.value_payload,
+                    ),
+                    (
+                        HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+                        resource.value_tag,
+                    ),
+                    (
+                        HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
+                        resource.method_payload,
+                    ),
+                    (
+                        HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
+                        resource.method_tag,
+                    ),
+                ] {
+                    self.load_i64_to_local_from_offset(self.scratch_local, offset, local, function);
+                }
+                resource
+            })
+            .collect()
+    }
+
+    fn release_detached_plain_generator_sync_dispose_capability(
+        &mut self,
+        detached: DetachedPlainGeneratorSyncDisposeCapabilityLocals,
+    ) {
+        self.release_temp_local(detached.entry_count);
+        self.release_temp_local(detached.entries);
+        self.release_temp_local(detached.record);
+        self.release_temp_local(detached.object_tag);
+        self.release_temp_local(detached.object);
     }
 
     fn reserve_sync_disposable_resource_locals(
@@ -4912,9 +5377,8 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_sync_disposable_resource_from_locals(storage, locals, function)
     }
 
-    fn compile_sync_disposable_resource_from_locals(
+    fn acquire_sync_disposable_resource_from_locals(
         &mut self,
-        storage: BindingStorage,
         locals: &AcquiredSyncDisposableResourceLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -5000,7 +5464,16 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(locals.registered));
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        Ok(())
+    }
 
+    fn compile_sync_disposable_resource_from_locals(
+        &mut self,
+        storage: BindingStorage,
+        locals: &AcquiredSyncDisposableResourceLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.acquire_sync_disposable_resource_from_locals(locals, function)?;
         self.write_binding_from_locals(storage, locals.value_payload, locals.value_tag, function);
         Ok(())
     }

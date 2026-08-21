@@ -68,6 +68,27 @@ fn wasm_using_synchronous_scope_lifecycle() {
 }
 
 #[test]
+fn wasm_using_plain_generator_lifecycle() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_using_plain_generator_lifecycle.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn wasm_using_classic_for_lifecycle() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

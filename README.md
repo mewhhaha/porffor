@@ -598,6 +598,37 @@ Recent focused progress through `2026-08-21`:
   consumer pass. The exact 18-file non-dynamic lifecycle cohort is 36/36 under
   Wasm-AOT. This is focused evidence, not a claim about the complete 78-file
   `language/statements/using` directory or the full pinned aggregate.
+- Plain synchronous generators now carry statement-list `using` scopes through
+  the required `SyncDisposableScopeExecutionIr::{Immediate, PlainGenerator}`
+  owner domain. Analysis exhaustively names ordinary, generator, async-function
+  and async-generator owners; only the generator route can mint the private
+  `PlainGeneratorSyncDisposableCapabilityIr` through the suspension-owned
+  binding allocator. The Wasm backend publishes that activation-backed
+  capability when execution first reaches the declaration, retains it across
+  every `yield`, and consumes a non-`Copy` storage witness into a detached
+  capability only when the scope completes. The detached path marks the record
+  disposed, clears its live entries, materializes the registered resources and
+  reuses the existing LIFO completion fold before publishing normal, external
+  `return()` or external `throw()` results. The durable generator fixture also
+  covers acquisition failure, nested capabilities, disposer errors,
+  `SuppressedError` ordering and exactly-once disposal. At pre-batch source
+  commit `904da7b355811ad399ff284bf0ddeac47d2cc9c2`, the exact unflagged
+  `language/statements/using/initializer-disposed-at-end-of-generatorbody.js`
+  witness reported `0/2` Wasm-AOT executions, both
+  `Runtime/NotImplemented` with the diagnostic `using declaration in a
+  generator or async function`. The integrated current-SHA checkpoint is green:
+  the workspace/all-target check and `cargo xc` pass after correcting one stale
+  exhaustive lowering match, the focused IR invariant is `1/1`, the bounded
+  structure suite is `6/6`, and the generator CLI fixture is `1/1` in 55.90
+  seconds. The fixture retains a nested non-yielding scope; only the unsupported
+  nested-yield shape was removed before the passing run. The exact Test262
+  witness is now
+  `2/2` with zero unsupported, crash or bug results, and the retained ordinary
+  synchronous-using fixture remains `1/1` in 42.05 seconds. This focused batch
+  does not claim async functions or generators, `await using`, resource-bearing
+  classic-`for`/`for-of` heads beyond their separate batches, modules, dynamic
+  source, the complete 78-file `language/statements/using` directory or the full
+  pinned aggregate.
 - The adjacent classic-`for` extension gives a synchronous
   `using` head the closed, statically non-empty
   `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while

@@ -154,6 +154,29 @@ pub(crate) struct FunctionPlan<'a> {
     pub(crate) lexical_derived_activation_owner: Option<FunctionId>,
 }
 
+/// The analyzed execution owner of an ordinary statement-list `using` scope.
+///
+/// Async owners remain named so lowering must reject them explicitly rather
+/// than letting every non-generator owner fall through to immediate storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncDisposableScopeOwnerPlan {
+    Immediate,
+    PlainGenerator,
+    AsyncFunction,
+    AsyncGenerator,
+}
+
+impl FunctionPlan<'_> {
+    pub(crate) fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
+        match self.protocol.execution_kind() {
+            FunctionExecutionKind::Ordinary => SyncDisposableScopeOwnerPlan::Immediate,
+            FunctionExecutionKind::Generator => SyncDisposableScopeOwnerPlan::PlainGenerator,
+            FunctionExecutionKind::Async => SyncDisposableScopeOwnerPlan::AsyncFunction,
+            FunctionExecutionKind::AsyncGenerator => SyncDisposableScopeOwnerPlan::AsyncGenerator,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Analysis<'a> {
     pub(crate) owner_plans: BTreeMap<String, OwnerPlan>,

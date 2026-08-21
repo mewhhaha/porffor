@@ -357,7 +357,9 @@ fn statement_contains_this_before_super(
                 }
             }
         }
-        StatementIr::SyncDisposableScope { resources, body } => {
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
             for resource in resources.iter() {
                 expr_contains_this_before_super(&resource.initializer, state);
                 if state.saw_super {

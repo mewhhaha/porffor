@@ -497,7 +497,9 @@ mod tests {
                         collect(statement, names);
                     }
                 }
-                StatementIr::SyncDisposableScope { resources, body } => {
+                StatementIr::SyncDisposableScope {
+                    resources, body, ..
+                } => {
                     names.extend(
                         resources
                             .iter()
@@ -13111,12 +13113,19 @@ target[Symbol.iterator];"#,
             .iter()
             .find(|function| function.name == "owner")
             .expect("owner should be lowered");
-        let [StatementIr::SyncDisposableScope { resources, body }] =
-            owner.body.statements.as_slice()
+        let [StatementIr::SyncDisposableScope {
+            execution,
+            resources,
+            body,
+        }] = owner.body.statements.as_slice()
         else {
             panic!("using declaration must own the function-body suffix");
         };
 
+        assert!(matches!(
+            execution,
+            SyncDisposableScopeExecutionIr::Immediate
+        ));
         assert_eq!(resources.len(), 2);
         assert!(!resources.is_empty());
         assert_eq!(
@@ -13164,12 +13173,17 @@ target[Symbol.iterator];"#,
             .find(|function| function.name == "owner")
             .expect("owner should be lowered");
         let [StatementIr::Expression(_), StatementIr::SyncDisposableScope {
+            execution: outer_execution,
             resources: outer,
             body: outer_body,
         }] = owner.body.statements.as_slice()
         else {
             panic!("statements before using must remain outside its scope");
         };
+        assert!(matches!(
+            outer_execution,
+            SyncDisposableScopeExecutionIr::Immediate
+        ));
         assert_eq!(
             outer
                 .iter()
@@ -13178,12 +13192,17 @@ target[Symbol.iterator];"#,
             Some("a")
         );
         let [StatementIr::Expression(_), StatementIr::SyncDisposableScope {
+            execution: inner_execution,
             resources: inner,
             body: inner_body,
         }] = outer_body.statements.as_slice()
         else {
             panic!("a later using declaration must own only its remaining suffix");
         };
+        assert!(matches!(
+            inner_execution,
+            SyncDisposableScopeExecutionIr::Immediate
+        ));
         assert_eq!(
             inner
                 .iter()
@@ -13195,6 +13214,57 @@ target[Symbol.iterator];"#,
             inner_body.statements.as_slice(),
             [StatementIr::Expression(_)]
         ));
+    }
+
+    #[test]
+    fn plain_generator_synchronous_using_scope_owns_activation_capability() {
+        let program = lower_script(
+            "function * owner() { using outer = null; yield 1; { using inner = undefined; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain generator should be lowered");
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::PlainGenerator(outer_capability),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("generator using must own its remaining body suffix");
+        };
+        let [StatementIr::GeneratorYield { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("yield must remain inside the live outer resource scope");
+        };
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::PlainGenerator(inner_capability),
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested generator using must own a distinct capability");
+        };
+
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "plain-generator capability must have exactly one activation slot"
+            );
+        }
+        assert!(owner.generator_plan.is_some());
     }
 
     #[test]

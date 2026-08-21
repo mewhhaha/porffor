@@ -2,6 +2,7 @@ use super::*;
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
     ArrayDestructuringEvaluationIr, ObjectDestructuringPatternIr, OptionalChainOperationIr,
+    SyncDisposableScopeExecutionIr,
 };
 
 #[derive(Debug, Clone)]
@@ -3107,7 +3108,9 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                 })
         }
         StatementIr::Labelled { statement, .. } => statement_exposes_global_object(statement),
-        StatementIr::SyncDisposableScope { resources, body } => {
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
             resources
                 .iter()
                 .any(|resource| expr_exposes_global_object(&resource.initializer))
@@ -3596,7 +3599,9 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         StatementIr::Labelled { statement, .. } => {
             collect_statement_global_property_names(statement, names);
         }
-        StatementIr::SyncDisposableScope { resources, body } => {
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
             for resource in resources.iter() {
                 collect_expr_global_property_names(&resource.initializer, names);
             }
@@ -4728,7 +4733,9 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                 })
         }
         StatementIr::Labelled { statement, .. } => statement_references_function(statement, target),
-        StatementIr::SyncDisposableScope { resources, body } => {
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
             resources
                 .iter()
                 .any(|resource| expr_references_function(&resource.initializer, target))
@@ -7655,9 +7662,9 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().map(count_statement_lexicals).sum()
         }
-        StatementIr::SyncDisposableScope { resources, body } => {
-            resources.len() * 2 + count_block_lexicals(body)
-        }
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => resources.len() * 2 + count_block_lexicals(body),
         StatementIr::Block(block) => count_block_lexicals(block),
         StatementIr::TryCatch {
             try_block,
@@ -7881,9 +7888,15 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .map(count_statement_temp_locals)
             .max()
             .unwrap_or(0),
-        StatementIr::SyncDisposableScope { resources, body } => {
-            count_sync_disposable_resources_temp_locals(resources, count_block_temp_locals(body))
-        }
+        StatementIr::SyncDisposableScope {
+            execution,
+            resources,
+            body,
+        } => count_sync_disposable_scope_temp_locals(
+            execution,
+            resources,
+            count_block_temp_locals(body),
+        ),
         StatementIr::Block(block) => count_block_temp_locals(block),
         StatementIr::TryCatch {
             try_block,
@@ -8103,6 +8116,13 @@ pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
 // is the accurate budget rather than an additive guess.
 const SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS: usize = 4 + 7 + 64;
 
+// The activation-backed path holds five detached-capability locals while it
+// materializes five locals per statically possible entry. Acquisition instead
+// holds the active three-local capability and one five-local resource; its
+// initializer/call phase never overlaps the body or detached walk.
+const PLAIN_GENERATOR_SYNC_DISPOSE_DETACHED_TEMP_LOCALS: usize = 5;
+const PLAIN_GENERATOR_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5;
+
 // Five mutation-result locals (old payload/tag, new payload/tag, Set result)
 // stay live below the six-local raw/coerced Super Reference carrier. Each
 // following constant is one non-overlapping phase above those persistent
@@ -8128,6 +8148,31 @@ fn count_sync_disposable_resources_temp_locals(
         + initializer_temps
             .max(active_scope_temps)
             .max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS)
+}
+
+fn count_sync_disposable_scope_temp_locals(
+    execution: &SyncDisposableScopeExecutionIr,
+    resources: &SyncDisposableResourcesIr,
+    body_temps: usize,
+) -> usize {
+    match execution {
+        SyncDisposableScopeExecutionIr::Immediate => {
+            count_sync_disposable_resources_temp_locals(resources, body_temps)
+        }
+        SyncDisposableScopeExecutionIr::PlainGenerator(_) => {
+            let initializer_temps = resources
+                .iter()
+                .map(|resource| count_expr_temp_locals(&resource.initializer))
+                .max()
+                .unwrap_or(0);
+            let acquisition_peak = PLAIN_GENERATOR_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS
+                + initializer_temps.max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS);
+            let disposal_peak = PLAIN_GENERATOR_SYNC_DISPOSE_DETACHED_TEMP_LOCALS
+                + resources.len() * 5
+                + SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS;
+            acquisition_peak.max(disposal_peak).max(body_temps)
+        }
+    }
 }
 
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {

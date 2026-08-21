@@ -2319,13 +2319,14 @@ pub enum StatementIr {
         target: AnnexBFunctionCopyTargetIr,
     },
     LexicalBlock(Vec<StatementIr>),
-    /// A non-resumable synchronous DisposeCapability.
+    /// A synchronous DisposeCapability with an explicit execution owner.
     ///
     /// `resources` is non-empty and in declaration order. Each entry owns its
     /// binding initialization; the backend acquires and registers its dispose
     /// method before initializing `binding_name`, then evaluates `body` and
     /// disposes every registered entry in reverse on every completion.
     SyncDisposableScope {
+        execution: SyncDisposableScopeExecutionIr,
         resources: SyncDisposableResourcesIr,
         body: BlockIr,
     },
@@ -2500,6 +2501,40 @@ pub enum StatementIr {
 pub struct SyncDisposableResourceIr {
     pub binding_name: String,
     pub initializer: TypedExpr,
+}
+
+/// Where a synchronous DisposeCapability must remain live.
+///
+/// The owner is required rather than inferred by backend context: adding a new
+/// lifetime requires an exhaustive producer and consumer decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncDisposableScopeExecutionIr {
+    /// The scope never suspends, so backend-private locals own its capability.
+    Immediate,
+    /// The scope may yield and therefore owns activation-backed capability
+    /// storage rather than temporary locals.
+    PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr),
+}
+
+/// The hidden activation binding for one plain-generator DisposeCapability.
+///
+/// Fields are private and the sole crate constructor is fed only by lowering's
+/// suspension-owned binding allocator. Backend crates can consume the binding
+/// identity but cannot manufacture this proof from an arbitrary `String`.
+#[must_use = "a plain-generator synchronous DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlainGeneratorSyncDisposableCapabilityIr {
+    binding_name: String,
+}
+
+impl PlainGeneratorSyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String) -> Self {
+        Self { binding_name }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
 }
 
 /// A declaration-ordered, statically non-empty synchronous resource list.
@@ -3293,7 +3328,9 @@ impl IrSummaryCounts {
                     self.visit_statement(statement);
                 }
             }
-            StatementIr::SyncDisposableScope { resources, body } => {
+            StatementIr::SyncDisposableScope {
+                resources, body, ..
+            } => {
                 for resource in resources.iter() {
                     self.visit_expr(&resource.initializer);
                 }
