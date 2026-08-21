@@ -3,6 +3,7 @@ mod builtin_shapes;
 mod dynamic_source;
 mod object_environment_logical;
 mod proxy_traps;
+mod super_property_mutation;
 mod with_environment_call;
 mod with_environment_compound;
 
@@ -13,7 +14,6 @@ use dynamic_source::{
 };
 use object_environment_logical::LogicalAssignmentReachability;
 use proxy_traps::{ProxyTrap, ProxyTrapSignature};
-use with_environment_compound::EagerCompoundAssignmentOp;
 
 /// Reference Records (6.2.5). `Strictness` and `carried_strictness` arrive
 /// through the crate-root glob above; the rest of the module is `pub(crate)`
@@ -23,10 +23,11 @@ use with_environment_compound::EagerCompoundAssignmentOp;
 use crate::ir::reference::{
     reference_base_of_lowered_read, CapturedBindingPosition, CapturedCursorDepth,
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
-    DeleteSuperReferencePlan, EagerCompoundAssignmentBindings,
+    DeleteSuperReferencePlan, EagerCompoundAssignmentBindings, EagerCompoundAssignmentOp,
     GlobalObjectEnvironmentReferencePlan, NumericUpdateBindings, ObjectEnvironmentBindingObject,
     OrderedWithEnvironmentChain, PositionedWithEnvironment, ReferenceBase, ReferenceOperand,
-    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects, WithEnvironmentReferencePlan,
+    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects, SuperPropertyReferencePlan,
+    WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5538,6 +5539,20 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::NewTarget
             | ExprIr::TypeOfUnresolvedIdentifier { .. } => None,
             ExprIr::SuperPropertyRead { receiver, .. } => self.infer_expr_throw_info(receiver),
+            ExprIr::SuperPropertyMutation(mutation) => {
+                let mut info = self.infer_expr_throw_info(mutation.receiver());
+                if let PropertyKeyIr::StringExpr(key) | PropertyKeyIr::ArrayIndex(key) =
+                    mutation.referenced_name()
+                {
+                    info = self.merge_optional_value_info(info, self.infer_expr_throw_info(key));
+                }
+                match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => info,
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        self.merge_optional_value_info(info, self.infer_expr_throw_info(result))
+                    }
+                }
+            }
             ExprIr::GlobalIdentifierRead { .. } => Some(Self::standard_error_instance_info(
                 StandardBuiltinId::ReferenceErrorConstructor,
             )),
@@ -22460,53 +22475,10 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_super_property_access(&mut self, access: &SuperPropertyAccess) -> TypedExpr {
-        if self.class_context.is_none() {
-            return self.unsupported_expr("object literal method");
-        }
-        let Some(key) = self.lower_super_property_key(access.field()) else {
+        let Some((key, receiver, info)) = self.lower_super_property_reference_parts(access) else {
             return TypedExpr::undefined();
         };
-        let receiver = self.lower_current_this();
-        let info = match &key {
-            PropertyKeyIr::StaticString(key_name) => self
-                .class_context
-                .as_ref()
-                .and_then(|context| context.super_base_shape.as_deref())
-                .and_then(|shape| read_heap_shape_property(shape, key_name))
-                .map(|property| match property {
-                    ObjectShapeProperty::Data(info) => info,
-                    ObjectShapeProperty::Accessor {
-                        getter: Some(getter),
-                        ..
-                    } => self.accessor_return_info(&getter.function_id),
-                    ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
-                })
-                .unwrap_or(ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                }),
-            PropertyKeyIr::StringExpr(_) => ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-            PropertyKeyIr::ArrayIndex(_) | PropertyKeyIr::ArrayLength => ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-        };
-        TypedExpr::from_info(
-            info,
-            ExprIr::SuperPropertyRead {
-                key,
-                receiver: Box::new(receiver),
-            },
-        )
+        TypedExpr::from_info(info, ExprIr::SuperPropertyRead { key, receiver })
     }
 
     fn lower_private_property_access(&mut self, access: &PrivatePropertyAccess) -> TypedExpr {
@@ -23932,8 +23904,26 @@ impl<'a> ScriptLowerer<'a> {
                             AssignOp::Div => ArithmeticOp::Div,
                             AssignOp::Mod => ArithmeticOp::Mod,
                             AssignOp::Exp => ArithmeticOp::Exp,
-                            _ => unreachable!(),
+                            AssignOp::Assign
+                            | AssignOp::BoolAnd
+                            | AssignOp::BoolOr
+                            | AssignOp::Coalesce
+                            | AssignOp::And
+                            | AssignOp::Or
+                            | AssignOp::Xor
+                            | AssignOp::Shl
+                            | AssignOp::Shr
+                            | AssignOp::Ushr => {
+                                unreachable!("this match arm covers only the arithmetic operators")
+                            }
                         };
+                        if let PropertyAccess::Super(super_access) = access {
+                            return self.lower_super_property_eager_compound_assignment(
+                                super_access,
+                                EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                                rhs,
+                            );
+                        }
                         return self.lower_property_reference_update(
                             access,
                             PropertyUpdateOp::Arithmetic(arithmetic),
@@ -24370,8 +24360,26 @@ impl<'a> ScriptLowerer<'a> {
                             AssignOp::Shl => BitwiseOp::Shl,
                             AssignOp::Shr => BitwiseOp::Shr,
                             AssignOp::Ushr => BitwiseOp::UShr,
-                            _ => unreachable!(),
+                            AssignOp::Assign
+                            | AssignOp::Add
+                            | AssignOp::Sub
+                            | AssignOp::Mul
+                            | AssignOp::Div
+                            | AssignOp::Mod
+                            | AssignOp::Exp
+                            | AssignOp::BoolAnd
+                            | AssignOp::BoolOr
+                            | AssignOp::Coalesce => {
+                                unreachable!("this match arm covers only the bitwise operators")
+                            }
                         };
+                        if let PropertyAccess::Super(super_access) = access {
+                            return self.lower_super_property_eager_compound_assignment(
+                                super_access,
+                                EagerCompoundAssignmentOp::Bitwise(bitwise),
+                                rhs,
+                            );
+                        }
                         return self.lower_property_reference_update(
                             access,
                             PropertyUpdateOp::Bitwise(bitwise),
@@ -26492,6 +26500,9 @@ impl<'a> ScriptLowerer<'a> {
     /// Extracted from `lower_update` so that function can match `UpdateTarget`
     /// exhaustively; the body is unchanged.
     fn lower_property_access_update(&mut self, op: UpdateOp, access: &PropertyAccess) -> TypedExpr {
+        if let PropertyAccess::Super(super_access) = access {
+            return self.lower_super_property_numeric_update(op, super_access);
+        }
         let read = self.lower_property_access(access);
         let value_kind = if read
             .possible_kinds

@@ -22,6 +22,7 @@
 
 use super::*;
 use crate::{WellKnownSymbol, WithObjectBindingName};
+use boa_ast::expression::operator::binary::{ArithmeticOp, BitwiseOp};
 
 const DELETE_SUPER_THIS_BINDING: &str = "$delete.super.this";
 const DELETE_SUPER_KEY_BINDING: &str = "$delete.super.key";
@@ -36,6 +37,262 @@ fn dynamic_value_info() -> ValueInfo {
         possible_kinds: KindSet::all_runtime_tags(),
         heap_shape: None,
         function_targets: BTreeSet::new(),
+    }
+}
+
+/// The closed eager compound-assignment domain shared by every consuming
+/// Reference plan. Logical assignment has a separate short-circuit lifecycle
+/// and cannot enter this operation by construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EagerCompoundAssignmentOp {
+    Arithmetic(ArithmeticOp),
+    Bitwise(BitwiseOp),
+}
+
+impl EagerCompoundAssignmentOp {
+    /// Apply the selected eager operation to the old Reference value and RHS.
+    ///
+    /// This is a method on the closed operation so a consuming Reference plan
+    /// can mint the old-value operand and apply it itself. Callers cannot pass
+    /// an arbitrary closure which ignores or substitutes that operand.
+    pub(crate) fn apply(self, lhs: TypedExpr, rhs: TypedExpr) -> TypedExpr {
+        match self {
+            EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add) => {
+                let possible_kinds = KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Number))
+                    .union(KindSet::from_kind(ValueKind::BigInt));
+                TypedExpr::from_info(
+                    ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::CoerciveAdd {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                )
+            }
+            EagerCompoundAssignmentOp::Arithmetic(arithmetic) => {
+                let op = match arithmetic {
+                    ArithmeticOp::Sub => ArithmeticBinaryOp::Sub,
+                    ArithmeticOp::Mul => ArithmeticBinaryOp::Mul,
+                    ArithmeticOp::Div => ArithmeticBinaryOp::Div,
+                    ArithmeticOp::Mod => ArithmeticBinaryOp::Mod,
+                    ArithmeticOp::Exp => ArithmeticBinaryOp::Exp,
+                    ArithmeticOp::Add => unreachable!("addition has string-or-numeric semantics"),
+                };
+                let possible_kinds = KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::BigInt));
+                TypedExpr::from_info(
+                    ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::CoerciveBinaryNumber {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                )
+            }
+            EagerCompoundAssignmentOp::Bitwise(bitwise) => {
+                let op = match bitwise {
+                    BitwiseOp::And => BitwiseBinaryOp::And,
+                    BitwiseOp::Or => BitwiseBinaryOp::Or,
+                    BitwiseOp::Xor => BitwiseBinaryOp::Xor,
+                    BitwiseOp::Shl => BitwiseBinaryOp::Shl,
+                    BitwiseOp::Shr => BitwiseBinaryOp::Shr,
+                    BitwiseOp::UShr => BitwiseBinaryOp::UShr,
+                };
+                let possible_kinds = if matches!(bitwise, BitwiseOp::UShr) {
+                    KindSet::from_kind(ValueKind::Number)
+                } else {
+                    KindSet::from_kind(ValueKind::Number)
+                        .union(KindSet::from_kind(ValueKind::BigInt))
+                };
+                TypedExpr::from_info(
+                    ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::BitwiseNumeric {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                )
+            }
+        }
+    }
+}
+
+/// One fused mutation of a Super Property Reference.
+///
+/// The fields are private so the backend cannot receive a mutation which has
+/// lost the Reference's receiver, raw referenced name, or `[[Strict]]`. The
+/// lowerer can construct this value only by consuming a
+/// [`SuperPropertyReferencePlan`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a Super Property Reference mutation must be consumed by the backend"]
+pub struct SuperPropertyMutationIr {
+    receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+    operation: SuperPropertyMutationOperationIr,
+}
+
+/// The exhaustive operation which consumes a fused Super Property Reference.
+///
+/// Logical assignment is absent deliberately: its conditional RHS and
+/// PutValue lifecycle cannot be represented as an eager operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SuperPropertyMutationOperationIr {
+    NumericUpdate {
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        value_kind: ValueKind,
+    },
+    EagerCompound {
+        old_value_binding: String,
+        result: Box<TypedExpr>,
+    },
+}
+
+impl SuperPropertyMutationIr {
+    fn new(
+        receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+        operation: SuperPropertyMutationOperationIr,
+    ) -> Self {
+        Self {
+            receiver,
+            referenced_name,
+            strictness,
+            operation,
+        }
+    }
+
+    #[must_use]
+    pub fn receiver(&self) -> &TypedExpr {
+        &self.receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+
+    #[must_use]
+    pub fn operation(&self) -> &SuperPropertyMutationOperationIr {
+        &self.operation
+    }
+}
+
+/// A lowerer-owned Super Property Reference which must be consumed as one
+/// mutation rather than decomposed into independent read and write nodes.
+///
+/// Neither `Clone` nor `Copy`: the same captured receiver/key/strictness tuple
+/// cannot be spent twice or rebuilt between GetValue and PutValue.
+#[derive(Debug)]
+#[must_use = "a Super Property Reference plan must be consumed by one mutation"]
+pub(crate) struct SuperPropertyReferencePlan {
+    receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+}
+
+impl SuperPropertyReferencePlan {
+    pub(crate) fn new(
+        receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            receiver,
+            referenced_name,
+            strictness,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn numeric_update(
+        self,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        value_kind: ValueKind,
+    ) -> TypedExpr {
+        let info = match value_kind {
+            ValueKind::Number | ValueKind::BigInt => ValueInfo::new(value_kind),
+            ValueKind::Dynamic => ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::BigInt)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ValueKind::Undefined
+            | ValueKind::Null
+            | ValueKind::Boolean
+            | ValueKind::String
+            | ValueKind::Symbol
+            | ValueKind::Object
+            | ValueKind::Array
+            | ValueKind::Function
+            | ValueKind::Arguments => {
+                unreachable!("numeric update value kind must be Number, BigInt, or Dynamic")
+            }
+        };
+        TypedExpr::from_info(
+            info,
+            ExprIr::SuperPropertyMutation(SuperPropertyMutationIr::new(
+                self.receiver,
+                self.referenced_name,
+                self.strictness,
+                SuperPropertyMutationOperationIr::NumericUpdate {
+                    op,
+                    return_mode,
+                    value_kind,
+                },
+            )),
+        )
+    }
+
+    #[must_use]
+    pub(crate) fn eager_compound_assignment(
+        self,
+        old_value_binding: String,
+        op: EagerCompoundAssignmentOp,
+        rhs: TypedExpr,
+    ) -> TypedExpr {
+        let old_value = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Identifier(old_value_binding.clone()),
+        );
+        let result = op.apply(old_value, rhs);
+        TypedExpr::from_info(
+            result.value_info(),
+            ExprIr::SuperPropertyMutation(SuperPropertyMutationIr::new(
+                self.receiver,
+                self.referenced_name,
+                self.strictness,
+                SuperPropertyMutationOperationIr::EagerCompound {
+                    old_value_binding,
+                    result: Box::new(result),
+                },
+            )),
+        )
     }
 }
 
@@ -1709,6 +1966,9 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         | ExprIr::DeleteGlobalProperty { strictness, .. } => {
             Some((*strictness, PutValueFailure::TypeErrorOnly))
         }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            Some((mutation.strictness(), PutValueFailure::TypeErrorOnly))
+        }
 
         // Everything else. `AssignIdentifier`, `CompoundAssignIdentifier` and
         // `UpdateIdentifier` are here on purpose and not by omission: their
@@ -2059,6 +2319,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::CallMethod { .. }
         | ExprIr::SuperConstruct { .. }
         | ExprIr::SuperPropertyWrite { .. }
+        | ExprIr::SuperPropertyMutation(_)
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. }
         | ExprIr::InstanceOf { .. }

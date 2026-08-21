@@ -279,6 +279,21 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             expr_contains_this_before_super(receiver, state);
             expr_contains_this_before_super(value, state);
         }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            expr_contains_this_before_super(mutation.receiver(), state);
+            match mutation.referenced_name() {
+                PropertyKeyIr::StringExpr(key) | PropertyKeyIr::ArrayIndex(key) => {
+                    expr_contains_this_before_super(key, state);
+                }
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+            }
+            match mutation.operation() {
+                SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
+                SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    expr_contains_this_before_super(result, state);
+                }
+            }
+        }
     }
 }
 

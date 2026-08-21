@@ -3380,6 +3380,16 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                 || expr_exposes_global_object(receiver)
                 || expr_exposes_global_object(value)
         }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            property_key_exposes_global_object(mutation.referenced_name())
+                || expr_exposes_global_object(mutation.receiver())
+                || match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => false,
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        expr_exposes_global_object(result)
+                    }
+                }
+        }
         ExprIr::PrivateRead { target, .. } => expr_exposes_global_object(target),
         ExprIr::PrivateWrite { target, value, .. } => {
             expr_exposes_global_object(target) || expr_exposes_global_object(value)
@@ -3974,6 +3984,16 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             collect_property_key_global_property_names(key, names);
             collect_expr_global_property_names(receiver, names);
             collect_expr_global_property_names(value, names);
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            collect_property_key_global_property_names(mutation.referenced_name(), names);
+            collect_expr_global_property_names(mutation.receiver(), names);
+            match mutation.operation() {
+                SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
+                SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    collect_expr_global_property_names(result, names);
+                }
+            }
         }
         ExprIr::PrivateRead { target, .. } => collect_expr_global_property_names(target, names),
         ExprIr::PrivateWrite { target, value, .. } => {
@@ -5379,6 +5399,16 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                 || expr_references_function(receiver, target)
                 || expr_references_function(value, target)
         }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            property_key_references_function(mutation.referenced_name(), target)
+                || expr_references_function(mutation.receiver(), target)
+                || match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => false,
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        expr_references_function(result, target)
+                    }
+                }
+        }
         ExprIr::PrivateRead { target: object, .. } => expr_references_function(object, target),
         ExprIr::PrivateWrite {
             target: object,
@@ -6653,6 +6683,14 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
                 | SpecOperationIr::ToBigInt,
             ..
         } => true,
+        ExprIr::SuperPropertyMutation(mutation) => match mutation.operation() {
+            SuperPropertyMutationOperationIr::NumericUpdate { value_kind, .. } => {
+                *value_kind == ValueKind::Dynamic
+            }
+            SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                expr_result_tag_is_runtime_dynamic(&result.expr)
+            }
+        },
         ExprIr::AssignIdentifier { value, .. }
         | ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::PropertyWrite { value, .. }
@@ -7128,6 +7166,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::SuperConstruct { .. }
         | ExprIr::SuperPropertyRead { .. }
         | ExprIr::SuperPropertyWrite { .. }
+        | ExprIr::SuperPropertyMutation(_)
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. } => true,
@@ -7338,6 +7377,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::SuperConstruct { .. }
         | ExprIr::SuperPropertyRead { .. }
         | ExprIr::SuperPropertyWrite { .. }
+        | ExprIr::SuperPropertyMutation(_)
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. } => true,
@@ -8063,6 +8103,18 @@ pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
 // is the accurate budget rather than an additive guess.
 const SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS: usize = 4 + 7 + 64;
 
+// Five mutation-result locals (old payload/tag, new payload/tag, Set result)
+// stay live below the six-local raw/coerced Super Reference carrier. Each
+// following constant is one non-overlapping phase above those persistent
+// locals: GetValue's property-key/read work, dynamic ToNumeric, the selected
+// ordinary-Set helper's four own locals plus its argument vector's two nested
+// locals, and the carried-Strictness guard emitted only after that helper has
+// returned and released its locals.
+const SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS: usize = 5 + 6;
+const SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
+const SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
+const SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+
 fn count_sync_disposable_resources_temp_locals(
     resources: &SyncDisposableResourcesIr,
     active_scope_temps: usize,
@@ -8750,6 +8802,28 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 .max(key_child)
                 .max(12)
                 + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            let key_child = match mutation.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    count_expr_temp_locals(expr)
+                }
+            };
+            let operation_child = match mutation.operation() {
+                SuperPropertyMutationOperationIr::NumericUpdate { .. } => 0,
+                SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    count_expr_temp_locals(result)
+                }
+            };
+            SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(mutation.receiver())
+                    .max(key_child)
+                    .max(operation_child)
+                    .max(SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)
+                    .max(SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS)
+                    .max(SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)
+                    .max(REFERENCE_STRICTNESS_FLAG_LOCALS)
         }
         ExprIr::PrivateRead { target, .. } => count_expr_temp_locals(target).max(8),
         ExprIr::PrivateWrite { target, value, .. } => count_expr_temp_locals(target)

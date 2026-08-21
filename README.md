@@ -414,6 +414,31 @@ Recent focused progress through `2026-08-21`:
   object methods and the complete object-expression subtree remain separate
   gates. The lexical-arrow boundary and nonclaims are recorded in
   `docs/rust-rewrite/contracts/object-method-arrow-super.md`.
+- Numeric update and eager arithmetic/bitwise compound assignment through a
+  non-resumable `super` property now use a fused Reference lifecycle. The IR
+  owns receiver, raw key, strictness and one closed mutation operation; the AOT
+  lifecycle
+  retains the evaluated super base through the sole `ToPropertyKey`, GetValue,
+  arithmetic and PutValue transitions. The fixture makes prototype mutation
+  during key coercion observable with the exact traces
+  `key,getA,rhs,setA:3:true` and `key,getA,setA:2:true`, including a detached
+  alien receiver, and also covers every prefix/postfix increment/decrement
+  form for Number and BigInt, strict failed Set, and uninitialized-`this`
+  ordering. At the near-HEAD pre-batch `b0d1d1300` boundary, the four exact
+  `language/expressions/super/prop-expr-{getsuperbase-before-topropertykey,uninitialized-this}-putvalue-{increment,compound-assign}.js`
+  files reported `2/8`: both increment files were `0/4`
+  Runtime/NotImplemented, the uninitialized-`this` compound file was `0/2`
+  Runtime/Bug, and the GetSuperBase compound guard remained `2/2`. The
+  available binary preceded that commit by four minutes, so this is explicitly
+  near-HEAD evidence. Post-batch verification is green: workspace check and
+  `cargo xc`; the focused IR invariant `1/1`; the bounded structure executable
+  `5/5`; the compiled Wasm fixture `1/1` in `10.82s`; the exact cohort `8/8`;
+  and the two adjacent `uninitialized-this` and
+  `getsuperbase-before-topropertykey` filters `8/8` each, all with zero
+  unsupported, crash or bug outcomes. Logical super assignment, private
+  mutation, suspension and the broader super-expression matrix remain
+  unclaimed. The boundary and exclusions are recorded in
+  `docs/rust-rewrite/contracts/super-property-reference-mutation.md`.
 - Direct identifier calls selected through `with` now have a verified,
   Reference-preserving lowering seam. A private non-copyable
   `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty

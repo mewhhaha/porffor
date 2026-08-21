@@ -190,9 +190,9 @@ fn selected_branch_orders_get_apply_put_and_result_on_one_object() {
 #[test]
 fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     let op = bounded(
-        COMPOUND_SOURCE,
-        "enum EagerCompoundAssignmentOp {",
-        "impl<'a> ScriptLowerer<'a> {",
+        REFERENCE_SOURCE,
+        "pub(crate) enum EagerCompoundAssignmentOp {",
+        "impl EagerCompoundAssignmentOp {",
     );
     assert!(op.contains("Arithmetic(ArithmeticOp)"));
     assert!(op.contains("Bitwise(BitwiseOp)"));
@@ -272,9 +272,9 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     assert!(!selected_bitwise.contains("_ =>"));
 
     let apply = bounded(
-        COMPOUND_SOURCE,
-        "    fn apply_eager_compound_assignment(",
-        "}\n\n#[cfg(test)]",
+        REFERENCE_SOURCE,
+        "impl EagerCompoundAssignmentOp {",
+        "/// One fused mutation of a Super Property Reference.",
     );
     for marker in [
         "EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add)",
@@ -300,14 +300,14 @@ fn fallback_is_dynamic_and_runtime_guarded_after_observable_selection() {
     let helper = bounded(
         COMPOUND_SOURCE,
         "    pub(super) fn lower_with_scoped_identifier_eager_compound_assignment(",
-        "    /// The canonical dynamic operation shape used by both a selected Object",
+        "\n}\n\n#[cfg(test)]",
     );
     for marker in [
         "let plan = self.with_environment_reference_plan(",
         "rhs.clone()",
         "EagerCompoundAssignmentBindings::allocate(",
         "let old_value = bindings.old_value();",
-        "let applied = Self::apply_eager_compound_assignment(",
+        "let applied = op.apply(",
         "plan.compound_assignment(bindings.seal(applied), fallback)",
         "self.set_binding_value_info(&name, unknown_runtime_value_info());",
         "lower_global_object_environment_eager_compound_assignment(",

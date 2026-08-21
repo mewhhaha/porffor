@@ -1,14 +1,5 @@
 use super::*;
 
-/// The eager identifier compound-assignment domain. Logical assignments have
-/// a distinct short-circuit lifecycle and cannot enter the consuming eager
-/// Reference path by construction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum EagerCompoundAssignmentOp {
-    Arithmetic(ArithmeticOp),
-    Bitwise(BitwiseOp),
-}
-
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_with_scoped_identifier_eager_compound_assignment(
         &mut self,
@@ -29,7 +20,7 @@ impl<'a> ScriptLowerer<'a> {
             self.alloc_temp_binding_name(prefix)
         });
         let old_value = bindings.old_value();
-        let applied = Self::apply_eager_compound_assignment(op, old_value, rhs);
+        let applied = op.apply(old_value, rhs);
         plan.compound_assignment(bindings.seal(applied), fallback)
     }
 
@@ -67,7 +58,7 @@ impl<'a> ScriptLowerer<'a> {
                 unknown_runtime_value_info(),
                 ExprIr::Identifier(storage_name.clone()),
             );
-            let applied = Self::apply_eager_compound_assignment(op, lhs, rhs);
+            let applied = op.apply(lhs, rhs);
             if binding.mode == BindingMode::Const {
                 return self.immutable_binding_write(&storage_name, applied);
             }
@@ -100,94 +91,10 @@ impl<'a> ScriptLowerer<'a> {
         let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
             self.alloc_temp_binding_name(prefix)
         });
-        let applied = Self::apply_eager_compound_assignment(op, bindings.old_value(), rhs);
+        let applied = op.apply(bindings.old_value(), rhs);
         let strictness = self.reference_strictness();
         GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)
             .compound_assignment(bindings.seal(applied))
-    }
-
-    /// The canonical dynamic operation shape used by both a selected Object
-    /// Environment Record and its declarative/global fallback. This exhaustive
-    /// match keeps logical assignment out and makes adding an eager operation a
-    /// compile-time obligation.
-    fn apply_eager_compound_assignment(
-        op: EagerCompoundAssignmentOp,
-        lhs: TypedExpr,
-        rhs: TypedExpr,
-    ) -> TypedExpr {
-        match op {
-            EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add) => {
-                let possible_kinds = KindSet::from_kind(ValueKind::String)
-                    .union(KindSet::from_kind(ValueKind::Number))
-                    .union(KindSet::from_kind(ValueKind::BigInt));
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: possible_kinds.as_value_kind(),
-                        possible_kinds,
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::CoerciveAdd {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
-            }
-            EagerCompoundAssignmentOp::Arithmetic(arithmetic) => {
-                let op = match arithmetic {
-                    ArithmeticOp::Sub => ArithmeticBinaryOp::Sub,
-                    ArithmeticOp::Mul => ArithmeticBinaryOp::Mul,
-                    ArithmeticOp::Div => ArithmeticBinaryOp::Div,
-                    ArithmeticOp::Mod => ArithmeticBinaryOp::Mod,
-                    ArithmeticOp::Exp => ArithmeticBinaryOp::Exp,
-                    ArithmeticOp::Add => unreachable!("addition has string-or-numeric semantics"),
-                };
-                let possible_kinds = KindSet::from_kind(ValueKind::Number)
-                    .union(KindSet::from_kind(ValueKind::BigInt));
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: possible_kinds.as_value_kind(),
-                        possible_kinds,
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::CoerciveBinaryNumber {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
-            }
-            EagerCompoundAssignmentOp::Bitwise(bitwise) => {
-                let op = match bitwise {
-                    BitwiseOp::And => BitwiseBinaryOp::And,
-                    BitwiseOp::Or => BitwiseBinaryOp::Or,
-                    BitwiseOp::Xor => BitwiseBinaryOp::Xor,
-                    BitwiseOp::Shl => BitwiseBinaryOp::Shl,
-                    BitwiseOp::Shr => BitwiseBinaryOp::Shr,
-                    BitwiseOp::UShr => BitwiseBinaryOp::UShr,
-                };
-                let possible_kinds = if matches!(bitwise, BitwiseOp::UShr) {
-                    KindSet::from_kind(ValueKind::Number)
-                } else {
-                    KindSet::from_kind(ValueKind::Number)
-                        .union(KindSet::from_kind(ValueKind::BigInt))
-                };
-                TypedExpr::from_info(
-                    ValueInfo {
-                        kind: possible_kinds.as_value_kind(),
-                        possible_kinds,
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::BitwiseNumeric {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
-            }
-        }
     }
 }
 
@@ -211,18 +118,12 @@ mod tests {
             (ArithmeticOp::Mod, ArithmeticBinaryOp::Mod),
             (ArithmeticOp::Exp, ArithmeticBinaryOp::Exp),
         ];
-        let add = ScriptLowerer::apply_eager_compound_assignment(
-            EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add),
-            operand("old"),
-            operand("rhs"),
-        );
+        let add = EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add)
+            .apply(operand("old"), operand("rhs"));
         assert!(matches!(add.expr, ExprIr::CoerciveAdd { .. }));
         for (source, expected) in arithmetic {
-            let applied = ScriptLowerer::apply_eager_compound_assignment(
-                EagerCompoundAssignmentOp::Arithmetic(source),
-                operand("old"),
-                operand("rhs"),
-            );
+            let applied =
+                EagerCompoundAssignmentOp::Arithmetic(source).apply(operand("old"), operand("rhs"));
             assert!(matches!(
                 applied.expr,
                 ExprIr::CoerciveBinaryNumber { op, .. } if op == expected
@@ -238,11 +139,8 @@ mod tests {
             (BitwiseOp::UShr, BitwiseBinaryOp::UShr),
         ];
         for (source, expected) in bitwise {
-            let applied = ScriptLowerer::apply_eager_compound_assignment(
-                EagerCompoundAssignmentOp::Bitwise(source),
-                operand("old"),
-                operand("rhs"),
-            );
+            let applied =
+                EagerCompoundAssignmentOp::Bitwise(source).apply(operand("old"), operand("rhs"));
             assert!(matches!(
                 applied.expr,
                 ExprIr::BitwiseNumeric { op, .. } if op == expected

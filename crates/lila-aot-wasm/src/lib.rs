@@ -36,6 +36,7 @@ use lila_ir::{
     TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME, UINT16_ARRAY_NAME,
     UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
 };
+use lila_ir::{SuperPropertyMutationIr, SuperPropertyMutationOperationIr};
 // `Function` is deliberately absent from this list. The name is bound below to
 // `code_sink::Function`, the wrapper that counts real Wasm label depth, and
 // every submodule of this crate reaches `Function` through this one binding

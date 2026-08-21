@@ -64,6 +64,25 @@ boundaries are recorded in
 `docs/rust-rewrite/contracts/object-literal-home-object.md` and
 `docs/rust-rewrite/contracts/object-method-arrow-super.md`.
 
+The adjacent non-resumable super-property mutation lifecycle now has a fused
+contract and verified consumer oracle. It covers a computed key which
+changes the HomeObject prototype during its sole coercion while the retained
+base and detached alien receiver still reach the original getter and setter;
+the exact compound and prefix traces are `key,getA,rhs,setA:3:true` and
+`key,getA,setA:2:true`. The fixture also covers every prefix/postfix
+increment/decrement form for Number and BigInt, strict failed Set, and derived
+constructor uninitialized-`this` ordering. At near-HEAD `b0d1d1300`, the four
+exact `language/expressions/super/prop-expr-*-putvalue-{increment,compound-assign}.js`
+files reported `2/8`: the increment pair was `0/4`
+Runtime/NotImplemented, the uninitialized-`this` compound file was `0/2`
+Runtime/Bug, and the existing compound GetSuperBase guard was `2/2`. The debug
+binary was four minutes older than the commit. Post-batch workspace check and
+`cargo xc`, focused IR `1/1`, structure `5/5`, compiled Wasm fixture `1/1`,
+exact cohort `8/8`, and both adjacent eight-execution order/control filters are
+green with zero unsupported, crash or bug outcomes. Resumable, logical and
+private mutation References are not claimed. The normative boundary is
+`docs/rust-rewrite/contracts/super-property-reference-mutation.md`.
+
 Private-element heap storage now has the closed five-row
 `PrivateElementHeapKind` protocol. Receiver rows are either a brand or a field;
 shared definition rows are a setter, method or getter. The entry writer accepts

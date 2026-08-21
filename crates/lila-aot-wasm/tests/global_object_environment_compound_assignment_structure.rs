@@ -278,14 +278,14 @@ fn lowering_routes_the_closed_eager_domain_through_the_global_plan() {
     let helper = bounded(
         COMPOUND_SOURCE,
         "    pub(super) fn lower_global_object_environment_eager_compound_assignment(",
-        "    /// The canonical dynamic operation shape used by both a selected Object",
+        "\n}\n\n#[cfg(test)]",
     );
     for marker in [
         "info.value_info = unknown_runtime_value_info();",
         "if info.configurable",
         "info.proven_present = false;",
         "EagerCompoundAssignmentBindings::allocate(",
-        "Self::apply_eager_compound_assignment(op, bindings.old_value(), rhs)",
+        "op.apply(bindings.old_value(), rhs)",
         "let strictness = self.reference_strictness();",
         "GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)",
         ".compound_assignment(bindings.seal(applied))",
@@ -305,18 +305,18 @@ fn lowering_routes_the_closed_eager_domain_through_the_global_plan() {
     assert!(!helper.contains("GlobalPropertyCompoundAssign"));
 
     let operation = bounded(
-        COMPOUND_SOURCE,
-        "enum EagerCompoundAssignmentOp {",
-        "impl<'a> ScriptLowerer<'a> {",
+        REFERENCE_SOURCE,
+        "pub(crate) enum EagerCompoundAssignmentOp {",
+        "impl EagerCompoundAssignmentOp {",
     );
     assert!(operation.contains("Arithmetic(ArithmeticOp)"));
     assert!(operation.contains("Bitwise(BitwiseOp)"));
     assert!(!operation.contains("Logical"));
 
     let apply = bounded(
-        COMPOUND_SOURCE,
-        "    fn apply_eager_compound_assignment(",
-        "}\n\n#[cfg(test)]",
+        REFERENCE_SOURCE,
+        "impl EagerCompoundAssignmentOp {",
+        "/// One fused mutation of a Super Property Reference.",
     );
     for marker in [
         "EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add)",

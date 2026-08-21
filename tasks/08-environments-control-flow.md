@@ -58,6 +58,28 @@ files remain
 large shared hotspots, and the language subtrees assigned to this task have not
 been proven zero-failure on a current complete Wasm-AOT matrix.
 
+Non-resumable numeric update and eager arithmetic/bitwise compound assignment
+through a `super` property now use a fused Reference contract and verified
+consumer fixture. The private plan retains current receiver, raw key, captured
+strictness in the fused IR. The AOT raw/coerced carriers then evaluate and
+retain the single super base through GetValue and PutValue; a key coercion that
+changes the method's HomeObject prototype cannot redirect either operation. The
+fixture pins the exact mutation traces
+`key,getA,rhs,setA:3:true` and `key,getA,setA:2:true` with an alien receiver,
+all four increment/decrement modes for Number and BigInt, strict failed Set,
+and uninitialized-`this` before key/RHS evaluation. At the near-HEAD pre-batch
+`b0d1d1300` boundary, the four exact
+`language/expressions/super/prop-expr-{getsuperbase-before-topropertykey,uninitialized-this}-putvalue-{increment,compound-assign}.js`
+files reported `2/8`; two increment files were `0/4`
+Runtime/NotImplemented, uninitialized-`this` compound assignment was `0/2`
+Runtime/Bug, and the existing GetSuperBase compound guard was `2/2`. The debug
+binary preceded the commit by four minutes, so these are near-HEAD rather than
+exact-commit measurements. Post-batch workspace check and `cargo xc`, focused
+IR `1/1`, structure `5/5`, compiled Wasm fixture `1/1`, exact cohort `8/8`,
+and both adjacent eight-execution order/control filters are green with zero
+unsupported, crash or bug outcomes. Logical super assignment, private fields,
+suspension and the broader super-expression matrix remain explicit nonclaims.
+
 All four identifier numeric-update forms inside `with` now spend that same
 non-empty, non-`Clone`, non-`Copy` Reference plan. A selected branch composes
 GetBindingValue's independent `HasProperty`/Get, one closed numeric update and

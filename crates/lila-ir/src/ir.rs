@@ -26,8 +26,8 @@ pub mod reference;
 
 pub use reference::{
     carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
-    IdentifierWriteReferenceIr, PutValueFailure, Strictness, SuspendedPropertyReferenceIr,
-    SuspendedPropertyReferenceUse,
+    IdentifierWriteReferenceIr, PutValueFailure, Strictness, SuperPropertyMutationIr,
+    SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -2001,6 +2001,9 @@ pub enum ExprIr {
         /// PutValue step 3.d.
         strictness: Strictness,
     },
+    /// One non-resumable numeric or eager compound mutation through a single
+    /// retained Super Property Reference.
+    SuperPropertyMutation(SuperPropertyMutationIr),
     PrivateRead {
         target: Box<TypedExpr>,
         private_name_id: PrivateNameId,
@@ -4068,6 +4071,25 @@ impl IrSummaryCounts {
                 self.visit_property_key(key);
                 self.visit_expr(receiver);
                 self.visit_expr(value);
+            }
+            ExprIr::SuperPropertyMutation(mutation) => {
+                self.super_uses += 1;
+                self.property_reads += 1;
+                self.property_writes += 1;
+                self.visit_property_key(mutation.referenced_name());
+                self.visit_expr(mutation.receiver());
+                match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { return_mode, .. } => {
+                        match return_mode {
+                            UpdateReturnMode::Prefix => self.prefix_updates += 1,
+                            UpdateReturnMode::Postfix => self.postfix_updates += 1,
+                        }
+                    }
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        self.compound_assignments += 1;
+                        self.visit_expr(result);
+                    }
+                }
             }
             ExprIr::PrivateRead {
                 target,

@@ -4084,6 +4084,17 @@ impl StringPool {
                 self.collect_expr(receiver);
                 self.collect_expr(value);
             }
+            ExprIr::SuperPropertyMutation(mutation) => {
+                self.uses_heap = true;
+                self.collect_property_key(mutation.referenced_name());
+                self.collect_expr(mutation.receiver());
+                match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        self.collect_expr(result);
+                    }
+                }
+            }
             ExprIr::ClassDefinition(class) => {
                 self.uses_heap = true;
                 self.intern_string("prototype");
