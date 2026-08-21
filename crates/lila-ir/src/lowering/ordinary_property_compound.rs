@@ -1,16 +1,13 @@
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
-    /// Lower one ordinary property Reference directly into its fused eager
-    /// mutation carrier. The base and raw computed-key expression are lowered
-    /// before the RHS; their runtime GetValue/PutValue staging remains owned by
-    /// the carrier's single backend consumer.
-    pub(super) fn lower_ordinary_property_eager_compound_assignment(
+    /// Lower the two evaluated operands and strictness which jointly identify
+    /// one ordinary property Reference. The plan is non-cloneable; the cloned
+    /// key is returned only for conservative shape invalidation.
+    pub(super) fn lower_ordinary_property_reference_plan(
         &mut self,
         access: &boa_ast::expression::access::SimplePropertyAccess,
-        op: EagerCompoundAssignmentOp,
-        rhs: &Expression,
-    ) -> TypedExpr {
+    ) -> (OrdinaryPropertyReferencePlan, PropertyKeyIr) {
         let base_and_receiver = Box::new(self.lower_property_target(access.target()));
         let referenced_name = match access.field() {
             PropertyAccessField::Const(name) => {
@@ -32,6 +29,20 @@ impl<'a> ScriptLowerer<'a> {
             referenced_name.clone(),
             self.reference_strictness(),
         );
+        (plan, referenced_name)
+    }
+
+    /// Lower one ordinary property Reference directly into its fused eager
+    /// mutation carrier. The base and raw computed-key expression are lowered
+    /// before the RHS; their runtime GetValue/PutValue staging remains owned by
+    /// the carrier's single backend consumer.
+    pub(super) fn lower_ordinary_property_eager_compound_assignment(
+        &mut self,
+        access: &boa_ast::expression::access::SimplePropertyAccess,
+        op: EagerCompoundAssignmentOp,
+        rhs: &Expression,
+    ) -> TypedExpr {
+        let (plan, referenced_name) = self.lower_ordinary_property_reference_plan(access);
         let rhs = self.lower_expression(rhs);
         let old_value_binding = self.alloc_temp_binding_name("ordinary.property.compound.old.");
         let result = plan.eager_compound_assignment(old_value_binding, op, rhs);

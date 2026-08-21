@@ -4,6 +4,7 @@ mod builtin_shapes;
 mod dynamic_source;
 mod object_environment_logical;
 mod ordinary_property_compound;
+mod ordinary_property_update;
 mod proxy_traps;
 mod super_property_mutation;
 mod with_environment_call;
@@ -5707,9 +5708,9 @@ impl<'a> ScriptLowerer<'a> {
                 info = self.merge_optional_value_info(info, self.infer_expr_throw_info(value));
                 info
             }
-            ExprIr::PropertyUpdate { target, key, .. } => self.merge_optional_value_info(
-                self.infer_expr_throw_info(target),
-                self.infer_property_key_throw_info(key),
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => self.merge_optional_value_info(
+                self.infer_expr_throw_info(update.base_and_receiver()),
+                self.infer_property_key_throw_info(update.referenced_name()),
             ),
             ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
                 let mut info = self.infer_expr_throw_info(assignment.base_and_receiver());
@@ -26502,68 +26503,15 @@ impl<'a> ScriptLowerer<'a> {
 
     /// 13.4 `++`/`--` on a property Reference.
     ///
-    /// Extracted from `lower_update` so that function can match `UpdateTarget`
-    /// exhaustively; the body is unchanged.
+    /// Extracted from `lower_update` so both the AST target and the ordinary,
+    /// Super, and private Reference domains remain exhaustive.
     fn lower_property_access_update(&mut self, op: UpdateOp, access: &PropertyAccess) -> TypedExpr {
-        if let PropertyAccess::Super(super_access) = access {
-            return self.lower_super_property_numeric_update(op, super_access);
-        }
-        let read = self.lower_property_access(access);
-        let value_kind = if read
-            .possible_kinds
-            .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
-        {
-            ValueKind::BigInt
-        } else {
-            ValueKind::Number
-        };
-        let (op, return_mode) = match op {
-            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
-            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
-            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
-            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
-        };
-        // 13.4: `++`/`--` evaluate the UnaryExpression once and PutValue
-        // through the Reference that evaluation produced. Recovering that
-        // Reference is the same total function the compound-assignment
-        // path uses. The two nested catch-alls this replaces matched 2 of
-        // the 77 `ExprIr` shapes and silently downgraded everything else —
-        // `super.x++`, `#priv++`, and every read the lowering had
-        // specialised — to `unsupported_expr`, with no compile error to
-        // say so.
-        let base = match reference_base_of_lowered_read(read.expr) {
-            Ok(base) => base,
-            Err(unsupported) => return self.unsupported_expr(unsupported.feature()),
-        };
-        let strictness = self.reference_strictness();
-        match base {
-            ReferenceBase::Property { target, key } => TypedExpr::from_info(
-                ValueInfo::new(value_kind),
-                ExprIr::PropertyUpdate {
-                    target: Box::new(target),
-                    key,
-                    op,
-                    return_mode,
-                    value_kind,
-                    strictness,
-                },
-            ),
-            ReferenceBase::Global { name } => TypedExpr::from_info(
-                ValueInfo::new(value_kind),
-                ExprIr::GlobalPropertyUpdate {
-                    name,
-                    op,
-                    return_mode,
-                    value_kind,
-                    strictness,
-                },
-            ),
-            // There is no `PrivateUpdate` or `SuperPropertyUpdate` IR node
-            // yet, so these two still have no lowering. They are named
-            // here rather than swallowed by a `_` arm, so that adding one
-            // is a deliberate edit at this site.
-            ReferenceBase::Private { .. } => self.unsupported_expr("private field update target"),
-            ReferenceBase::Super { .. } => self.unsupported_expr("super property update target"),
+        match access {
+            PropertyAccess::Simple(access) => {
+                self.lower_ordinary_property_numeric_update(op, access)
+            }
+            PropertyAccess::Super(access) => self.lower_super_property_numeric_update(op, access),
+            PropertyAccess::Private(_) => self.unsupported_expr("private field update target"),
         }
     }
 

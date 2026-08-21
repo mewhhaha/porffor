@@ -191,14 +191,79 @@ impl OrdinaryPropertyEagerCompoundAssignmentIr {
     }
 }
 
+/// One fused numeric update of an ordinary property Reference.
+///
+/// The operation and return mode are separate closed domains: the backend must
+/// choose the numeric delta and the old/new publication role independently,
+/// after consuming the same base/key/strictness tuple for GetValue and
+/// PutValue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an ordinary property numeric update must be consumed by the backend"]
+pub struct OrdinaryPropertyNumericUpdateIr {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+    op: NumericUpdateOp,
+    return_mode: UpdateReturnMode,
+    value_kind: ValueKind,
+}
+
+impl OrdinaryPropertyNumericUpdateIr {
+    fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            strictness,
+            op,
+            return_mode,
+            value_kind: ValueKind::Dynamic,
+        }
+    }
+
+    #[must_use]
+    pub fn base_and_receiver(&self) -> &TypedExpr {
+        &self.base_and_receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+
+    #[must_use]
+    pub fn op(&self) -> NumericUpdateOp {
+        self.op
+    }
+
+    #[must_use]
+    pub fn return_mode(&self) -> UpdateReturnMode {
+        self.return_mode
+    }
+
+    #[must_use]
+    pub fn value_kind(&self) -> ValueKind {
+        self.value_kind
+    }
+}
+
 /// A lowerer-owned ordinary property Reference which must be consumed as one
-/// eager compound assignment rather than decomposed into independent read and
-/// write nodes.
+/// mutation rather than decomposed into independent read and write nodes.
 ///
 /// Neither `Clone` nor `Copy`: the same base/raw-key/strictness tuple cannot be
 /// spent twice or rebuilt between GetValue and PutValue.
 #[derive(Debug)]
-#[must_use = "an ordinary property Reference plan must be consumed by one eager mutation"]
+#[must_use = "an ordinary property Reference plan must be consumed by one mutation"]
 pub(crate) struct OrdinaryPropertyReferencePlan {
     base_and_receiver: Box<TypedExpr>,
     referenced_name: PropertyKeyIr,
@@ -241,6 +306,32 @@ impl OrdinaryPropertyReferencePlan {
                     Box::new(result),
                 ),
             ),
+        )
+    }
+
+    #[must_use]
+    pub(crate) fn numeric_update(
+        self,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+    ) -> TypedExpr {
+        let value_kind = ValueKind::Dynamic;
+        let info = ValueInfo {
+            kind: value_kind,
+            possible_kinds: KindSet::from_kind(ValueKind::Number)
+                .union(KindSet::from_kind(ValueKind::BigInt)),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        TypedExpr::from_info(
+            info,
+            ExprIr::OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr::new(
+                self.base_and_receiver,
+                self.referenced_name,
+                self.strictness,
+                op,
+                return_mode,
+            )),
         )
     }
 }
@@ -2072,7 +2163,6 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         // `delete <identifier>` an early SyntaxError in strict code), so the
         // ReferenceError branch cannot arise for a delete.
         ExprIr::PropertyWrite { strictness, .. }
-        | ExprIr::PropertyUpdate { strictness, .. }
         | ExprIr::SuperPropertyWrite { strictness, .. }
         | ExprIr::DeleteProperty { strictness, .. }
         | ExprIr::DeleteGlobalProperty { strictness, .. } => {
@@ -2083,6 +2173,9 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
             Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
+        }
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            Some((update.strictness(), PutValueFailure::TypeErrorOnly))
         }
 
         // Everything else. `AssignIdentifier`, `CompoundAssignIdentifier` and
@@ -2392,7 +2485,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::GlobalPropertyWrite { .. }
         | ExprIr::OptionalPropertyChain { .. }
         | ExprIr::PropertyWrite { .. }
-        | ExprIr::PropertyUpdate { .. }
+        | ExprIr::OrdinaryPropertyNumericUpdate(_)
         | ExprIr::OrdinaryPropertyEagerCompoundAssignment(_)
         | ExprIr::UpdateIdentifier { .. }
         | ExprIr::GlobalPropertyUpdate { .. }

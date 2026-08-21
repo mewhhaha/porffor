@@ -501,6 +501,26 @@ Recent focused progress through `2026-08-21`:
   batch does not change plain,
   logical or numeric property assignment, `super`, private, identifier,
   global/Object Environment, `with`, or suspending property References.
+- Computed ordinary-property prefix/postfix `++` and `--` now use the adjacent
+  fused numeric-update Reference lifecycle. The same
+  non-copyable producer plan consumes one evaluated base/receiver, raw key and
+  captured `[[Strict]]` into closed increment/decrement and prefix/postfix
+  domains. The durable CLI oracle covers all eight Number/BigInt combinations,
+  old-versus-new result selection, base/raw-key/`ToPropertyKey`/`ToNumeric`
+  abrupt paths, one canonical key and receiver across get/set, mutation of the
+  raw key during coercion, strict false-Set rejection, sloppy false-Set
+  behavior, and publication only after PutValue. At pre-batch head
+  `0f004c0c6`, the four raw A6 T1 files (eight sloppy/strict executions) were
+  freshly `0/8`, all `Runtime/Bug`: a throwing key coercion incorrectly won
+  over the required nullish-base `TypeError`. No runner rewrite, matrix mask or
+  known-failure entry owns them. Post-batch verification is green:
+  workspace/all-target check; the focused IR invariant `1/1`; the new and
+  retained eager-compound structure executables `7/7` each; the compiled Wasm
+  lifecycle fixture `1/1` in `60.43s`; and the exact raw cohort `8/8`, with
+  zero unsupported, not-implemented, crash, or bug outcomes.
+  Eager/logical/plain assignment, `super`, private,
+  identifier/global/Object Environment, `with`, optional-chain and suspended
+  References remain outside this focused batch.
 - Direct identifier calls selected through `with` now have a verified,
   Reference-preserving lowering seam. A private non-copyable
   `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty

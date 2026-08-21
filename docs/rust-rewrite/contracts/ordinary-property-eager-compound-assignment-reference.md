@@ -57,9 +57,12 @@ both `[[Get]]` and `[[Set]]`; the raw key value is never coerced again.
 `OrdinaryPropertyReferencePlan` is private, non-`Clone`, non-`Copy`, and
 `#[must_use]`. It owns exactly one lowered base-and-receiver expression, one
 raw `PropertyKeyIr`, and the Reference's `Strictness`. Its constructor is the
-only ordinary-property eager producer.
+only ordinary-property mutation producer. The plan is now shared with the
+distinct numeric-update lifecycle specified by
+`ordinary-property-numeric-update-reference.md`; the eager operation below
+remains the only compound-assignment consumer.
 
-The plan has one consuming operation:
+The eager lifecycle has one consuming operation:
 
 ```text
 eager_compound_assignment(old_value_binding, EagerCompoundAssignmentOp, rhs)

@@ -23,6 +23,17 @@ struct ReadOrdinaryPropertyReferenceLocals {
 }
 
 #[derive(Debug)]
+#[must_use = "a numeric ordinary Property Reference must be advanced to its new value"]
+struct ReadOrdinaryPropertyNumericUpdateLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+    old_value_payload: u32,
+    old_value_tag: u32,
+}
+
+#[derive(Debug)]
 #[must_use = "a ready ordinary Property Reference must be consumed by PutValue"]
 struct ReadyToWriteOrdinaryPropertyReferenceLocals {
     base_and_receiver_payload: u32,
@@ -34,6 +45,50 @@ struct ReadyToWriteOrdinaryPropertyReferenceLocals {
     result_payload: u32,
     result_tag: u32,
     set_result: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "a ready numeric ordinary Property Reference must be consumed by PutValue"]
+struct ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+    old_value_payload: u32,
+    old_value_tag: u32,
+    new_value_payload: u32,
+    new_value_tag: u32,
+    set_result: u32,
+}
+
+/// The sealed input required by the shared ordinary Reference evaluator.
+///
+/// Both fused IR carriers own the same base/raw-key pair. Keeping this trait
+/// private makes that pair the only reusable part of their otherwise distinct
+/// compound-assignment and numeric-update lifecycles.
+trait OrdinaryPropertyReferenceSource {
+    fn base_and_receiver(&self) -> &TypedExpr;
+    fn referenced_name(&self) -> &PropertyKeyIr;
+}
+
+impl OrdinaryPropertyReferenceSource for OrdinaryPropertyEagerCompoundAssignmentIr {
+    fn base_and_receiver(&self) -> &TypedExpr {
+        self.base_and_receiver()
+    }
+
+    fn referenced_name(&self) -> &PropertyKeyIr {
+        self.referenced_name()
+    }
+}
+
+impl OrdinaryPropertyReferenceSource for OrdinaryPropertyNumericUpdateIr {
+    fn base_and_receiver(&self) -> &TypedExpr {
+        self.base_and_receiver()
+    }
+
+    fn referenced_name(&self) -> &PropertyKeyIr {
+        self.referenced_name()
+    }
 }
 
 #[derive(Debug)]
@@ -297,7 +352,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn evaluate_raw_ordinary_property_reference(
         &mut self,
-        mutation: &OrdinaryPropertyEagerCompoundAssignmentIr,
+        mutation: &impl OrdinaryPropertyReferenceSource,
         function: &mut Function,
     ) -> Result<EvaluatedRawOrdinaryPropertyReferenceLocals, EmitError> {
         let base_and_receiver_payload = self.reserve_temp_local();
@@ -539,6 +594,212 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_put_value_from_ready_ordinary_property_reference(
             ready_reference,
             mutation.strictness(),
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    fn emit_get_numeric_value_from_raw_ordinary_property_reference(
+        &mut self,
+        reference: EvaluatedRawOrdinaryPropertyReferenceLocals,
+        old_value_payload: u32,
+        old_value_tag: u32,
+        value_kind: ValueKind,
+        function: &mut Function,
+    ) -> Result<ReadOrdinaryPropertyNumericUpdateLocals, EmitError> {
+        let reference = self.emit_get_value_from_raw_ordinary_property_reference(
+            reference,
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+        let ReadOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        } = reference;
+        match value_kind {
+            ValueKind::Dynamic => {
+                self.emit_value_to_numeric_locals(old_value_payload, old_value_tag, function)?
+            }
+            ValueKind::Number => {
+                self.emit_value_to_number_payload(old_value_tag, old_value_payload, function)?;
+                function.instruction(&Instruction::LocalSet(old_value_payload));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(old_value_tag));
+                self.emit_return_current_completion_if_throw(function);
+            }
+            ValueKind::BigInt => {}
+            ValueKind::Undefined
+            | ValueKind::Null
+            | ValueKind::Boolean
+            | ValueKind::String
+            | ValueKind::Symbol
+            | ValueKind::Object
+            | ValueKind::Array
+            | ValueKind::Function
+            | ValueKind::Arguments => {
+                unreachable!("ordinary property numeric update requires Number, BigInt, or Dynamic")
+            }
+        }
+
+        Ok(ReadOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        })
+    }
+
+    fn emit_numeric_update_from_read_ordinary_property_reference(
+        &mut self,
+        reference: ReadOrdinaryPropertyNumericUpdateLocals,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        function: &mut Function,
+    ) -> Result<ReadyToWriteOrdinaryPropertyNumericUpdateLocals, EmitError> {
+        let ReadOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        } = reference;
+        let new_value_payload = self.reserve_temp_local();
+        let new_value_tag = self.reserve_temp_local();
+        let set_result = self.reserve_temp_local();
+
+        match update.op() {
+            NumericUpdateOp::Increment => self.emit_update_delta_from_locals(
+                NumericUpdateOp::Increment,
+                update.value_kind(),
+                old_value_payload,
+                old_value_tag,
+                function,
+            ),
+            NumericUpdateOp::Decrement => self.emit_update_delta_from_locals(
+                NumericUpdateOp::Decrement,
+                update.value_kind(),
+                old_value_payload,
+                old_value_tag,
+                function,
+            ),
+        }
+        function.instruction(&Instruction::LocalSet(new_value_payload));
+        function.instruction(&Instruction::LocalGet(old_value_tag));
+        function.instruction(&Instruction::LocalSet(new_value_tag));
+
+        Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+            new_value_payload,
+            new_value_tag,
+            set_result,
+        })
+    }
+
+    fn emit_put_value_from_ready_ordinary_property_numeric_update(
+        &mut self,
+        reference: ReadyToWriteOrdinaryPropertyNumericUpdateLocals,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+            new_value_payload,
+            new_value_tag,
+            set_result,
+        } = reference;
+
+        self.emit_ordinary_set_result_via_helper(
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            new_value_payload,
+            new_value_tag,
+            set_result,
+            function,
+        )?;
+        if update.strictness().throws_on_failed_set() {
+            function.instruction(&Instruction::LocalGet(set_result));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error_to_active_handler(
+                TYPE_ERROR_NAME,
+                "Cannot assign to property",
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+        }
+
+        let (published_payload, published_tag) = match update.return_mode() {
+            UpdateReturnMode::Prefix => (new_value_payload, new_value_tag),
+            UpdateReturnMode::Postfix => (old_value_payload, old_value_tag),
+        };
+        function.instruction(&Instruction::LocalGet(published_payload));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(published_tag));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
+        self.release_temp_local(set_result);
+        self.release_temp_local(new_value_tag);
+        self.release_temp_local(new_value_payload);
+        self.release_temp_local(property_key_tag);
+        self.release_temp_local(property_key_payload);
+        self.release_temp_local(base_and_receiver_tag);
+        self.release_temp_local(base_and_receiver_payload);
+        self.release_temp_local(old_value_tag);
+        self.release_temp_local(old_value_payload);
+        Ok(())
+    }
+
+    fn compile_ordinary_property_numeric_update_to_locals(
+        &mut self,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let old_value_payload = self.reserve_temp_local();
+        let old_value_tag = self.reserve_temp_local();
+        let raw_reference = self.evaluate_raw_ordinary_property_reference(update, function)?;
+        let read_reference = self.emit_get_numeric_value_from_raw_ordinary_property_reference(
+            raw_reference,
+            old_value_payload,
+            old_value_tag,
+            update.value_kind(),
+            function,
+        )?;
+        let ready_reference = self.emit_numeric_update_from_read_ordinary_property_reference(
+            read_reference,
+            update,
+            function,
+        )?;
+        self.emit_put_value_from_ready_ordinary_property_numeric_update(
+            ready_reference,
+            update,
             payload_local,
             tag_local,
             function,
@@ -1099,28 +1360,15 @@ impl<'a> FunctionBuilder<'a> {
                     emitter.compile_property_write_payload(target, key, value, function)
                 })?;
             }
-            ExprIr::PropertyUpdate {
-                target,
-                key,
-                op,
-                return_mode,
-                value_kind,
-                strictness,
-            } => {
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 let scratch_local = self.scratch_local;
                 let result_tag_local = self.result_tag_local;
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.compile_property_update_to_locals(
-                        target,
-                        key,
-                        *op,
-                        *return_mode,
-                        *value_kind,
-                        scratch_local,
-                        result_tag_local,
-                        function,
-                    )
-                })?;
+                self.compile_ordinary_property_numeric_update_to_locals(
+                    update,
+                    scratch_local,
+                    result_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
@@ -3555,27 +3803,13 @@ impl<'a> FunctionBuilder<'a> {
                     )
                 })?;
             }
-            ExprIr::PropertyUpdate {
-                target,
-                key,
-                op,
-                return_mode,
-                value_kind,
-                strictness,
-            } => {
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.compile_property_update_to_locals(
-                        target,
-                        key,
-                        *op,
-                        *return_mode,
-                        *value_kind,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )
-                })?;
-            }
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => self
+                .compile_ordinary_property_numeric_update_to_locals(
+                    update,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?,
             ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => self
                 .compile_ordinary_property_eager_compound_assignment_to_locals(
                     mutation,

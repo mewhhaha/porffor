@@ -26,9 +26,9 @@ pub mod reference;
 
 pub use reference::{
     carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
-    IdentifierWriteReferenceIr, OrdinaryPropertyEagerCompoundAssignmentIr, PutValueFailure,
-    Strictness, SuperPropertyMutationIr, SuperPropertyMutationOperationIr,
-    SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
+    IdentifierWriteReferenceIr, OrdinaryPropertyEagerCompoundAssignmentIr,
+    OrdinaryPropertyNumericUpdateIr, PutValueFailure, Strictness, SuperPropertyMutationIr,
+    SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -1769,15 +1769,7 @@ pub enum ExprIr {
         /// when it is true.
         strictness: Strictness,
     },
-    PropertyUpdate {
-        target: Box<TypedExpr>,
-        key: PropertyKeyIr,
-        op: NumericUpdateOp,
-        return_mode: UpdateReturnMode,
-        value_kind: ValueKind,
-        /// PutValue step 3.d, for the write-back half of `++`/`--`.
-        strictness: Strictness,
-    },
+    OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr),
     OrdinaryPropertyEagerCompoundAssignment(OrdinaryPropertyEagerCompoundAssignmentIr),
     UpdateIdentifier {
         name: String,
@@ -4119,20 +4111,15 @@ impl IrSummaryCounts {
                 self.visit_property_key(key);
                 self.visit_expr(value);
             }
-            ExprIr::PropertyUpdate {
-                target,
-                key,
-                return_mode,
-                ..
-            } => {
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.property_reads += 1;
                 self.property_writes += 1;
-                match return_mode {
+                match update.return_mode() {
                     UpdateReturnMode::Prefix => self.prefix_updates += 1,
                     UpdateReturnMode::Postfix => self.postfix_updates += 1,
                 }
-                self.visit_expr(target);
-                self.visit_property_key(key);
+                self.visit_expr(update.base_and_receiver());
+                self.visit_property_key(update.referenced_name());
             }
             ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
                 self.property_reads += 1;

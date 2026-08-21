@@ -3286,11 +3286,15 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => expr_exposes_global_object(value),
         ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_exposes_global_object),
-        ExprIr::PropertyRead { target, key }
-        | ExprIr::DeleteProperty { target, key, .. }
-        | ExprIr::PropertyUpdate { target, key, .. } => {
+        ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
+        }
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            property_access_exposes_global_object(
+                update.base_and_receiver(),
+                update.referenced_name(),
+            ) || property_key_exposes_global_object(update.referenced_name())
         }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
             property_access_exposes_global_object(
@@ -3785,11 +3789,13 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(operand, names);
             }
         }
-        ExprIr::PropertyRead { target, key }
-        | ExprIr::DeleteProperty { target, key, .. }
-        | ExprIr::PropertyUpdate { target, key, .. } => {
+        ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
+        }
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            collect_expr_global_property_names(update.base_and_receiver(), names);
+            collect_property_key_global_property_names(update.referenced_name(), names);
         }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
             collect_expr_global_property_names(mutation.base_and_receiver(), names);
@@ -5296,16 +5302,12 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             expr_references_function(object, target)
                 || property_key_references_function(key, target)
         }
-        ExprIr::PropertyUpdate {
-            target: object,
-            key,
-            ..
-        } => {
-            expr_references_function(object, target)
-                || property_key_references_function(key, target)
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            expr_references_function(update.base_and_receiver(), target)
+                || property_key_references_function(update.referenced_name(), target)
                 || shape_accessor_references_function(
-                    object.heap_shape.as_deref(),
-                    key,
+                    update.base_and_receiver().heap_shape.as_deref(),
+                    update.referenced_name(),
                     target,
                     true,
                     true,
@@ -6728,6 +6730,7 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
                 expr_result_tag_is_runtime_dynamic(&result.expr)
             }
         },
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => update.value_kind() == ValueKind::Dynamic,
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
             expr_result_tag_is_runtime_dynamic(&mutation.result().expr)
         }
@@ -7302,10 +7305,10 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyUpdate { target, key, .. } => {
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || match key {
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            matches!(update.base_and_receiver().kind, ValueKind::Object)
+                || expr_uses_function_table(update.base_and_receiver())
+                || match update.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_function_table(expr)
@@ -7505,9 +7508,9 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyUpdate { target, key, .. } => {
-            expr_uses_calls(target)
-                || match key {
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            expr_uses_calls(update.base_and_receiver())
+                || match update.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_calls(expr)
@@ -8219,6 +8222,7 @@ const SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
 const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4;
 const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 3;
 const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
+const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
 const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
 
 fn count_sync_disposable_resources_temp_locals(
@@ -8427,15 +8431,36 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             });
             child.max(12)
         }
-        ExprIr::PropertyUpdate { target, key, .. } => {
-            let child = count_expr_temp_locals(target).max(match key {
-                PropertyKeyIr::StaticString(_) => 0,
-                PropertyKeyIr::ArrayLength => 0,
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            let key_child = match update.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     count_expr_temp_locals(expr)
                 }
-            });
-            child.max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
+            };
+            let to_numeric_temps = match update.value_kind() {
+                ValueKind::Dynamic => ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS,
+                ValueKind::Number | ValueKind::BigInt => 0,
+                ValueKind::Undefined
+                | ValueKind::Null
+                | ValueKind::Boolean
+                | ValueKind::String
+                | ValueKind::Symbol
+                | ValueKind::Object
+                | ValueKind::Array
+                | ValueKind::Function
+                | ValueKind::Arguments => {
+                    unreachable!("ordinary property numeric update kind is closed")
+                }
+            };
+            let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(update.base_and_receiver())
+                    .max(key_child)
+                    .max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)
+                    .max(to_numeric_temps);
+            let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+                + ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS;
+            read_phase.max(write_phase)
         }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
             let key_child = match mutation.referenced_name() {

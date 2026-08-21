@@ -148,6 +148,39 @@ twelfth Test262 claim. Plain, logical and numeric property assignment,
 `super`, private, identifier/global/Object Environment, `with`, suspending RHS
 and the broader compound-assignment subtree remain explicit nonclaims.
 
+Computed ordinary-property numeric update now uses the same fused Reference
+ownership boundary. `OrdinaryPropertyReferencePlan::numeric_update`
+consumes the evaluated base/receiver, raw key and captured `[[Strict]]` into
+closed `NumericUpdateOp::{Increment, Decrement}` and
+`UpdateReturnMode::{Prefix, Postfix}` domains. The backend contract orders base,
+raw key, nullish rejection, one `ToPropertyKey`, `[[Get]]`, one `ToNumeric`,
+new-value computation, same-Reference `[[Set]]`, strict false-Set routing and
+only then old/new result publication.
+
+The durable CLI fixture covers all eight Number/BigInt prefix/postfix modes,
+their stored and returned values, Proxy/accessor receiver identity, raw-key
+mutation during `ToNumeric`, every abrupt phase, and strict versus sloppy
+false-Set behavior. The exact raw Test262 inventory is:
+
+- `language/expressions/postfix-decrement/S11.3.2_A6_T1.js`;
+- `language/expressions/postfix-increment/S11.3.1_A6_T1.js`;
+- `language/expressions/prefix-decrement/S11.4.5_A6_T1.js`; and
+- `language/expressions/prefix-increment/S11.4.4_A6_T1.js`.
+
+Each file has no explicit flags and therefore contributes sloppy and strict
+Script executions. At pre-batch head `0f004c0c6`, a fresh exact run measured
+`0/8`, all `Runtime/Bug`, because observable key coercion incorrectly preceded
+the required nullish-base `TypeError`. No source rewrite, matrix mask or
+known-failure entry owns the cohort. Post-batch verification is green:
+workspace/all-target check; the focused IR invariant `1/1`; the new and
+retained eager-compound structure executables `7/7` each; the compiled Wasm
+lifecycle fixture `1/1` in `60.43s`; and the exact raw cohort `8/8`, with zero
+unsupported, not-implemented, crash, or bug outcomes. Eager/logical/plain
+property assignment, `super`, private,
+identifier/global/Object Environment, `with`, optional chains, suspended
+References and the broader update-expression subtree remain explicit
+nonclaims.
+
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central

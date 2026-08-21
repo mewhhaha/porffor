@@ -102,7 +102,7 @@ fn positions_in_order(source: &str, markers: &[&str]) {
 #[test]
 fn ir_owns_one_closed_ordinary_property_eager_reference() {
     assert!(REFERENCE_SOURCE.contains(
-        "#[derive(Debug)]\n#[must_use = \"an ordinary property Reference plan must be consumed by one eager mutation\"]\npub(crate) struct OrdinaryPropertyReferencePlan"
+        "#[derive(Debug)]\n#[must_use = \"an ordinary property Reference plan must be consumed by one mutation\"]\npub(crate) struct OrdinaryPropertyReferencePlan"
     ));
     let plan = bounded(
         REFERENCE_SOURCE,
@@ -170,6 +170,22 @@ fn ir_owns_one_closed_ordinary_property_eager_reference() {
 
 #[test]
 fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decomposition() {
+    let reference = bounded(
+        ORDINARY_PROPERTY_LOWERING_SOURCE,
+        "pub(super) fn lower_ordinary_property_reference_plan(",
+        "    /// Lower one ordinary property Reference directly",
+    );
+    positions_in_order(
+        reference,
+        &[
+            "let base_and_receiver = Box::new(self.lower_property_target(access.target()));",
+            "let referenced_name = match access.field()",
+            "self.lower_expression(expression)",
+            "let plan = OrdinaryPropertyReferencePlan::new(",
+            "self.reference_strictness()",
+            "(plan, referenced_name)",
+        ],
+    );
     let producer = bounded(
         ORDINARY_PROPERTY_LOWERING_SOURCE,
         "pub(super) fn lower_ordinary_property_eager_compound_assignment(",
@@ -178,11 +194,7 @@ fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decom
     positions_in_order(
         producer,
         &[
-            "let base_and_receiver = Box::new(self.lower_property_target(access.target()));",
-            "let referenced_name = match access.field()",
-            "self.lower_expression(expression)",
-            "let plan = OrdinaryPropertyReferencePlan::new(",
-            "self.reference_strictness()",
+            "self.lower_ordinary_property_reference_plan(access)",
             "let rhs = self.lower_expression(rhs);",
             "let old_value_binding =",
             "plan.eager_compound_assignment(old_value_binding, op, rhs)",
