@@ -2514,6 +2514,9 @@ pub enum SyncDisposableScopeExecutionIr {
     /// The scope may yield and therefore owns activation-backed capability
     /// storage rather than temporary locals.
     PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr),
+    /// The scope may await and therefore owns activation-backed capability
+    /// storage until the async function settles.
+    AsyncFunction(AsyncFunctionSyncDisposableCapabilityIr),
 }
 
 /// The hidden activation binding for one plain-generator DisposeCapability.
@@ -2528,6 +2531,28 @@ pub struct PlainGeneratorSyncDisposableCapabilityIr {
 }
 
 impl PlainGeneratorSyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String) -> Self {
+        Self { binding_name }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+}
+
+/// The hidden activation binding for one plain-async-function
+/// DisposeCapability.
+///
+/// Fields are private and the sole crate constructor is fed only by lowering's
+/// suspension-owned binding allocator. Backend crates can consume the binding
+/// identity but cannot manufacture this proof from an arbitrary `String`.
+#[must_use = "a plain-async-function synchronous DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncFunctionSyncDisposableCapabilityIr {
+    binding_name: String,
+}
+
+impl AsyncFunctionSyncDisposableCapabilityIr {
     pub(crate) fn new(binding_name: String) -> Self {
         Self { binding_name }
     }

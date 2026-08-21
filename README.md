@@ -629,6 +629,34 @@ Recent focused progress through `2026-08-21`:
   classic-`for`/`for-of` heads beyond their separate batches, modules, dynamic
   source, the complete 78-file `language/statements/using` directory or the full
   pinned aggregate.
+- The adjacent plain-async-function batch implements the required
+  `SyncDisposableScopeExecutionIr::AsyncFunction` owner and its private
+  `AsyncFunctionSyncDisposableCapabilityIr`, minted only through the
+  suspension-owned binding allocator. The AOT backend exhaustively converts
+  the distinct generator/async IR proofs into one non-`Copy`
+  `ActivationSyncDisposeOwner`, which selects the owning execution kind,
+  resume-state offset, resumable body compiler and terminal completion
+  dispatcher. For a plain async function that means
+  `HEAP_ASYNC_RESUME_STATE_OFFSET`, retention through `AsyncAwait`, and the
+  `DispatchAsyncFunction` path only after the capability has been detached, its
+  entries disposed in reverse and the folded completion restored. A durable
+  CLI oracle covers no acquisition before call, retention at the first await,
+  normal and explicit-return completion, source throw, rejected-await
+  resumption, acquisition failure, nested non-await scopes, LIFO suppression
+  and exactly-once disposal. At pre-batch source commit
+  `1f27bc71f678d5b27e08d2719c660b9777021af4`, both executions of the exact
+  async-flagged source file
+  `language/statements/using/initializer-disposed-at-end-of-asyncfunctionbody.js`
+  reported `Runtime/NotImplemented` with the diagnostic `using declaration in
+  an async function or async generator`. The shared workspace/all-target check
+  and `cargo xc` are green; the focused IR invariant is `1/1`; the async and
+  retained generator structure executables are `7/7` and `6/6`; the async CLI
+  lifecycle oracle is `1/1` in 15.21 seconds; and the retained generator oracle
+  remains `1/1` in 55.21 seconds. The exact async Test262 witness is now `2/2`
+  with zero unsupported, crash or bug results. Async generators, `await using`,
+  `await` inside a `using` initializer, resource-bearing loop heads, modules,
+  dynamic source, the complete 78-file `language/statements/using` directory
+  and the full pinned aggregate remain explicit nonclaims.
 - The adjacent classic-`for` extension gives a synchronous
   `using` head the closed, statically non-empty
   `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while

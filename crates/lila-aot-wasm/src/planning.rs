@@ -8120,8 +8120,8 @@ const SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS: usize = 4 + 7 + 64;
 // materializes five locals per statically possible entry. Acquisition instead
 // holds the active three-local capability and one five-local resource; its
 // initializer/call phase never overlaps the body or detached walk.
-const PLAIN_GENERATOR_SYNC_DISPOSE_DETACHED_TEMP_LOCALS: usize = 5;
-const PLAIN_GENERATOR_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5;
+const ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS: usize = 5;
+const ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5;
 
 // Five mutation-result locals (old payload/tag, new payload/tag, Set result)
 // stay live below the six-local raw/coerced Super Reference carrier. Each
@@ -8159,15 +8159,16 @@ fn count_sync_disposable_scope_temp_locals(
         SyncDisposableScopeExecutionIr::Immediate => {
             count_sync_disposable_resources_temp_locals(resources, body_temps)
         }
-        SyncDisposableScopeExecutionIr::PlainGenerator(_) => {
+        SyncDisposableScopeExecutionIr::PlainGenerator(_)
+        | SyncDisposableScopeExecutionIr::AsyncFunction(_) => {
             let initializer_temps = resources
                 .iter()
                 .map(|resource| count_expr_temp_locals(&resource.initializer))
                 .max()
                 .unwrap_or(0);
-            let acquisition_peak = PLAIN_GENERATOR_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS
+            let acquisition_peak = ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS
                 + initializer_temps.max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS);
-            let disposal_peak = PLAIN_GENERATOR_SYNC_DISPOSE_DETACHED_TEMP_LOCALS
+            let disposal_peak = ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS
                 + resources.len() * 5
                 + SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS;
             acquisition_peak.max(disposal_peak).max(body_temps)

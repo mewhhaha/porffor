@@ -2,11 +2,11 @@ use super::*;
 use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
-    ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
-    ForOfAssignmentIr, ForOfIteratorHeadIr, ObjectDestructuringPatternIr,
-    PlainGeneratorSyncDisposableCapabilityIr, ResumableLoopIterationEnvironmentIr,
-    SyncDisposableForOfHeadIr, SyncDisposableResourceIr, SyncDisposableResourcesIr,
-    SyncDisposableScopeExecutionIr,
+    ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr,
+    AsyncFunctionSyncDisposableCapabilityIr, AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr,
+    ForOfIteratorHeadIr, ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
+    ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
+    SyncDisposableResourcesIr, SyncDisposableScopeExecutionIr,
 };
 
 #[must_use = "a captured using-scope completion must be restored and dispatched"]
@@ -26,25 +26,67 @@ struct AcquiredSyncDisposableResourceLocals {
     method_tag: u32,
 }
 
-#[must_use = "a generator DisposeCapability binding must reach its consuming detach path"]
-struct PlainGeneratorSyncDisposeCapabilityStorage {
+#[must_use = "an activation-backed DisposeCapability binding must reach its consuming detach path"]
+struct ActivationSyncDisposeCapabilityStorage {
     binding: BindingStorage,
 }
 
 #[must_use = "an activation-backed DisposeCapability must be published before acquisition"]
-struct ActivePlainGeneratorSyncDisposeCapabilityLocals {
+struct ActiveActivationSyncDisposeCapabilityLocals {
     object: u32,
     record: u32,
     entries: u32,
 }
 
-#[must_use = "a detached generator DisposeCapability must be consumed exactly once"]
-struct DetachedPlainGeneratorSyncDisposeCapabilityLocals {
+#[must_use = "a detached activation DisposeCapability must be consumed exactly once"]
+struct DetachedActivationSyncDisposeCapabilityLocals {
     object: u32,
     object_tag: u32,
     record: u32,
     entries: u32,
     entry_count: u32,
+}
+
+/// The two resumable execution owners that share the activation-backed
+/// synchronous DisposeCapability representation.
+///
+/// Keeping the producer carriers in distinct variants prevents an async
+/// capability from selecting generator state offsets (or the reverse) while
+/// still giving their identical heap lifecycle one backend consumer.
+#[must_use = "an activation-backed using owner must be consumed exhaustively"]
+enum ActivationSyncDisposeOwner<'a> {
+    PlainGenerator(&'a PlainGeneratorSyncDisposableCapabilityIr),
+    AsyncFunction(&'a AsyncFunctionSyncDisposableCapabilityIr),
+}
+
+impl ActivationSyncDisposeOwner<'_> {
+    fn binding_name(&self) -> &str {
+        match self {
+            Self::PlainGenerator(capability) => capability.binding_name(),
+            Self::AsyncFunction(capability) => capability.binding_name(),
+        }
+    }
+
+    const fn execution_kind(&self) -> FunctionExecutionKind {
+        match self {
+            Self::PlainGenerator(_) => FunctionExecutionKind::Generator,
+            Self::AsyncFunction(_) => FunctionExecutionKind::Async,
+        }
+    }
+
+    const fn resume_state_offset(&self) -> u64 {
+        match self {
+            Self::PlainGenerator(_) => HEAP_GENERATOR_RESUME_STATE_OFFSET,
+            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET,
+        }
+    }
+
+    const fn completion_continuation(&self) -> SyncDisposeCompletionContinuation {
+        match self {
+            Self::PlainGenerator(_) => SyncDisposeCompletionContinuation::Dispatch,
+            Self::AsyncFunction(_) => SyncDisposeCompletionContinuation::DispatchAsyncFunction,
+        }
+    }
 }
 
 #[must_use = "a synchronous iterator head must consume its iteration lifecycle"]
@@ -65,6 +107,7 @@ enum SyncForOfIterationLifecycleLocals<'a> {
 #[derive(Clone, Copy)]
 enum SyncDisposeCompletionContinuation {
     Dispatch,
+    DispatchAsyncFunction,
     DeferToIteratorClose,
 }
 
@@ -1242,7 +1285,20 @@ impl<'a> FunctionBuilder<'a> {
                     },
                 ..
             } => Some(plan.entry_state),
-            StatementIr::SyncDisposableScope { .. } => None,
+            StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::AsyncFunction(_),
+                body,
+                ..
+            } => body
+                .statements
+                .iter()
+                .find_map(Self::async_statement_entry_state),
+            StatementIr::SyncDisposableScope {
+                execution:
+                    SyncDisposableScopeExecutionIr::Immediate
+                    | SyncDisposableScopeExecutionIr::PlainGenerator(_),
+                ..
+            } => None,
             _ => None,
         }
     }
@@ -1282,7 +1338,21 @@ impl<'a> FunctionBuilder<'a> {
                     },
                 ..
             } => Some(plan.exit_state),
-            StatementIr::SyncDisposableScope { .. } => None,
+            StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::AsyncFunction(_),
+                body,
+                ..
+            } => body
+                .statements
+                .iter()
+                .rev()
+                .find_map(Self::async_statement_exit_state),
+            StatementIr::SyncDisposableScope {
+                execution:
+                    SyncDisposableScopeExecutionIr::Immediate
+                    | SyncDisposableScopeExecutionIr::PlainGenerator(_),
+                ..
+            } => None,
             _ => None,
         }
     }
@@ -1320,7 +1390,9 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .find_map(Self::generator_statement_entry_state),
             StatementIr::SyncDisposableScope {
-                execution: SyncDisposableScopeExecutionIr::Immediate,
+                execution:
+                    SyncDisposableScopeExecutionIr::Immediate
+                    | SyncDisposableScopeExecutionIr::AsyncFunction(_),
                 ..
             } => None,
             _ => None,
@@ -1363,7 +1435,9 @@ impl<'a> FunctionBuilder<'a> {
                 .rev()
                 .find_map(Self::generator_statement_exit_state),
             StatementIr::SyncDisposableScope {
-                execution: SyncDisposableScopeExecutionIr::Immediate,
+                execution:
+                    SyncDisposableScopeExecutionIr::Immediate
+                    | SyncDisposableScopeExecutionIr::AsyncFunction(_),
                 ..
             } => None,
             _ => None,
@@ -4840,8 +4914,18 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_immediate_sync_disposable_scope(resources, body, function)
             }
             SyncDisposableScopeExecutionIr::PlainGenerator(capability) => self
-                .compile_plain_generator_sync_disposable_scope(
-                    capability, resources, body, function,
+                .compile_activation_sync_disposable_scope(
+                    ActivationSyncDisposeOwner::PlainGenerator(capability),
+                    resources,
+                    body,
+                    function,
+                ),
+            SyncDisposableScopeExecutionIr::AsyncFunction(capability) => self
+                .compile_activation_sync_disposable_scope(
+                    ActivationSyncDisposeOwner::AsyncFunction(capability),
+                    resources,
+                    body,
+                    function,
                 ),
         }
     }
@@ -4885,59 +4969,65 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn compile_plain_generator_sync_disposable_scope(
+    fn compile_activation_sync_disposable_scope(
         &mut self,
-        capability: &PlainGeneratorSyncDisposableCapabilityIr,
+        owner: ActivationSyncDisposeOwner<'_>,
         resources: &SyncDisposableResourcesIr,
         body: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         debug_assert!(!resources.is_empty());
+        let execution_kind = owner.execution_kind();
         if !self
             .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Generator)
+            .is_some_and(|meta| meta.protocol.execution_kind() == execution_kind)
         {
             return Err(EmitError::unsupported(
-                "plain-generator synchronous DisposeCapability requires a generator owner",
+                "activation-backed synchronous DisposeCapability has the wrong execution owner",
             ));
         }
-        let capability_storage = PlainGeneratorSyncDisposeCapabilityStorage {
-            binding: self
-                .lookup_binding(capability.binding_name())
-                .unwrap_or_else(|| {
-                    self.allocate_binding(
-                        capability.binding_name().to_string(),
-                        BindingMode::Let,
-                        ValueKind::Object,
-                    )
-                }),
+        let binding = self
+            .owned_env_slot(owner.binding_name())
+            .map(|slot| BindingStorage::EnvSlot { slot, hops: 0 })
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "activation-backed synchronous DisposeCapability is missing its owned binding",
+                )
+            })?;
+        let capability_storage = ActivationSyncDisposeCapabilityStorage { binding };
+        let (entry_state_of, exit_state_of): (
+            fn(&StatementIr) -> Option<u32>,
+            fn(&StatementIr) -> Option<u32>,
+        ) = match &owner {
+            ActivationSyncDisposeOwner::PlainGenerator(_) => (
+                Self::generator_statement_entry_state,
+                Self::generator_statement_exit_state,
+            ),
+            ActivationSyncDisposeOwner::AsyncFunction(_) => (
+                Self::async_statement_entry_state,
+                Self::async_statement_exit_state,
+            ),
         };
-        let entry_state = body
-            .statements
-            .iter()
-            .find_map(Self::generator_statement_entry_state);
-        let exit_state = body
-            .statements
-            .iter()
-            .rev()
-            .find_map(Self::generator_statement_exit_state);
+        let entry_state = body.statements.iter().find_map(entry_state_of);
+        let exit_state = body.statements.iter().rev().find_map(exit_state_of);
         let suspension_span = match (entry_state, exit_state) {
             (None, None) => None,
             (Some(entry_state), Some(exit_state)) => Some((entry_state, exit_state)),
             _ => {
                 return Err(EmitError::unsupported(
-                    "generator using body has an incomplete suspension-state span",
+                    "activation-backed using body has an incomplete suspension-state span",
                 ));
             }
         };
 
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("generator using requires the function call ABI")
+            EmitError::unsupported("activation-backed using requires the function call ABI")
         })?;
+        let resume_state_offset = owner.resume_state_offset();
         if let Some((entry_state, exit_state)) = suspension_span {
             self.load_i64_to_local_from_offset(
                 activation_local,
-                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                resume_state_offset,
                 self.scratch_local,
                 function,
             );
@@ -4957,7 +5047,7 @@ impl<'a> FunctionBuilder<'a> {
         if let Some((entry_state, _)) = suspension_span {
             self.load_i64_to_local_from_offset(
                 activation_local,
-                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                resume_state_offset,
                 self.scratch_local,
                 function,
             );
@@ -4966,7 +5056,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eq);
             self.open_frame(ControlFrameKind::If, function);
         }
-        self.initialize_plain_generator_sync_dispose_capability(
+        self.initialize_activation_sync_dispose_capability(
             &capability_storage,
             resources,
             function,
@@ -4978,7 +5068,20 @@ impl<'a> FunctionBuilder<'a> {
 
         self.push_scope();
         if let Some((entry_state, _)) = suspension_span {
-            self.compile_generator_block_contents(body, entry_state, true, function)?;
+            match &owner {
+                ActivationSyncDisposeOwner::PlainGenerator(_) => {
+                    self.compile_generator_block_contents(body, entry_state, true, function)?;
+                }
+                ActivationSyncDisposeOwner::AsyncFunction(_) => {
+                    self.compile_async_block_contents(
+                        body,
+                        entry_state,
+                        true,
+                        resume_state_offset,
+                        function,
+                    )?;
+                }
+            }
         } else {
             self.compile_block_contents(body, function)?;
         }
@@ -4988,8 +5091,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         let detached =
-            self.detach_plain_generator_sync_dispose_capability(capability_storage, function)?;
-        let acquired = self.load_detached_plain_generator_sync_disposable_resources(
+            self.detach_activation_sync_dispose_capability(capability_storage, function)?;
+        let acquired = self.load_detached_activation_sync_disposable_resources(
             &detached,
             resources.len(),
             function,
@@ -4999,10 +5102,10 @@ impl<'a> FunctionBuilder<'a> {
         self.consume_sync_disposable_resources(
             pending,
             acquired,
-            SyncDisposeCompletionContinuation::Dispatch,
+            owner.completion_continuation(),
             function,
         )?;
-        self.release_detached_plain_generator_sync_dispose_capability(detached);
+        self.release_detached_activation_sync_dispose_capability(detached);
 
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
@@ -5033,13 +5136,13 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    fn initialize_plain_generator_sync_dispose_capability(
+    fn initialize_activation_sync_dispose_capability(
         &mut self,
-        storage: &PlainGeneratorSyncDisposeCapabilityStorage,
+        storage: &ActivationSyncDisposeCapabilityStorage,
         resources: &SyncDisposableResourcesIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let capability = ActivePlainGeneratorSyncDisposeCapabilityLocals {
+        let capability = ActiveActivationSyncDisposeCapabilityLocals {
             object: self.reserve_temp_local(),
             record: self.reserve_temp_local(),
             entries: self.reserve_temp_local(),
@@ -5109,7 +5212,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             self.acquire_sync_disposable_resource_from_locals(&acquired, function)?;
-            self.append_plain_generator_sync_disposable_resource(&capability, &acquired, function);
+            self.append_activation_sync_disposable_resource(&capability, &acquired, function);
             let resource_storage = self
                 .lookup_current_scope_binding(&resource.binding_name)
                 .or_else(|| self.lookup_binding(&resource.binding_name))
@@ -5135,9 +5238,9 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn append_plain_generator_sync_disposable_resource(
+    fn append_activation_sync_disposable_resource(
         &mut self,
-        capability: &ActivePlainGeneratorSyncDisposeCapabilityLocals,
+        capability: &ActiveActivationSyncDisposeCapabilityLocals,
         resource: &AcquiredSyncDisposableResourceLocals,
         function: &mut Function,
     ) {
@@ -5203,12 +5306,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    fn detach_plain_generator_sync_dispose_capability(
+    fn detach_activation_sync_dispose_capability(
         &mut self,
-        storage: PlainGeneratorSyncDisposeCapabilityStorage,
+        storage: ActivationSyncDisposeCapabilityStorage,
         function: &mut Function,
-    ) -> Result<DetachedPlainGeneratorSyncDisposeCapabilityLocals, EmitError> {
-        let detached = DetachedPlainGeneratorSyncDisposeCapabilityLocals {
+    ) -> Result<DetachedActivationSyncDisposeCapabilityLocals, EmitError> {
+        let detached = DetachedActivationSyncDisposeCapabilityLocals {
             object: self.reserve_temp_local(),
             object_tag: self.reserve_temp_local(),
             record: self.reserve_temp_local(),
@@ -5254,9 +5357,9 @@ impl<'a> FunctionBuilder<'a> {
         Ok(detached)
     }
 
-    fn load_detached_plain_generator_sync_disposable_resources(
+    fn load_detached_activation_sync_disposable_resources(
         &mut self,
-        detached: &DetachedPlainGeneratorSyncDisposeCapabilityLocals,
+        detached: &DetachedActivationSyncDisposeCapabilityLocals,
         resource_count: usize,
         function: &mut Function,
     ) -> Vec<AcquiredSyncDisposableResourceLocals> {
@@ -5300,9 +5403,9 @@ impl<'a> FunctionBuilder<'a> {
             .collect()
     }
 
-    fn release_detached_plain_generator_sync_dispose_capability(
+    fn release_detached_activation_sync_dispose_capability(
         &mut self,
-        detached: DetachedPlainGeneratorSyncDisposeCapabilityLocals,
+        detached: DetachedActivationSyncDisposeCapabilityLocals,
     ) {
         self.release_temp_local(detached.entry_count);
         self.release_temp_local(detached.entries);
@@ -5594,6 +5697,9 @@ impl<'a> FunctionBuilder<'a> {
         match continuation {
             SyncDisposeCompletionContinuation::Dispatch => {
                 self.emit_dispatch_current_completion(function)?;
+            }
+            SyncDisposeCompletionContinuation::DispatchAsyncFunction => {
+                self.emit_dispatch_async_completion(function)?;
             }
             SyncDisposeCompletionContinuation::DeferToIteratorClose => {}
         }

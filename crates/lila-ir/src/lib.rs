@@ -13268,6 +13268,104 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn plain_async_function_synchronous_using_scope_owns_activation_capability() {
+        let program = lower_script(
+            "async function owner() {
+                 using outer = null;
+                 await 1;
+                 { using inner = undefined; await 2; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain async function should be lowered");
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncFunction(outer_capability),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("async-function using must own its remaining body suffix");
+        };
+        let [StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("await and nested block must remain inside the live outer resource scope");
+        };
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncFunction(inner_capability),
+            body: inner_body,
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested async-function using must own a distinct capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [StatementIr::AsyncAwait { .. }]
+        ));
+
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "async-function capability must have exactly one activation slot"
+            );
+        }
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::Async
+        );
+        assert!(owner.resumable_plan.is_none());
+
+        let ordinary = lower_script("function immediate() { using value = null; }");
+        let immediate = ordinary
+            .script
+            .as_ref()
+            .expect("ordinary script IR should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "immediate")
+            .expect("ordinary function should be lowered");
+        assert!(matches!(
+            immediate.body.statements.as_slice(),
+            [StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::Immediate,
+                ..
+            }]
+        ));
+
+        let generator = lower_script("function * generator() { using value = null; yield 1; }");
+        let generator = generator
+            .script
+            .as_ref()
+            .expect("generator script IR should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "generator")
+            .expect("plain generator should be lowered");
+        assert!(matches!(
+            generator.body.statements.as_slice(),
+            [StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::PlainGenerator(_),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
     fn synchronous_using_entry_is_the_only_runtime_binding_initializer() {
         fn contains_lexical(statement: &StatementIr, name: &str) -> bool {
             match statement {

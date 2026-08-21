@@ -4,11 +4,12 @@ const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const FIXTURE: &str =
-    include_str!("../../lila-cli/tests/fixtures/wasm_using_plain_generator_lifecycle.js");
-const CONTRACT: &str =
-    include_str!("../../../docs/rust-rewrite/contracts/plain-generator-synchronous-using-scope.md");
+    include_str!("../../lila-cli/tests/fixtures/wasm_using_plain_async_function_lifecycle.js");
+const CONTRACT: &str = include_str!(
+    "../../../docs/rust-rewrite/contracts/plain-async-function-synchronous-using-scope.md"
+);
 const EXACT_TEST262: &str = include_str!(
-    "../../../test262/vendor/test262/test/language/statements/using/initializer-disposed-at-end-of-generatorbody.js"
+    "../../../test262/vendor/test262/test/language/statements/using/initializer-disposed-at-end-of-asyncfunctionbody.js"
 );
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -28,33 +29,29 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 }
 
 #[test]
-fn ir_requires_one_closed_execution_owner_and_private_generator_capability() {
-    let statement = bounded(
-        IR_SOURCE,
-        "    SyncDisposableScope {",
-        "    ParameterInitialization {",
-    );
-    assert!(statement.contains("execution: SyncDisposableScopeExecutionIr"));
-    assert!(statement.contains("resources: SyncDisposableResourcesIr"));
-    assert!(statement.contains("body: BlockIr"));
-
+fn ir_requires_a_distinct_private_async_function_capability() {
     let owner = bounded(
         IR_SOURCE,
         "pub enum SyncDisposableScopeExecutionIr {",
         "/// The hidden activation binding for one plain-generator DisposeCapability.",
     );
-    assert!(owner.contains("Immediate"));
-    assert!(owner.contains("PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr)"));
-    assert!(owner.contains("AsyncFunction(AsyncFunctionSyncDisposableCapabilityIr)"));
+    for marker in [
+        "Immediate",
+        "PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr)",
+        "AsyncFunction(AsyncFunctionSyncDisposableCapabilityIr)",
+    ] {
+        assert!(owner.contains(marker), "missing execution owner: {marker}");
+    }
     assert!(!owner.contains("Option<"));
     assert!(!owner.contains("bool"));
+    assert!(!owner.contains("_ =>"));
 
     assert!(IR_SOURCE.contains(
-        "#[must_use = \"a plain-generator synchronous DisposeCapability must be attached to its scope\"]\n#[derive(Debug, Clone, PartialEq, Eq)]\npub struct PlainGeneratorSyncDisposableCapabilityIr {\n    binding_name: String,\n}"
+        "#[must_use = \"a plain-async-function synchronous DisposeCapability must be attached to its scope\"]\n#[derive(Debug, Clone, PartialEq, Eq)]\npub struct AsyncFunctionSyncDisposableCapabilityIr {\n    binding_name: String,\n}"
     ));
     let capability = bounded(
         IR_SOURCE,
-        "pub struct PlainGeneratorSyncDisposableCapabilityIr {",
+        "pub struct AsyncFunctionSyncDisposableCapabilityIr {",
         "/// A declaration-ordered, statically non-empty synchronous resource list.",
     );
     assert!(capability.contains("pub(crate) fn new(binding_name: String)"));
@@ -64,7 +61,7 @@ fn ir_requires_one_closed_execution_owner_and_private_generator_capability() {
 }
 
 #[test]
-fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
+fn analysis_and_lowering_mint_one_suspension_owned_async_capability() {
     let analyzed_owner = bounded(
         ANALYSIS_SOURCE,
         "pub(crate) enum SyncDisposableScopeOwnerPlan {",
@@ -102,51 +99,43 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
         "for variable in list",
         "self.lower_expression(initializer)",
     );
-    assert!(lower.contains("Some((\n            execution,"));
 
-    let owner = bounded(
+    let selection = bounded(
         LOWERING_SOURCE,
         "    fn sync_disposable_scope_execution(",
         "    fn hoist_root_statement_items(",
     );
     for marker in [
-        "function.sync_disposable_scope_owner()",
         "SyncDisposableScopeOwnerPlan::Immediate =>",
         "SyncDisposableScopeOwnerPlan::PlainGenerator =>",
         "SyncDisposableScopeOwnerPlan::AsyncFunction =>",
         "SyncDisposableScopeOwnerPlan::AsyncGenerator =>",
         "self.alloc_suspension_owned_binding(",
-        "\"generator.dispose.capability.\"",
-        "PlainGeneratorSyncDisposableCapabilityIr::new(binding_name)",
+        "\"async.dispose.capability.\"",
+        "AsyncFunctionSyncDisposableCapabilityIr::new(binding_name)",
         "using declaration in an async generator",
     ] {
-        assert!(owner.contains(marker), "missing owner boundary: {marker}");
+        assert!(
+            selection.contains(marker),
+            "missing owner selection: {marker}"
+        );
     }
     assert_before(
-        owner,
-        "self.alloc_suspension_owned_binding(",
-        "PlainGeneratorSyncDisposableCapabilityIr::new(binding_name)",
+        selection,
+        "\"async.dispose.capability.\"",
+        "AsyncFunctionSyncDisposableCapabilityIr::new(binding_name)",
     );
-    assert!(!owner.contains("_ =>"));
+    assert!(!selection.contains("_ =>"));
     assert_eq!(
         LOWERING_SOURCE
-            .matches("PlainGeneratorSyncDisposableCapabilityIr::new(")
+            .matches("AsyncFunctionSyncDisposableCapabilityIr::new(")
             .count(),
         1
     );
-
-    let finish = bounded(
-        LOWERING_SOURCE,
-        "    fn finish_sync_disposable_scopes(",
-        "    fn statement_list_ends_in_return(",
-    );
-    assert!(finish.contains("execution,"));
-    assert!(finish.contains("StatementIr::SyncDisposableScope"));
-    assert!(!finish.contains("StatementIr::TryFinally"));
 }
 
 #[test]
-fn backend_exhaustively_selects_local_or_activation_backed_capability_storage() {
+fn backend_owner_exhaustively_selects_async_state_and_completion_authority() {
     let witnesses = bounded(
         CONTROL_FLOW_SOURCE,
         "#[must_use = \"an activation-backed DisposeCapability binding must reach its consuming detach path\"]",
@@ -157,38 +146,70 @@ fn backend_exhaustively_selects_local_or_activation_backed_capability_storage() 
         "struct ActiveActivationSyncDisposeCapabilityLocals",
         "struct DetachedActivationSyncDisposeCapabilityLocals",
         "enum ActivationSyncDisposeOwner<'a>",
-        "Self::PlainGenerator(_) => FunctionExecutionKind::Generator",
-        "Self::PlainGenerator(_) => HEAP_GENERATOR_RESUME_STATE_OFFSET",
-        "Self::PlainGenerator(_) => SyncDisposeCompletionContinuation::Dispatch",
+        "PlainGenerator(&'a PlainGeneratorSyncDisposableCapabilityIr)",
+        "AsyncFunction(&'a AsyncFunctionSyncDisposableCapabilityIr)",
         "Self::AsyncFunction(_) => FunctionExecutionKind::Async",
+        "Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET",
+        "Self::AsyncFunction(_) => SyncDisposeCompletionContinuation::DispatchAsyncFunction",
     ] {
-        assert!(witnesses.contains(marker), "missing AOT witness: {marker}");
+        assert!(
+            witnesses.contains(marker),
+            "missing AOT authority: {marker}"
+        );
     }
     assert!(!witnesses.contains("derive(Clone"));
     assert!(!witnesses.contains("derive(Copy"));
-    assert!(!CONTROL_FLOW_SOURCE.contains("impl Copy for ActivationSyncDisposeCapabilityStorage"));
-    assert!(
-        !CONTROL_FLOW_SOURCE.contains("impl Copy for ActiveActivationSyncDisposeCapabilityLocals")
-    );
-    assert!(!CONTROL_FLOW_SOURCE
-        .contains("impl Copy for DetachedActivationSyncDisposeCapabilityLocals"));
+    assert!(!witnesses.contains("_ =>"));
 
     let dispatch = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn compile_sync_disposable_scope(",
         "    fn compile_immediate_sync_disposable_scope(",
     );
-    assert!(dispatch.contains("SyncDisposableScopeExecutionIr::Immediate =>"));
-    assert!(dispatch.contains("SyncDisposableScopeExecutionIr::PlainGenerator(capability) =>"));
-    assert!(dispatch.contains("ActivationSyncDisposeOwner::PlainGenerator(capability)"));
-    assert!(dispatch.contains("SyncDisposableScopeExecutionIr::AsyncFunction(capability) =>"));
-    assert!(dispatch.contains("ActivationSyncDisposeOwner::AsyncFunction(capability)"));
-    assert!(dispatch.contains("compile_activation_sync_disposable_scope("));
+    for marker in [
+        "SyncDisposableScopeExecutionIr::Immediate =>",
+        "SyncDisposableScopeExecutionIr::PlainGenerator(capability) =>",
+        "ActivationSyncDisposeOwner::PlainGenerator(capability)",
+        "SyncDisposableScopeExecutionIr::AsyncFunction(capability) =>",
+        "ActivationSyncDisposeOwner::AsyncFunction(capability)",
+        "compile_activation_sync_disposable_scope(",
+    ] {
+        assert!(dispatch.contains(marker), "missing AOT dispatch: {marker}");
+    }
     assert!(!dispatch.contains("_ =>"));
 }
 
 #[test]
-fn generator_scope_publishes_once_retains_through_body_then_detaches_and_disposes_once() {
+fn async_state_traversal_enters_only_the_async_owned_scope_body() {
+    let async_entry = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    fn async_statement_entry_state(statement: &StatementIr) -> Option<u32> {",
+        "    fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
+    );
+    assert!(async_entry.contains(
+        "execution: SyncDisposableScopeExecutionIr::AsyncFunction(_),\n                body,"
+    ));
+    assert!(async_entry.contains("find_map(Self::async_statement_entry_state)"));
+    assert!(async_entry.contains(
+        "SyncDisposableScopeExecutionIr::Immediate\n                    | SyncDisposableScopeExecutionIr::PlainGenerator(_)"
+    ));
+
+    let generator_entry = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    fn generator_statement_entry_state(statement: &StatementIr) -> Option<u32> {",
+        "    fn generator_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
+    );
+    assert!(generator_entry.contains(
+        "execution: SyncDisposableScopeExecutionIr::PlainGenerator(_),\n                body,"
+    ));
+    assert!(generator_entry.contains("find_map(Self::generator_statement_entry_state)"));
+    assert!(generator_entry.contains(
+        "SyncDisposableScopeExecutionIr::Immediate\n                    | SyncDisposableScopeExecutionIr::AsyncFunction(_)"
+    ));
+}
+
+#[test]
+fn async_scope_initializes_once_retains_through_await_then_disposes_before_dispatch() {
     let scope = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn compile_activation_sync_disposable_scope(",
@@ -197,25 +218,33 @@ fn generator_scope_publishes_once_retains_through_body_then_detaches_and_dispose
     for marker in [
         "owner.execution_kind()",
         "owner.binding_name()",
-        "ActivationSyncDisposeOwner::PlainGenerator(_) =>",
-        "Self::generator_statement_entry_state",
-        "Self::generator_statement_exit_state",
-        "emit_state_in_inclusive_range_i32(",
+        "owned_env_slot(owner.binding_name())",
+        "activation-backed synchronous DisposeCapability is missing its owned binding",
+        "BindingStorage::EnvSlot { slot, hops: 0 }",
+        "ActivationSyncDisposeCapabilityStorage { binding }",
+        "ActivationSyncDisposeOwner::AsyncFunction(_) =>",
+        "Self::async_statement_entry_state",
+        "Self::async_statement_exit_state",
         "owner.resume_state_offset()",
+        "emit_state_in_inclusive_range_i32(",
         "initialize_activation_sync_dispose_capability(",
-        "compile_generator_block_contents(body, entry_state, true, function)",
+        "compile_async_block_contents(",
         "detach_activation_sync_dispose_capability(",
         "load_detached_activation_sync_disposable_resources(",
         "capture_pending_sync_dispose_completion(function)",
+        "set_completion_kind(CompletionKind::Normal, function)",
         "consume_sync_disposable_resources(",
         "owner.completion_continuation()",
         "release_detached_activation_sync_dispose_capability(detached)",
     ] {
-        assert!(
-            scope.contains(marker),
-            "missing generator lifecycle: {marker}"
-        );
+        assert!(scope.contains(marker), "missing lifecycle marker: {marker}");
     }
+    assert_before(
+        scope,
+        "activation-backed synchronous DisposeCapability is missing its owned binding",
+        "ActivationSyncDisposeCapabilityStorage { binding }",
+    );
+    assert!(!scope.contains("self.allocate_binding("));
     assert_before(
         scope,
         "emit_state_in_inclusive_range_i32(",
@@ -224,11 +253,11 @@ fn generator_scope_publishes_once_retains_through_body_then_detaches_and_dispose
     assert_before(
         scope,
         "initialize_activation_sync_dispose_capability(",
-        "compile_generator_block_contents(body, entry_state, true, function)",
+        "compile_async_block_contents(",
     );
     assert_before(
         scope,
-        "compile_generator_block_contents(body, entry_state, true, function)",
+        "compile_async_block_contents(",
         "detach_activation_sync_dispose_capability(",
     );
     assert_before(
@@ -251,77 +280,27 @@ fn generator_scope_publishes_once_retains_through_body_then_detaches_and_dispose
         "consume_sync_disposable_resources(",
         "release_detached_activation_sync_dispose_capability(detached)",
     );
-    assert!(!scope.contains("reserve_sync_disposable_resource_locals(function)"));
+    assert!(!scope.contains("emit_push_async_pending_completion("));
 
-    let initialize = bounded(
+    let consume = bounded(
         CONTROL_FLOW_SOURCE,
-        "    fn initialize_activation_sync_dispose_capability(",
-        "    fn append_activation_sync_disposable_resource(",
-    );
-    assert!(initialize.contains("storage: &ActivationSyncDisposeCapabilityStorage"));
-    assert!(initialize.contains("DisposableStackState::Pending.word()"));
-    assert_before(
-        initialize,
-        "self.write_binding_from_locals(storage.binding, capability.object, object_tag, function)",
-        "for resource in resources.iter()",
+        "    fn consume_sync_disposable_resources(",
+        "    pub(crate) fn compile_try_catch_finally(",
     );
     assert_before(
-        initialize,
-        "self.compile_expr_to_locals(",
-        "self.acquire_sync_disposable_resource_from_locals(",
+        consume,
+        "self.restore_saved_completion(",
+        "SyncDisposeCompletionContinuation::DispatchAsyncFunction =>",
     );
     assert_before(
-        initialize,
-        "self.acquire_sync_disposable_resource_from_locals(",
-        "self.append_activation_sync_disposable_resource(",
+        consume,
+        "SyncDisposeCompletionContinuation::DispatchAsyncFunction =>",
+        "self.emit_dispatch_async_completion(function)?",
     );
-    assert_before(
-        initialize,
-        "self.append_activation_sync_disposable_resource(",
-        "self.write_binding_from_locals(\n                resource_storage",
-    );
-
-    let append = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn append_activation_sync_disposable_resource(",
-        "    fn detach_activation_sync_dispose_capability(",
-    );
-    assert_before(
-        append,
-        "LocalGet(resource.registered)",
-        "HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET",
-    );
-    assert!(append.contains("DisposableStackEntryKind::Use.word()"));
-
-    let detach = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn detach_activation_sync_dispose_capability(",
-        "    fn load_detached_activation_sync_disposable_resources(",
-    );
-    assert!(detach.contains("storage: ActivationSyncDisposeCapabilityStorage"));
-    assert_before(
-        detach,
-        "self.read_binding_to_locals(",
-        "DisposableStackState::Disposed.word()",
-    );
-    assert_before(
-        detach,
-        "DisposableStackState::Disposed.word()",
-        "HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,\n            0",
-    );
-
-    let load = bounded(
-        CONTROL_FLOW_SOURCE,
-        "    fn load_detached_activation_sync_disposable_resources(",
-        "    fn release_detached_activation_sync_dispose_capability(",
-    );
-    assert!(load.contains("index as i64"));
-    assert!(load.contains("LocalGet(detached.entry_count)"));
-    assert!(load.contains("Instruction::I64LtU"));
 }
 
 #[test]
-fn planner_derives_nonoverlapping_active_body_and_detached_disposal_peaks() {
+fn planner_derives_one_shared_activation_capability_peak_exhaustively() {
     let constants = bounded(
         PLANNING_SOURCE,
         "const ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS",
@@ -338,8 +317,8 @@ fn planner_derives_nonoverlapping_active_body_and_detached_disposal_peaks() {
     assert!(count.contains("SyncDisposableScopeExecutionIr::Immediate =>"));
     assert!(count.contains("SyncDisposableScopeExecutionIr::PlainGenerator(_)"));
     assert!(count.contains("| SyncDisposableScopeExecutionIr::AsyncFunction(_) =>"));
-    assert!(count.contains("let acquisition_peak"));
-    assert!(count.contains("let disposal_peak"));
+    assert!(count.contains("ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS"));
+    assert!(count.contains("ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS"));
     assert!(count.contains("acquisition_peak.max(disposal_peak).max(body_temps)"));
     assert!(!count.contains("_ =>"));
 }
@@ -347,48 +326,52 @@ fn planner_derives_nonoverlapping_active_body_and_detached_disposal_peaks() {
 #[test]
 fn durable_consumer_and_exact_two_execution_inventory_bound_the_claim() {
     for marker in [
-        "normal before start",
+        "normal before call",
         "normal while suspended",
         "normal completion LIFO",
-        "return disposal",
-        "injected throw identity",
+        "return disposal before resolution",
+        "source throw disposal before rejection",
+        "rejected await disposal",
         "acquisition failure disposal",
-        "nested scope LIFO before outer completion",
+        "nested scopes",
         "outer SuppressedError",
         "suppressed exactly once",
+        "using-plain-async-function:true",
     ] {
         assert!(
             FIXTURE.contains(marker),
             "missing fixture witness: {marker}"
         );
     }
-    assert!(FIXTURE.contains("returned.return(42)"));
-    assert!(FIXTURE.contains("thrown.throw(injectedError)"));
+    assert!(FIXTURE.contains("await normalPromise"));
+    assert!(FIXTURE.contains("await Promise.reject(error)"));
     assert!(FIXTURE.contains("combined.suppressed.suppressed, bodyError"));
+    assert!(!FIXTURE.contains("await using"));
+    assert!(!FIXTURE.contains("async function*"));
 
+    assert!(EXACT_TEST262.contains("flags: [async]"));
     assert!(EXACT_TEST262.contains("features: [explicit-resource-management]"));
-    assert!(EXACT_TEST262.contains("function * f()"));
-    assert!(EXACT_TEST262.contains("wasDisposedBeforeGeneratorStarted"));
-    assert!(EXACT_TEST262.contains("wasDisposedWhileSuspended"));
-    assert!(EXACT_TEST262.contains("isDisposedAfterGeneratorCompleted"));
-    assert!(!EXACT_TEST262.contains("flags:"));
+    assert!(EXACT_TEST262.contains("async function f()"));
+    assert!(EXACT_TEST262.contains("wasDisposedWhileSuspended1"));
+    assert!(EXACT_TEST262.contains("wasDisposedWhileSuspended2"));
+    assert!(EXACT_TEST262.contains("isDisposedAfterCompleted"));
 
     assert!(CONTRACT
-        .contains("language/statements/using/initializer-disposed-at-end-of-generatorbody.js"));
+        .contains("language/statements/using/initializer-disposed-at-end-of-asyncfunctionbody.js"));
     assert!(CONTRACT.contains("reports `0/2` under Wasm AOT"));
     assert!(CONTRACT.contains("complete `using` tree"));
     for exclusion in [
+        "async generators",
         "classic-`for`",
         "for-of",
-        "async functions",
-        "async generators",
         "`await using`",
+        "resource-initializer suspension",
         "modules",
         "dynamic source",
     ] {
         assert!(
             CONTRACT.contains(exclusion),
-            "missing nonclaim: {exclusion}"
+            "missing contract nonclaim: {exclusion}"
         );
     }
 }

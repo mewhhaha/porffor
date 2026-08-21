@@ -156,8 +156,9 @@ pub(crate) struct FunctionPlan<'a> {
 
 /// The analyzed execution owner of an ordinary statement-list `using` scope.
 ///
-/// Async owners remain named so lowering must reject them explicitly rather
-/// than letting every non-generator owner fall through to immediate storage.
+/// Resumable owners remain named so lowering must mint the corresponding
+/// activation-backed proof or reject that owner explicitly rather than
+/// falling through to immediate storage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SyncDisposableScopeOwnerPlan {
     Immediate,

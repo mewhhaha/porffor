@@ -10090,9 +10090,9 @@ impl<'a> ScriptLowerer<'a> {
     /// Selects the only legal lifetime for an ordinary statement-list `using`.
     ///
     /// This consumes the analyzed function protocol exhaustively. In
-    /// particular, a plain generator capability can only be minted through the
-    /// suspension-owned allocator below; an async owner cannot fall through to
-    /// the immediate representation.
+    /// particular, resumable capabilities can only be minted through the
+    /// suspension-owned allocator below; an async generator cannot fall
+    /// through to the immediate representation.
     fn sync_disposable_scope_execution(&mut self) -> Option<SyncDisposableScopeExecutionIr> {
         let owner = self
             .current_function_id
@@ -10114,9 +10114,17 @@ impl<'a> ScriptLowerer<'a> {
                     PlainGeneratorSyncDisposableCapabilityIr::new(binding_name),
                 ))
             }
-            SyncDisposableScopeOwnerPlan::AsyncFunction
-            | SyncDisposableScopeOwnerPlan::AsyncGenerator => {
-                self.unsupported("using declaration in an async function or async generator");
+            SyncDisposableScopeOwnerPlan::AsyncFunction => {
+                let binding_name = self.alloc_suspension_owned_binding(
+                    "async.dispose.capability.",
+                    ValueInfo::new(ValueKind::Object),
+                );
+                Some(SyncDisposableScopeExecutionIr::AsyncFunction(
+                    AsyncFunctionSyncDisposableCapabilityIr::new(binding_name),
+                ))
+            }
+            SyncDisposableScopeOwnerPlan::AsyncGenerator => {
+                self.unsupported("using declaration in an async generator");
                 None
             }
         }

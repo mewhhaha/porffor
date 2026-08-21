@@ -107,6 +107,45 @@ complete 78-file `language/statements/using` directory or the full pinned
 aggregate. The lifetime contract lives in
 `docs/rust-rewrite/contracts/plain-generator-synchronous-using-scope.md`.
 
+The adjacent plain-async-function synchronous-`using` batch implements
+around a third required execution owner,
+`SyncDisposableScopeExecutionIr::AsyncFunction`. Only lowering's
+suspension-owned allocator can mint its private
+`AsyncFunctionSyncDisposableCapabilityIr`; backend crates can inspect the
+activation binding name but cannot manufacture the proof from a `String`. The
+AOT consumer then exhaustively converts the separate plain-generator and
+plain-async-function proofs into `ActivationSyncDisposeOwner`, whose variants
+select the exact execution kind, resume-state offset, body compiler and
+completion continuation. The async-function variant uses
+`HEAP_ASYNC_RESUME_STATE_OFFSET`, publishes its capability only when execution
+first reaches the declaration, retains it across `AsyncAwait`, and reaches
+`DispatchAsyncFunction` only after detachment, reverse disposal, suppression
+folding and completion restoration. It does not push the generic
+async-finalizer pending-completion stack around the synchronous disposal walk.
+
+The exact current-pin inventory is one async-flagged file and two Script
+executions:
+
+- `language/statements/using/initializer-disposed-at-end-of-asyncfunctionbody.js`.
+
+At pre-batch source commit `1f27bc71f678d5b27e08d2719c660b9777021af4`,
+both executions reported `Runtime/NotImplemented` with the diagnostic `using
+declaration in an async function or async generator`. The durable consumer
+fixture covers no acquisition before call, first-await retention, normal and
+explicit-return completion, source throw, rejected-await resumption,
+acquisition failure after a prior registration, nested non-await scopes, LIFO,
+`SuppressedError` order and exactly-once disposal. The shared
+workspace/all-target check and `cargo xc` are green; the focused IR invariant is
+`1/1`; the async and retained generator structure executables are `7/7` and
+`6/6`; the async CLI lifecycle oracle is `1/1` in 15.21 seconds; and the
+retained generator oracle remains `1/1` in 55.21 seconds. The exact async
+Test262 witness is now `2/2` with zero unsupported, crash or bug results. Async
+generators, `await using`, `await` inside a `using` initializer,
+resource-bearing loop heads, modules, dynamic source, every async shape rejected
+by the existing linear plan, the complete 78-file `language/statements/using`
+directory and the full pinned aggregate remain outside this batch. The source contract is
+`docs/rust-rewrite/contracts/plain-async-function-synchronous-using-scope.md`.
+
 The next bounded source batch extends that same synchronous disposal lifecycle
 to classic `for` initializer heads. The producer uses the closed, statically
 non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and
