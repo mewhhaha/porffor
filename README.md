@@ -3087,23 +3087,31 @@ Recent focused progress through `2026-08-21`:
   `12/12` passing as of `2026-06-05` under `--execution-backend wasm` with the
   `60000` ms timeout (`0` unsupported, `0` runtime failures) with
   `./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm --timeout-ms 60000 --threads 4`.
-- Proxy `[[PreventExtensions]]` now routes `Object.preventExtensions` and
-  `Reflect.preventExtensions` through a shared proxy-aware internal method. The
-  Wasm-AOT path calls `preventExtensions` traps with the handler as `this` and
-  target as the sole argument, applies `ToBoolean` to trap results, returns
-  `false` through `Reflect.preventExtensions`, throws catchable TypeErrors for
-  `Object.preventExtensions` false results, enforces the true-result target
-  invariant, and forwards missing, `undefined`, or `null` traps through nested
-  proxy targets. Revoked proxies, non-callable traps, and abrupt traps are
-  catchable across the standard-builtin call boundary. The remaining
-  module-namespace-shaped nested fallback case
-  `trap-is-undefined-target-is-proxy.js` now uses a focused Wasm-AOT
-  materialization that preserves the real `Reflect.preventExtensions` Proxy
-  path over a non-extensible namespace-shaped target. The full real Test262
-  `built-ins/Proxy/preventExtensions` leaf now reports `12/12` passing as of
-  `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
-  (`0` unsupported, `0` runtime failures) with
-  `./target/debug/lila test262 run built-ins/Proxy/preventExtensions --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- Proxy `[[PreventExtensions]]` now uses one typed, consuming request and an
+  outlined recursive runtime helper instead of a fixed Rust emission depth. The
+  distinct traversal and Boolean-result roles prevent positional-local
+  swaps, while pending and normal trap-result types force abrupt routing before
+  `ToBoolean` or the target extensibility invariant. Missing, `undefined`, and
+  `null` traps can therefore re-enter the complete operation without a nesting
+  limit; handler tags remain intact for `GetMethod`, exact trap `this`, and
+  Function, Array, arguments, or Proxy handlers. The focused source-free CLI
+  oracle now also covers more than four nested fallbacks, callable-Proxy traps,
+  abrupt lookup/call identity, revocation, and the Object-versus-Reflect false
+  result boundary. The sole exact-path rewrite for the original Module witness
+  `built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js` has
+  been removed, so its self-imported module-namespace source is no longer
+  replaced by an ordinary object. Verification on `2026-08-21` is green for
+  the exact raw Module execution (`1/1`), the complete current leaf of 12
+  physical files / 23 executions (`23/23`), the typed structure witness
+  (`3/3`), and the expanded source-free Wasm fixture (`1/1`, 55.92 s). The
+  adjacent recursive `built-ins/Proxy/isExtensible` and
+  `built-ins/Reflect/preventExtensions` leaves are also green at `24/24` and
+  `20/20`. The broader `built-ins/Object/preventExtensions` regression was
+  `77/78`; its one remaining strict-script failure is the separate
+  `15.2.3.10-3-4.js` array-index PutValue/catch path, not a hidden success.
+  Focused Object freeze, primitive-integrity and TypedArray prevention fixtures
+  remain green at `1/1` each. The older `12/12` path-counted result used the
+  rewrite and remains materialized evidence rather than source-level proof.
 - Proxy `[[DefineOwnProperty]]` has focused Reflect/Object progress in
   Wasm-AOT. `Reflect.defineProperty` is now installed on the Reflect object,
   returns Boolean results, and preserves the spec difference where a false

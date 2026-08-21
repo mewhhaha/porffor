@@ -9,14 +9,35 @@ function throwsTypeError(fn) {
   return false;
 }
 
-var abruptThrew = throwsTypeError(function() {
-  Object.preventExtensions(new Proxy({}, {
+var callSentinel = new TypeError("call");
+var observedCallError;
+try {
+  Reflect.preventExtensions(new Proxy({}, {
     preventExtensions: function() {
-      throw new TypeError("boom");
+      throw callSentinel;
     }
   }));
+} catch (error) {
+  observedCallError = error;
+}
+if (observedCallError !== callSentinel) failures |= 1;
+
+var lookupSentinel = new TypeError("lookup");
+var lookupCalls = 0;
+var abruptLookupHandler = {};
+Object.defineProperty(abruptLookupHandler, "preventExtensions", {
+  get: function() {
+    lookupCalls = lookupCalls + 1;
+    throw lookupSentinel;
+  }
 });
-if (!abruptThrew) failures |= 1;
+var observedLookupError;
+try {
+  Reflect.preventExtensions(new Proxy({}, abruptLookupHandler));
+} catch (error) {
+  observedLookupError = error;
+}
+if (observedLookupError !== lookupSentinel || lookupCalls !== 1) failures |= 4096;
 
 var falseProxy = new Proxy({}, {
   preventExtensions: function() {
@@ -68,6 +89,77 @@ var nestedFalseTarget = new Proxy({}, {
 });
 var nestedOuterMissing = new Proxy(nestedFalseTarget, {});
 if (!throwsTypeError(function() { Object.preventExtensions(nestedOuterMissing); })) failures |= 512;
+
+var deepTarget = {};
+Object.preventExtensions(deepTarget);
+var deepProxy = deepTarget;
+deepProxy = new Proxy(deepProxy, {});
+deepProxy = new Proxy(deepProxy, { preventExtensions: null });
+deepProxy = new Proxy(deepProxy, { preventExtensions: undefined });
+deepProxy = new Proxy(deepProxy, {});
+deepProxy = new Proxy(deepProxy, { preventExtensions: null });
+deepProxy = new Proxy(deepProxy, { preventExtensions: undefined });
+if (Reflect.preventExtensions(deepProxy) !== true) failures |= 16384;
+
+function verifyHandler(handler, target, bit) {
+  var getterThis;
+  var trapThis;
+  var trapTarget;
+  Object.defineProperty(handler, "preventExtensions", {
+    configurable: true,
+    get: function() {
+      getterThis = this;
+      return function(actualTarget) {
+        trapThis = this;
+        trapTarget = actualTarget;
+        Object.preventExtensions(actualTarget);
+        return true;
+      };
+    }
+  });
+  var proxy = new Proxy(target, handler);
+  if (Reflect.preventExtensions(proxy) !== true) failures |= bit;
+  if (getterThis !== handler || trapThis !== handler || trapTarget !== target) failures |= bit;
+}
+
+function functionHandler() {}
+verifyHandler(functionHandler, {}, 32768);
+
+var arrayHandler = [];
+verifyHandler(arrayHandler, [], 65536);
+
+var argumentsHandler = (function() { return arguments; })(1, 2);
+verifyHandler(argumentsHandler, (function() { return arguments; })(3), 131072);
+
+var proxyHandlerTarget = {};
+var proxyHandlerGets = 0;
+var proxyHandler = new Proxy(proxyHandlerTarget, {
+  get: function(target, key, receiver) {
+    proxyHandlerGets = proxyHandlerGets + 1;
+    return Reflect.get(target, key, receiver);
+  }
+});
+verifyHandler(proxyHandler, {}, 262144);
+if (proxyHandlerGets !== 1) failures |= 262144;
+
+var callableProxyTrapThis;
+var callableProxyTrapTarget;
+var callableProxyApplyCalls = 0;
+var callableProxyTrap = new Proxy(function(target) {
+  callableProxyTrapThis = this;
+  callableProxyTrapTarget = target;
+  Object.preventExtensions(target);
+  return true;
+}, {
+  apply: function(target, thisArg, args) {
+    callableProxyApplyCalls = callableProxyApplyCalls + 1;
+    return Reflect.apply(target, thisArg, args);
+  }
+});
+var callableProxyHandler = { preventExtensions: callableProxyTrap };
+var callableProxyTarget = {};
+if (Reflect.preventExtensions(new Proxy(callableProxyTarget, callableProxyHandler)) !== true) failures |= 524288;
+if (callableProxyApplyCalls !== 1 || callableProxyTrapThis !== callableProxyHandler || callableProxyTrapTarget !== callableProxyTarget) failures |= 524288;
 
 var nonCallableProxy = new Proxy({}, {
   preventExtensions: 1,

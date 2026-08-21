@@ -179,6 +179,37 @@ The exact Wasm-AOT regression covering those four handler representations,
 Object and Reflect entry points, exact `this`, and abrupt lookup is written but
 has not run while the release matrix owns runtime verification.
 
+Proxy `[[PreventExtensions]]` now has a closed recursive request boundary. A
+private, non-copyable `ObjectPreventExtensionsRequest` owns distinct tagged
+traversal and Boolean-result roles, and pending/normal trap-result carriers
+make consuming a thrown call result as a Boolean a type error. Its outlined
+runtime helper is catalogued by `RuntimeHelperId::ObjectPreventExtensions`;
+missing, `undefined`, or `null` traps call that same helper with the retained
+target tag instead of decrementing a Rust emission depth. Trap lookup keeps the
+typed live handler, abrupt lookup/call completion is routed before
+classification or invariants, and a true result performs the complete
+proxy-aware `[[IsExtensible]]` check before publication.
+
+The retained source-free fixture now covers Object-versus-Reflect false
+results, more than four nested fallbacks, Function/Array/arguments/Proxy
+handlers, exact getter/trap receivers, a callable Proxy trap, abrupt lookup and
+call identity, non-callable traps, invariants, and revocation. The sole
+`rewrite_proxy_prevent_extensions_case` shortcut and its materialization unit
+have been removed. Consequently the original Module file
+`built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js` now
+runs from its vendored self-import source. Verification on `2026-08-21` is
+green for that exact raw Module execution (`1/1`), the complete leaf's 12
+physical files / 23 executions (`23/23`), the typed structure witness (`3/3`),
+and the expanded source-free Wasm fixture (`1/1`, 55.92 s). The adjacent
+recursive `built-ins/Proxy/isExtensible` and
+`built-ins/Reflect/preventExtensions` leaves are green at `24/24` and `20/20`.
+The broader `built-ins/Object/preventExtensions` regression reports `77/78`;
+the remaining strict `15.2.3.10-3-4.js` failure is the separate array-index
+PutValue/catch path and remains visible. Focused Object freeze,
+primitive-integrity, and TypedArray prevention fixtures remain green at `1/1`
+each. The older path-counted green leaf included the rewrite and is not
+promoted to source-level evidence here.
+
 The shared proxy-aware `[[GetPrototypeOf]]` emitter now consumes that same typed
 live-slot reader and full object-read seam. It no longer reconstructs every
 handler as an Object, so Function, Array and arguments handlers retain their

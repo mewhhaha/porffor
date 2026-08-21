@@ -8,6 +8,8 @@ use crate::functions::{
 use crate::objects::{
     emit_object_append_accessor_property_helper_function,
     emit_object_append_data_property_helper_function, emit_plain_object_alloc_helper_function,
+    ObjectPreventExtensionsRequest, PreventExtensionsResultLocal,
+    PreventExtensionsTraversalTargetLocals,
 };
 use lila_ir::{
     FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId, ValueKind,
@@ -336,6 +338,7 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::ValueToString
             | RuntimeHelperId::ObjectGetPrototypeOf
             | RuntimeHelperId::ObjectIsExtensible
+            | RuntimeHelperId::ObjectPreventExtensions
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::FunctionCall
@@ -546,6 +549,11 @@ pub(crate) struct FunctionBuilder<'a> {
     /// proxy-aware `[[IsExtensible]]` state machine instead of emitting a call to
     /// the shared helper. Set false only while compiling that helper itself.
     pub(crate) outline_object_is_extensible: bool,
+    /// When false, `emit_object_prevent_extensions` emits the proxy-aware
+    /// `[[PreventExtensions]]` state machine instead of calling the shared
+    /// helper. Set false only while compiling that helper itself; recursive
+    /// missing/nullish-trap fallback still calls the helper explicitly.
+    pub(crate) outline_object_prevent_extensions: bool,
     /// When false, `emit_object_read_with_key_tag` inlines the proxy-aware
     /// `[[Get]]` wrapper (proxy-handler check, `get` trap invoke, invariant
     /// validation, one-level nested-proxy unroll) instead of emitting a call to
@@ -1693,6 +1701,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_object_is_extensible_helper()
         })
         .transpose()?;
+    let object_prevent_extensions_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_prevent_extensions_helper()
+        })
+        .transpose()?;
     let object_read_proxy_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -2117,6 +2142,11 @@ fn emit_script_with_forced_builtins(
             RuntimeHelperId::ObjectIsExtensible,
             object_is_extensible_helper_function
                 .expect("is-extensible helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectPreventExtensions,
+            object_prevent_extensions_helper_function
+                .expect("prevent-extensions helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
             RuntimeHelperId::ObjectReadProxy,
@@ -3071,6 +3101,7 @@ impl<'a> FunctionBuilder<'a> {
             outline_value_to_numeric: true,
             outline_object_get_prototype_of: true,
             outline_object_is_extensible: true,
+            outline_object_prevent_extensions: true,
             outline_object_read_proxy: true,
             outline_array_write: true,
             outline_indexed_element_read: true,
@@ -3185,6 +3216,14 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn object_is_extensible_helper_function_index(&self) -> Option<u32> {
         self.heap_alloc_function_index
             .map(|base| RuntimeHelperId::ObjectIsExtensible.index(base))
+    }
+
+    /// Wasm function index of the shared proxy-aware
+    /// `[[PreventExtensions]]` helper. Unconditional whenever heap support is
+    /// emitted, so recursive Proxy-target fallback always has a stable callee.
+    pub(crate) fn object_prevent_extensions_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectPreventExtensions.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[Get]]` helper.
@@ -3916,7 +3955,7 @@ impl<'a> FunctionBuilder<'a> {
     /// a new [`RuntimeHelperId`] does not build until it states whether it owns
     /// a seam.
     ///
-    /// Twenty-two of the thirty-nine helpers own a seam. The other seventeen
+    /// Twenty-three of the forty helpers own a seam. The other seventeen
     /// own none: their call sites have no inline body to fall back *to* (the six
     /// allocation helpers are plain free functions, not `FunctionBuilder`
     /// bodies at all), and [`RuntimeHelperId::JsonStringifyValue`] deliberately
@@ -3954,6 +3993,9 @@ impl<'a> FunctionBuilder<'a> {
             RuntimeHelperId::ValueToNumeric => self.outline_value_to_numeric = false,
             RuntimeHelperId::ObjectGetPrototypeOf => self.outline_object_get_prototype_of = false,
             RuntimeHelperId::ObjectIsExtensible => self.outline_object_is_extensible = false,
+            RuntimeHelperId::ObjectPreventExtensions => {
+                self.outline_object_prevent_extensions = false
+            }
             RuntimeHelperId::ObjectReadProxy => self.outline_object_read_proxy = false,
             RuntimeHelperId::FunctionCall => self.outline_function_call = false,
             RuntimeHelperId::ArrayWrite => self.outline_array_write = false,
@@ -4715,6 +4757,31 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_object_is_extensible_i32(0, 1, self.result_local, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles the shared proxy-aware `[[PreventExtensions]]` helper.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params 0 and 1 are the
+    /// traversal target payload and tag; params 2-6 are unused. On normal
+    /// completion the Boolean result (0/1) is in the first result slot, while
+    /// Proxy lookup/call/invariant throws use the standard completion slots.
+    fn compile_object_prevent_extensions_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectPreventExtensions);
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        let request = ObjectPreventExtensionsRequest::new(
+            PreventExtensionsTraversalTargetLocals::new(0, 1),
+            PreventExtensionsResultLocal::new(self.result_local),
+        );
+        self.emit_object_prevent_extensions(request, &mut function)?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));

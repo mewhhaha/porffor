@@ -4929,9 +4929,6 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_iterator_zip_result_is_iterator_case(case) {
         return Some(source);
     }
-    if let Some(source) = rewrite_proxy_prevent_extensions_case(&case.path) {
-        return Some(source);
-    }
     if let Some(source) = rewrite_proxy_define_property_case(&case.path) {
         return Some(source);
     }
@@ -6473,28 +6470,6 @@ if (zipBasicStrictCombinationCount !== 156) throw "zip sequence combination coun
 "#,
     ]
     .concat())
-}
-
-fn rewrite_proxy_prevent_extensions_case(path: &str) -> Option<String> {
-    if path.ends_with("built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js") {
-        return Some(
-            r#"var ns = Object.create(null);
-Object.preventExtensions(ns);
-
-var nsTarget = new Proxy(ns, {});
-var nsProxy = new Proxy(nsTarget, {
-  preventExtensions: undefined,
-});
-
-if (Reflect.preventExtensions(nsProxy) !== true) {
-  throw "preventExtensions result";
-}
-"#
-            .to_string(),
-        );
-    }
-
-    None
 }
 
 fn rewrite_proxy_define_property_case(path: &str) -> Option<String> {
@@ -31132,31 +31107,6 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized.source.contains("harness should be skipped"));
         assert!(materialized.source.contains("effects.length !== 2"));
         assert!(materialized.source.contains("returnValue === returnValue"));
-    }
-
-    #[test]
-    fn materialize_proxy_prevent_extensions_module_namespace_case() {
-        let store = PreludeStore::default();
-        let mut case = synthetic_case(
-            "built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
-        );
-        case.execution_id = TestExecutionId::new(
-            "built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
-            TestExecutionMode::Module,
-        );
-        case.flags.insert("module".to_string());
-        case.original_source =
-            Arc::from("import * as ns from './trap-is-undefined-target-is-proxy.js';".to_string());
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(materialized.execution_mode().is_module());
-        assert!(!materialized.source.contains("import * as ns"));
-        assert!(materialized.source.contains("Object.preventExtensions(ns)"));
-        assert!(materialized
-            .source
-            .contains("Reflect.preventExtensions(nsProxy)"));
     }
 
     #[test]

@@ -1,8 +1,10 @@
 use super::super::*;
 use super::array::ArrayConcatSpreadableSlotValue;
 use crate::objects::{
-    ProxyHandlerLocals, ProxyRevocationRoute, ProxySlotLocals, ProxyTargetLocals,
-    StoredDescriptorLocals, TaggedLocals, WasmDescriptor, WasmPartialDescriptor,
+    ObjectPreventExtensionsRequest, PreventExtensionsResultLocal,
+    PreventExtensionsTraversalTargetLocals, ProxyHandlerLocals, ProxyRevocationRoute,
+    ProxySlotLocals, ProxyTargetLocals, StoredDescriptorLocals, TaggedLocals, WasmDescriptor,
+    WasmPartialDescriptor,
 };
 use lila_ir::property_descriptor::{classify, DescriptorSide, Presence};
 use lila_ir::PropertyDescriptorKind;
@@ -7899,10 +7901,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
 
-        self.emit_object_prevent_extensions_i32(
-            arg_payload_local,
-            arg_tag_local,
-            prevent_extensions_result_local,
+        self.emit_object_prevent_extensions(
+            ObjectPreventExtensionsRequest::new(
+                PreventExtensionsTraversalTargetLocals::new(arg_payload_local, arg_tag_local),
+                PreventExtensionsResultLocal::new(prevent_extensions_result_local),
+            ),
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
@@ -8166,10 +8169,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
 
-        self.emit_object_prevent_extensions_i32(
-            arg_payload_local,
-            arg_tag_local,
-            prevent_extensions_result_local,
+        self.emit_object_prevent_extensions(
+            ObjectPreventExtensionsRequest::new(
+                PreventExtensionsTraversalTargetLocals::new(arg_payload_local, arg_tag_local),
+                PreventExtensionsResultLocal::new(prevent_extensions_result_local),
+            ),
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
@@ -8468,27 +8472,16 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let arg_payload_local = self.reserve_temp_local();
         let arg_tag_local = self.reserve_temp_local();
-        let proxy_handled_local = self.reserve_temp_local();
-        let proxy_handler_payload_local = self.reserve_temp_local();
-        let proxy_handler_tag_local = self.reserve_temp_local();
-        let proxy_target_payload_local = self.reserve_temp_local();
-        let proxy_target_tag_local = self.reserve_temp_local();
-        let proxy_trap_payload_local = self.reserve_temp_local();
-        let proxy_trap_tag_local = self.reserve_temp_local();
-        let proxy_trap_result_payload_local = self.reserve_temp_local();
-        let proxy_trap_result_tag_local = self.reserve_temp_local();
-        let proxy_trap_truthy_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let target_cap_local = self.reserve_temp_local();
         let result_local = self.reserve_temp_local();
 
         self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
         self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_prevent_extensions_i32(
-            arg_payload_local,
-            arg_tag_local,
-            result_local,
+        self.emit_object_prevent_extensions(
+            ObjectPreventExtensionsRequest::new(
+                PreventExtensionsTraversalTargetLocals::new(arg_payload_local, arg_tag_local),
+                PreventExtensionsResultLocal::new(result_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(result_local));
@@ -8503,179 +8496,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(proxy_handled_local));
-        self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(arg_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            arg_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            proxy_handler_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy handler is null",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            arg_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            proxy_target_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            arg_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            proxy_target_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(proxy_handler_tag_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("preventExtensions"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_ordinary(
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            key_local,
-            proxy_trap_payload_local,
-            proxy_trap_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(proxy_trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
-            proxy_trap_payload_local,
-            proxy_trap_tag_local,
-            Some((proxy_handler_payload_local, Some(proxy_handler_tag_local))),
-            &[(proxy_target_payload_local, proxy_target_tag_local)],
-            proxy_trap_result_payload_local,
-            proxy_trap_result_tag_local,
-            function,
-        )?;
-        self.compile_truthy_tagged_i32(
-            proxy_trap_result_tag_local,
-            proxy_trap_result_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(proxy_trap_truthy_local));
-        function.instruction(&Instruction::LocalGet(proxy_trap_truthy_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy preventExtensions trap returned false",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_is_heap_object_like_tag_i32(proxy_target_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            proxy_target_payload_local,
-            HEAP_CAP_OFFSET,
-            target_cap_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(target_cap_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy preventExtensions trap returned true for extensible target",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(proxy_trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(proxy_trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_is_heap_object_like_tag_i32(proxy_target_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(proxy_target_payload_local, HEAP_CAP_OFFSET, 0, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy preventExtensions trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.store_i64_const_at_offset(arg_payload_local, HEAP_CAP_OFFSET, 0, function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(proxy_handled_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(proxy_handled_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(arg_payload_local, HEAP_CAP_OFFSET, 0, function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(arg_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(arg_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.release_temp_local(result_local);
-        self.release_temp_local(target_cap_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(proxy_trap_truthy_local);
-        self.release_temp_local(proxy_trap_result_tag_local);
-        self.release_temp_local(proxy_trap_result_payload_local);
-        self.release_temp_local(proxy_trap_tag_local);
-        self.release_temp_local(proxy_trap_payload_local);
-        self.release_temp_local(proxy_target_tag_local);
-        self.release_temp_local(proxy_target_payload_local);
-        self.release_temp_local(proxy_handler_tag_local);
-        self.release_temp_local(proxy_handler_payload_local);
-        self.release_temp_local(proxy_handled_local);
         self.release_temp_local(arg_tag_local);
         self.release_temp_local(arg_payload_local);
         Ok(())

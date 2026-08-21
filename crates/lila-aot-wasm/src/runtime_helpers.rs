@@ -5,7 +5,7 @@
 //! (emission of the body), once as 27 hand-written `base + N` accessors on
 //! [`FunctionBuilder`](crate::emit::FunctionBuilder), and once as a literal
 //! `27` in `debug_dump`. The literal had already drifted — the counted truth is
-//! now 34 unconditional helpers plus one conditional one — because nothing
+//! now 39 unconditional helpers plus one conditional one — because nothing
 //! forced the four copies to agree.
 //!
 //! Now the enum *is* the order. `RuntimeHelperId as u32` is the offset from the
@@ -234,19 +234,20 @@ pub(crate) enum RuntimeHelperId {
     ValueToNumeric = 16,
     ObjectGetPrototypeOf = 17,
     ObjectIsExtensible = 18,
-    ObjectReadProxy = 19,
-    RegExpMatcher = 20,
-    FunctionCall = 21,
-    DynamicPropertyRead = 22,
-    OrdinarySetDataOnReceiver = 23,
-    OrdinarySetDataOnReceiverWithFallback = 24,
-    ArrayWrite = 25,
-    OrdinarySet = 26,
-    OrdinarySetWithoutReceiverFallback = 27,
-    DecimalToBinary64 = 28,
-    BigIntArithmetic = 29,
-    TemporalCalendarIsoDateProbe = 30,
-    TemporalCalendarIdentifier = 31,
+    ObjectPreventExtensions = 19,
+    ObjectReadProxy = 20,
+    RegExpMatcher = 21,
+    FunctionCall = 22,
+    DynamicPropertyRead = 23,
+    OrdinarySetDataOnReceiver = 24,
+    OrdinarySetDataOnReceiverWithFallback = 25,
+    ArrayWrite = 26,
+    OrdinarySet = 27,
+    OrdinarySetWithoutReceiverFallback = 28,
+    DecimalToBinary64 = 29,
+    BigIntArithmetic = 30,
+    TemporalCalendarIsoDateProbe = 31,
+    TemporalCalendarIdentifier = 32,
     /// The whole `expr[index]` *read* composite: Arguments / Array (with the
     /// prototype walk) / TypedArray element load / ordinary object key read,
     /// including the number→string key materialization for the object arm.
@@ -270,10 +271,10 @@ pub(crate) enum RuntimeHelperId {
     /// # then read the code-section body lengths back against the custom
     /// # `name` section this crate emits.
     /// ```
-    IndexedElementRead = 32,
+    IndexedElementRead = 33,
     /// The whole `expr[index] = value` *write* composite: TypedArray element
     /// store versus ordinary `[[Set]]`. 174,558 bytes per inline site.
-    IndexedElementWrite = 33,
+    IndexedElementWrite = 34,
     /// `ToPrimitive(value)` with no hint — the `@@toPrimitive` / `valueOf` /
     /// `toString` hook chain plus the Array / Arguments / Function arms.
     ///
@@ -317,28 +318,28 @@ pub(crate) enum RuntimeHelperId {
     /// misattributed these same 49 sites to [`Self::IndexedElementRead`]. The
     /// ratios are therefore evidence that ~49 *sites* dominate the body, and
     /// only weak evidence about which composite at those sites owns the bytes.
-    ValueToPrimitiveDefault = 34,
+    ValueToPrimitiveDefault = 35,
     /// `ToPrimitive(value, number)`. Separate body rather than a runtime hint
     /// parameter: the hook order differs (`valueOf` before `toString`), so a
     /// shared body would have to branch on a value the call site already knows
     /// at compile time.
-    ValueToPrimitiveNumber = 35,
+    ValueToPrimitiveNumber = 36,
     /// `ToPrimitive(value, string)` — `toString` before `valueOf`.
-    ValueToPrimitiveString = 36,
+    ValueToPrimitiveString = 37,
     /// `ToPropertyKey(value)`: ToPrimitive with the string hint, then the
     /// symbol-marker/`ToString` split. Reached by every computed member access
     /// whose key is not statically known to be a String or a Symbol.
-    ValueToPropertyKey = 37,
+    ValueToPropertyKey = 38,
     /// Only helper whose emission is conditional today. Keep conditional
     /// helpers last; `conditional_helpers_are_last` is a compile-time check,
     /// not a comment.
-    JsonStringifyValue = 38,
+    JsonStringifyValue = 39,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 39] = [
+    pub(crate) const ALL: [Self; 40] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -358,6 +359,7 @@ impl RuntimeHelperId {
         Self::ValueToNumeric,
         Self::ObjectGetPrototypeOf,
         Self::ObjectIsExtensible,
+        Self::ObjectPreventExtensions,
         Self::ObjectReadProxy,
         Self::RegExpMatcher,
         Self::FunctionCall,
@@ -432,6 +434,7 @@ impl RuntimeHelperId {
             | Self::ValueToNumeric
             | Self::ObjectGetPrototypeOf
             | Self::ObjectIsExtensible
+            | Self::ObjectPreventExtensions
             | Self::ObjectReadProxy
             | Self::RegExpMatcher
             | Self::FunctionCall
@@ -488,6 +491,7 @@ impl RuntimeHelperId {
             | Self::ValueToNumeric
             | Self::ObjectGetPrototypeOf
             | Self::ObjectIsExtensible
+            | Self::ObjectPreventExtensions
             | Self::ObjectReadProxy
             | Self::RegExpMatcher
             | Self::FunctionCall
@@ -541,6 +545,7 @@ impl RuntimeHelperId {
             Self::ValueToNumeric => "value_to_numeric",
             Self::ObjectGetPrototypeOf => "object_get_prototype_of",
             Self::ObjectIsExtensible => "object_is_extensible",
+            Self::ObjectPreventExtensions => "object_prevent_extensions",
             Self::ObjectReadProxy => "object_read_proxy",
             Self::RegExpMatcher => "regexp_matcher",
             Self::FunctionCall => "function_call",
@@ -680,7 +685,7 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 38 unconditional helpers plus JSON.stringify's value helper. The
+        // 39 unconditional helpers plus JSON.stringify's value helper. The
         // `debug_dump` line used to hard-code 27 and had drifted by five.
         let without_json = RuntimeHelperId::ALL
             .iter()
@@ -694,8 +699,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 38);
-        assert_eq!(with_json, 39);
+        assert_eq!(without_json, 39);
+        assert_eq!(with_json, 40);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in

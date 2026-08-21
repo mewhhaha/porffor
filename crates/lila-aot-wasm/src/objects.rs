@@ -302,6 +302,67 @@ impl NormalProxyGetTrapResultLocals {
     }
 }
 
+/// The complete traversal target for Proxy-aware `[[PreventExtensions]]`.
+///
+/// This role is deliberately non-`Copy`: a request consumes the typed target
+/// proof once, and duplicating it requires an explicit reconstruction from raw
+/// locals.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PreventExtensionsTraversalTargetLocals(TaggedLocals);
+
+impl PreventExtensionsTraversalTargetLocals {
+    pub(crate) const fn new(payload: u32, tag: u32) -> Self {
+        Self(TaggedLocals::new(payload, tag))
+    }
+}
+
+/// The sole Boolean destination of a Proxy-aware `[[PreventExtensions]]`.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PreventExtensionsResultLocal(u32);
+
+impl PreventExtensionsResultLocal {
+    pub(crate) const fn new(result: u32) -> Self {
+        Self(result)
+    }
+}
+
+/// A complete request for the shared Proxy-aware `[[PreventExtensions]]` walk.
+///
+/// The request is consumed by the emitter. Keeping traversal and publication
+/// roles in one non-`Copy` value makes dropping either half a type error at the
+/// helper and builtin boundaries.
+#[must_use = "an object PreventExtensions request must be consumed by its emitter"]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ObjectPreventExtensionsRequest {
+    target: PreventExtensionsTraversalTargetLocals,
+    result: PreventExtensionsResultLocal,
+}
+
+impl ObjectPreventExtensionsRequest {
+    pub(crate) const fn new(
+        target: PreventExtensionsTraversalTargetLocals,
+        result: PreventExtensionsResultLocal,
+    ) -> Self {
+        Self { target, result }
+    }
+}
+
+/// A Proxy `preventExtensions` trap result whose abrupt completion has not yet
+/// been routed.
+#[derive(Debug, PartialEq, Eq)]
+struct PendingProxyPreventExtensionsTrapResultLocals(TaggedLocals);
+
+impl PendingProxyPreventExtensionsTrapResultLocals {
+    const fn new(payload: u32, tag: u32) -> Self {
+        Self(TaggedLocals::new(payload, tag))
+    }
+}
+
+/// A Proxy `preventExtensions` trap result proven to have completed normally.
+#[must_use = "a normal Proxy PreventExtensions trap result must be consumed"]
+#[derive(Debug, PartialEq, Eq)]
+struct NormalProxyPreventExtensionsTrapResultLocals(TaggedLocals);
+
 /// The two complete tagged values retained by a Proxy record.
 ///
 /// Proxy construction accepts this record rather than four positional locals,
@@ -20468,6 +20529,45 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Calls the shared Proxy-aware `[[PreventExtensions]]` traversal helper.
+    ///
+    /// The helper is also the recursive edge for an absent Proxy trap. Its
+    /// fixed Wasm frame therefore replaces the former source-generated depth
+    /// limit without growing the caller's locals or control stack.
+    fn emit_call_object_prevent_extensions_helper(
+        &mut self,
+        request: ObjectPreventExtensionsRequest,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ObjectPreventExtensionsRequest { target, result } = request;
+        let PreventExtensionsTraversalTargetLocals(target) = target;
+        let PreventExtensionsResultLocal(result_local) = result;
+        let helper_payload_local = self.reserve_temp_local();
+        let helper_tag_local = self.reserve_temp_local();
+        let helper = self
+            .object_prevent_extensions_helper_function_index()
+            .expect("prevent-extensions helper index must exist");
+
+        function.instruction(&Instruction::LocalGet(target.payload));
+        function.instruction(&Instruction::LocalGet(target.tag));
+        for _ in 0..5 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results(helper_payload_local, helper_tag_local, function);
+        self.emit_propagate_throw_from_locals_if_needed(
+            helper_payload_local,
+            helper_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(helper_payload_local));
+        function.instruction(&Instruction::LocalSet(result_local));
+
+        self.release_temp_local(helper_tag_local);
+        self.release_temp_local(helper_payload_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_object_get_prototype_of_without_proxy(
         &mut self,
         object_payload_local: u32,
@@ -21494,30 +21594,80 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    pub(crate) fn emit_object_prevent_extensions_i32(
+    fn emit_normal_proxy_prevent_extensions_trap_result(
         &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        result_local: u32,
+        pending: PendingProxyPreventExtensionsTrapResultLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_object_prevent_extensions_i32_with_depth(
-            object_payload_local,
-            object_tag_local,
-            result_local,
-            4,
+    ) -> Result<NormalProxyPreventExtensionsTrapResultLocals, EmitError> {
+        self.emit_propagate_throw_from_locals_if_needed(
+            pending.0.payload,
+            pending.0.tag,
             function,
-        )
+        )?;
+        Ok(NormalProxyPreventExtensionsTrapResultLocals(pending.0))
     }
 
-    pub(crate) fn emit_object_prevent_extensions_i32_with_depth(
+    fn emit_proxy_prevent_extensions_trap_result(
         &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        result_local: u32,
-        proxy_depth: u8,
+        trap_result: NormalProxyPreventExtensionsTrapResultLocals,
+        target: ProxyTargetLocals,
+        result: PreventExtensionsResultLocal,
+        trap_truthy_local: u32,
+        target_extensible_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let NormalProxyPreventExtensionsTrapResultLocals(trap_result) = trap_result;
+        let PreventExtensionsResultLocal(result_local) = result;
+        self.compile_truthy_tagged_i32(trap_result.tag, trap_result.payload, function)?;
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(trap_truthy_local));
+        function.instruction(&Instruction::LocalGet(trap_truthy_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::Else);
+        self.emit_call_object_is_extensible_helper(
+            target.0.payload,
+            target.0.tag,
+            target_extensible_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(target_extensible_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error_to_active_handler(
+            TYPE_ERROR_NAME,
+            "Proxy preventExtensions trap returned true for extensible target",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    pub(crate) fn emit_object_prevent_extensions(
+        &mut self,
+        request: ObjectPreventExtensionsRequest,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if self.outline_object_prevent_extensions {
+            if self
+                .object_prevent_extensions_helper_function_index()
+                .is_some()
+            {
+                return self.emit_call_object_prevent_extensions_helper(request, function);
+            }
+        }
+
+        let ObjectPreventExtensionsRequest { target, result } = request;
+        let PreventExtensionsTraversalTargetLocals(object) = target;
+        let PreventExtensionsResultLocal(result_local) = result;
         let handled_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
         let handler_tag_local = self.reserve_temp_local();
@@ -21532,18 +21682,14 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
 
-        self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::LocalGet(object.tag));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
-            object_payload_local,
+            object.payload,
             HEAP_OBJECT_BOXED_KIND_OFFSET,
             handler_payload_local,
             function,
@@ -21552,38 +21698,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error_to_active_handler(
-            TYPE_ERROR_NAME,
-            "Proxy handler is null",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_load_live_proxy_slots(
+            object.payload,
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(target_payload_local, target_tag_local),
+                ProxyHandlerLocals::new(handler_payload_local, handler_tag_local),
+            ),
+            ProxyRevocationRoute::ActiveHandler,
             function,
         )?;
-        function.instruction(&Instruction::End);
-
-        self.load_i64_to_local_from_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            target_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            target_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(handler_tag_local));
         function.instruction(&Instruction::I64Const(
             self.strings.payload("preventExtensions"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_ordinary(
+        self.emit_object_read_without_throw_propagation(
             handler_payload_local,
             handler_tag_local,
             handler_payload_local,
@@ -21593,9 +21721,14 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            trap_payload_local,
+            trap_tag_local,
+            function,
+        )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_propagation(
+        self.emit_function_or_proxy_call_leave_throw_completion(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -21605,49 +21738,21 @@ impl<'a> FunctionBuilder<'a> {
             trap_result_tag_local,
             function,
         )?;
-        self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(trap_truthy_local));
-        function.instruction(&Instruction::LocalGet(trap_truthy_local));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::LocalGet(trap_truthy_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if proxy_depth == 0 {
-            self.emit_ordinary_is_extensible_i32(
-                target_payload_local,
-                target_tag_local,
-                target_extensible_local,
-                function,
-            );
-        } else {
-            self.emit_object_is_extensible_i32(
-                target_payload_local,
-                target_tag_local,
-                target_extensible_local,
-                function,
-            )?;
-        }
-        function.instruction(&Instruction::LocalGet(target_extensible_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error_to_active_handler(
-            TYPE_ERROR_NAME,
-            "Proxy preventExtensions trap returned true for extensible target",
-            self.result_local,
-            self.result_tag_local,
+        let trap_result = self.emit_normal_proxy_prevent_extensions_trap_result(
+            PendingProxyPreventExtensionsTrapResultLocals::new(
+                trap_result_payload_local,
+                trap_result_tag_local,
+            ),
             function,
         )?;
-        function.instruction(&Instruction::End);
-        self.emit_ordinary_prevent_extensions_i32(
-            object_payload_local,
-            object_tag_local,
-            result_local,
+        self.emit_proxy_prevent_extensions_trap_result(
+            trap_result,
+            ProxyTargetLocals::new(target_payload_local, target_tag_local),
+            PreventExtensionsResultLocal::new(result_local),
+            trap_truthy_local,
+            target_extensible_local,
             function,
-        );
-        function.instruction(&Instruction::End);
+        )?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(trap_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -21657,33 +21762,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if proxy_depth == 0 {
-            self.emit_ordinary_prevent_extensions_i32(
-                target_payload_local,
-                target_tag_local,
-                result_local,
-                function,
-            );
-        } else {
-            self.emit_object_prevent_extensions_i32_with_depth(
-                target_payload_local,
-                target_tag_local,
-                result_local,
-                proxy_depth - 1,
-                function,
-            )?;
-        }
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_ordinary_prevent_extensions_i32(
-            object_payload_local,
-            object_tag_local,
-            result_local,
+        self.emit_call_object_prevent_extensions_helper(
+            ObjectPreventExtensionsRequest::new(
+                PreventExtensionsTraversalTargetLocals::new(target_payload_local, target_tag_local),
+                PreventExtensionsResultLocal::new(result_local),
+            ),
             function,
-        );
-        function.instruction(&Instruction::End);
+        )?;
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error_to_active_handler(
             TYPE_ERROR_NAME,
@@ -21703,12 +21788,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_ordinary_prevent_extensions_i32(
-            object_payload_local,
-            object_tag_local,
+            object.payload,
+            object.tag,
             result_local,
             function,
         );
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         self.release_temp_local(key_local);
