@@ -2058,6 +2058,13 @@ pub enum ForInitIr {
     /// The statements run in the loop's own scope, so the names they bind stay
     /// visible to the test, update and body.
     Statements(Vec<StatementIr>),
+    /// A non-empty, declaration-ordered synchronous `using` head.
+    ///
+    /// The containing `StatementIr::For` owns the loop control targets and its
+    /// lexical environment. This variant separately requires the backend to
+    /// keep one DisposeCapability active from before the first initializer
+    /// until the loop's final completion.
+    SyncDisposable(SyncDisposableResourcesIr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3446,6 +3453,12 @@ impl IrSummaryCounts {
             ForInitIr::Statements(statements) => {
                 for statement in statements {
                     self.visit_statement(statement);
+                }
+            }
+            ForInitIr::SyncDisposable(resources) => {
+                self.consts += resources.len();
+                for resource in resources.iter() {
+                    self.visit_expr(&resource.initializer);
                 }
             }
         }

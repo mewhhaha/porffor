@@ -1832,11 +1832,10 @@ impl<'a> AnalysisBuilder<'a> {
                         ForLoopInitializer::Lexical(lexical) => {
                             let declaration = lexical.declaration();
                             let list = match declaration {
-                                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => {
-                                    list
-                                }
-                                LexicalDeclaration::Using(_)
-                                | LexicalDeclaration::AwaitUsing(_) => return,
+                                LexicalDeclaration::Let(list)
+                                | LexicalDeclaration::Const(list)
+                                | LexicalDeclaration::Using(list) => list,
+                                LexicalDeclaration::AwaitUsing(_) => return,
                             };
                             for declarator in list.as_ref() {
                                 let Some(bound_names) =
@@ -2047,11 +2046,10 @@ impl<'a> AnalysisBuilder<'a> {
                         ForLoopInitializer::Lexical(lexical) => {
                             let declaration = lexical.declaration();
                             let list = match declaration {
-                                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => {
-                                    list
-                                }
-                                LexicalDeclaration::Using(_)
-                                | LexicalDeclaration::AwaitUsing(_) => return,
+                                LexicalDeclaration::Let(list)
+                                | LexicalDeclaration::Const(list)
+                                | LexicalDeclaration::Using(list) => list,
+                                LexicalDeclaration::AwaitUsing(_) => return,
                             };
                             for declarator in list.as_ref() {
                                 let Some(bound_names) =
@@ -2339,8 +2337,10 @@ impl<'a> AnalysisBuilder<'a> {
             return BTreeSet::new();
         };
         let list = match lexical.declaration() {
-            LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+            LexicalDeclaration::Let(list)
+            | LexicalDeclaration::Const(list)
+            | LexicalDeclaration::Using(list) => list,
+            LexicalDeclaration::AwaitUsing(_) => {
                 return BTreeSet::new();
             }
         };
@@ -2362,8 +2362,10 @@ impl<'a> AnalysisBuilder<'a> {
         };
         let (mode, list) = match lexical.declaration() {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
-            LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+            LexicalDeclaration::Const(list) | LexicalDeclaration::Using(list) => {
+                (BindingMode::Const, list)
+            }
+            LexicalDeclaration::AwaitUsing(_) => {
                 return BTreeMap::new();
             }
         };
@@ -3707,7 +3709,9 @@ impl<'a> AnalysisBuilder<'a> {
                     Some(ForLoopInitializer::Lexical(lexical))
                         if matches!(
                             lexical.declaration(),
-                            LexicalDeclaration::Let(_) | LexicalDeclaration::Const(_)
+                            LexicalDeclaration::Let(_)
+                                | LexicalDeclaration::Const(_)
+                                | LexicalDeclaration::Using(_)
                         ) =>
                     {
                         Some(self.register_lexical_environment_with_modes(
@@ -3769,11 +3773,10 @@ impl<'a> AnalysisBuilder<'a> {
                         ForLoopInitializer::Lexical(lexical) => {
                             let declaration = lexical.declaration();
                             let list = match declaration {
-                                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => {
-                                    list
-                                }
-                                LexicalDeclaration::Using(_)
-                                | LexicalDeclaration::AwaitUsing(_) => return,
+                                LexicalDeclaration::Let(list)
+                                | LexicalDeclaration::Const(list)
+                                | LexicalDeclaration::Using(list) => list,
+                                LexicalDeclaration::AwaitUsing(_) => return,
                             };
                             for declarator in list.as_ref() {
                                 let Some(bound_names) =

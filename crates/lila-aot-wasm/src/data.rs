@@ -3397,6 +3397,24 @@ impl StringPool {
                     self.collect_statement(statement);
                 }
             }
+            ForInitIr::SyncDisposable(resources) => {
+                for value in [
+                    "Symbol.dispose",
+                    "using declaration resource is not an object",
+                    "using declaration resource has no [Symbol.dispose] method",
+                    "using declaration [Symbol.dispose] method is not callable",
+                ] {
+                    self.intern_string(value);
+                }
+                for resource in resources.iter() {
+                    self.intern_string(&resource.binding_name);
+                    collect_finite_string_choices(
+                        &resource.initializer,
+                        &mut self.runtime_regexp_candidate_literals,
+                    );
+                    self.collect_expr(&resource.initializer);
+                }
+            }
         }
     }
 

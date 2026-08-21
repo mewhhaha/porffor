@@ -70,6 +70,38 @@ structure tests and the CLI consumer pass. The exact 18-file non-dynamic
 lifecycle cohort is 36/36 under Wasm-AOT. This focused result does not claim the
 complete 78-file `language/statements/using` directory or full pinned aggregate.
 
+The next bounded source batch extends that same synchronous disposal lifecycle
+to classic `for` initializer heads. The producer uses the closed, statically
+non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and
+keeps the containing node as a direct `StatementIr::For`, preserving labelled
+break/continue ownership without a synthetic outer Block. Every head binding
+is initialized to TDZ before acquisition; when a captured binding materializes
+a for-head environment, it remains current across acquisition, test, body,
+update and disposal. Continue retains the capability, while normal exit, break,
+return or throw consumes it through the existing reverse completion fold. The
+focused CLI oracle covers labelled continue/break, nullish
+acquisition, outer/inner binding isolation, later-binding TDZ during the first
+resource GetMethod, false-test LIFO, later-initializer failure, suppression
+order and immutable-binding update failure.
+
+The exact adjacent current-pin vendored inventory is:
+
+- `language/statements/using/syntax/using-for-statement.js`;
+- `language/statements/using/syntax/using-invalid-assignment-next-expression-for.js`;
+- `language/statements/using/syntax/using-outer-inner-using-bindings.js`;
+- `language/statements/using/initializer-disposed-at-end-of-forstatement.js`;
+- `language/statements/using/initializer-disposed-if-subsequent-initializer-throws-in-forstatement-head.js`.
+
+The first three are adjacent grammar or binding evidence. The last two are the
+focused disposal-timing and abrupt-initialization lifecycle witnesses. The
+current-SHA checkpoint is green: `cargo xc`, 4/4 focused IR tests, 5/5 bounded
+structure tests and the end-to-end CLI oracle pass; the five files above report
+10/10 sloppy/strict Wasm-AOT executions. This is a focused batch result, not a
+claim about the complete 78-file directory or the full pinned aggregate.
+`await using`, resumable bodies, modules, `for-in`/`for-of`, Switch CaseBlocks
+and dynamic source remain explicit non-claims under
+`docs/rust-rewrite/contracts/synchronous-using-classic-for.md`.
+
 The generator-yield IR now distinguishes `yield` from `yield*` with the closed
 `YieldForm` domain. Its delegation case carries a one-inhabitant
 `GeneratorDelegationProtocol`, which is compile-time tied to all four iterator

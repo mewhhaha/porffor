@@ -395,6 +395,26 @@ Recent focused progress through `2026-08-21`:
   consumer pass. The exact 18-file non-dynamic lifecycle cohort is 36/36 under
   Wasm-AOT. This is focused evidence, not a claim about the complete 78-file
   `language/statements/using` directory or the full pinned aggregate.
+- The adjacent classic-`for` extension gives a synchronous
+  `using` head the closed, statically non-empty
+  `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while
+  retaining the direct `StatementIr::For` node needed by labelled break and
+  continue. Every head binding enters TDZ before acquisition; when a captured
+  binding materializes a for-head environment, it encloses acquisition, test,
+  body, update and eventual disposal. Continue retains the capability, while
+  normal or abrupt loop exit consumes it through the existing LIFO completion
+  fold.
+  A focused CLI oracle covers labelled continue/break, nullish acquisition,
+  outer/inner binding isolation, a later binding's observable TDZ during the
+  first resource GetMethod, false-test LIFO, later initializer failure and
+  suppression, and immutable-binding update failure. The exact adjacent
+  vendored inventory is five files: three adjacent grammar/binding witnesses
+  plus two focused disposal-lifecycle witnesses. The integrated current-SHA
+  checkpoint is green: `cargo xc`, 4/4 focused IR tests, 5/5 structure tests
+  and the end-to-end CLI consumer pass. Those five files report 10/10
+  sloppy/strict Wasm-AOT executions. This remains focused evidence, not a claim
+  about the complete 78-file `language/statements/using` directory or the full
+  pinned aggregate.
 
 - Promise construction now runs executors synchronously through the real
   Wasm-AOT call path, creates branded pending promise records, supplies distinct

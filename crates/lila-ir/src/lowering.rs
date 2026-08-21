@@ -5244,6 +5244,14 @@ impl<'a> ScriptLowerer<'a> {
                             )
                         })
                     }
+                    ForInitIr::SyncDisposable(resources) => {
+                        resources.iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(&resource.initializer),
+                            )
+                        })
+                    }
                 });
                 info = self.merge_optional_value_info(
                     info,
@@ -5293,6 +5301,14 @@ impl<'a> ScriptLowerer<'a> {
                             self.merge_optional_value_info(
                                 info,
                                 self.infer_statement_throw_info(statement),
+                            )
+                        })
+                    }
+                    ForInitIr::SyncDisposable(resources) => {
+                        resources.iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(&resource.initializer),
                             )
                         })
                     }
@@ -6167,18 +6183,16 @@ impl<'a> ScriptLowerer<'a> {
         self.push_scope();
         if let Some(ForLoopInitializer::Lexical(lexical)) = for_loop.init() {
             let declaration = lexical.declaration();
-            let list = match declaration {
-                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-                LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                    self.unsupported("using declaration");
+            let (mode, list) = match declaration {
+                LexicalDeclaration::Let(list) => (BindingMode::Let, list),
+                LexicalDeclaration::Const(list) | LexicalDeclaration::Using(list) => {
+                    (BindingMode::Const, list)
+                }
+                LexicalDeclaration::AwaitUsing(_) => {
+                    self.unsupported("await using declaration");
                     self.pop_scope();
                     return (StatementIr::Empty, ValueKind::Undefined);
                 }
-            };
-            let mode = match declaration {
-                LexicalDeclaration::Let(_) => BindingMode::Let,
-                LexicalDeclaration::Const(_) => BindingMode::Const,
-                LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => unreachable!(),
             };
             for variable in list.as_ref() {
                 if let Some(bound_names) = supported_bound_names(self.interner, variable.binding())
@@ -6219,6 +6233,11 @@ impl<'a> ScriptLowerer<'a> {
                     // enumerate, and resuming into bindings the suspension does
                     // not own would read uninitialised storage.
                     self.unsupported("resumable async loop with a destructuring loop head");
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                }
+                Some(ForInitIr::SyncDisposable(_)) => {
+                    self.unsupported("resumable async loop with a synchronous using head");
                     self.pop_scope();
                     return (StatementIr::Empty, ValueKind::Undefined);
                 }
@@ -7211,8 +7230,13 @@ impl<'a> ScriptLowerer<'a> {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                self.unsupported("using declaration");
+            LexicalDeclaration::Using(list) => {
+                return self
+                    .lower_for_sync_disposable_init(list.as_ref())
+                    .map(ForInitIr::SyncDisposable);
+            }
+            LexicalDeclaration::AwaitUsing(_) => {
+                self.unsupported("await using declaration");
                 return None;
             }
         };
@@ -7240,6 +7264,66 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         Some(ForInitIr::LexicalBlock(bindings))
+    }
+
+    /// Lowers a classic `for (using ...; ...; ...)` initializer into the
+    /// non-empty resource capability that owns each binding's runtime
+    /// InitializeBinding.
+    fn lower_for_sync_disposable_init(
+        &mut self,
+        list: &[Variable],
+    ) -> Option<SyncDisposableResourcesIr> {
+        if self.root_this_binding == RootThisBinding::Undefined {
+            self.unsupported("using declaration in a module");
+            return None;
+        }
+        if self.current_generator_resume_state.is_some()
+            || self.current_async_resume_state.is_some()
+            || self.current_resumable_plan.is_some()
+        {
+            self.unsupported("using declaration in a generator or async function");
+            return None;
+        }
+        if list.is_empty() {
+            self.unsupported("empty using declaration");
+            return None;
+        }
+        if list
+            .iter()
+            .any(|variable| !matches!(variable.binding(), Binding::Identifier(_)))
+        {
+            self.unsupported("using declaration binding pattern");
+            return None;
+        }
+        if list.iter().any(|variable| variable.init().is_none()) {
+            self.unsupported("using declaration without initializer");
+            return None;
+        }
+
+        let mut resources = Vec::with_capacity(list.len());
+        for variable in list {
+            let Binding::Identifier(identifier) = variable.binding() else {
+                unreachable!("binding patterns were rejected before lowering")
+            };
+            let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let initializer = variable
+                .init()
+                .expect("using initializers were validated before lowering");
+            let init = self.lower_expression(initializer);
+            self.static_iterator_binding_values.remove(&name);
+            self.static_string_bindings.remove(&name);
+            self.static_to_string_regexp_object_bindings.remove(&name);
+            let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
+            let initialized =
+                InitializedBinding::without_creation(name, BindingMode::Const, storage_name, init);
+            resources.push(initialized.into_sync_disposable_resource(self));
+        }
+
+        let mut resources = resources.into_iter();
+        let first = resources
+            .next()
+            .expect("a parsed using BindingList is non-empty");
+        Some(SyncDisposableResourcesIr::new(first, resources.collect()))
     }
 
     /// `for (let [a, b] = x; …)` - a loop head that binds a pattern.

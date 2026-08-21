@@ -419,6 +419,11 @@ fn statement_contains_this_before_super(
                             statement_contains_this_before_super(statement, state);
                         }
                     }
+                    ForInitIr::SyncDisposable(resources) => {
+                        for resource in resources.iter() {
+                            expr_contains_this_before_super(&resource.initializer, state);
+                        }
+                    }
                 }
             }
             if let Some(test) = test {
@@ -458,6 +463,11 @@ fn statement_contains_this_before_super(
                     ForInitIr::Statements(statements) => {
                         for statement in statements {
                             statement_contains_this_before_super(statement, state);
+                        }
+                    }
+                    ForInitIr::SyncDisposable(resources) => {
+                        for resource in resources.iter() {
+                            expr_contains_this_before_super(&resource.initializer, state);
                         }
                     }
                 }

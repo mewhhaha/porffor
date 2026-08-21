@@ -753,10 +753,12 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(*target_id as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            let target = self
-                .active_finally_target_for_branch(*branch_target)
-                .unwrap_or(*branch_target);
-            self.emit_branch_to_target(target, function);
+            if let Some(finalizer) = self.active_finally_target_for_branch(*branch_target) {
+                self.emit_branch_to_target(finalizer, function);
+            } else {
+                self.set_completion_kind(CompletionKind::Normal, function);
+                self.emit_branch_to_target(*branch_target, function);
+            }
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::Unreachable);
@@ -1387,19 +1389,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.initialize_direct_lexical_bindings(statements, function);
                 }
                 StatementIr::SyncDisposableScope { resources, body } => {
-                    for resource in resources.iter() {
-                        let storage = self
-                            .lookup_current_scope_binding(&resource.binding_name)
-                            .or_else(|| self.lookup_binding(&resource.binding_name))
-                            .unwrap_or_else(|| {
-                                self.allocate_binding(
-                                    resource.binding_name.clone(),
-                                    BindingMode::Const,
-                                    resource.initializer.kind,
-                                )
-                            });
-                        self.initialize_binding_uninitialized(storage, function);
-                    }
+                    self.initialize_sync_disposable_resource_bindings(resources, function);
                     self.initialize_direct_lexical_bindings(&body.statements, function);
                 }
                 StatementIr::Expression(TypedExpr {
@@ -4775,6 +4765,26 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn initialize_sync_disposable_resource_bindings(
+        &mut self,
+        resources: &SyncDisposableResourcesIr,
+        function: &mut Function,
+    ) {
+        for resource in resources.iter() {
+            let storage = self
+                .lookup_current_scope_binding(&resource.binding_name)
+                .or_else(|| self.lookup_binding(&resource.binding_name))
+                .unwrap_or_else(|| {
+                    self.allocate_binding(
+                        resource.binding_name.clone(),
+                        BindingMode::Const,
+                        resource.initializer.kind,
+                    )
+                });
+            self.initialize_binding_uninitialized(storage, function);
+        }
+    }
+
     fn reserve_sync_disposable_resource_locals(
         &mut self,
         function: &mut Function,
@@ -5211,6 +5221,18 @@ impl<'a> FunctionBuilder<'a> {
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(ForInitIr::SyncDisposable(resources)) = init {
+            return self.compile_sync_disposable_for(
+                resources,
+                test,
+                update,
+                body,
+                lexical_environment,
+                labels,
+                function,
+            );
+        }
+
         self.push_scope();
         self.emit_statement_result(function, ValueKind::Undefined);
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
@@ -5229,9 +5251,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
         if let Some(test) = test {
-            self.compile_truthy_i32(test, function)?;
-            function.instruction(&Instruction::I32Eqz);
-            self.emit_branch_if_to_target(break_frame, function);
+            self.compile_classic_for_test(test, break_frame, function)?;
         }
         let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
@@ -5245,11 +5265,141 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_replace_lexical_environment(environment, function)?;
         }
         if let Some(update) = update {
-            self.compile_expr_payload(update, function)?;
-            function.instruction(&Instruction::Drop);
+            self.compile_classic_for_update(update, function)?;
         }
         function.branch_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+        self.breakable_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        if runtime_environment.is_some() {
+            self.end_lexical_environment_scope();
+        }
+        self.pop_scope();
+        Ok(())
+    }
+
+    fn compile_classic_for_test(
+        &mut self,
+        test: &TypedExpr,
+        false_target: ControlTarget,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.compile_truthy_i32(test, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I32Eqz);
+        self.emit_branch_if_to_target(false_target, function);
+        Ok(())
+    }
+
+    fn compile_classic_for_update(
+        &mut self,
+        update: &TypedExpr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.compile_expr_payload(update, function)?;
+        function.instruction(&Instruction::Drop);
+        self.emit_propagate_throw_from_locals_if_needed(
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )
+    }
+
+    fn compile_sync_disposable_for(
+        &mut self,
+        resources: &SyncDisposableResourcesIr,
+        test: Option<&TypedExpr>,
+        update: Option<&TypedExpr>,
+        body: &StatementIr,
+        lexical_environment: Option<&ForLexicalEnvironmentIr>,
+        labels: &[String],
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if self.current_function_meta().is_some_and(|meta| {
+            !matches!(
+                meta.protocol.execution_kind(),
+                FunctionExecutionKind::Ordinary
+            )
+        }) {
+            return Err(EmitError::unsupported(
+                "unsupported in lila wasm-aot first slice: synchronous using for head in a resumable body",
+            ));
+        }
+        if lexical_environment
+            .is_some_and(|environment| !environment.per_iteration_slots.is_empty())
+        {
+            return Err(EmitError::unsupported(
+                "synchronous using for head cannot own per-iteration bindings",
+            ));
+        }
+        debug_assert!(!resources.is_empty());
+
+        self.push_scope();
+        self.emit_statement_result(function, ValueKind::Undefined);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.breakable_stack.push(break_frame);
+        let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
+            bindings: environment.bindings.clone(),
+        });
+        if let Some(environment) = &runtime_environment {
+            self.emit_enter_lexical_environment(environment, function)?;
+        }
+        self.initialize_sync_disposable_resource_bindings(resources, function);
+
+        let acquired = resources
+            .iter()
+            .map(|_| self.reserve_sync_disposable_resource_locals(function))
+            .collect::<Vec<_>>();
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let disposal_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.finally_stack.push(disposal_frame);
+        for (resource, locals) in resources.iter().zip(&acquired) {
+            self.compile_sync_disposable_resource(resource, locals, function)?;
+        }
+
+        if let Some(environment) = lexical_environment {
+            self.emit_replace_lexical_environment(environment, function)?;
+        }
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
+        if let Some(test) = test {
+            self.compile_classic_for_test(test, disposal_frame, function)?;
+        }
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
+        self.loop_stack.push(LoopTargets { continue_frame });
+        self.push_labels(labels, break_frame, Some(continue_frame));
+        self.compile_statement(body, function)?;
+        self.pop_labels(labels.len());
+        self.loop_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        if let Some(environment) = lexical_environment {
+            self.emit_replace_lexical_environment(environment, function)?;
+        }
+        if let Some(update) = update {
+            self.compile_classic_for_update(update, function)?;
+        }
+        function.branch_to_label(loop_frame.label);
+        self.pop_control(ControlFrameKind::Loop);
+        function.instruction(&Instruction::End);
+
+        self.finally_stack.pop();
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        let pending = self.capture_pending_sync_dispose_completion(function);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.consume_sync_disposable_resources(pending, acquired, function)?;
+
+        // Normal loop exhaustion has no completion to dispatch. Route it
+        // through the loop's break target so the lexical environment is
+        // restored by the same control edge as an explicit break.
+        self.emit_branch_to_target(break_frame, function);
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);
@@ -5589,6 +5739,11 @@ impl<'a> FunctionBuilder<'a> {
                 for statement in statements {
                     self.compile_statement(statement, function)?;
                 }
+            }
+            ForInitIr::SyncDisposable(_) => {
+                return Err(EmitError::unsupported(
+                    "synchronous using for head requires the classic loop disposal lifecycle",
+                ));
             }
         }
         Ok(())

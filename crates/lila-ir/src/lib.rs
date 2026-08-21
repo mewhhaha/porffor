@@ -422,6 +422,13 @@ mod tests {
                                     collect(statement, names);
                                 }
                             }
+                            ForInitIr::SyncDisposable(resources) => {
+                                names.extend(
+                                    resources
+                                        .iter()
+                                        .map(|resource| resource.binding_name.clone()),
+                                );
+                            }
                         }
                     }
                     collect(body, names);
@@ -451,6 +458,13 @@ mod tests {
                                 for statement in statements {
                                     collect(statement, names);
                                 }
+                            }
+                            ForInitIr::SyncDisposable(resources) => {
+                                names.extend(
+                                    resources
+                                        .iter()
+                                        .map(|resource| resource.binding_name.clone()),
+                                );
                             }
                         }
                     }
@@ -13055,5 +13069,132 @@ target[Symbol.iterator];"#,
             .expect("resource list is statically non-empty")
             .binding_name;
         assert!(!contains_lexical(&owner.body.statements[0], binding_name));
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_owns_one_non_empty_initializer_capability() {
+        let program = lower_script(
+            "function owner() { for (using first = null, second = undefined; false;) {} }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::For {
+            init: Some(ForInitIr::SyncDisposable(resources)),
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("classic using head must remain a direct For with a disposable initializer");
+        };
+
+        assert_eq!(resources.len(), 2);
+        assert!(!resources.is_empty());
+        let names = resources
+            .iter()
+            .map(|resource| resource.binding_name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names[0].ends_with("first"), "{names:?}");
+        assert!(names[1].ends_with("second"), "{names:?}");
+        assert!(matches!(
+            resources
+                .iter()
+                .next()
+                .map(|resource| &resource.initializer.expr),
+            Some(ExprIr::Null)
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_remains_the_direct_label_target() {
+        let program = lower_script(
+            "function owner() { outer: for (using resource = null; false;) { continue outer; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::Labelled { labels, statement }] = owner.body.statements.as_slice() else {
+            panic!("source label should remain explicit");
+        };
+        assert_eq!(
+            labels.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["outer"]
+        );
+        assert!(matches!(
+            statement.as_ref(),
+            StatementIr::For {
+                init: Some(ForInitIr::SyncDisposable(_)),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_retains_captured_head_environment() {
+        let program = lower_script(
+            "function owner() { for (using resource = null; false;) { (() => resource); } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::For {
+            init: Some(ForInitIr::SyncDisposable(resources)),
+            lexical_environment: Some(environment),
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("captured using head must retain its For lexical environment");
+        };
+        let resource_name = &resources
+            .iter()
+            .next()
+            .expect("resource list is statically non-empty")
+            .binding_name;
+        assert!(environment
+            .bindings
+            .iter()
+            .any(|binding| &binding.name == resource_name));
+        assert!(environment.per_iteration_slots.is_empty());
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_initializer_observes_its_own_tdz() {
+        let program =
+            lower_script("function owner() { for (using resource = resource; false;) {} }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::For {
+            init: Some(ForInitIr::SyncDisposable(resources)),
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("classic using head must own its resource initializer");
+        };
+        assert!(matches!(
+            resources
+                .iter()
+                .next()
+                .map(|resource| &resource.initializer.expr),
+            Some(ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                ..
+            })
+        ));
     }
 }

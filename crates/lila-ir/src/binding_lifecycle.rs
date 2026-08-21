@@ -252,8 +252,9 @@ impl PendingInitialization {
 /// BlockDeclarationInstantiation did **not** create the name — a for-head
 /// binding, a compiler-generated declarator, or a form the sweep could not
 /// resolve. It is a named constructor rather than an implicit fallback so that
-/// "there was no token" is a decision at the call site, and its four callers
-/// each sit in the `None` arm of a `match` on the token.
+/// "there was no token" is a decision at the call site. Classic `for` heads
+/// are explicit untokened paths; statement-list fallbacks sit in the `None`
+/// arm of a `match` on the token.
 #[derive(Debug)]
 #[must_use = "an initialized binding that is never declared leaves the scope \
               entry uninitialized and emits no lexical statement"]
@@ -266,8 +267,9 @@ pub(crate) struct InitializedBinding {
 }
 
 impl InitializedBinding {
-    /// The untokened path: this statement list did not create `source_name`, so
-    /// the caller allocated the storage name itself.
+    /// The untokened path: this lowering entry has no
+    /// `PendingInitialization` for `source_name`, so the caller allocated the
+    /// storage name itself.
     pub(crate) fn without_creation(
         source_name: String,
         mode: BindingMode,
