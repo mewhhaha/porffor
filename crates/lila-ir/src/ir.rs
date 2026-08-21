@@ -2330,13 +2330,13 @@ pub enum StatementIr {
         resources: SyncDisposableResourcesIr,
         body: BlockIr,
     },
-    /// An async DisposeCapability owned by one plain async-function activation.
+    /// An async DisposeCapability with an explicit resumable execution owner.
     ///
     /// This is deliberately distinct from `SyncDisposableScope`: each
     /// registered resource follows the async-dispose protocol and the required
     /// finalizer plan suspends before the saved completion may leave the scope.
     AsyncDisposableScope {
-        capability: AsyncFunctionAsyncDisposableCapabilityIr,
+        execution: AsyncDisposableScopeExecutionIr,
         resources: AsyncDisposableResourcesIr,
         body: BlockIr,
     },
@@ -2674,6 +2674,10 @@ pub struct AsyncDisposableFinalizerPlanIr {
 }
 
 impl AsyncDisposableFinalizerPlanIr {
+    /// The disposal walk, its Await resume, and its exit continuation each own
+    /// one state beyond the scope's current entry state.
+    pub(crate) const IMPLICIT_STATE_COUNT: u32 = 3;
+
     pub(crate) fn new(
         entry_state: u32,
         dispose_state: u32,
@@ -2718,6 +2722,48 @@ impl AsyncDisposableFinalizerPlanIr {
 pub struct AsyncFunctionAsyncDisposableCapabilityIr {
     binding_name: String,
     finalizer: AsyncDisposableFinalizerPlanIr,
+}
+
+/// Where an asynchronous DisposeCapability must remain live.
+///
+/// The required owner proof keeps activation layout and completion routing an
+/// exhaustive backend decision. Neither capability can be manufactured by a
+/// backend from an arbitrary binding name.
+#[must_use = "an async DisposeCapability execution owner must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AsyncDisposableScopeExecutionIr {
+    AsyncFunction(AsyncFunctionAsyncDisposableCapabilityIr),
+    AsyncGenerator(AsyncGeneratorAsyncDisposableCapabilityIr),
+}
+
+/// The activation-backed capability for one async-generator `await using`
+/// scope.
+///
+/// Fields are private and the sole crate constructor is fed only by lowering's
+/// suspension-owned binding allocator. Backend crates can consume the binding
+/// identity and finalizer roles but cannot manufacture this proof.
+#[must_use = "an async-generator async DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncGeneratorAsyncDisposableCapabilityIr {
+    binding_name: String,
+    finalizer: AsyncDisposableFinalizerPlanIr,
+}
+
+impl AsyncGeneratorAsyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String, finalizer: AsyncDisposableFinalizerPlanIr) -> Self {
+        Self {
+            binding_name,
+            finalizer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
+        &self.finalizer
+    }
 }
 
 impl AsyncFunctionAsyncDisposableCapabilityIr {

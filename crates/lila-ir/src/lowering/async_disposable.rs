@@ -1,5 +1,68 @@
 use super::*;
 
+/// Lowering-only half of an admitted async `await using` scope.
+///
+/// The declaration fixes acquisition entry and capability storage immediately;
+/// the finalizer states can be minted only after the remaining statement-list
+/// suffix has allocated all of its source suspension states.
+#[must_use = "a pending async-dispose scope must be finalized around its suffix"]
+pub(super) struct PendingAsyncDisposableScopeIr {
+    execution: PendingAsyncDisposableScopeExecutionIr,
+    resources: AsyncDisposableResourcesIr,
+}
+
+/// The private pre-finalizer owner proof for one async-dispose scope.
+///
+/// Keeping both admitted owners named prevents async-generator storage from
+/// being finalized as a plain-async capability by convention.
+#[must_use = "an async-dispose execution owner must be finalized into public IR"]
+enum PendingAsyncDisposableScopeExecutionIr {
+    AsyncFunction {
+        entry_state: u32,
+        binding_name: String,
+    },
+    AsyncGenerator {
+        entry_state: u32,
+        binding_name: String,
+    },
+}
+
+impl PendingAsyncDisposableScopeExecutionIr {
+    fn entry_state(&self) -> u32 {
+        match self {
+            Self::AsyncFunction { entry_state, .. } | Self::AsyncGenerator { entry_state, .. } => {
+                *entry_state
+            }
+        }
+    }
+
+    fn finalize(
+        self,
+        finalizer: AsyncDisposableFinalizerPlanIr,
+    ) -> AsyncDisposableScopeExecutionIr {
+        match self {
+            Self::AsyncFunction { binding_name, .. } => {
+                AsyncDisposableScopeExecutionIr::AsyncFunction(
+                    AsyncFunctionAsyncDisposableCapabilityIr::new(binding_name, finalizer),
+                )
+            }
+            Self::AsyncGenerator { binding_name, .. } => {
+                AsyncDisposableScopeExecutionIr::AsyncGenerator(
+                    AsyncGeneratorAsyncDisposableCapabilityIr::new(binding_name, finalizer),
+                )
+            }
+        }
+    }
+}
+
+enum LoweredDisposableScopeIr {
+    Sync {
+        execution: SyncDisposableScopeExecutionIr,
+        resources: SyncDisposableResourcesIr,
+    },
+    Async(PendingAsyncDisposableScopeIr),
+}
+
 impl ScriptLowerer<'_> {
     /// Replaces each declaration marker with a scope over the remaining suffix.
     ///
@@ -71,7 +134,7 @@ impl ScriptLowerer<'_> {
                 LoweredDisposableScopeIr::Async(scope) => {
                     let dispose_state = self
                         .current_async_resume_state
-                        .expect("an async-dispose scope must have a plain async state")
+                        .expect("an async-dispose scope must have an async resume state")
                         .checked_add(1)
                         .expect("async-dispose state overflow");
                     let resume_state = dispose_state
@@ -81,17 +144,17 @@ impl ScriptLowerer<'_> {
                         .checked_add(1)
                         .expect("async-dispose state overflow");
                     self.current_async_resume_state = Some(exit_state);
+                    if self.current_resumable_plan.is_some() {
+                        self.current_generator_resume_state = Some(exit_state);
+                    }
                     let finalizer = AsyncDisposableFinalizerPlanIr::new(
-                        scope.entry_state,
+                        scope.execution.entry_state(),
                         dispose_state,
                         resume_state,
                         exit_state,
                     );
                     StatementIr::AsyncDisposableScope {
-                        capability: AsyncFunctionAsyncDisposableCapabilityIr::new(
-                            scope.binding_name,
-                            finalizer,
-                        ),
+                        execution: scope.execution.finalize(finalizer),
                         resources: scope.resources,
                         body: suffix,
                     }
@@ -107,7 +170,7 @@ impl ScriptLowerer<'_> {
         suffix
     }
 
-    /// Lowers one plain-async-function `await using` declaration into the
+    /// Lowers one admitted async-owner `await using` declaration into the
     /// pending half of a dedicated async-dispose scope.
     ///
     /// Finalizer states are allocated only after the suffix has consumed all
@@ -141,29 +204,46 @@ impl ScriptLowerer<'_> {
             return None;
         }
 
-        match self.async_disposable_scope_owner() {
-            AsyncDisposableScopeOwnerPlan::AsyncFunction => {}
+        let owner = self.async_disposable_scope_owner();
+        match owner {
+            AsyncDisposableScopeOwnerPlan::AsyncFunction
+            | AsyncDisposableScopeOwnerPlan::AsyncGenerator => {}
             AsyncDisposableScopeOwnerPlan::Ordinary => {
-                self.unsupported("await using declaration outside a plain async function");
+                self.unsupported("await using declaration outside an async function or generator");
                 return None;
             }
             AsyncDisposableScopeOwnerPlan::Generator => {
                 self.unsupported("await using declaration in a plain generator");
                 return None;
             }
-            AsyncDisposableScopeOwnerPlan::AsyncGenerator => {
-                self.unsupported("await using declaration in an async generator");
-                return None;
-            }
         }
 
         let entry_state = self
             .current_async_resume_state
-            .expect("a plain async owner must publish its current resume state");
-        let binding_name = self.alloc_suspension_owned_binding(
-            "async.function.async.dispose.capability.",
-            ValueInfo::new(ValueKind::Object),
-        );
+            .expect("an admitted async owner must publish its current resume state");
+        let execution = match owner {
+            AsyncDisposableScopeOwnerPlan::AsyncFunction => {
+                PendingAsyncDisposableScopeExecutionIr::AsyncFunction {
+                    entry_state,
+                    binding_name: self.alloc_suspension_owned_binding(
+                        "async.function.async.dispose.capability.",
+                        ValueInfo::new(ValueKind::Object),
+                    ),
+                }
+            }
+            AsyncDisposableScopeOwnerPlan::AsyncGenerator => {
+                PendingAsyncDisposableScopeExecutionIr::AsyncGenerator {
+                    entry_state,
+                    binding_name: self.alloc_suspension_owned_binding(
+                        "async.generator.await.dispose.capability.",
+                        ValueInfo::new(ValueKind::Object),
+                    ),
+                }
+            }
+            AsyncDisposableScopeOwnerPlan::Ordinary | AsyncDisposableScopeOwnerPlan::Generator => {
+                unreachable!("unsupported async-dispose owners returned before allocation")
+            }
+        };
 
         let mut resources = Vec::with_capacity(list.len());
         for variable in list {
@@ -200,8 +280,7 @@ impl ScriptLowerer<'_> {
             .next()
             .expect("a parsed await using BindingList is non-empty");
         Some(PendingAsyncDisposableScopeIr {
-            entry_state,
-            binding_name,
+            execution,
             resources: AsyncDisposableResourcesIr::new(first, resources.collect()),
         })
     }

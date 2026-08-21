@@ -1,4 +1,5 @@
 use super::*;
+use boa_ast::StatementList;
 
 /// The normal Number/BigInt results an already-inferred primitive can produce
 /// through ToNumeric. An untracked object can observably produce either kind.
@@ -450,6 +451,12 @@ impl ResumableStateAllocator {
         self.current_state += 1;
     }
 
+    fn reserve_async_disposable_finalizer(&mut self) {
+        for _ in 0..AsyncDisposableFinalizerPlanIr::IMPLICIT_STATE_COUNT {
+            self.reserve();
+        }
+    }
+
     fn finish(self) -> ResumablePlanIr {
         ResumablePlanIr {
             entry_state: 0,
@@ -466,6 +473,24 @@ struct AsyncGeneratorSuspensionCollector {
 
 impl<'ast> Visitor<'ast> for AsyncGeneratorSuspensionCollector {
     type BreakTy = ();
+
+    fn visit_statement_list(
+        &mut self,
+        statement_list: &'ast StatementList,
+    ) -> ControlFlow<Self::BreakTy> {
+        let async_disposable_scope_count = statement_list
+            .statements()
+            .iter()
+            .filter(|item| async_generator_await_using_is_admitted(item))
+            .count();
+        for item in statement_list.statements() {
+            self.visit_statement_list_item(item)?;
+        }
+        for _ in 0..async_disposable_scope_count {
+            self.states.reserve_async_disposable_finalizer();
+        }
+        ControlFlow::Continue(())
+    }
 
     fn visit_return(&mut self, return_statement: &'ast AstReturn) -> ControlFlow<Self::BreakTy> {
         let Some(target) = return_statement.target() else {
@@ -635,9 +660,25 @@ impl<'ast> Visitor<'ast> for AsyncGeneratorSuspensionCollector {
     }
 }
 
+fn async_generator_await_using_is_admitted(item: &StatementListItem) -> bool {
+    let StatementListItem::Declaration(declaration) = item else {
+        return false;
+    };
+    let Declaration::Lexical(LexicalDeclaration::AwaitUsing(list)) = declaration.as_ref() else {
+        return false;
+    };
+    list.as_ref().iter().all(|variable| {
+        matches!(variable.binding(), Binding::Identifier(_))
+            && variable.init().is_some_and(|initializer| {
+                !contains(initializer, ContainsSymbol::AwaitExpression)
+                    && !contains(initializer, ContainsSymbol::YieldExpression)
+            })
+    })
+}
+
 pub(crate) fn async_generator_resumable_plan(body: &FunctionBody) -> ResumablePlanIr {
     let mut collector = AsyncGeneratorSuspensionCollector::default();
-    let _ = body.visit_with(&mut collector);
+    let _ = collector.visit_statement_list(body.statement_list());
     collector.states.finish()
 }
 

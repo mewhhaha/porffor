@@ -12,8 +12,8 @@ use crate::objects::{
     PreventExtensionsTraversalTargetLocals,
 };
 use lila_ir::{
-    FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId,
-    SyncDisposableScopeExecutionIr, ValueKind,
+    AsyncDisposableScopeExecutionIr, FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr,
+    StandardBuiltinId, SyncDisposableScopeExecutionIr, ValueKind,
 };
 // `CodeSection` is deliberately absent from this list. Every code-section entry
 // now goes through `ModuleCode::push(EmittedFunction)`, which cannot be called
@@ -827,7 +827,21 @@ fn async_generator_contains_suspension(
                 | SyncDisposableScopeExecutionIr::AsyncFunction(_),
             ..
         } => false,
-        StatementIr::AsyncDisposableScope { .. } => false,
+        StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(_),
+            body,
+            ..
+        } => match suspension {
+            AsyncGeneratorSuspension::Await => true,
+            AsyncGeneratorSuspension::Yield => body
+                .statements
+                .iter()
+                .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        },
+        StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncFunction(_),
+            ..
+        } => false,
         _ => false,
     }
 }
@@ -1059,9 +1073,18 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                 | SyncDisposableScopeExecutionIr::AsyncFunction(_),
             ..
         } => Some("synchronous using scope with a mismatched execution owner"),
-        StatementIr::AsyncDisposableScope { .. } => {
-            Some("await using scope with a mismatched execution owner")
-        }
+        StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(_),
+            body,
+            ..
+        } => body
+            .statements
+            .iter()
+            .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncFunction(_),
+            ..
+        } => Some("await using scope with a mismatched execution owner"),
         StatementIr::Break { .. } | StatementIr::Continue { .. } => {
             Some("loop control completions")
         }

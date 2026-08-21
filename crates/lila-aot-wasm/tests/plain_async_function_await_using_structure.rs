@@ -110,7 +110,7 @@ fn ir_owns_a_nonempty_async_resource_domain_and_closed_finalizer_states() {
         "AsyncDisposableScope {",
         "ParameterInitialization {",
     );
-    assert!(statement.contains("capability: AsyncFunctionAsyncDisposableCapabilityIr"));
+    assert!(statement.contains("execution: AsyncDisposableScopeExecutionIr"));
     assert!(statement.contains("resources: AsyncDisposableResourcesIr"));
     assert!(statement.contains("body: BlockIr"));
 
@@ -199,9 +199,12 @@ fn lowering_selects_the_plain_async_owner_before_minting_one_finalizer() {
         lower,
         &[
             "suspension inside an await using initializer",
-            "match self.async_disposable_scope_owner()",
-            "AsyncDisposableScopeOwnerPlan::AsyncFunction => {}",
+            "let owner = self.async_disposable_scope_owner()",
+            "match owner",
+            "AsyncDisposableScopeOwnerPlan::AsyncFunction\n            | AsyncDisposableScopeOwnerPlan::AsyncGenerator => {}",
             "let entry_state = self",
+            "let execution = match owner",
+            "AsyncDisposableScopeOwnerPlan::AsyncFunction =>",
             "alloc_suspension_owned_binding(",
             "async.function.async.dispose.capability.",
             "let init = self.lower_expression(initializer)",
@@ -211,7 +214,7 @@ fn lowering_selects_the_plain_async_owner_before_minting_one_finalizer() {
     );
     assert!(lower.contains("AsyncDisposableScopeOwnerPlan::Ordinary =>"));
     assert!(lower.contains("AsyncDisposableScopeOwnerPlan::Generator =>"));
-    assert!(lower.contains("AsyncDisposableScopeOwnerPlan::AsyncGenerator =>"));
+    assert!(lower.contains("PendingAsyncDisposableScopeExecutionIr::AsyncGenerator"));
     assert!(!lower.contains("SyncDisposableResourcesIr::new"));
 
     let finish = bounded(
@@ -254,7 +257,8 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
         "struct ActivationAsyncDisposeCapabilityStorage",
         "enum ActivationSyncDisposeOwner",
     );
-    assert_eq!(typestates.matches("#[must_use").count(), 5);
+    assert_eq!(typestates.matches("#[must_use").count(), 6);
+    assert!(typestates.contains("enum ActivationAsyncDisposeOwner<'a>"));
     assert!(!typestates.contains("Clone"));
     assert!(!typestates.contains("Copy"));
 
@@ -284,9 +288,10 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
         "fn compile_async_disposable_scope(",
         "fn initialize_async_disposable_resource_bindings(",
     );
-    assert!(compile.contains("FunctionExecutionKind::Async"));
-    assert!(compile.contains("owned_env_slot(capability.binding_name())"));
-    assert!(!compile.contains("allocate_binding(capability.binding_name"));
+    assert!(compile.contains("ActivationAsyncDisposeOwner::from_execution(execution)"));
+    assert!(compile.contains("meta.protocol.execution_kind() == owner.execution_kind()"));
+    assert!(compile.contains("owned_env_slot(owner.binding_name())"));
+    assert!(!compile.contains("allocate_binding(owner.binding_name"));
     positions_in_order(
         compile,
         &[
@@ -373,7 +378,7 @@ fn finalizer_awaits_empty_and_async_results_but_discards_sync_fallback_returns()
         consume,
         &[
             "finalizer.resume_state()",
-            "emit_load_async_function_resume_is_throw",
+            "emit_load_activation_async_dispose_resume_is_throw",
             "fold_error_into_async_dispose_pending_completion",
             "finalizer.dispose_state()",
             "I64Sub",
@@ -384,12 +389,12 @@ fn finalizer_awaits_empty_and_async_results_but_discards_sync_fallback_returns()
             "ActivationAsyncDisposeEntryKind::SyncFallbackMethod =>",
             "emit_rejected_intrinsic_promise_from_error",
             "emit_set_async_resume_state(activation_local, finalizer.resume_state()",
-            "emit_async_await_reactions",
+            "emit_activation_async_dispose_await_reactions",
             "emit_return_current_completion",
             "ActivationAsyncDisposeCapabilityState::Disposed.word()",
             "finish_async_dispose_pending_completion",
             "finalizer.exit_state()",
-            "emit_dispatch_async_completion",
+            "emit_dispatch_activation_async_dispose_completion",
         ],
     );
     assert!(consume.contains("ValueKind::Undefined.tag()"));
@@ -450,8 +455,10 @@ fn exact_inventory_and_durable_fixture_bound_the_claim() {
         assert!(FIXTURE.contains(marker), "missing fixture marker {marker}");
     }
     assert!(CLI_TEST_SOURCE.contains("fn wasm_await_using_plain_async_function_lifecycle()"));
-    assert!(README.contains("plain-async-function `await using` batch is dry-written"));
-    assert!(TASK.contains("plain-async-function `await using` batch is dry-written"));
+    assert!(README.contains("plain-async-function `await using` batch is implemented"));
+    assert!(TASK.contains("plain-async-function `await using` batch is implemented"));
+    assert!(README.contains("exact Test262 paths are now\n  `4/4`"));
+    assert!(TASK.contains("exact Test262 paths are now `4/4`"));
     for nonclaim in [
         "Async generators",
         "resource loop heads",

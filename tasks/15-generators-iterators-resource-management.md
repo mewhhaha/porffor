@@ -246,6 +246,50 @@ subtree, the complete `await using` directory and the full pinned aggregate
 remain outside this batch. The source contract is
 `docs/rust-rewrite/contracts/plain-async-function-await-using-scope.md`.
 
+The adjacent async-generator `await using` path is verified against
+`AsyncDisposableScopeExecutionIr::AsyncGenerator`. Its distinct, lowerer-minted
+capability is activation-owned across both `GeneratorYield` and `AsyncAwait`,
+while the shared asynchronous resource protocol still acquires
+`@@asyncDispose` before the `@@dispose` fallback, registers before immutable
+binding initialization, awaits entries sequentially in reverse and folds every
+rejection through `SuppressedError`.
+
+The durable CLI fixture covers no acquisition before the first request, no
+disposal while yielded or awaiting, normal completion, external return and
+throw, body-Await rejection, direct async and synchronous-fallback methods,
+ignored fallback thenables, later acquisition failure, nested capabilities,
+LIFO, error suppression, exactly-once disposal, queued requests and synchronous
+reentrancy from an async disposer. The awaited-disposer oracle records the
+current-request reaction before the queued reaction, with both after disposal;
+this is intentionally distinct from the retained synchronous-disposal order.
+
+At pre-batch source commit `5ad393f3d0`, these exact unmasked files reported
+`0/4`:
+
+- `language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncgeneratorbody.js`;
+- `language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncgeneratorbody.js`.
+
+All four sloppy/strict Script executions were `Runtime/NotImplemented` with the
+diagnostic `unsupported in lila wasm-aot first slice: await using declaration
+in an async generator`; neither path has a rewrite, mask or known-failure
+entry. Central verification is green for `cargo check --workspace --all-targets`
+and `cargo xc`; the focused `lila-ir` `async_generator_await_using` tests pass
+`2/2` in 12.34s, including the exact state-collision invariant; the new bounded
+structure executable passes `5/5`; and the retained plain-async structure
+executable passes `6/6`. The async-generator lifecycle fixture passes `1/1` in
+23.63s, while the retained plain-async await-using and synchronous
+async-generator using fixtures pass `1/1` in 11.96s and `1/1` in 16.56s. The
+two exact paths now each pass `2/2`, for `4/4` total with zero unsupported,
+crash or bug outcomes. The runtime-discovered state collision was closed by
+reserving three implicit finalizer states per await-using boundary before the
+following suspension; AOT also asserts that each resumable statement entry
+continues the preceding segment exit. Classic-`for` and `for-of` resource heads,
+modules, dynamic source, binding patterns, suspension inside a resource
+initializer, nonlinear async-generator forms, the complete `await using`
+directory and the full pinned aggregate remain outside this batch. The source
+contract is
+`docs/rust-rewrite/contracts/async-generator-await-using-scope.md`.
+
 The next bounded source batch extends that same synchronous disposal lifecycle
 to classic `for` initializer heads. The producer uses the closed, statically
 non-empty `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` variant and

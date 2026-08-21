@@ -3,8 +3,9 @@ use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget}
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncDisposableFinalizerPlanIr, AsyncDisposableResourcesIr,
-    AsyncForOfIteratorPlanIr, AsyncFunctionAsyncDisposableCapabilityIr,
-    AsyncFunctionSyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
+    AsyncDisposableScopeExecutionIr, AsyncForOfIteratorPlanIr,
+    AsyncFunctionAsyncDisposableCapabilityIr, AsyncFunctionSyncDisposableCapabilityIr,
+    AsyncGeneratorAsyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
     AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
     ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
     ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
@@ -77,6 +78,73 @@ struct DisposingActivationAsyncDisposeCapability {
 
 #[must_use = "a parked async-dispose completion must be restored exactly once"]
 struct ActiveAsyncDisposePendingCompletion;
+
+/// The two activation layouts that can own an asynchronous DisposeCapability.
+///
+/// Keeping the public capability types distinct in this private consumer makes
+/// every owner-dependent offset, Await continuation and completion path an
+/// exhaustive decision. A future resumable owner cannot silently inherit the
+/// plain-async layout.
+#[must_use = "an async DisposeCapability owner must reach its consuming finalizer"]
+enum ActivationAsyncDisposeOwner<'a> {
+    AsyncFunction(&'a AsyncFunctionAsyncDisposableCapabilityIr),
+    AsyncGenerator(&'a AsyncGeneratorAsyncDisposableCapabilityIr),
+}
+
+impl<'a> ActivationAsyncDisposeOwner<'a> {
+    fn from_execution(execution: &'a AsyncDisposableScopeExecutionIr) -> Self {
+        match execution {
+            AsyncDisposableScopeExecutionIr::AsyncFunction(capability) => {
+                Self::AsyncFunction(capability)
+            }
+            AsyncDisposableScopeExecutionIr::AsyncGenerator(capability) => {
+                Self::AsyncGenerator(capability)
+            }
+        }
+    }
+
+    fn binding_name(&self) -> &str {
+        match self {
+            Self::AsyncFunction(capability) => capability.binding_name(),
+            Self::AsyncGenerator(capability) => capability.binding_name(),
+        }
+    }
+
+    fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
+        match self {
+            Self::AsyncFunction(capability) => capability.finalizer(),
+            Self::AsyncGenerator(capability) => capability.finalizer(),
+        }
+    }
+
+    const fn execution_kind(&self) -> FunctionExecutionKind {
+        match self {
+            Self::AsyncFunction(_) => FunctionExecutionKind::Async,
+            Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator,
+        }
+    }
+
+    const fn resume_state_offset(&self) -> u64 {
+        match self {
+            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET,
+            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+        }
+    }
+
+    const fn resume_payload_offset(&self) -> u64 {
+        match self {
+            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
+            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
+        }
+    }
+
+    const fn resume_tag_offset(&self) -> u64 {
+        match self {
+            Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_TAG_OFFSET,
+            Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
+        }
+    }
+}
 
 /// The resumable execution owners that share the activation-backed
 /// synchronous DisposeCapability representation.
@@ -1259,6 +1327,12 @@ impl<'a> FunctionBuilder<'a> {
         let mut segment_state = entry_state;
         for statement in statements {
             if let Some(exit_state) = Self::async_statement_exit_state(statement) {
+                let statement_entry_state = Self::async_statement_entry_state(statement)
+                    .expect("a resumable statement with an exit state must have an entry state");
+                assert_eq!(
+                    segment_state, statement_entry_state,
+                    "resumable statement entry must continue the preceding segment exit"
+                );
                 self.compile_statement(statement, function)?;
                 segment_state = exit_state;
                 continue;
@@ -1332,9 +1406,11 @@ impl<'a> FunctionBuilder<'a> {
                 .statements
                 .iter()
                 .find_map(Self::async_statement_entry_state),
-            StatementIr::AsyncDisposableScope { capability, .. } => {
-                Some(capability.finalizer().entry_state())
-            }
+            StatementIr::AsyncDisposableScope { execution, .. } => Some(
+                ActivationAsyncDisposeOwner::from_execution(execution)
+                    .finalizer()
+                    .entry_state(),
+            ),
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
@@ -1391,9 +1467,11 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .rev()
                 .find_map(Self::async_statement_exit_state),
-            StatementIr::AsyncDisposableScope { capability, .. } => {
-                Some(capability.finalizer().exit_state())
-            }
+            StatementIr::AsyncDisposableScope { execution, .. } => Some(
+                ActivationAsyncDisposeOwner::from_execution(execution)
+                    .finalizer()
+                    .exit_state(),
+            ),
             StatementIr::SyncDisposableScope {
                 execution:
                     SyncDisposableScopeExecutionIr::Immediate
@@ -2456,11 +2534,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_sync_disposable_scope(execution, resources, body, function)?;
             }
             StatementIr::AsyncDisposableScope {
-                capability,
+                execution,
                 resources,
                 body,
             } => {
-                self.compile_async_disposable_scope(capability, resources, body, function)?;
+                self.compile_async_disposable_scope(execution, resources, body, function)?;
             }
             StatementIr::AnnexBFunctionCopy {
                 source_name,
@@ -4968,22 +5046,23 @@ impl<'a> FunctionBuilder<'a> {
 
     fn compile_async_disposable_scope(
         &mut self,
-        capability: &AsyncFunctionAsyncDisposableCapabilityIr,
+        execution: &AsyncDisposableScopeExecutionIr,
         resources: &AsyncDisposableResourcesIr,
         body: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         debug_assert!(!resources.is_empty());
+        let owner = ActivationAsyncDisposeOwner::from_execution(execution);
         if !self
             .current_function_meta()
-            .is_some_and(|meta| meta.protocol.execution_kind() == FunctionExecutionKind::Async)
+            .is_some_and(|meta| meta.protocol.execution_kind() == owner.execution_kind())
         {
             return Err(EmitError::unsupported(
                 "async DisposeCapability has the wrong execution owner",
             ));
         }
         let binding = self
-            .owned_env_slot(capability.binding_name())
+            .owned_env_slot(owner.binding_name())
             .map(|slot| BindingStorage::EnvSlot { slot, hops: 0 })
             .ok_or_else(|| {
                 EmitError::unsupported(
@@ -4991,7 +5070,8 @@ impl<'a> FunctionBuilder<'a> {
                 )
             })?;
         let storage = ActivationAsyncDisposeCapabilityStorage { binding };
-        let finalizer = capability.finalizer();
+        let finalizer = owner.finalizer();
+        let resume_state_offset = owner.resume_state_offset();
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
             EmitError::unsupported("async disposal requires the function call ABI")
         })?;
@@ -5016,7 +5096,7 @@ impl<'a> FunctionBuilder<'a> {
         self.open_frame(ControlFrameKind::If, function);
         self.load_i64_to_local_from_offset(
             activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            resume_state_offset,
             self.scratch_local,
             function,
         );
@@ -5033,7 +5113,7 @@ impl<'a> FunctionBuilder<'a> {
             body,
             finalizer.entry_state(),
             true,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            resume_state_offset,
             function,
         )?;
         self.pop_scope();
@@ -5062,7 +5142,9 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.consume_activation_async_dispose_capability(disposing, pending, finalizer, function)?;
+        self.consume_activation_async_dispose_capability(
+            &owner, disposing, pending, finalizer, function,
+        )?;
 
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
@@ -5601,8 +5683,124 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Decode only the two completion kinds produced by the selected owner's
+    /// disposal Await continuation.
+    ///
+    /// An async generator has a wider public resume-kind domain, but queued
+    /// `return` and `throw` requests cannot replace the active disposal Await.
+    /// Treating those words as fulfillment here would corrupt the parked
+    /// completion instead of exposing an impossible driver transition.
+    fn emit_load_activation_async_dispose_resume_is_throw(
+        &mut self,
+        owner: &ActivationAsyncDisposeOwner<'_>,
+        activation_local: u32,
+        is_throw_local: u32,
+        function: &mut Function,
+    ) {
+        match owner {
+            ActivationAsyncDisposeOwner::AsyncFunction(_) => self
+                .emit_load_async_function_resume_is_throw(
+                    activation_local,
+                    is_throw_local,
+                    function,
+                ),
+            ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
+                self.load_i64_to_local_from_offset(
+                    activation_local,
+                    HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
+                    is_throw_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(is_throw_local));
+                function.instruction(&Instruction::I64Const(
+                    ASYNC_GENERATOR_RESUME_KIND_FULFILL as i64,
+                ));
+                function.instruction(&Instruction::I64Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(is_throw_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(is_throw_local));
+                function.instruction(&Instruction::I64Const(
+                    ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
+                ));
+                function.instruction(&Instruction::I64Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(is_throw_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::Unreachable);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+            }
+        }
+    }
+
+    /// Suspend one disposal Await through the selected activation driver.
+    ///
+    /// The async-generator body status and execution state are published before
+    /// control returns to its driver. That keeps the active request at the queue
+    /// head until the reaction resumes this same body and finalization finishes.
+    fn emit_activation_async_dispose_await_reactions(
+        &mut self,
+        owner: &ActivationAsyncDisposeOwner<'_>,
+        activation_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match owner {
+            ActivationAsyncDisposeOwner::AsyncFunction(_) => self.emit_async_await_reactions(
+                activation_local,
+                value_payload_local,
+                value_tag_local,
+                function,
+            ),
+            ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
+                self.emit_async_generator_await_reactions(
+                    activation_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+                    ASYNC_GENERATOR_BODY_STATUS_AWAIT,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
+                    ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+                    function,
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn emit_dispatch_activation_async_dispose_completion(
+        &mut self,
+        owner: &ActivationAsyncDisposeOwner<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match owner {
+            ActivationAsyncDisposeOwner::AsyncFunction(_) => {
+                self.emit_dispatch_current_completion(function)
+            }
+            ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
+                self.emit_dispatch_async_generator_completion(function);
+                Ok(())
+            }
+        }
+    }
+
     fn consume_activation_async_dispose_capability(
         &mut self,
+        owner: &ActivationAsyncDisposeOwner<'_>,
         disposing: DisposingActivationAsyncDisposeCapability,
         pending: ActiveAsyncDisposePendingCompletion,
         finalizer: &AsyncDisposableFinalizerPlanIr,
@@ -5650,7 +5848,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.load_i64_to_local_from_offset(
             activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            owner.resume_state_offset(),
             self.scratch_local,
             function,
         );
@@ -5659,7 +5857,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
         let resume_is_throw_local = self.reserve_temp_local();
-        self.emit_load_async_function_resume_is_throw(
+        self.emit_load_activation_async_dispose_resume_is_throw(
+            owner,
             activation_local,
             resume_is_throw_local,
             function,
@@ -5669,13 +5868,13 @@ impl<'a> FunctionBuilder<'a> {
         self.open_frame(ControlFrameKind::If, function);
         self.load_i64_to_local_from_offset(
             activation_local,
-            HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
+            owner.resume_payload_offset(),
             new_error_payload_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             activation_local,
-            HEAP_ASYNC_RESUME_TAG_OFFSET,
+            owner.resume_tag_offset(),
             new_error_tag_local,
             function,
         );
@@ -5694,7 +5893,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.load_i64_to_local_from_offset(
             activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            owner.resume_state_offset(),
             self.scratch_local,
             function,
         );
@@ -5844,7 +6043,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32WrapI64);
         self.open_frame(ControlFrameKind::If, function);
         self.emit_set_async_resume_state(activation_local, finalizer.resume_state(), function);
-        self.emit_async_await_reactions(
+        self.emit_activation_async_dispose_await_reactions(
+            owner,
             activation_local,
             await_payload_local,
             await_tag_local,
@@ -5876,7 +6076,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.finish_async_dispose_pending_completion(pending, function)?;
         self.emit_set_async_resume_state(activation_local, finalizer.exit_state(), function);
-        self.emit_dispatch_async_completion(function)?;
+        self.emit_dispatch_activation_async_dispose_completion(owner, function)?;
 
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);

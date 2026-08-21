@@ -22,10 +22,12 @@ plain async function. It covers the direct `@@asyncDispose` protocol and the
 plain-async statement-list files in the same directory remain regression
 inventory rather than a claimed result until measured.
 
-Async generators, classic-`for` and `for-of` resource heads, modules, dynamic
-source, `await using` outside a plain async function, and explicit `await` or
-`yield` inside a resource initializer are nonclaims. The syntax subtree and its
-negative tests remain parser/early-error work rather than runtime evidence.
+Classic-`for` and `for-of` resource heads, modules, dynamic source, `await
+using` outside an async function or async generator, and explicit `await` or
+`yield` inside a resource initializer are nonclaims. Async-generator ownership
+is specified separately by `async-generator-await-using-scope.md`. The syntax
+subtree and its negative tests remain parser/early-error work rather than
+runtime evidence.
 
 ## Normative acquisition and disposal
 
@@ -67,9 +69,14 @@ uses a separate public IR node and resource domain:
 
 ```rust
 StatementIr::AsyncDisposableScope {
-    capability: AsyncFunctionAsyncDisposableCapabilityIr,
+    execution: AsyncDisposableScopeExecutionIr,
     resources: AsyncDisposableResourcesIr,
     body: BlockIr,
+}
+
+pub enum AsyncDisposableScopeExecutionIr {
+    AsyncFunction(AsyncFunctionAsyncDisposableCapabilityIr),
+    AsyncGenerator(AsyncGeneratorAsyncDisposableCapabilityIr),
 }
 
 pub struct AsyncDisposableResourceIr { /* private fields */ }
@@ -87,9 +94,10 @@ immutable binding name; there is no disposal-kind boolean and no route into
 `AsyncFunctionAsyncDisposableCapabilityIr` and
 `AsyncDisposableFinalizerPlanIr` have private fields, are non-`Copy`, and are
 `#[must_use]`. The capability is minted only after an exhaustive function-owner
-match selects the plain `Async` execution kind. It owns the hidden binding
-allocated by `alloc_suspension_owned_binding`, so a backend cannot substitute a
-temporary local or attach the plan to an ordinary function or generator.
+match selects the plain `Async` execution kind. The required execution enum
+keeps this capability distinct from the async-generator capability. It owns the
+hidden binding allocated by `alloc_suspension_owned_binding`, so a backend
+cannot substitute a temporary local or attach the plan to another owner.
 
 The finalizer plan carries four ordered state roles:
 

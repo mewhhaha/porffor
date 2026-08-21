@@ -9,6 +9,7 @@ mod with_environment_call;
 mod with_environment_compound;
 
 use super::*;
+use async_disposable::PendingAsyncDisposableScopeIr;
 use dynamic_source::{
     already_accounted_optional_calls, resolved_builtin_call_context, BuiltinCallContext,
     OptionalCallSource, ResolvedDynamicSourceCall,
@@ -669,26 +670,6 @@ enum LoweredStatementListItemIr {
         resources: SyncDisposableResourcesIr,
     },
     AsyncDisposableScope(PendingAsyncDisposableScopeIr),
-}
-
-/// Lowering-only half of a plain-async `await using` scope.
-///
-/// The declaration fixes acquisition entry and capability storage immediately;
-/// the finalizer states can be minted only after the remaining statement-list
-/// suffix has allocated all of its source Await states.
-#[must_use = "a pending async-dispose scope must be finalized around its suffix"]
-struct PendingAsyncDisposableScopeIr {
-    entry_state: u32,
-    binding_name: String,
-    resources: AsyncDisposableResourcesIr,
-}
-
-enum LoweredDisposableScopeIr {
-    Sync {
-        execution: SyncDisposableScopeExecutionIr,
-        resources: SyncDisposableResourcesIr,
-    },
-    Async(PendingAsyncDisposableScopeIr),
 }
 
 impl LoweredStatementListItemIr {

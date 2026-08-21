@@ -6371,8 +6371,8 @@ mod tests {
             control_flow_source
                 .matches("emit_load_async_function_resume_is_throw(")
                 .count(),
-            2,
-            "ordinary await and the for-await layout must share the strict decoder"
+            3,
+            "ordinary await, async disposal and for-await must share the strict decoder"
         );
 
         let layout_domain = control_flow_source

@@ -13396,7 +13396,7 @@ target[Symbol.iterator];"#,
             .find(|function| function.name == "owner")
             .expect("plain async function should be lowered");
         let [StatementIr::AsyncDisposableScope {
-            capability: outer_capability,
+            execution: AsyncDisposableScopeExecutionIr::AsyncFunction(outer_capability),
             resources: outer_resources,
             body: outer_body,
         }] = owner.body.statements.as_slice()
@@ -13409,7 +13409,7 @@ target[Symbol.iterator];"#,
             panic!("source Await and nested block must remain inside the outer scope");
         };
         let [StatementIr::AsyncDisposableScope {
-            capability: inner_capability,
+            execution: AsyncDisposableScopeExecutionIr::AsyncFunction(inner_capability),
             resources: inner_resources,
             body: inner_body,
         }] = inner_block.statements.as_slice()
@@ -13465,6 +13465,176 @@ target[Symbol.iterator];"#,
         assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
             .message
             .contains("suspension inside an await using initializer")));
+    }
+
+    #[test]
+    fn async_generator_await_using_owns_distinct_closed_finalizer_states() {
+        let program = lower_script(
+            "async function * owner() {
+                 await using outer = null;
+                 yield 1;
+                 await 2;
+                 { await using inner = undefined; yield 3; await 4; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("async generator should be lowered");
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(outer_capability),
+            resources: outer_resources,
+            body: outer_body,
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("async-generator await using must own its remaining body suffix");
+        };
+        let [StatementIr::GeneratorYield { .. }, StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("yield, await, and nested block must remain inside the live outer scope");
+        };
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(inner_capability),
+            resources: inner_resources,
+            body: inner_body,
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested await using must own a distinct async-generator capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [
+                StatementIr::GeneratorYield { .. },
+                StatementIr::AsyncAwait { .. }
+            ]
+        ));
+
+        assert_eq!(outer_resources.len(), 1);
+        assert_eq!(inner_resources.len(), 1);
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert!(capability
+                .binding_name()
+                .starts_with("$async.generator.await.dispose.capability."));
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "each async-generator async-dispose capability must own one activation slot"
+            );
+            let finalizer = capability.finalizer();
+            assert!(finalizer.entry_state() < finalizer.dispose_state());
+            assert!(finalizer.dispose_state() < finalizer.resume_state());
+            assert!(finalizer.resume_state() < finalizer.exit_state());
+        }
+        assert!(
+            inner_capability.finalizer().exit_state()
+                < outer_capability.finalizer().dispose_state(),
+            "the nested finalizer must complete before the outer finalizer starts"
+        );
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::AsyncGenerator
+        );
+        assert!(owner.resumable_plan.is_some());
+
+        let unsupported = lower_script(
+            "async function * owner() {
+                 await using resource = await Promise.resolve(null);
+             }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("suspension inside an await using initializer")));
+    }
+
+    #[test]
+    fn async_generator_await_using_reserves_nested_finalizer_before_following_yield() {
+        let program = lower_script(
+            "async function * owner() {
+                 await using outer = null;
+                 yield 0;
+                 { await using inner = undefined; }
+                 yield 1;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let owner = program
+            .script
+            .as_ref()
+            .expect("script IR should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("async generator should be lowered");
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(outer),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("outer await using must own the function-body suffix");
+        };
+        let [StatementIr::GeneratorYield {
+            suspend_state: 0,
+            resume_state: 1,
+            ..
+        }, StatementIr::Block(inner_block), StatementIr::GeneratorYield {
+            suspend_state: 4,
+            resume_state: 5,
+            ..
+        }] = outer_body.statements.as_slice()
+        else {
+            panic!("the following yield must resume after the nested finalizer states");
+        };
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(inner),
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested block must retain its async-dispose capability");
+        };
+
+        assert_eq!(inner.finalizer().entry_state(), 1);
+        assert_eq!(inner.finalizer().dispose_state(), 2);
+        assert_eq!(inner.finalizer().resume_state(), 3);
+        assert_eq!(inner.finalizer().exit_state(), 4);
+        assert_eq!(outer.finalizer().entry_state(), 0);
+        assert_eq!(outer.finalizer().dispose_state(), 6);
+        assert_eq!(outer.finalizer().resume_state(), 7);
+        assert_eq!(outer.finalizer().exit_state(), 8);
+
+        let plan = owner
+            .resumable_plan
+            .as_ref()
+            .expect("async generator must retain its unified resumable plan");
+        assert_eq!(plan.state_count, 9);
+        assert_eq!(
+            plan.suspension_points,
+            vec![
+                ResumableSuspensionPointIr {
+                    kind: ResumableSuspensionKindIr::Yield,
+                    suspend_state: 0,
+                    resume_state: 1,
+                },
+                ResumableSuspensionPointIr {
+                    kind: ResumableSuspensionKindIr::Yield,
+                    suspend_state: 4,
+                    resume_state: 5,
+                },
+            ]
+        );
     }
 
     #[test]

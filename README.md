@@ -723,6 +723,35 @@ Recent focused progress through `2026-08-21`:
   source, suspension inside an initializer, nonlinear async control flow, the
   complete `await using` directory and the full pinned aggregate remain outside
   this batch.
+- The adjacent async-generator `await using` path is now verified against a
+  distinct `AsyncDisposableScopeExecutionIr::AsyncGenerator` capability. The
+  durable CLI oracle keeps that activation-owned capability live across both
+  `yield` and body `await`, then covers normal completion, external return and
+  throw, awaited rejection, direct `@@asyncDispose`, the ignored-return
+  `@@dispose` fallback, later acquisition failure, nested LIFO,
+  `SuppressedError`, exactly-once disposal, queued requests and synchronous
+  reentrancy from an async disposer. Unlike synchronous disposal, its awaited
+  disposer records the current-request reaction before the queued reaction,
+  with both reactions after disposal. At source commit `5ad393f3d0`, the exact
+  `initializer-Symbol.{asyncDispose,dispose}-called-at-end-of-asyncgeneratorbody.js`
+  files reported `0/4`: all four sloppy/strict Script executions were
+  `Runtime/NotImplemented` with `unsupported in lila wasm-aot first slice: await
+  using declaration in an async generator`, and neither path had a rewrite,
+  mask or known-failure entry. Central verification is green for `cargo check
+  --workspace --all-targets`, `cargo xc`, the focused `lila-ir`
+  `async_generator_await_using` tests (`2/2` in 12.34s, including the exact
+  state-collision invariant), the new bounded structure executable (`5/5`),
+  and the retained plain-async structure executable (`6/6`). The async-generator
+  lifecycle fixture passes `1/1` in 23.63s; the retained plain-async await-using
+  and synchronous async-generator using fixtures pass `1/1` in 11.96s and
+  `1/1` in 16.56s. Both exact files now pass `2/2`, for `4/4` total with zero
+  unsupported, crash or bug outcomes. The state-collision repair reserves the
+  three implicit finalizer states before the following suspension and makes
+  AOT assert that each resumable statement entry continues the preceding exit.
+  Classic-`for` and `for-of` resource heads, modules, dynamic source, binding
+  patterns, suspension inside a resource initializer, nonlinear async-generator
+  forms, the complete `await using` directory and the full pinned aggregate
+  remain explicit nonclaims.
 - The adjacent classic-`for` extension gives a synchronous
   `using` head the closed, statically non-empty
   `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while
