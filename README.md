@@ -370,6 +370,24 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-21`:
 
+- Eager identifier compound assignments inside `with` now use one sealed,
+  consuming Object Environment Reference lifecycle. The lowerer
+  exhaustively separates the six arithmetic and six bitwise operators from
+  short-circuiting logical assignment, while an opaque fixed-role carrier
+  orders GetBindingValue, RHS/application, same-base SetMutableBinding and the
+  returned value without adding a parallel backend operation. The durable CLI
+  oracle covers all twelve operators, selected-object identity across getter
+  deletion and RHS effects, strict post-Get deletion, function/global/outer
+  fallbacks, and run-time fallback mutation, deletion and creation. A bounded
+  source witness pins the exact current-source Test262 inventory of 44
+  `noStrict` files (44 executions): 33 historical function/global/nested-object
+  cases and 11 strict nested-function SetMutableBinding rechecks. `**=` has the
+  same closed local invariant coverage but no forty-fifth direct vendored
+  witness. The IR domain test is `1/1`, the source-bounded suite is `5/5`, the
+  retained numeric-reference suite remains `4/4`, the Wasm lifecycle fixture is
+  `1/1`, and the exact current-source Test262 cohort is `44/44`. The adjacent
+  11 global Object Environment cases remain unsupported and are not part of
+  this focused claim.
 - Identifier `++` and `--` inside `with` now consume the same non-empty,
   non-copyable Object Environment Reference plan as direct reads and writes.
   Each selected branch fixes one binding object across GetBindingValue's second

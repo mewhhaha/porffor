@@ -85,10 +85,11 @@ green. The delete-super and Object Environment Record read/write structural
 units and Wasm fixtures are present, while their Cargo and pinned Test262
 execution gates remain deferred to the current integration checkpoint. The
 Object Environment seam is intentionally limited to plain assignment, direct
-identifier GetValue (including `typeof` operands) and identifier numeric update
-in scripts and ordinary source functions. Identifier-call `WithBaseObject`,
-compound/logical/destructuring/delete operations, generated class/helper
-contexts and resumable captured WithObject environments remain explicit debt.
+identifier GetValue (including `typeof` operands), identifier numeric update
+and eager arithmetic/bitwise compound assignment in scripts and ordinary source
+functions. Identifier-call `WithBaseObject`, logical compound assignment,
+destructuring/delete operations, generated class/helper contexts and resumable
+captured WithObject environments remain explicit debt.
 
 Resumable loops now carry a required closed
 `ResumableLoopIterationEnvironmentIr::{StorageOnly, FreshPerIteration}` policy.
@@ -104,6 +105,26 @@ three source-bounded backend structure tests, two focused IR tests, the existing
 resumable-loop Wasm module test, and the six-closure consumer fixture all pass.
 The two exact pinned `Array.fromAsync` witnesses report `4/4` under Wasm-AOT;
 the complete 95-file leaf was not rerun.
+
+Eager identifier compound assignments inside `with` now use the same non-empty
+consuming Reference plan. One private closed operation
+separates all six arithmetic and all six bitwise operators from the three
+short-circuiting logical forms. An opaque old-value/result/write carrier is
+sealed to the applied expression before the plan accepts it, so lowering cannot
+transpose the three compiler-private bindings or return before same-base
+PutValue succeeds. The durable CLI oracle covers all twelve eager operators,
+selected-object identity across getter deletion and RHS effects, strict
+post-Get deletion, function/global/outer fallbacks, and observable fallback
+mutation, deletion and creation. The bounded source witness owns the exact 44
+`noStrict` current-source Test262 files: 33 historical function/global/nested
+Object Environment Record cases and 11 modern strict nested-function
+SetMutableBinding rechecks. `**=` is included by the closed local operation but
+has no additional direct vendored witness. The integrated IR domain test is
+`1/1`, the source-bounded suite is `5/5`, the retained numeric-reference suite
+is `4/4`, the Wasm lifecycle fixture is `1/1`, and the exact current-source
+cohort is `44/44`. The broader modern filename filter also exposed 11 adjacent
+global Object Environment cases that remain unsupported; they are explicit
+follow-up evidence, not part of this `with`-scope passing claim.
 
 ## Objective
 

@@ -727,6 +727,71 @@ impl WithEnvironmentResolution {
             },
         )
     }
+
+    /// Compose one selected Object Environment Record's GetBindingValue,
+    /// eager operator application and SetMutableBinding. The sealed assignment
+    /// carries the only old/result/write roles that can reach this operation.
+    fn compound_assignment_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        assignment: &WithEnvironmentCompoundAssignment,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let WithEnvironmentCompoundAssignment {
+            bindings:
+                WithEnvironmentCompoundAssignmentBindings {
+                    old_value: old_value_name,
+                    result: result_name,
+                    write: write_name,
+                },
+            result: applied,
+        } = assignment;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let old_value = binding_object
+            .clone()
+            .get_value(referenced_name, strictness);
+        let result_info = applied.value_info();
+        let result =
+            TypedExpr::from_info(result_info.clone(), ExprIr::Identifier(result_name.clone()));
+        let write = binding_object.put_value(referenced_name, strictness, result.clone());
+        let after_write = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: write_name.clone(),
+                value: Box::new(write),
+                body: Box::new(result),
+            },
+        );
+        let after_apply = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: result_name.clone(),
+                value: Box::new(applied.clone()),
+                body: Box::new(after_write),
+            },
+        );
+        let selected_assignment = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: old_value_name.clone(),
+                value: Box::new(old_value),
+                body: Box::new(after_apply),
+            },
+        );
+        TypedExpr::from_info(
+            result_info,
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected_assignment),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
 }
 
 impl SelectedWithEnvironmentObjects {
@@ -756,10 +821,10 @@ impl SelectedWithEnvironmentObjects {
 /// The innermost resolution is a required field instead of the first element
 /// of a `Vec`, so an empty Object Environment chain is not representable. The
 /// plan is deliberately neither `Clone` nor `Copy`; [`Self::get_value`],
-/// [`Self::put_value`] and [`Self::numeric_update`] consume it, making a second
-/// use E0382.
+/// [`Self::put_value`], [`Self::numeric_update`] and
+/// [`Self::compound_assignment`] consume it, making a second use E0382.
 #[derive(Debug)]
-#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, or numeric update"]
+#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, numeric update, or compound assignment"]
 pub(crate) struct WithEnvironmentReferencePlan {
     innermost: WithEnvironmentResolution,
     outer: Vec<WithEnvironmentResolution>,
@@ -777,6 +842,58 @@ pub(crate) struct WithEnvironmentNumericUpdateBindings {
     old_value: String,
     result: String,
     write: String,
+}
+
+/// Compiler-private bindings for one eager with-environment compound
+/// assignment.
+///
+/// The old-value, result and write-completion roles intentionally cannot be
+/// supplied as three positional `String`s. The sole allocator fixes their
+/// meanings, [`Self::old_value`] is the only old-value operand exposed to the
+/// lowerer, and [`Self::seal`] consumes the carrier before the Reference plan
+/// accepts the operation.
+#[derive(Debug)]
+#[must_use = "with-environment compound-assignment bindings must be sealed into an operation"]
+pub(crate) struct WithEnvironmentCompoundAssignmentBindings {
+    old_value: String,
+    result: String,
+    write: String,
+}
+
+impl WithEnvironmentCompoundAssignmentBindings {
+    pub(crate) fn allocate(mut allocate: impl FnMut(&str) -> String) -> Self {
+        Self {
+            old_value: allocate("with.compound.old."),
+            result: allocate("with.compound.result."),
+            write: allocate("with.compound.write."),
+        }
+    }
+
+    /// The dynamically obtained GetBindingValue result. Returning the operand
+    /// from the role carrier prevents a caller from spelling the old binding
+    /// name independently of the names the consuming plan will materialize.
+    pub(crate) fn old_value(&self) -> TypedExpr {
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Identifier(self.old_value.clone()),
+        )
+    }
+
+    pub(crate) fn seal(self, result: TypedExpr) -> WithEnvironmentCompoundAssignment {
+        WithEnvironmentCompoundAssignment {
+            bindings: self,
+            result,
+        }
+    }
+}
+
+/// One eager operation result sealed to the private bindings which establish
+/// its GetValue/apply/PutValue/result lifecycle.
+#[derive(Debug)]
+#[must_use = "a sealed with-environment compound assignment must consume its Reference plan"]
+pub(crate) struct WithEnvironmentCompoundAssignment {
+    bindings: WithEnvironmentCompoundAssignmentBindings,
+    result: TypedExpr,
 }
 
 impl WithEnvironmentNumericUpdateBindings {
@@ -875,6 +992,33 @@ impl WithEnvironmentReferencePlan {
             &bindings,
             resolved,
         )
+    }
+
+    /// Consume one ResolveBinding result for an eager compound assignment.
+    /// Every selected branch performs GetValue, evaluates/applies the RHS,
+    /// completes same-base PutValue, and only then exposes the applied result.
+    #[must_use]
+    pub(crate) fn compound_assignment(
+        self,
+        assignment: WithEnvironmentCompoundAssignment,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.compound_assignment_or_else(
+                &referenced_name,
+                strictness,
+                &assignment,
+                resolved,
+            );
+        }
+        innermost.compound_assignment_or_else(&referenced_name, strictness, &assignment, resolved)
     }
 }
 
@@ -2123,6 +2267,80 @@ mod tests {
         assert_eq!(write_name, "$with.update.write");
         assert_strict_selected_write(write, "$with.object", "$with.update.old");
         assert_eq!(identifier_name(result), "$with.update.result");
+    }
+
+    #[test]
+    fn with_environment_compound_assignment_sequences_same_object_get_apply_put_then_result() {
+        let bindings = WithEnvironmentCompoundAssignmentBindings::allocate(|prefix| {
+            format!("${}", prefix.trim_end_matches('.'))
+        });
+        let old_value = bindings.old_value();
+        let applied = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CoerciveAdd {
+                lhs: Box::new(old_value),
+                rhs: Box::new(identifier("rhs", ValueKind::Number)),
+            },
+        );
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .compound_assignment(
+            bindings.seal(applied),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the Object Environment once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+        assert_eq!(identifier_name(fallback), "fallback");
+
+        let ExprIr::MaterializeBinding {
+            name: old_name,
+            value: old_value,
+            body: after_get,
+        } = &selected.expr
+        else {
+            panic!("GetBindingValue must be materialized before RHS/application");
+        };
+        assert_eq!(old_name, "$with.compound.old");
+        assert_selected_get_value(old_value, "$with.object", Strictness::Strict);
+
+        let ExprIr::MaterializeBinding {
+            name: result_name,
+            value: applied,
+            body: after_apply,
+        } = &after_get.expr
+        else {
+            panic!("the applied result must be retained across PutValue");
+        };
+        assert_eq!(result_name, "$with.compound.result");
+        let ExprIr::CoerciveAdd { lhs, rhs } = &applied.expr else {
+            panic!("the sealed eager operation must remain between GetValue and PutValue");
+        };
+        assert_eq!(identifier_name(lhs), "$with.compound.old");
+        assert_eq!(identifier_name(rhs), "rhs");
+
+        let ExprIr::MaterializeBinding {
+            name: write_name,
+            value: write,
+            body: result,
+        } = &after_apply.expr
+        else {
+            panic!("PutValue must complete before the compound result is returned");
+        };
+        assert_eq!(write_name, "$with.compound.write");
+        assert_strict_selected_write(write, "$with.object", "$with.compound.result");
+        assert_eq!(identifier_name(result), "$with.compound.result");
     }
 
     #[test]

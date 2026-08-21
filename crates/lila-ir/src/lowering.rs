@@ -2,6 +2,7 @@ mod array_literal;
 mod builtin_shapes;
 mod dynamic_source;
 mod proxy_traps;
+mod with_environment_compound;
 
 use super::*;
 use dynamic_source::{
@@ -9,6 +10,7 @@ use dynamic_source::{
     OptionalCallSource, ResolvedDynamicSourceCall,
 };
 use proxy_traps::{ProxyTrap, ProxyTrapSignature};
+use with_environment_compound::EagerCompoundAssignmentOp;
 
 /// Reference Records (6.2.5). `Strictness` and `carried_strictness` arrive
 /// through the crate-root glob above; the rest of the module is `pub(crate)`
@@ -21,7 +23,8 @@ use crate::ir::reference::{
     DeleteSuperReferencePlan, OrderedWithEnvironmentChain, PositionedWithEnvironment,
     ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord,
     SelectedWithEnvironmentObjects, WithEnvironmentBindingObject,
-    WithEnvironmentNumericUpdateBindings, WithEnvironmentReferencePlan,
+    WithEnvironmentCompoundAssignmentBindings, WithEnvironmentNumericUpdateBindings,
+    WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23921,6 +23924,40 @@ impl<'a> ScriptLowerer<'a> {
                 };
 
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let arithmetic = match op {
+                    AssignOp::Add => ArithmeticOp::Add,
+                    AssignOp::Sub => ArithmeticOp::Sub,
+                    AssignOp::Mul => ArithmeticOp::Mul,
+                    AssignOp::Div => ArithmeticOp::Div,
+                    AssignOp::Mod => ArithmeticOp::Mod,
+                    AssignOp::Exp => ArithmeticOp::Exp,
+                    AssignOp::Assign
+                    | AssignOp::BoolAnd
+                    | AssignOp::BoolOr
+                    | AssignOp::Coalesce
+                    | AssignOp::And
+                    | AssignOp::Or
+                    | AssignOp::Xor
+                    | AssignOp::Shl
+                    | AssignOp::Shr
+                    | AssignOp::Ushr => {
+                        unreachable!("this match arm covers only the arithmetic operators")
+                    }
+                };
+                let reference = self.locate_identifier_reference(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(reference.declarative_position());
+                if let Some(objects) = selected {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_with_scoped_identifier_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                        value,
+                        objects,
+                        reference,
+                    );
+                }
                 let value = self.lower_expression(rhs);
                 // 13.15.4 ApplyStringOrNumericAssignment does GetValue then
                 // PutValue, so both 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 apply
@@ -24370,6 +24407,40 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("unsupported property assignment operator");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let bitwise = match op {
+                    AssignOp::And => BitwiseOp::And,
+                    AssignOp::Or => BitwiseOp::Or,
+                    AssignOp::Xor => BitwiseOp::Xor,
+                    AssignOp::Shl => BitwiseOp::Shl,
+                    AssignOp::Shr => BitwiseOp::Shr,
+                    AssignOp::Ushr => BitwiseOp::UShr,
+                    AssignOp::Assign
+                    | AssignOp::Add
+                    | AssignOp::Sub
+                    | AssignOp::Mul
+                    | AssignOp::Div
+                    | AssignOp::Mod
+                    | AssignOp::Exp
+                    | AssignOp::BoolAnd
+                    | AssignOp::BoolOr
+                    | AssignOp::Coalesce => {
+                        unreachable!("this match arm covers only the bitwise operators")
+                    }
+                };
+                let reference = self.locate_identifier_reference(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(reference.declarative_position());
+                if let Some(objects) = selected {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_with_scoped_identifier_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Bitwise(bitwise),
+                        value,
+                        objects,
+                        reference,
+                    );
+                }
                 // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
                 // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
                 // immutability test below, which is the only test this arm used
