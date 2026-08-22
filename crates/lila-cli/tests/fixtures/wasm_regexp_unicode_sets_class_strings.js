@@ -31,6 +31,40 @@ matches(/^[_\q{ab|c}]+$/v, "_cab", "string-right union");
 matches(/^[\d\q{ab}]+$/v, "1ab2", "class escape union");
 matches(/^[\p{ASCII_Hex_Digit}\q{ab}]+$/v, "Aab", "property escape union");
 
+// Unicode 17's finite Emoji_Keycap_Sequence property has twelve complete
+// three-code-point strings. Direct escapes and class-set algebra share the
+// same finite representation rather than lowering the strings as scalars.
+var keycap0 = "0\uFE0F\u20E3";
+var keycap1 = "1\uFE0F\u20E3";
+matches(/^\p{Emoji_Keycap_Sequence}$/v, keycap0, "direct keycap property");
+matches(
+  /^\p{Emoji_Keycap_Sequence}$/iv,
+  keycap1,
+  "keycap property identity case folding",
+);
+rejects(/^\p{Emoji_Keycap_Sequence}$/v, "0", "keycap property is indivisible");
+matches(/^[\p{Emoji_Keycap_Sequence}\q{x}]$/v, "x", "keycap property union");
+matches(
+  /^[\p{Emoji_Keycap_Sequence}&&\q{0\uFE0F\u20E3|x}]$/v,
+  keycap0,
+  "keycap property intersection",
+);
+rejects(
+  /^[\p{Emoji_Keycap_Sequence}&&\q{0\uFE0F\u20E3|x}]$/v,
+  keycap1,
+  "keycap property intersection removes other members",
+);
+matches(
+  /^[\p{Emoji_Keycap_Sequence}--\q{0\uFE0F\u20E3}]$/v,
+  keycap1,
+  "keycap property subtraction",
+);
+rejects(
+  /^[\p{Emoji_Keycap_Sequence}--\q{0\uFE0F\u20E3}]$/v,
+  keycap0,
+  "keycap property subtraction removes member",
+);
+
 // Intersection and subtraction operate on complete set members. A scalar
 // character is a one-code-point string for these operations.
 matches(/^[\q{a|ab|b}&&\q{ab|b|c}]+$/v, "abb", "string intersection");

@@ -1,7 +1,8 @@
 # UnicodeSets finite string algebra
 
-Status: normative implementation contract for direct `\q{…}` operands in the
-Rust RegExp matcher-program producer.
+Status: normative implementation contract for direct `\q{…}` operands and
+exact finite Unicode properties of strings in the Rust RegExp matcher-program
+producer.
 
 ## Exact conformance boundary
 
@@ -34,9 +35,11 @@ for malformed-`\q` grammar, complete-Pattern validation, and negated-class
 early-error ordering.
 
 The six adjacent generated files whose name contains
-`property-of-strings-escape` are not part of this cohort. Their
-`\p{Emoji_Keycap_Sequence}` operand needs the separate Unicode property-of-
-strings table and cannot be represented by the finite source literal alone.
+`property-of-strings-escape` are not part of this original 27-file cohort.
+Their `\p{Emoji_Keycap_Sequence}` operand requires property-owned Unicode data,
+not inference from the finite source literal. The finite keycap extension below
+now supplies that exact table and verifies the broader source-derived keycap
+inventory separately.
 
 ## Finite set domain
 
@@ -119,10 +122,27 @@ emission: the exhaustive `ParsedAtom` matches in nullability, lookbehind
 admission, named-backreference traversal, forward lowering, and reverse
 lowering all name `FiniteClassSet`.
 
-Unicode properties of strings remain a distinct typed capability,
-`RequiresUnicodePropertyOfStrings`. Set-expression parsing may propagate that
-capability while it finishes syntax and `MayContainStrings` early errors, but
-it cannot be confused with a finite direct string set or become a matcher atom.
+Unicode properties of strings without exact finite tables remain the distinct
+typed capability `RequiresUnicodePropertyOfStrings`. Set-expression parsing
+propagates that capability while it finishes syntax and `MayContainStrings`
+early errors. A property with an explicit finite table instead enters the same
+`FiniteClassSet` algebra as direct class strings; it is never inferred from a
+source `\q` operand.
+
+### Finite keycap property extension
+
+Unicode 17 `Emoji_Keycap_Sequence` is the exact twelve-member set
+`[#*0-9] FE0F 20E3`. Its property parser constructs those complete
+three-code-point strings directly, so a bare
+`\p{Emoji_Keycap_Sequence}` atom and UnicodeSets union, intersection and
+subtraction all consume the canonical finite product above. The property sets
+`MayContainStrings` independently of the post-algebra product, preserving the
+negated-class early error.
+
+`Basic_Emoji` and the remaining `RGI_Emoji*` properties retain
+`RequiresUnicodePropertyOfStrings`. Adding another property requires its own
+revision-pinned table and focused raw inventory; recognizing its name is not
+permission to approximate it with code-point ranges.
 
 ## Case-insensitive boundary
 
@@ -133,16 +153,25 @@ class string remains the distinct typed
 MaybeSimpleCaseFolding is represented. It must not emit a post-algebra range
 closure or exact-literal matcher and pretend that it implements `Canonicalize`.
 
+The finite keycap property is an explicit identity-fold exception: `#`, `*`,
+ASCII digits, FE0F and 20E3 are all unchanged by simple case folding, so its
+`iv` atom is bytecode-identical to `v`. The constructor is named
+`finite_case_invariant_property_of_strings`, the IR witness compares both
+programs, and the Wasm fixture executes the `iv` form. A future finite property
+containing a casable code point must not use that constructor; it needs the
+operand-local folding representation above.
+
 ## Explicit nonclaims
 
-This batch does not implement Unicode properties of strings, the six adjacent
-`property-of-strings-escape` generated files, arbitrary runtime pattern
-compilation, or broad UnicodeSets conformance. It does not change malformed
-`\q` syntax or negated-class early errors. It does not add a new Wasm matcher
-opcode or data pool: the selected finite source strings lower to the existing
-ordered matcher bytecode. Global/sticky wrappers, `lastIndex`, RegExp subclass
-behavior, dynamic source generation, and unrelated property escapes remain
-outside the batch.
+This contract implements only the exact finite `Emoji_Keycap_Sequence`
+property table. It does not implement `Basic_Emoji`, the remaining
+`RGI_Emoji*` properties, arbitrary runtime pattern compilation, or broad
+UnicodeSets conformance. It does not change malformed `\q` syntax or
+negated-class early errors. It does not add a new Wasm matcher opcode or data
+pool: finite source and property strings lower to the existing ordered matcher
+bytecode. Global/sticky wrappers, `lastIndex`, RegExp subclass behavior,
+dynamic source generation, and unrelated property escapes remain outside the
+batch.
 
 ## Durable producer invariants
 
@@ -159,6 +188,11 @@ The focused `lila-ir` witness must prove:
 - nested set operations produce the same canonical product as top-level ones;
 - direct finite strings no longer produce a capability error, while an `iv`
   string set remains explicit unsupported; and
+- the exact twelve-member keycap table enters the same direct-atom and set
+  algebra path while other string properties remain typed unsupported;
+- the source-derived 37-file keycap inventory stays unflagged, contains exactly
+  three parse-negative files, and has no runner, shortcut, or known-failure
+  mask; and
 - every emitted branch and literal is subject to `REGEXP_MAX_INSTRUCTIONS`.
 
 ## Verification
@@ -179,8 +213,16 @@ Integrated focused stage:
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name regexp-unicode-set-finite-strings \
   --timeout-ms 180000 --threads 1
+
+rg -lF 'Emoji_Keycap_Sequence' \
+  test262/vendor/test262/test/built-ins/RegExp/property-escapes/generated/strings \
+  test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated | sort
 ```
 
-Publication must report the exact 27-file/54-execution direct cohort separately
-from the six property-of-strings exclusions and from the complete generated
-directory.
+The keycap search must return exactly 37 unflagged files: four direct-property
+files and 33 UnicodeSets algebra files, for 74 sloppy/strict executions. Run
+those exact relative paths independently under `wasm-aot`; the three
+`Emoji_Keycap_Sequence-negative-{CharacterClass,P,u}.js` files must remain
+parse-time `SyntaxError` successes. Publication reports that inventory
+separately from the original 27-file/54-execution direct-`\q` cohort and from
+the complete generated directory.

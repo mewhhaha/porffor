@@ -27,9 +27,10 @@ pub mod reference;
 pub use reference::{
     carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
     IdentifierWriteReferenceIr, OrdinaryPropertyAssignmentIr,
-    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyNumericUpdateIr, PutValueFailure,
-    Strictness, SuperPropertyMutationIr, SuperPropertyMutationOperationIr,
-    SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
+    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyLogicalAssignmentIr,
+    OrdinaryPropertyNumericUpdateIr, PropertyHookTargets, PutValueFailure, Strictness,
+    SuperPropertyMutationIr, SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr,
+    SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -1771,6 +1772,7 @@ pub enum ExprIr {
         strictness: Strictness,
     },
     OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr),
+    OrdinaryPropertyLogicalAssignment(OrdinaryPropertyLogicalAssignmentIr),
     OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr),
     OrdinaryPropertyEagerCompoundAssignment(OrdinaryPropertyEagerCompoundAssignmentIr),
     UpdateIdentifier {
@@ -4115,6 +4117,18 @@ impl IrSummaryCounts {
             }
             ExprIr::OrdinaryPropertyAssignment(assignment) => {
                 self.property_writes += 1;
+                if matches!(assignment.referenced_name(), PropertyKeyIr::StaticString(name) if name == "prototype")
+                {
+                    self.prototype_writes += 1;
+                }
+                self.visit_expr(assignment.base_and_receiver());
+                self.visit_property_key(assignment.referenced_name());
+                self.visit_expr(assignment.rhs());
+            }
+            ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+                self.property_reads += 1;
+                self.property_writes += 1;
+                self.compound_assignments += 1;
                 if matches!(assignment.referenced_name(), PropertyKeyIr::StaticString(name) if name == "prototype")
                 {
                     self.prototype_writes += 1;

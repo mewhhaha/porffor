@@ -82,6 +82,8 @@ fn ir_owns_one_closed_ordinary_property_numeric_update_reference() {
         "op: NumericUpdateOp",
         "return_mode: UpdateReturnMode",
         "value_kind: ValueKind",
+        "possible_getters: PropertyHookTargets",
+        "possible_setters: PropertyHookTargets",
     ] {
         assert!(carrier.contains(field), "carrier lost {field}");
         assert!(!carrier.contains(&format!("pub {field}")));
@@ -95,6 +97,8 @@ fn ir_owns_one_closed_ordinary_property_numeric_update_reference() {
         "op",
         "return_mode",
         "value_kind",
+        "possible_getters",
+        "possible_setters",
     ] {
         assert!(carrier.contains(&format!("pub fn {accessor}(&self)")));
     }
@@ -115,6 +119,8 @@ fn ir_owns_one_closed_ordinary_property_numeric_update_reference() {
             "pub(crate) fn numeric_update(\n        self,",
             "op: NumericUpdateOp",
             "return_mode: UpdateReturnMode",
+            "possible_getters: PropertyHookTargets",
+            "possible_setters: PropertyHookTargets",
             "let value_kind = ValueKind::Dynamic;",
             "KindSet::from_kind(ValueKind::Number)\n                .union(KindSet::from_kind(ValueKind::BigInt))",
             "ExprIr::OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr::new(",
@@ -163,8 +169,27 @@ fn lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_ac
         update,
         &[
             "self.lower_ordinary_property_reference_plan(access)",
-            "plan.numeric_update(op, return_mode)",
-            "self.update_written_shape(",
+            "self.record_ordinary_property_get(&metadata);",
+            "let possible_getters = Self::possible_ordinary_property_getters(&metadata);",
+            "let possible_setters = self.possible_ordinary_property_setters(&metadata, true);",
+            "plan.numeric_update(op, return_mode, possible_getters, possible_setters)",
+            "self.record_ordinary_property_possible_write(",
+        ],
+    );
+    let possible_write = bounded(
+        ORDINARY_PROPERTY_REFERENCE_LOWERING_SOURCE,
+        "pub(super) fn record_ordinary_property_possible_write(",
+        "    /// Lower a source-level plain assignment",
+    );
+    positions_in_order(
+        possible_write,
+        &[
+            "self.array_prototype_mutated = true;",
+            "self.possible_ordinary_property_setters(metadata, intervening_user_code);",
+            "self.observe_unknown_property_hook(setter);",
+            "self.observe_ordinary_property_hook_this(setter, receiver_info.clone());",
+            "self.invalidate_unknown_user_code_effects();",
+            "self.invalidate_ordinary_property_shape_aliases(",
         ],
     );
     assert!(ORDINARY_PROPERTY_UPDATE_LOWERING_SOURCE
@@ -214,7 +239,7 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
         sealed
             .matches("impl OrdinaryPropertyReferenceSource for ")
             .count(),
-        3
+        4
     );
     assert!(
         sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyAssignmentIr")
@@ -225,6 +250,8 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
     assert!(
         sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyNumericUpdateIr")
     );
+    assert!(sealed
+        .contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyLogicalAssignmentIr"));
 
     let get_numeric = bounded(
         EXPRESSIONS_SOURCE,
@@ -310,8 +337,10 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
 #[test]
 fn exhaustive_consumers_and_temp_budget_name_each_numeric_update_phase() {
     for marker in [
-        "const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4;",
-        "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 3;",
+        "const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2;",
+        "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
+        "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
+        "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
         "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
         "const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;",
         "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",

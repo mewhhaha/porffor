@@ -2793,14 +2793,20 @@ mod tests {
         let program = lower_script("let value = 0; value ||= 2; value &&= 3; value ??= 4;");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        for statement in &script.body.statements[1..] {
+        for (statement, expected_op) in script.body.statements[1..].iter().zip([
+            LogicalBinaryOp::Or,
+            LogicalBinaryOp::And,
+            LogicalBinaryOp::Coalesce,
+        ]) {
             let StatementIr::Expression(expr) = statement else {
                 panic!("expected logical assignment expression statement");
             };
-            let ExprIr::AssignIdentifier { value, .. } = &expr.expr else {
-                panic!("expected identifier assignment");
+            let ExprIr::LogicalShortCircuit { op, lhs, rhs } = &expr.expr else {
+                panic!("expected logical short circuit, got {:?}", expr.expr);
             };
-            assert!(matches!(value.expr, ExprIr::LogicalShortCircuit { .. }));
+            assert_eq!(*op, expected_op);
+            assert!(matches!(lhs.expr, ExprIr::Identifier(_)));
+            assert!(matches!(rhs.expr, ExprIr::AssignIdentifier { .. }));
         }
     }
 
@@ -5390,10 +5396,16 @@ mod tests {
         let StatementIr::Expression(write) = &script.body.statements[1] else {
             panic!("expected array property write");
         };
-        let ExprIr::PropertyWrite { key, .. } = &write.expr else {
-            panic!("expected property write, got {:?}", write.expr);
+        let ExprIr::OrdinaryPropertyAssignment(assignment) = &write.expr else {
+            panic!(
+                "expected ordinary property assignment, got {:?}",
+                write.expr
+            );
         };
-        assert_eq!(key, &PropertyKeyIr::StaticString("1.1".to_string()));
+        assert!(matches!(
+            assignment.referenced_name(),
+            PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number
+        ));
 
         let StatementIr::Expression(read) = &script.body.statements[2] else {
             panic!("expected array property read");
@@ -5424,12 +5436,16 @@ target[Symbol.asyncIterator];"#,
         let StatementIr::Expression(write) = &script.body.statements[1] else {
             panic!("expected property write");
         };
-        let ExprIr::PropertyWrite { key, .. } = &write.expr else {
-            panic!("expected property write, got {:?}", write.expr);
+        let ExprIr::OrdinaryPropertyAssignment(assignment) = &write.expr else {
+            panic!(
+                "expected ordinary property assignment, got {:?}",
+                write.expr
+            );
         };
         assert!(
-            matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol),
-            "well-known Symbol write key must retain its Symbol kind, got {key:?}"
+            matches!(assignment.referenced_name(), PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol),
+            "well-known Symbol write key must retain its Symbol kind, got {:?}",
+            assignment.referenced_name()
         );
 
         let StatementIr::Expression(read) = &script.body.statements[2] else {
@@ -5630,12 +5646,16 @@ target[Symbol.iterator];"#,
             let StatementIr::Expression(write) = &script.body.statements[2] else {
                 panic!("expected array property write for {source}");
             };
-            let ExprIr::PropertyWrite { key, .. } = &write.expr else {
-                panic!("expected property write for {source}, got {:?}", write.expr);
+            let ExprIr::OrdinaryPropertyAssignment(assignment) = &write.expr else {
+                panic!(
+                    "expected ordinary property assignment for {source}, got {:?}",
+                    write.expr
+                );
             };
             assert!(
-                matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number),
-                "runtime numeric write key must use ToPropertyKey for {source}, got {key:?}"
+                matches!(assignment.referenced_name(), PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number),
+                "runtime numeric write key must retain its raw ToPropertyKey input for {source}, got {:?}",
+                assignment.referenced_name()
             );
 
             let StatementIr::Expression(read) = &script.body.statements[3] else {
@@ -6375,10 +6395,7 @@ target[Symbol.iterator];"#,
             .find(|function| function.name == "resume")
             .expect("async function should be registered");
 
-        assert_eq!(
-            function.protocol,
-            FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Async)
-        );
+        assert_eq!(function.protocol, FunctionProtocolIr::Async);
         assert!(!function.protocol.is_constructable());
         assert!(function.body.statements.iter().any(|statement| {
             matches!(
@@ -9685,9 +9702,9 @@ target[Symbol.iterator];"#,
                     matches!(
                         statement,
                         StatementIr::Expression(TypedExpr {
-                            expr: ExprIr::PropertyWrite { value, .. },
+                            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
                             ..
-                        }) if value.kind == ValueKind::Dynamic
+                        }) if assignment.rhs().kind == ValueKind::Dynamic
                     )
                 }));
             }
@@ -10973,18 +10990,21 @@ target[Symbol.iterator];"#,
             .find(|function| function.name == "reviver")
             .expect("reviver should be lowered");
         let StatementIr::Expression(TypedExpr {
-            expr: ExprIr::PropertyWrite { target, key, .. },
+            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
             ..
         }) = &reviver.body.statements[0]
         else {
             panic!("expected reviver holder write");
         };
-        assert_eq!(target.kind, ValueKind::Dynamic);
+        assert_eq!(assignment.base_and_receiver().kind, ValueKind::Dynamic);
         assert_eq!(
-            target.possible_kinds,
+            assignment.base_and_receiver().possible_kinds,
             KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Array))
         );
-        assert!(matches!(key, PropertyKeyIr::ArrayIndex(_)));
+        assert!(matches!(
+            assignment.referenced_name(),
+            PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number
+        ));
     }
 
     #[test]
@@ -14280,7 +14300,7 @@ target[Symbol.iterator];"#,
             );
         };
         assert_eq!(head.mode, BindingMode::Let);
-        assert!(head.name.starts_with("$forof.access."));
+        assert!(head.name.starts_with("$forof.access"));
         assert!(matches!(
             body.as_ref(),
             StatementIr::Block(BlockIr { statements, .. })

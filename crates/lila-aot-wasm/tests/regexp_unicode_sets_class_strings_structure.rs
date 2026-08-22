@@ -1,3 +1,5 @@
+use std::{fs, path::Path};
+
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_regexp_unicode_sets_class_strings.js");
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/regexp.rs");
@@ -143,6 +145,46 @@ const EXACT_TEST262: [(&str, &str); 27] = [
         include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-string-literal.js"),
     ),
 ];
+
+const KEYCAP_NEGATIVE_PATHS: [&str; 3] = [
+    "built-ins/RegExp/property-escapes/generated/strings/Emoji_Keycap_Sequence-negative-CharacterClass.js",
+    "built-ins/RegExp/property-escapes/generated/strings/Emoji_Keycap_Sequence-negative-P.js",
+    "built-ins/RegExp/property-escapes/generated/strings/Emoji_Keycap_Sequence-negative-u.js",
+];
+
+fn current_pin_keycap_inventory() -> Vec<(String, String)> {
+    let test_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262/test");
+    let mut inventory = Vec::new();
+    for relative_dir in [
+        "built-ins/RegExp/property-escapes/generated/strings",
+        "built-ins/RegExp/unicodeSets/generated",
+    ] {
+        let directory = test_root.join(relative_dir);
+        for entry in fs::read_dir(&directory)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", directory.display()))
+        {
+            let path = entry
+                .expect("Test262 directory entry should be readable")
+                .path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("js") {
+                continue;
+            }
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+            if !source.contains("Emoji_Keycap_Sequence") {
+                continue;
+            }
+            let relative_path = path
+                .strip_prefix(&test_root)
+                .expect("keycap inventory must stay inside the pinned Test262 root")
+                .to_string_lossy()
+                .into_owned();
+            inventory.push((relative_path, source));
+        }
+    }
+    inventory.sort_by(|left, right| left.0.cmp(&right.0));
+    inventory
+}
 
 #[test]
 fn finite_class_set_is_the_only_canonical_string_algebra() {
@@ -350,11 +392,14 @@ fn exact_inventory_is_nine_union_nine_intersection_and_nine_difference_files() {
     for marker in [
         "That is 27 physical files and 54 strict/non-strict executions.",
         "The six adjacent generated files whose name contains",
-        "properties of strings remain a distinct typed capability",
+        "finite keycap extension below",
+        "properties of strings without exact finite tables remain the distinct",
+        "### Finite keycap property extension",
+        "`Basic_Emoji` and the remaining `RGI_Emoji*` properties retain",
         "Backward/lookbehind lowering preserves the same alternative priority",
-        "does not implement Unicode properties of strings",
-        "does not add a new Wasm matcher",
-        "opcode or data pool",
+        "implements only the exact finite `Emoji_Keycap_Sequence`",
+        "does not add a new Wasm matcher opcode or data",
+        "finite source and property strings lower to the existing ordered matcher",
     ] {
         assert!(CONTRACT.contains(marker), "contract lost {marker}");
     }
@@ -367,6 +412,72 @@ fn exact_inventory_has_no_rewrite_materializer_or_known_failure_mask() {
             assert!(!source.contains(path), "{path} gained an exact mask");
         }
     }
+
+    let keycaps = current_pin_keycap_inventory();
+    assert_eq!(keycaps.len(), 37, "current-pin keycap inventory drifted");
+    assert_eq!(
+        keycaps
+            .iter()
+            .filter(|(path, _)| path.contains("/property-escapes/"))
+            .count(),
+        4
+    );
+    assert_eq!(
+        keycaps
+            .iter()
+            .filter(|(path, _)| path.contains("/unicodeSets/"))
+            .count(),
+        33
+    );
+    for operator in ["-union-", "-intersection-", "-difference-"] {
+        assert_eq!(
+            keycaps
+                .iter()
+                .filter(|(path, _)| path.contains("/unicodeSets/") && path.contains(operator))
+                .count(),
+            11,
+            "current-pin keycap {operator} inventory drifted"
+        );
+    }
+    assert_eq!(
+        keycaps
+            .iter()
+            .filter(|(path, _)| {
+                path.rsplit('/')
+                    .next()
+                    .is_some_and(|name| name.starts_with("property-of-strings-escape-"))
+            })
+            .count(),
+        18
+    );
+    assert_eq!(
+        keycaps
+            .iter()
+            .filter(|(path, _)| path.ends_with("-property-of-strings-escape.js"))
+            .count(),
+        18
+    );
+
+    let mut negative_count = 0;
+    for (path, source) in &keycaps {
+        assert!(!source.contains("flags:"), "{path} stopped being unflagged");
+        if KEYCAP_NEGATIVE_PATHS.contains(&path.as_str()) {
+            negative_count += 1;
+            for marker in ["negative:", "phase: parse", "type: SyntaxError"] {
+                assert!(source.contains(marker), "{path} lost {marker}");
+            }
+        } else {
+            assert!(
+                !source.contains("negative:"),
+                "{path} became a negative test"
+            );
+        }
+        for mask in [TEST262_RUNNER_SOURCE, SHORTCUT_ALLOWLIST, KNOWN_FAILURES] {
+            assert!(!mask.contains(path), "{path} gained an exact mask");
+        }
+    }
+    assert_eq!(negative_count, 3);
+    assert_eq!(keycaps.len() - negative_count, 34);
 }
 
 #[test]
@@ -378,6 +489,14 @@ fn durable_fixture_exercises_complete_string_members_and_set_algebra() {
         "first class-string capture",
         "string-left union",
         "string-right union",
+        "direct keycap property",
+        "keycap property identity case folding",
+        "keycap property is indivisible",
+        "keycap property union",
+        "keycap property intersection",
+        "keycap property intersection removes other members",
+        "keycap property subtraction",
+        "keycap property subtraction removes member",
         "string intersection",
         "intersection removes multi-code-point member",
         "string subtraction",

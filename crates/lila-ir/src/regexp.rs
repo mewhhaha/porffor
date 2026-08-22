@@ -1501,6 +1501,26 @@ fn parse_instruction_atom(
                 ));
             }
         }
+        if unicode_mode == RegExpUnicodeMode::UnicodeSets {
+            let mut property_end = atom_offset;
+            if let Some(value) = parse_unicode_property_of_strings(bytes, &mut property_end)? {
+                *offset = property_end;
+                return Ok(ParsedTermAtom::Ordinary(match value.semantics {
+                    ClassSetSemantics::Finite(value) => {
+                        ParsedAtom::FiniteClassSet(FiniteClassSetAtom::new(
+                            value,
+                            false,
+                            modifiers.ignore_case,
+                            pool,
+                            atom_offset,
+                        )?)
+                    }
+                    ClassSetSemantics::RequiresUnicodeSetSemantics(required) => {
+                        ParsedAtom::RequiresUnicodeSetSemantics(required)
+                    }
+                }));
+            }
+        }
     }
     if !byte.is_ascii() {
         if unicode {
@@ -3294,7 +3314,18 @@ impl ClassSetValue {
         }
     }
 
-    fn property_of_strings(required: RequiresUnicodePropertyOfStrings) -> Self {
+    /// Construct a finite property whose complete strings are unchanged by
+    /// ECMAScript simple case folding. A future casable property needs its own
+    /// operand-local folding representation rather than this path.
+    fn finite_case_invariant_property_of_strings(strings: BTreeSet<Vec<u32>>) -> Self {
+        Self {
+            semantics: ClassSetSemantics::Finite(FiniteClassSet::class_strings(strings)),
+            may_contain_strings: true,
+            first_direct_class_string_offset: None,
+        }
+    }
+
+    fn unsupported_property_of_strings(required: RequiresUnicodePropertyOfStrings) -> Self {
         Self {
             semantics: ClassSetSemantics::RequiresUnicodeSetSemantics(
                 RequiresUnicodeSetSemantics::PropertyOfStrings(required),
@@ -3496,10 +3527,8 @@ fn parse_unicode_sets_operand(
             Ok(ClassSetOperand::NestedSet(nested.into_nested_value()))
         }
         Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'p') => {
-            if let Some(required) = parse_unicode_property_of_strings(bytes, cursor)? {
-                Ok(ClassSetOperand::NestedSet(
-                    ClassSetValue::property_of_strings(required),
-                ))
+            if let Some(value) = parse_unicode_property_of_strings(bytes, cursor)? {
+                Ok(ClassSetOperand::NestedSet(value))
             } else {
                 parse_unicode_sets_character_or_class_escape(bytes, cursor)
                     .map(ClassSetAtomicOperand::into_operand)
@@ -3516,7 +3545,7 @@ fn parse_unicode_sets_operand(
 fn parse_unicode_property_of_strings(
     bytes: &[u8],
     cursor: &mut usize,
-) -> Result<Option<RequiresUnicodePropertyOfStrings>, RegExpCompileError> {
+) -> Result<Option<ClassSetValue>, RegExpCompileError> {
     let offset = *cursor;
     if bytes.get(offset..offset + 3) != Some(br"\p{") {
         return Ok(None);
@@ -3528,22 +3557,29 @@ fn parse_unicode_property_of_strings(
     let value_end = value_start + relative_end;
     let value = std::str::from_utf8(&bytes[value_start..value_end])
         .map_err(|_| RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE))?;
-    if !matches!(
-        value,
+    let value = match value {
+        "Emoji_Keycap_Sequence" => {
+            // Unicode 17's property is exactly `[#*0-9] FE0F 20E3`.
+            let strings = b"#*0123456789"
+                .iter()
+                .map(|base| vec![u32::from(*base), 0xFE0F, 0x20E3])
+                .collect();
+            ClassSetValue::finite_case_invariant_property_of_strings(strings)
+        }
         "Basic_Emoji"
-            | "Emoji_Keycap_Sequence"
-            | "RGI_Emoji_Modifier_Sequence"
-            | "RGI_Emoji_Flag_Sequence"
-            | "RGI_Emoji_Tag_Sequence"
-            | "RGI_Emoji_ZWJ_Sequence"
-            | "RGI_Emoji"
-    ) {
-        return Ok(None);
-    }
+        | "RGI_Emoji_Modifier_Sequence"
+        | "RGI_Emoji_Flag_Sequence"
+        | "RGI_Emoji_Tag_Sequence"
+        | "RGI_Emoji_ZWJ_Sequence"
+        | "RGI_Emoji" => {
+            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
+                first_offset: offset,
+            })
+        }
+        _ => return Ok(None),
+    };
     *cursor = value_end + 1;
-    Ok(Some(RequiresUnicodePropertyOfStrings {
-        first_offset: offset,
-    }))
+    Ok(Some(value))
 }
 
 /// Validates one `ClassStringDisjunction` without lowering its string
@@ -6248,8 +6284,40 @@ mod tests {
             assert_eq!(unsupported.kind, RegExpCompileErrorKind::UnsupportedFeature);
             assert_eq!(unsupported.rule, None);
         }
-        let property = RegExpProgram::compile(r"[\p{Emoji_Keycap_Sequence}\q{a}]", "v")
-            .expect_err("properties of strings retain their distinct capability");
+        let keycaps = finite_atom(r"\p{Emoji_Keycap_Sequence}");
+        assert_eq!(keycaps.multi_code_point_strings.len(), 12);
+        assert!(keycaps.multi_code_point_strings.iter().all(|string| {
+            string.len() == 3 && string[1].operand0 == 0xFE0F && string[2].operand0 == 0x20E3
+        }));
+        assert!(!keycaps.contains_empty);
+
+        let keycaps_v = RegExpProgram::compile(r"\p{Emoji_Keycap_Sequence}", "v").unwrap();
+        let keycaps_iv = RegExpProgram::compile(r"\p{Emoji_Keycap_Sequence}", "iv").unwrap();
+        assert_eq!(keycaps_iv.instructions, keycaps_v.instructions);
+        assert_eq!(keycaps_iv.ranges, keycaps_v.ranges);
+
+        let keycap_intersection = finite_atom(r"[\p{Emoji_Keycap_Sequence}&&\q{0\uFE0F\u20E3|x}]");
+        assert_eq!(keycap_intersection.multi_code_point_strings.len(), 1);
+        assert_eq!(
+            keycap_intersection.multi_code_point_strings[0]
+                .iter()
+                .map(|instruction| instruction.operand0)
+                .collect::<Vec<_>>(),
+            vec![u64::from(b'0'), 0xFE0F, 0x20E3]
+        );
+
+        let keycap_difference = finite_atom(r"[\p{Emoji_Keycap_Sequence}--\q{0\uFE0F\u20E3}]");
+        assert_eq!(keycap_difference.multi_code_point_strings.len(), 11);
+
+        let negated_keycaps = RegExpProgram::compile(r"[^\p{Emoji_Keycap_Sequence}]", "v")
+            .expect_err("a finite property of strings still has string cardinality");
+        assert_eq!(
+            negated_keycaps.rule,
+            Some(SyntaxRule::NegatedClassMayContainStrings)
+        );
+
+        let property = RegExpProgram::compile(r"[\p{Basic_Emoji}\q{a}]", "v")
+            .expect_err("other properties of strings retain their distinct capability");
         assert_eq!(property.kind, RegExpCompileErrorKind::UnsupportedFeature);
         assert_eq!(property.rule, None);
 

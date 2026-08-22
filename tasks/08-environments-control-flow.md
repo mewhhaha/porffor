@@ -217,10 +217,54 @@ with zero unsupported, not-implemented, crash or bug outcomes, while both adjace
 remain `4/4`. Focused runtime verification removed only the unsupported
 `(1).p` property-read assertion from the fixture; both primitive-assignment
 oracles remain. These focused results do not claim the broader assignment leaf.
-Compound/logical/destructuring assignment, `super`, private,
+Destructuring assignment, `super`, private,
 identifier/global/Object Environment, `with`, optional-chain and resumable
 property References remain explicit nonclaims. The closed boundary is recorded in
 `docs/rust-rewrite/contracts/ordinary-property-plain-assignment-reference.md`.
+
+Ordinary-property `&&=`, `||=` and `??=` now have their own consuming
+Reference carrier rather than decomposing into an independent read and write.
+One lowered base/receiver and raw key flow through nullish validation, one
+`ToPropertyKey` and `[[Get]]`; the logical branch alone owns RHS evaluation and
+same-reference `[[Set]]`, and publishes the RHS only after PutValue completes
+normally. As a backend optimization, the shared state retains one boxed target
+`O` separately from the original receiver, so primitive getters and setters
+observe the primitive while Get and taken Set use the same object target and
+canonical key. Eager compound assignment and numeric update inherit that
+backend invariant through the shared GetValue transition. Possible writes also
+invalidate dependent global-property facts and Array prototype fast paths.
+
+At clean pre-batch commit `04e38f2ba`, the three exact strict
+`lgcl-{and,or,nullish}-assignment-operator-no-set-put.js` files measured `0/3`,
+all `Runtime/Bug` with `assert.throws expected an error object`. The three
+independent `lhs-before-rhs.js` files were already `6/6` across sloppy and
+strict execution. The complete selected post-batch inventory is green: all
+eight strict false-Set files pass `8/8`, the ordering controls remain `6/6`,
+and the three short-circuit controls pass `3/3`; every failure-kind and
+NotImplemented/Crash/Bug bucket is zero, with no exact runner rewrite or
+known-failure mask. Central verification passed workspace/all-target checking,
+the focused IR invariants `2/2`, the new structure executable `6/6`, the three
+affected retained structure executables `21/21`, and the Wasm lifecycle fixture
+`1/1` in `76.52s`. This is a fourteen-file, seventeen-execution Reference
+batch, not a claim that the complete logical-assignment directory or pinned
+matrix is green. The normative boundary is
+[`ordinary-property-logical-assignment-reference.md`](../docs/rust-rewrite/contracts/ordinary-property-logical-assignment-reference.md).
+
+After that checkpoint, source-only hardening widened implicit-call effect
+tracking across base, key, getter, RHS, reflective and Proxy paths; joined
+omitted hook formals with `undefined`; and replaced per-carrier copies of the
+complete source-function set with a shared immutable hook-target universe.
+The follow-up checkpoint ran under an eight-core, low-priority cgroup:
+workspace/all-target checking passed; the filtered ordinary-property IR suite
+is `49/49`; logical, plain, eager-compound and numeric-update structure suites
+are `27/27`; and the Wasm logical-assignment lifecycle fixture is `1/1`. The
+complete current logical-assignment leaf now passes `132/132`, with every
+failure phase and NotImplemented/Crash/Bug bucket at zero. One new test
+originally confused Number-or-Undefined numeric coercion with general
+string-capable addition, and one retained structure witness still expected
+alias invalidation outside the shared possible-write transaction; both tests
+were corrected to assert the actual contracts before their focused reruns
+passed.
 
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The

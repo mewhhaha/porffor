@@ -85,13 +85,20 @@ fn ir_owns_one_closed_plain_assignment_reference() {
         "referenced_name: PropertyKeyIr",
         "rhs: Box<TypedExpr>",
         "strictness: Strictness",
+        "possible_setters: PropertyHookTargets",
     ] {
         assert!(carrier.contains(field), "carrier lost {field}");
         assert!(!carrier.contains(&format!("pub {field}")));
     }
     assert!(carrier.contains("fn new("));
     assert!(!carrier.contains("pub fn new("));
-    for accessor in ["base_and_receiver", "referenced_name", "rhs", "strictness"] {
+    for accessor in [
+        "base_and_receiver",
+        "referenced_name",
+        "rhs",
+        "strictness",
+        "possible_setters",
+    ] {
         assert!(
             carrier.contains(&format!("pub fn {accessor}(&self)")),
             "carrier lost {accessor} accessor"
@@ -111,13 +118,16 @@ fn ir_owns_one_closed_plain_assignment_reference() {
     positions_in_order(
         plan,
         &[
-            "pub(crate) fn plain_assignment(self, rhs: TypedExpr)",
+            "pub(crate) fn plain_assignment(",
+            "rhs: TypedExpr",
+            "possible_setters: PropertyHookTargets",
             "rhs.value_info()",
             "ExprIr::OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr::new(",
             "self.base_and_receiver",
             "self.referenced_name",
             "Box::new(rhs)",
             "self.strictness",
+            "possible_setters",
         ],
     );
     assert!(IR_SOURCE.contains("OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr)"));
@@ -135,7 +145,8 @@ fn lowering_builds_the_reference_before_rhs_and_intercepts_the_closed_ast_arm() 
         &[
             "self.lower_ordinary_property_reference_plan(access)",
             "let rhs_value = self.lower_expression(rhs);",
-            "plan.plain_assignment(rhs_value)",
+            "self.possible_ordinary_property_setters(&metadata, rhs_may_have_intervening_effects)",
+            "plan.plain_assignment(rhs_value, possible_setters)",
         ],
     );
     assert!(!helper.contains("ExprIr::PropertyWrite"));
@@ -197,10 +208,11 @@ fn backend_typestate_orders_rhs_before_to_object_key_coercion_and_set() {
         sealed_sources
             .matches("impl OrdinaryPropertyReferenceSource for")
             .count(),
-        3
+        4
     );
     for source in [
         "OrdinaryPropertyAssignmentIr",
+        "OrdinaryPropertyLogicalAssignmentIr",
         "OrdinaryPropertyEagerCompoundAssignmentIr",
         "OrdinaryPropertyNumericUpdateIr",
     ] {

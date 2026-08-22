@@ -16,9 +16,23 @@ impl<'a> ScriptLowerer<'a> {
             UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
             UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
         };
-        let (plan, referenced_name, _) = self.lower_ordinary_property_reference_plan(access);
-        let result = plan.numeric_update(op, return_mode);
-        self.update_written_shape(access.target(), &referenced_name, &result.value_info());
+        let (plan, referenced_name, metadata) = self.lower_ordinary_property_reference_plan(access);
+        self.record_ordinary_property_get(&metadata);
+        let possible_getters = Self::possible_ordinary_property_getters(&metadata);
+        let possible_setters = self.possible_ordinary_property_setters(&metadata, true);
+        let result = plan.numeric_update(op, return_mode, possible_getters, possible_setters);
+        self.record_ordinary_property_possible_write(
+            &referenced_name,
+            &metadata,
+            true,
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::BigInt)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+        );
         result
     }
 }
@@ -109,5 +123,33 @@ mod tests {
             assert_eq!(update.return_mode(), expected_mode);
             assert_eq!(update.value_kind(), ValueKind::Dynamic);
         }
+    }
+
+    #[test]
+    fn numeric_old_value_coercion_observes_unknown_hook_receivers() {
+        let program = lower(
+            "const value = { get length() { return 's'; }, valueOf() { return this.length + 1; } }; const base = [value]; base[0]++;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let coercion = script
+            .functions
+            .iter()
+            .find(|function| function.name == "valueOf")
+            .expect("old-value coercion method should be lowered");
+        let StatementIr::Return(result) = coercion
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::Return(_)))
+            .expect("old-value coercion method should return")
+        else {
+            unreachable!("selected statement is a return")
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "deferred ToNumeric must not reuse the property base as this: {:?}",
+            result.expr
+        );
     }
 }

@@ -42,9 +42,31 @@ harness, unsupported, crash or bug outcomes. The fixture found one integration
 gap after the IR implementation: reverse lookbehind rejected the existing
 code-point-literal and Unicode-range instructions. The matcher now admits those
 instructions in reverse and shares one canonical range-membership emitter
-between forward and reverse paths. Unicode properties of strings and direct
-class-string `/iv` folding remain distinct typed capability boundaries; this
-records no broader UnicodeSets or RegExp completion claim.
+between forward and reverse paths. Other Unicode properties of strings and
+direct class-string `/iv` folding remain distinct typed capability boundaries;
+this records no broader UnicodeSets or RegExp completion claim.
+
+The adjacent Unicode-property-of-strings batch now gives Unicode 17
+`Emoji_Keycap_Sequence` an exact finite representation: the twelve strings
+`[#*0-9] FE0F 20E3`. Direct `\p{Emoji_Keycap_Sequence}` atoms and `v`-mode
+union, intersection and subtraction all consume the existing canonical
+`FiniteClassSet`; the direct `iv` form shares the same bytecode because every
+member is simple-case-fold invariant. Other properties of strings retain their
+typed unsupported capability, and negated classes that may contain strings
+retain their required early error. At clean pre-batch commit `04e38f2ba`, exact direct-property file
+`built-ins/RegExp/property-escapes/generated/strings/Emoji_Keycap_Sequence.js`
+and generated algebra representative
+`string-literal-union-property-of-strings-escape.js` each reported `0/2`
+sloppy/strict Wasm-AOT executions, all `Runtime/NotImplemented`, with no exact
+rewrite, materializer or known-failure mask. The source-derived inventory is
+37 files/74 executions: 34 positive files/68 executions exercise the finite
+property, while three negative syntax files/six executions must remain green.
+Central verification passed workspace/all-target checking, focused IR `1/1`,
+the retained UnicodeSets structure executable `7/7`, and the expanded Wasm
+fixture `1/1` in `24.04s`. The exact raw inventory is `74/74`, with every
+failure-kind and NotImplemented/Crash/Bug bucket at zero. This closes only the
+finite keycap property; Basic_Emoji, the remaining RGI properties, general
+Unicode property data and complete RegExp conformance remain open.
 
 The bounded matcher batch for RepeatMatcher's nullable unbounded quantifier
 progress rule is now verified. At clean pre-batch commit `44247b836b`, the exact
@@ -65,8 +87,8 @@ green; the focused IR test passed `1/1` in `8.37s`; the structure executable
 passed `5/5` in `22.36s`; the new CLI fixture passed `1/1` in `22.83s`; and the
 retained quantifier CLI fixture passed `1/1` in `27.19s`. The exact Test262 file
 now passes `2/2` with zero unsupported, crash or bug verdicts. No broader RegExp
-or full-suite claim is made. Class-string matching,
-properties of strings, arbitrary runtime pattern compilation, broad
+or full-suite claim is made. Other Unicode properties of strings, arbitrary
+runtime pattern compilation, broad
 nullable-pattern closure and the complete RegExp/String trees remain outside
 this batch.
 
@@ -147,8 +169,9 @@ typed operand through outer closure, range and operator validation plus the
 exact §22.2.1.8 `MayContainStrings` negation early error. The typed capability
 marker then survives the complete Pattern group, named-reference, and
 nullable-group unbounded-quantifier checks; only a globally valid Pattern
-remains an explicit unsupported capability. This does not implement
-class-string matching, properties of strings or full UnicodeSets conformance.
+remains an explicit unsupported capability. That validation boundary now feeds
+finite class-string matching and the finite Emoji Keycap property; it does not
+implement other Unicode properties of strings or full UnicodeSets conformance.
 
 ## Objective
 

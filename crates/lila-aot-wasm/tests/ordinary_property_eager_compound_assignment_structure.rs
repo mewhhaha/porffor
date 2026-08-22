@@ -126,6 +126,8 @@ fn ir_owns_one_closed_ordinary_property_eager_reference() {
             "old_value_binding: String",
             "op: EagerCompoundAssignmentOp",
             "rhs: TypedExpr",
+            "possible_getters: PropertyHookTargets",
+            "possible_setters: PropertyHookTargets",
             "ExprIr::Identifier(old_value_binding.clone())",
             "let result = op.apply(old_value, rhs);",
             "ExprIr::OrdinaryPropertyEagerCompoundAssignment(",
@@ -143,6 +145,8 @@ fn ir_owns_one_closed_ordinary_property_eager_reference() {
         "strictness: Strictness",
         "old_value_binding: String",
         "result: Box<TypedExpr>",
+        "possible_getters: PropertyHookTargets",
+        "possible_setters: PropertyHookTargets",
     ] {
         assert!(carrier.contains(field));
         assert!(!carrier.contains(&format!("pub {field}")));
@@ -155,6 +159,8 @@ fn ir_owns_one_closed_ordinary_property_eager_reference() {
         "strictness",
         "old_value_binding",
         "result",
+        "possible_getters",
+        "possible_setters",
     ] {
         assert!(carrier.contains(&format!("pub fn {accessor}(&self)")));
     }
@@ -195,9 +201,14 @@ fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decom
         producer,
         &[
             "self.lower_ordinary_property_reference_plan(access)",
+            "self.record_ordinary_property_get(&metadata);",
+            "let possible_getters = Self::possible_ordinary_property_getters(&metadata);",
             "let rhs = self.lower_expression(rhs);",
+            "let possible_setters = self.possible_ordinary_property_setters(&metadata, true);",
             "let old_value_binding =",
-            "plan.eager_compound_assignment(old_value_binding, op, rhs)",
+            "plan.eager_compound_assignment(",
+            "possible_getters",
+            "possible_setters",
         ],
     );
     assert!(ORDINARY_PROPERTY_LOWERING_SOURCE
@@ -280,10 +291,11 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
             "self.compile_nullish_tagged_i32(base_and_receiver_tag, function)?;",
             "self.emit_throw_runtime_error(",
             "self.emit_propagate_throw_from_locals_if_needed(",
+            "self.emit_value_to_object_locals(",
             "self.emit_value_to_property_key_locals(",
             "self.emit_propagate_throw_from_locals_if_needed(",
             "self.emit_object_read_with_key_tag(",
-            "base_and_receiver_payload,\n            base_and_receiver_tag,\n            base_and_receiver_payload,\n            base_and_receiver_tag,",
+            "target_object_payload,\n            target_object_tag,\n            base_and_receiver_payload,\n            base_and_receiver_tag,",
             "Ok(ReadOrdinaryPropertyReferenceLocals {",
         ],
     );
@@ -348,8 +360,10 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
 #[test]
 fn exhaustive_consumers_and_temp_budget_name_every_fused_phase() {
     for marker in [
-        "const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4;",
-        "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 3;",
+        "const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2;",
+        "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
+        "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
+        "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
         "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
         "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",
     ] {

@@ -41,6 +41,8 @@ struct ReadyToWriteOrdinaryPropertyAssignmentLocals {
 struct ReadOrdinaryPropertyReferenceLocals {
     base_and_receiver_payload: u32,
     base_and_receiver_tag: u32,
+    target_object_payload: u32,
+    target_object_tag: u32,
     property_key_payload: u32,
     property_key_tag: u32,
     old_value_payload: u32,
@@ -52,6 +54,8 @@ struct ReadOrdinaryPropertyReferenceLocals {
 struct ReadOrdinaryPropertyNumericUpdateLocals {
     base_and_receiver_payload: u32,
     base_and_receiver_tag: u32,
+    target_object_payload: u32,
+    target_object_tag: u32,
     property_key_payload: u32,
     property_key_tag: u32,
     old_value_payload: u32,
@@ -63,6 +67,8 @@ struct ReadOrdinaryPropertyNumericUpdateLocals {
 struct ReadyToWriteOrdinaryPropertyReferenceLocals {
     base_and_receiver_payload: u32,
     base_and_receiver_tag: u32,
+    target_object_payload: u32,
+    target_object_tag: u32,
     property_key_payload: u32,
     property_key_tag: u32,
     old_value_payload: u32,
@@ -77,6 +83,8 @@ struct ReadyToWriteOrdinaryPropertyReferenceLocals {
 struct ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
     base_and_receiver_payload: u32,
     base_and_receiver_tag: u32,
+    target_object_payload: u32,
+    target_object_tag: u32,
     property_key_payload: u32,
     property_key_tag: u32,
     old_value_payload: u32,
@@ -88,15 +96,26 @@ struct ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
 
 /// The sealed input required by the shared ordinary Reference evaluator.
 ///
-/// The three fused IR carriers own the same base/raw-key pair. Keeping this
+/// The four fused IR carriers own the same base/raw-key pair. Keeping this
 /// trait private makes that pair the only reusable part of their otherwise
-/// distinct assignment, compound-assignment and numeric-update lifecycles.
+/// distinct plain-assignment, logical-assignment, compound-assignment and
+/// numeric-update lifecycles.
 trait OrdinaryPropertyReferenceSource {
     fn base_and_receiver(&self) -> &TypedExpr;
     fn referenced_name(&self) -> &PropertyKeyIr;
 }
 
 impl OrdinaryPropertyReferenceSource for OrdinaryPropertyAssignmentIr {
+    fn base_and_receiver(&self) -> &TypedExpr {
+        self.base_and_receiver()
+    }
+
+    fn referenced_name(&self) -> &PropertyKeyIr {
+        self.referenced_name()
+    }
+}
+
+impl OrdinaryPropertyReferenceSource for OrdinaryPropertyLogicalAssignmentIr {
     fn base_and_receiver(&self) -> &TypedExpr {
         self.base_and_receiver()
     }
@@ -459,6 +478,20 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
+        // GetValue applies ToObject to the Reference base. Preserve that
+        // boxed target separately from the original base: `[[Get]]` and a
+        // later taken PutValue use the object as `O`, while accessors and
+        // setters must still observe the unboxed base as `Receiver`.
+        let target_object_payload = self.reserve_temp_local();
+        let target_object_tag = self.reserve_temp_local();
+        self.emit_value_to_object_locals(
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
+            function,
+        )?;
+
         self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
         self.emit_propagate_throw_from_locals_if_needed(
             property_key_payload,
@@ -466,8 +499,8 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_object_read_with_key_tag(
-            base_and_receiver_payload,
-            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
             property_key_payload,
@@ -485,6 +518,8 @@ impl<'a> FunctionBuilder<'a> {
         Ok(ReadOrdinaryPropertyReferenceLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -672,6 +707,188 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn emit_taken_ordinary_property_logical_assignment_branch(
+        &mut self,
+        assignment: &OrdinaryPropertyLogicalAssignmentIr,
+        base_and_receiver_payload: u32,
+        base_and_receiver_tag: u32,
+        target_object_payload: u32,
+        target_object_tag: u32,
+        property_key_payload: u32,
+        property_key_tag: u32,
+        rhs_payload: u32,
+        rhs_tag: u32,
+        set_result: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.compile_expr_to_locals(assignment.rhs(), rhs_payload, rhs_tag, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(rhs_payload, rhs_tag, function)?;
+        self.emit_ordinary_set_result_via_helper(
+            target_object_payload,
+            target_object_tag,
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            rhs_payload,
+            rhs_tag,
+            set_result,
+            function,
+        )?;
+        if assignment.strictness().throws_on_failed_set() {
+            function.instruction(&Instruction::LocalGet(set_result));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error_to_active_handler(
+                TYPE_ERROR_NAME,
+                "Cannot assign to property",
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+        }
+
+        // Publish the RHS only after PutValue has completed normally. A
+        // setter throw or strict false Set therefore cannot leak a value from
+        // the selected branch to the enclosing expression.
+        function.instruction(&Instruction::LocalGet(rhs_payload));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(rhs_tag));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        Ok(())
+    }
+
+    fn emit_short_circuited_ordinary_property_logical_result(
+        &self,
+        old_value_payload: u32,
+        old_value_tag: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(old_value_payload));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(old_value_tag));
+        function.instruction(&Instruction::LocalSet(tag_local));
+    }
+
+    fn compile_ordinary_property_logical_assignment_to_locals(
+        &mut self,
+        assignment: &OrdinaryPropertyLogicalAssignmentIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // Reserve the old-value pair before the Reference carrier so every
+        // persistent local can be released in strict LIFO order after the two
+        // runtime branches rejoin.
+        let old_value_payload = self.reserve_temp_local();
+        let old_value_tag = self.reserve_temp_local();
+        let raw_reference = self.evaluate_raw_ordinary_property_reference(assignment, function)?;
+        let reference = self.emit_get_value_from_raw_ordinary_property_reference(
+            raw_reference,
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+        let ReadOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        } = reference;
+        let rhs_payload = self.reserve_temp_local();
+        let rhs_tag = self.reserve_temp_local();
+        let set_result = self.reserve_temp_local();
+
+        match assignment.op() {
+            LogicalBinaryOp::And | LogicalBinaryOp::Or => {
+                self.compile_truthy_tagged_i32(old_value_tag, old_value_payload, function)?;
+            }
+            LogicalBinaryOp::Coalesce => {
+                self.compile_nullish_tagged_i32(old_value_tag, function)?;
+            }
+        }
+        function.instruction(&Instruction::If(BlockType::Empty));
+        match assignment.op() {
+            LogicalBinaryOp::And | LogicalBinaryOp::Coalesce => {
+                self.emit_taken_ordinary_property_logical_assignment_branch(
+                    assignment,
+                    base_and_receiver_payload,
+                    base_and_receiver_tag,
+                    target_object_payload,
+                    target_object_tag,
+                    property_key_payload,
+                    property_key_tag,
+                    rhs_payload,
+                    rhs_tag,
+                    set_result,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            LogicalBinaryOp::Or => self.emit_short_circuited_ordinary_property_logical_result(
+                old_value_payload,
+                old_value_tag,
+                payload_local,
+                tag_local,
+                function,
+            ),
+        }
+        function.instruction(&Instruction::Else);
+        match assignment.op() {
+            LogicalBinaryOp::And | LogicalBinaryOp::Coalesce => {
+                self.emit_short_circuited_ordinary_property_logical_result(
+                    old_value_payload,
+                    old_value_tag,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
+            LogicalBinaryOp::Or => {
+                self.emit_taken_ordinary_property_logical_assignment_branch(
+                    assignment,
+                    base_and_receiver_payload,
+                    base_and_receiver_tag,
+                    target_object_payload,
+                    target_object_tag,
+                    property_key_payload,
+                    property_key_tag,
+                    rhs_payload,
+                    rhs_tag,
+                    set_result,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+        }
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(set_result);
+        self.release_temp_local(rhs_tag);
+        self.release_temp_local(rhs_payload);
+        self.release_temp_local(target_object_tag);
+        self.release_temp_local(target_object_payload);
+        self.release_temp_local(property_key_tag);
+        self.release_temp_local(property_key_payload);
+        self.release_temp_local(base_and_receiver_tag);
+        self.release_temp_local(base_and_receiver_payload);
+        self.release_temp_local(old_value_tag);
+        self.release_temp_local(old_value_payload);
+        Ok(())
+    }
+
     fn emit_result_from_read_ordinary_property_reference(
         &mut self,
         reference: ReadOrdinaryPropertyReferenceLocals,
@@ -681,6 +898,8 @@ impl<'a> FunctionBuilder<'a> {
         let ReadOrdinaryPropertyReferenceLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -710,6 +929,8 @@ impl<'a> FunctionBuilder<'a> {
         Ok(ReadyToWriteOrdinaryPropertyReferenceLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -731,6 +952,8 @@ impl<'a> FunctionBuilder<'a> {
         let ReadyToWriteOrdinaryPropertyReferenceLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -741,8 +964,8 @@ impl<'a> FunctionBuilder<'a> {
         } = reference;
 
         self.emit_ordinary_set_result_via_helper(
-            base_and_receiver_payload,
-            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
             property_key_payload,
@@ -774,6 +997,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(set_result);
         self.release_temp_local(result_tag);
         self.release_temp_local(result_payload);
+        self.release_temp_local(target_object_tag);
+        self.release_temp_local(target_object_payload);
         self.release_temp_local(property_key_tag);
         self.release_temp_local(property_key_payload);
         self.release_temp_local(base_and_receiver_tag);
@@ -832,6 +1057,8 @@ impl<'a> FunctionBuilder<'a> {
         let ReadOrdinaryPropertyReferenceLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -865,6 +1092,8 @@ impl<'a> FunctionBuilder<'a> {
         Ok(ReadOrdinaryPropertyNumericUpdateLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -881,6 +1110,8 @@ impl<'a> FunctionBuilder<'a> {
         let ReadOrdinaryPropertyNumericUpdateLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -913,6 +1144,8 @@ impl<'a> FunctionBuilder<'a> {
         Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -934,6 +1167,8 @@ impl<'a> FunctionBuilder<'a> {
         let ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
             base_and_receiver_payload,
             base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             old_value_payload,
@@ -944,8 +1179,8 @@ impl<'a> FunctionBuilder<'a> {
         } = reference;
 
         self.emit_ordinary_set_result_via_helper(
-            base_and_receiver_payload,
-            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
             property_key_payload,
@@ -981,6 +1216,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(set_result);
         self.release_temp_local(new_value_tag);
         self.release_temp_local(new_value_payload);
+        self.release_temp_local(target_object_tag);
+        self.release_temp_local(target_object_payload);
         self.release_temp_local(property_key_tag);
         self.release_temp_local(property_key_payload);
         self.release_temp_local(base_and_receiver_tag);
@@ -1579,6 +1816,17 @@ impl<'a> FunctionBuilder<'a> {
                 let scratch_local = self.scratch_local;
                 let result_tag_local = self.result_tag_local;
                 self.compile_ordinary_property_assignment_to_locals(
+                    assignment,
+                    scratch_local,
+                    result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.compile_ordinary_property_logical_assignment_to_locals(
                     assignment,
                     scratch_local,
                     result_tag_local,
@@ -4031,6 +4279,13 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::OrdinaryPropertyAssignment(assignment) => self
                 .compile_ordinary_property_assignment_to_locals(
+                    assignment,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?,
+            ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => self
+                .compile_ordinary_property_logical_assignment_to_locals(
                     assignment,
                     payload_local,
                     tag_local,

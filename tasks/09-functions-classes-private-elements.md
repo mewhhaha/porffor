@@ -27,6 +27,23 @@ AsyncGeneratorFunction while suppressing their automatically generated
 `prototype` object. The exact matrix and boundary choices are recorded in
 `docs/rust-rewrite/contracts/function-protocol.md`.
 
+Class auto-accessors now have a theory-first implementation contract before
+the parser/IR/runtime seam is changed. The four public/private and
+instance/static forms share one invariant: class definition installs a paired
+getter/setter while element initialization adds a distinct, fresh and
+unspellable private backing field. The contract fixes descriptor attributes,
+definition and initialization order, inheritance, receiver/realm errors, the
+decorator rejection boundary, and a minimal linked typed IR plan. A focused
+probe of the public declaration grammar file reported `0/2`
+Runtime/NotImplemented against suite tree `aa55200d…`, which remains the
+current vendored Test262 tree identity; the probe is stale relative to compiler
+head, not suite content. Current parsing also loses the private auto-accessor
+semantic kind, so implementation must begin with AST fidelity rather than
+source-text recovery. The five-file raw gate, two eval-bound diagnostics,
+durable static-fixture obligation and staged gates are recorded in
+[`class-auto-accessors.md`](../docs/rust-rewrite/contracts/class-auto-accessors.md).
+No auto-accessor runtime capability is claimed yet.
+
 Object-literal methods, getters and setters now extend that closed function
 protocol without masquerading as class members. A public
 `ObjectMethodFunctionIr` with private construction state is the only value the

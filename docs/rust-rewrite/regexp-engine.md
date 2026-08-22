@@ -78,13 +78,14 @@ A private validated `ClassSetCharacter` boundary also rejects raw set-syntax
 characters, reserved double punctuators, and `\0` followed by a decimal digit
 while preserving escaped operands. A validated `\q{…}` remains typed while the
 entire enclosing expression, closing bracket, range rules, and exact
-§22.2.1.8 `MayContainStrings` negation early error are checked. Its typed marker
-then survives the complete Pattern parse, including group, named-reference,
-and nullable-group unbounded-quantifier checks; only a globally valid Pattern
-records the still-unimplemented string semantics as a capability gap.
-See the focused
+§22.2.1.8 `MayContainStrings` negation early error are checked. Only a globally
+valid Pattern may turn that value into the exact finite matcher atom described
+by the
+[finite-string algebra contract](contracts/regexp-unicode-set-finite-string-algebra.md).
+The same finite domain now owns Unicode 17 `Emoji_Keycap_Sequence`; properties
+of strings without exact tables and direct class strings under `iv` remain
+typed capability gaps. See also the focused
 [class-expression shape contract](contracts/regexp-unicode-set-expression-shape.md).
-Class-string disjunctions and properties of strings remain capability gaps.
 
 ## Decision and rejected alternatives
 

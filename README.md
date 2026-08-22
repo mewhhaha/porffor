@@ -368,7 +368,45 @@ denominators. Unflagged files now contribute separate sloppy and strict
 executions, so only entries that explicitly report execution variants from a
 post-cutover rerun are current focused evidence.
 
-Recent focused progress through `2026-08-21`:
+Recent focused progress through `2026-08-22`:
+
+- Ordinary-property `&&=`, `||=` and `??=` now consume one fused Reference
+  carrier. One base/receiver and raw key flow through nullish validation, a
+  sole `ToPropertyKey`/GetValue transition, branch-local RHS and same-reference
+  Set, strict false-Set routing and result publication only after normal
+  PutValue. As a safe implementation optimization, the backend retains one
+  boxed target `O` separately from the original receiver, preserving primitive
+  accessor receivers through both Get and a taken Set; eager compound
+  assignment and numeric update share that backend invariant. Possible writes
+  also invalidate dependent global-property facts and Array prototype fast
+  paths. At clean pre-batch commit `04e38f2ba`, the three exact
+  strict `no-set-put.js` witnesses were `0/3` Runtime/Bug, while the three
+  independent ordering files were already `6/6`. Workspace/all-target check,
+  focused IR `2/2`, new structure `6/6`, affected retained structures `21/21`
+  and the Wasm lifecycle fixture `1/1` in `76.52s` are green. The selected raw
+  post-batch cohorts pass strict false-Set `8/8`, ordering `6/6` and
+  short-circuit `3/3`, with every failure and NotImplemented/Crash/Bug bucket
+  at zero. This is focused seventeen-execution evidence, not complete logical
+  assignment or pinned-matrix closure. Subsequent implicit-hook effect and
+  compact target-provenance hardening passed an eight-core-capped
+  workspace/all-target check, the filtered ordinary-property IR suite
+  (`49/49`), all four ordinary-property structure suites (`27/27`), the Wasm
+  logical-assignment lifecycle fixture (`1/1`) and the complete current
+  logical-assignment leaf (`132/132`, zero failure or non-success outcomes).
+- Unicode 17 `Emoji_Keycap_Sequence` now has an exact finite RegExp
+  property-of-strings representation: twelve `[#*0-9] FE0F 20E3` strings.
+  Direct `\p{Emoji_Keycap_Sequence}` atoms and UnicodeSets union,
+  intersection and subtraction reuse the canonical finite class-string set;
+  the direct `iv` form is identical because every member is simple-case-fold
+  invariant. Other string properties remain typed unsupported and
+  negated-string-class early errors remain intact. At clean pre-batch commit `04e38f2ba`, the direct
+  property file and one generated string-union representative were each `0/2`
+  Runtime/NotImplemented. Workspace/all-target checking, focused IR `1/1`,
+  retained structure `7/7`, the expanded Wasm fixture `1/1` in `24.04s`, and
+  the exact 37-file/74-execution inventory `74/74` are green, including the
+  three negative syntax files. Every failure and NotImplemented/Crash/Bug
+  bucket is zero. This does not claim the remaining Unicode string properties
+  or broader RegExp completion.
 
 - A bounded RegExp batch now implements finite UnicodeSets `\q{…}` class-string
   algebra. At clean pre-batch commit `f580b424d`, one union, one intersection
@@ -387,9 +425,9 @@ Recent focused progress through `2026-08-21`:
   with zero parser, early-error, lowering, runtime, Wasm-backend, harness,
   unsupported, crash or bug outcomes. The runtime fixture exposed and closed a
   reverse-lookbehind gap by sharing the canonical Unicode range-membership
-  emitter in both matcher directions. The six adjacent generated files that
-  require Unicode properties of strings and direct class-string `/iv` folding
-  remain explicit typed capability boundaries. This records no broader
+  emitter in both matcher directions. Other Unicode properties of strings and
+  direct class-string `/iv` folding remain explicit typed capability
+  boundaries. This records no broader
   UnicodeSets or RegExp completion claim.
 - A bounded matcher batch now implements RepeatMatcher's nullable
   unbounded-quantifier progress rule. At clean pre-batch commit `44247b836b`,
@@ -407,7 +445,7 @@ Recent focused progress through `2026-08-21`:
   passed `1/1` in `22.83s`, and the retained quantifier fixture passed `1/1` in
   `27.19s`. The exact Test262 file now passes `2/2` with zero unsupported,
   crash or bug verdicts. This is focused evidence only: no broader RegExp or
-  full-suite claim is made. Class strings, properties of strings, runtime
+  full-suite claim is made. Other Unicode properties of strings, runtime
   pattern compilation and the complete RegExp/String trees remain separate T19
   work.
 - Non-resumable object-literal methods, getters and setters now carry their
@@ -552,7 +590,7 @@ Recent focused progress through `2026-08-21`:
   controls remain `4/4`. Focused runtime verification removed only an
   unsupported `(1).p` property-read assertion from the fixture; its sloppy and
   strict primitive-assignment oracles remain. These focused results do not
-  claim the broader assignment leaf. Compound, logical, destructuring,
+  claim the broader assignment leaf. Destructuring,
   `super`, private, identifier/global/Object Environment, `with`, optional-chain
   and resumable assignments remain outside this focused boundary.
 - Direct identifier calls selected through `with` now have a verified,

@@ -1,5 +1,6 @@
 use super::*;
 use boa_ast::pattern::{ArrayPattern, ObjectPattern};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PendingFunction<'a> {
@@ -214,6 +215,7 @@ pub(crate) struct Analysis<'a> {
     pub(crate) for_in_of_tdz_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) for_in_of_iteration_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) function_plans: BTreeMap<FunctionId, FunctionPlan<'a>>,
+    pub(crate) planned_source_function_ids: Arc<BTreeSet<FunctionId>>,
     pub(crate) function_declaration_ids: BTreeMap<String, FunctionId>,
     pub(crate) annex_b_function_plans: BTreeMap<String, AnnexBFunctionPlan>,
     pub(crate) function_expr_ids: BTreeMap<String, FunctionId>,
@@ -416,6 +418,8 @@ impl<'a> AnalysisBuilder<'a> {
             );
         }
         self.finalize_capture_plans();
+        let planned_source_function_ids =
+            Arc::new(self.function_plans.keys().cloned().collect::<BTreeSet<_>>());
         Analysis {
             owner_plans: self.owner_plans,
             environment_plans: self.environment_plans,
@@ -429,6 +433,7 @@ impl<'a> AnalysisBuilder<'a> {
             for_in_of_tdz_environment_ids: self.for_in_of_tdz_environment_ids,
             for_in_of_iteration_environment_ids: self.for_in_of_iteration_environment_ids,
             function_plans: self.function_plans,
+            planned_source_function_ids,
             function_declaration_ids: self.function_declaration_ids,
             annex_b_function_plans: self.annex_b_function_plans,
             function_expr_ids: self.function_expr_ids,

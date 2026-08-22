@@ -23,6 +23,7 @@
 use super::*;
 use crate::{WellKnownSymbol, WithObjectBindingName};
 use boa_ast::expression::operator::binary::{ArithmeticOp, BitwiseOp};
+use std::sync::Arc;
 
 const DELETE_SUPER_THIS_BINDING: &str = "$delete.super.this";
 const DELETE_SUPER_KEY_BINDING: &str = "$delete.super.key";
@@ -37,6 +38,76 @@ fn dynamic_value_info() -> ValueInfo {
         possible_kinds: KindSet::all_runtime_tags(),
         heap_shape: None,
         function_targets: BTreeSet::new(),
+    }
+}
+
+/// The closed set of functions a deferred property operation may dispatch.
+///
+/// Exact shape and descriptor discoveries stay in `known`. When lost shape or
+/// arbitrary source effects make every planned source function possible, one
+/// shared immutable universe is retained instead of cloning every ID into
+/// every Reference carrier.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PropertyHookTargets {
+    known: BTreeSet<FunctionId>,
+    all_planned_source: Option<Arc<BTreeSet<FunctionId>>>,
+}
+
+impl PropertyHookTargets {
+    pub(crate) fn from_known(known: BTreeSet<FunctionId>) -> Self {
+        Self {
+            known,
+            all_planned_source: None,
+        }
+    }
+
+    pub(crate) fn extend_known(&mut self, targets: impl IntoIterator<Item = FunctionId>) {
+        self.known.extend(targets);
+    }
+
+    pub(crate) fn include_all_planned_source(&mut self, targets: Arc<BTreeSet<FunctionId>>) {
+        if let Some(existing) = &self.all_planned_source {
+            debug_assert_eq!(existing.as_ref(), targets.as_ref());
+            return;
+        }
+        self.all_planned_source = Some(targets);
+    }
+
+    pub(crate) fn extend_targets(&mut self, targets: Self) {
+        self.known.extend(targets.known);
+        if let Some(all_planned_source) = targets.all_planned_source {
+            self.include_all_planned_source(all_planned_source);
+        }
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &FunctionId> {
+        self.known.iter().chain(
+            self.all_planned_source
+                .iter()
+                .flat_map(|targets| targets.iter())
+                .filter(|target| !self.known.contains(*target)),
+        )
+    }
+
+    pub(crate) fn includes_all_planned_source(&self) -> bool {
+        self.all_planned_source.is_some()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.known.is_empty()
+            && self
+                .all_planned_source
+                .as_ref()
+                .is_none_or(|targets| targets.is_empty())
+    }
+
+    #[must_use]
+    pub fn contains(&self, target: &FunctionId) -> bool {
+        self.known.contains(target)
+            || self
+                .all_planned_source
+                .as_ref()
+                .is_some_and(|targets| targets.contains(target))
     }
 }
 
@@ -146,6 +217,8 @@ pub struct OrdinaryPropertyEagerCompoundAssignmentIr {
     strictness: Strictness,
     old_value_binding: String,
     result: Box<TypedExpr>,
+    possible_getters: PropertyHookTargets,
+    possible_setters: PropertyHookTargets,
 }
 
 impl OrdinaryPropertyEagerCompoundAssignmentIr {
@@ -155,6 +228,8 @@ impl OrdinaryPropertyEagerCompoundAssignmentIr {
         strictness: Strictness,
         old_value_binding: String,
         result: Box<TypedExpr>,
+        possible_getters: PropertyHookTargets,
+        possible_setters: PropertyHookTargets,
     ) -> Self {
         Self {
             base_and_receiver,
@@ -162,6 +237,8 @@ impl OrdinaryPropertyEagerCompoundAssignmentIr {
             strictness,
             old_value_binding,
             result,
+            possible_getters,
+            possible_setters,
         }
     }
 
@@ -189,6 +266,16 @@ impl OrdinaryPropertyEagerCompoundAssignmentIr {
     pub fn result(&self) -> &TypedExpr {
         &self.result
     }
+
+    #[must_use]
+    pub fn possible_getters(&self) -> &PropertyHookTargets {
+        &self.possible_getters
+    }
+
+    #[must_use]
+    pub fn possible_setters(&self) -> &PropertyHookTargets {
+        &self.possible_setters
+    }
 }
 
 /// One plain assignment through an ordinary property Reference.
@@ -203,6 +290,7 @@ pub struct OrdinaryPropertyAssignmentIr {
     referenced_name: PropertyKeyIr,
     rhs: Box<TypedExpr>,
     strictness: Strictness,
+    possible_setters: PropertyHookTargets,
 }
 
 impl OrdinaryPropertyAssignmentIr {
@@ -211,12 +299,14 @@ impl OrdinaryPropertyAssignmentIr {
         referenced_name: PropertyKeyIr,
         rhs: Box<TypedExpr>,
         strictness: Strictness,
+        possible_setters: PropertyHookTargets,
     ) -> Self {
         Self {
             base_and_receiver,
             referenced_name,
             rhs,
             strictness,
+            possible_setters,
         }
     }
 
@@ -239,6 +329,89 @@ impl OrdinaryPropertyAssignmentIr {
     pub fn strictness(&self) -> Strictness {
         self.strictness
     }
+
+    #[must_use]
+    pub fn possible_setters(&self) -> &PropertyHookTargets {
+        &self.possible_setters
+    }
+}
+
+/// One logical assignment through an ordinary property Reference.
+///
+/// The carrier keeps the evaluated base/receiver, raw referenced name,
+/// branch-local RHS, logical operation, and `[[Strict]]` together. Its backend
+/// consumer therefore owns the single `ToPropertyKey`/GetValue pair and can
+/// place both RHS evaluation and PutValue wholly inside the selected branch.
+/// Possible accessor targets are carried with the Reference so later planning
+/// cannot lose a getter or setter merely because control-flow joining erased
+/// the base's single heap shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an ordinary property logical assignment must be consumed by the backend"]
+pub struct OrdinaryPropertyLogicalAssignmentIr {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    rhs: Box<TypedExpr>,
+    op: LogicalBinaryOp,
+    strictness: Strictness,
+    possible_getters: PropertyHookTargets,
+    possible_setters: PropertyHookTargets,
+}
+
+impl OrdinaryPropertyLogicalAssignmentIr {
+    fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        rhs: Box<TypedExpr>,
+        op: LogicalBinaryOp,
+        strictness: Strictness,
+        possible_getters: PropertyHookTargets,
+        possible_setters: PropertyHookTargets,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            rhs,
+            op,
+            strictness,
+            possible_getters,
+            possible_setters,
+        }
+    }
+
+    #[must_use]
+    pub fn base_and_receiver(&self) -> &TypedExpr {
+        &self.base_and_receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn rhs(&self) -> &TypedExpr {
+        &self.rhs
+    }
+
+    #[must_use]
+    pub fn op(&self) -> LogicalBinaryOp {
+        self.op
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+
+    #[must_use]
+    pub fn possible_getters(&self) -> &PropertyHookTargets {
+        &self.possible_getters
+    }
+
+    #[must_use]
+    pub fn possible_setters(&self) -> &PropertyHookTargets {
+        &self.possible_setters
+    }
 }
 
 /// One fused numeric update of an ordinary property Reference.
@@ -256,6 +429,8 @@ pub struct OrdinaryPropertyNumericUpdateIr {
     op: NumericUpdateOp,
     return_mode: UpdateReturnMode,
     value_kind: ValueKind,
+    possible_getters: PropertyHookTargets,
+    possible_setters: PropertyHookTargets,
 }
 
 impl OrdinaryPropertyNumericUpdateIr {
@@ -265,6 +440,8 @@ impl OrdinaryPropertyNumericUpdateIr {
         strictness: Strictness,
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
+        possible_getters: PropertyHookTargets,
+        possible_setters: PropertyHookTargets,
     ) -> Self {
         Self {
             base_and_receiver,
@@ -273,6 +450,8 @@ impl OrdinaryPropertyNumericUpdateIr {
             op,
             return_mode,
             value_kind: ValueKind::Dynamic,
+            possible_getters,
+            possible_setters,
         }
     }
 
@@ -304,6 +483,16 @@ impl OrdinaryPropertyNumericUpdateIr {
     #[must_use]
     pub fn value_kind(&self) -> ValueKind {
         self.value_kind
+    }
+
+    #[must_use]
+    pub fn possible_getters(&self) -> &PropertyHookTargets {
+        &self.possible_getters
+    }
+
+    #[must_use]
+    pub fn possible_setters(&self) -> &PropertyHookTargets {
+        &self.possible_setters
     }
 }
 
@@ -337,7 +526,11 @@ impl OrdinaryPropertyReferencePlan {
     /// Runtime validation and key coercion remain backend-owned so both occur
     /// after RHS evaluation.
     #[must_use]
-    pub(crate) fn plain_assignment(self, rhs: TypedExpr) -> TypedExpr {
+    pub(crate) fn plain_assignment(
+        self,
+        rhs: TypedExpr,
+        possible_setters: PropertyHookTargets,
+    ) -> TypedExpr {
         TypedExpr::from_info(
             rhs.value_info(),
             ExprIr::OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr::new(
@@ -345,6 +538,34 @@ impl OrdinaryPropertyReferencePlan {
                 self.referenced_name,
                 Box::new(rhs),
                 self.strictness,
+                possible_setters,
+            )),
+        )
+    }
+
+    /// Consume one Reference into the closed logical-assignment lifecycle.
+    ///
+    /// The result remains dynamic because the expression can publish either
+    /// the runtime property value or the RHS. The backend, rather than a
+    /// decomposed `LogicalShortCircuit`, owns which branch performs PutValue.
+    #[must_use]
+    pub(crate) fn logical_assignment(
+        self,
+        op: LogicalBinaryOp,
+        rhs: TypedExpr,
+        possible_getters: PropertyHookTargets,
+        possible_setters: PropertyHookTargets,
+    ) -> TypedExpr {
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::OrdinaryPropertyLogicalAssignment(OrdinaryPropertyLogicalAssignmentIr::new(
+                self.base_and_receiver,
+                self.referenced_name,
+                Box::new(rhs),
+                op,
+                self.strictness,
+                possible_getters,
+                possible_setters,
             )),
         )
     }
@@ -355,6 +576,8 @@ impl OrdinaryPropertyReferencePlan {
         old_value_binding: String,
         op: EagerCompoundAssignmentOp,
         rhs: TypedExpr,
+        possible_getters: PropertyHookTargets,
+        possible_setters: PropertyHookTargets,
     ) -> TypedExpr {
         let old_value = TypedExpr::from_info(
             dynamic_value_info(),
@@ -370,6 +593,8 @@ impl OrdinaryPropertyReferencePlan {
                     self.strictness,
                     old_value_binding,
                     Box::new(result),
+                    possible_getters,
+                    possible_setters,
                 ),
             ),
         )
@@ -380,6 +605,8 @@ impl OrdinaryPropertyReferencePlan {
         self,
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
+        possible_getters: PropertyHookTargets,
+        possible_setters: PropertyHookTargets,
     ) -> TypedExpr {
         let value_kind = ValueKind::Dynamic;
         let info = ValueInfo {
@@ -397,6 +624,8 @@ impl OrdinaryPropertyReferencePlan {
                 self.strictness,
                 op,
                 return_mode,
+                possible_getters,
+                possible_setters,
             )),
         )
     }
@@ -2240,6 +2469,9 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         ExprIr::OrdinaryPropertyAssignment(assignment) => {
             Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
         }
+        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+            Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
+        }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
             Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
         }
@@ -2555,6 +2787,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::OptionalPropertyChain { .. }
         | ExprIr::PropertyWrite { .. }
         | ExprIr::OrdinaryPropertyAssignment(_)
+        | ExprIr::OrdinaryPropertyLogicalAssignment(_)
         | ExprIr::OrdinaryPropertyNumericUpdate(_)
         | ExprIr::OrdinaryPropertyEagerCompoundAssignment(_)
         | ExprIr::UpdateIdentifier { .. }
@@ -2780,6 +3013,23 @@ impl ReferencePins {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn property_hook_targets_share_the_source_universe_and_keep_exact_builtins() {
+        let source = Arc::new(BTreeSet::from(["f0".to_string(), "f1".to_string()]));
+        let builtin = StandardBuiltinId::ObjectPrototypeProtoGetter.function_id();
+        let mut targets = PropertyHookTargets::from_known(BTreeSet::from([builtin.clone()]));
+        targets.include_all_planned_source(source.clone());
+        let cloned = targets.clone();
+
+        assert!(Arc::ptr_eq(
+            targets.all_planned_source.as_ref().unwrap(),
+            cloned.all_planned_source.as_ref().unwrap(),
+        ));
+        assert!(cloned.contains(&"f1".to_string()));
+        assert!(cloned.contains(&builtin));
+        assert!(!cloned.contains(&StandardBuiltinId::ArrayPrototypePush.function_id()));
+    }
 
     fn with_environment_resolution(
         storage_name: &str,

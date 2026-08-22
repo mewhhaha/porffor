@@ -74,7 +74,10 @@ impl WasmFunctionMeta {
 mod tests {
     use super::*;
     use lila_front::{parse, ParseOptions};
-    use lila_ir::{lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy};
+    use lila_ir::{
+        lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy, ObjectAccessorShape,
+        ObjectShape,
+    };
 
     fn lower_script(source: &str) -> ScriptIr {
         let parsed = parse(source, ParseOptions::script()).expect("script should parse");
@@ -98,6 +101,137 @@ mod tests {
         };
 
         assert!(expr_result_tag_is_runtime_dynamic(&conversion));
+    }
+
+    #[test]
+    fn dynamic_property_keys_root_every_possible_shape_accessor() {
+        let getter = "dynamic.getter".to_string();
+        let setter = "dynamic.setter".to_string();
+        let shape = HeapShape::Object(ObjectShape {
+            properties: BTreeMap::from([(
+                "p".to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.clone(),
+                    }),
+                    setter: Some(ObjectAccessorShape {
+                        function_id: setter.clone(),
+                    }),
+                },
+            )]),
+            ..ObjectShape::default()
+        });
+        let key = PropertyKeyIr::StringExpr(Box::new(TypedExpr::from_info(
+            ValueInfo::new(ValueKind::String),
+            ExprIr::Identifier("key".to_string()),
+        )));
+
+        assert!(shape_accessor_references_function(
+            Some(&shape),
+            &key,
+            &getter,
+            true,
+            false,
+        ));
+        assert!(shape_accessor_references_function(
+            Some(&shape),
+            &key,
+            &setter,
+            false,
+            true,
+        ));
+        assert!(!shape_accessor_references_function(
+            Some(&shape),
+            &key,
+            &getter,
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn joined_logical_property_base_roots_every_carried_builtin_accessor() {
+        let script = lower_script(
+            "function readSize(flag, map, set) { return (flag ? map : set).size ||= 1; } readSize(true, new Map(), new Set());",
+        );
+
+        for builtin in [
+            StandardBuiltinId::MapPrototypeSizeGetter,
+            StandardBuiltinId::SetPrototypeSizeGetter,
+        ] {
+            assert!(
+                !should_stub_standard_builtin(&script, builtin),
+                "joined logical base lost {builtin:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn joined_eager_property_base_roots_every_carried_builtin_getter() {
+        let script = lower_script(
+            "function addSize(flag, map, set) { return (flag ? map : set).size += 1; } addSize(true, new Map(), new Set());",
+        );
+
+        for builtin in [
+            StandardBuiltinId::MapPrototypeSizeGetter,
+            StandardBuiltinId::SetPrototypeSizeGetter,
+        ] {
+            assert!(!should_stub_standard_builtin(&script, builtin));
+        }
+    }
+
+    #[test]
+    fn joined_numeric_property_base_roots_every_carried_builtin_getter() {
+        let script = lower_script(
+            "function incrementSize(flag, map, set) { return (flag ? map : set).size++; } incrementSize(true, new Map(), new Set());",
+        );
+
+        for builtin in [
+            StandardBuiltinId::MapPrototypeSizeGetter,
+            StandardBuiltinId::SetPrototypeSizeGetter,
+        ] {
+            assert!(!should_stub_standard_builtin(&script, builtin));
+        }
+    }
+
+    #[test]
+    fn joined_plain_property_base_roots_its_carried_builtin_setter() {
+        let script = lower_script(
+            "function setProto(flag, map, set, value) { return (flag ? map : set).__proto__ = value; } setProto(true, new Map(), new Set(), null);",
+        );
+
+        assert!(!should_stub_standard_builtin(
+            &script,
+            StandardBuiltinId::ObjectPrototypeProtoSetter,
+        ));
+    }
+
+    #[test]
+    fn deeply_nested_strict_logical_properties_budget_failed_set_errors() {
+        const DEPTH: usize = 186;
+
+        let script = lower_script("\"use strict\"; let target = {}; target.p ||= 0;");
+        let single = count_block_temp_locals(&script.body);
+        assert_eq!(
+            single,
+            ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+                + ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS
+        );
+
+        let actual = (1..DEPTH).fold(single, |child, _| {
+            ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+                + child
+                    .max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)
+                    .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS)
+        });
+
+        let expected = DEPTH * ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+            + ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS;
+        assert!(
+            expected > 2048,
+            "regression must cross the local-count floor"
+        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -3297,6 +3431,13 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
             ) || property_key_exposes_global_object(assignment.referenced_name())
                 || expr_exposes_global_object(assignment.rhs())
         }
+        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+            property_access_exposes_global_object(
+                assignment.base_and_receiver(),
+                assignment.referenced_name(),
+            ) || property_key_exposes_global_object(assignment.referenced_name())
+                || expr_exposes_global_object(assignment.rhs())
+        }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             property_access_exposes_global_object(
                 update.base_and_receiver(),
@@ -3801,6 +3942,11 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             collect_property_key_global_property_names(key, names);
         }
         ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            collect_expr_global_property_names(assignment.base_and_receiver(), names);
+            collect_property_key_global_property_names(assignment.referenced_name(), names);
+            collect_expr_global_property_names(assignment.rhs(), names);
+        }
+        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
             collect_expr_global_property_names(assignment.base_and_receiver(), names);
             collect_property_key_global_property_names(assignment.referenced_name(), names);
             collect_expr_global_property_names(assignment.rhs(), names);
@@ -4870,17 +5016,47 @@ pub(crate) fn shape_accessor_references_function(
     include_getter: bool,
     include_setter: bool,
 ) -> bool {
-    let Some(name) = static_property_key_name(key) else {
+    let Some(shape) = shape else {
         return false;
     };
-    let Some(ObjectShapeProperty::Accessor { getter, setter }) =
-        shape.and_then(|shape| read_static_heap_shape_property(shape, name))
-    else {
-        return false;
-    };
+    if let Some(name) = static_property_key_name(key) {
+        let Some(ObjectShapeProperty::Accessor { getter, setter }) =
+            read_static_heap_shape_property(shape, name)
+        else {
+            return false;
+        };
+        return (include_getter && getter.is_some_and(|getter| getter.function_id == *target))
+            || (include_setter && setter.is_some_and(|setter| setter.function_id == *target));
+    }
 
-    (include_getter && getter.is_some_and(|getter| getter.function_id == *target))
-        || (include_setter && setter.is_some_and(|setter| setter.function_id == *target))
+    fn any_accessor(
+        shape: &HeapShape,
+        target: &FunctionId,
+        include_getter: bool,
+        include_setter: bool,
+    ) -> bool {
+        let (properties, prototype) = match shape {
+            HeapShape::Object(shape) => (&shape.properties, shape.prototype.as_deref()),
+            HeapShape::Array(shape) => (&shape.properties, shape.prototype.as_deref()),
+        };
+        properties.values().any(|property| {
+            let ObjectShapeProperty::Accessor { getter, setter } = property else {
+                return false;
+            };
+            (include_getter
+                && getter
+                    .as_ref()
+                    .is_some_and(|getter| getter.function_id == *target))
+                || (include_setter
+                    && setter
+                        .as_ref()
+                        .is_some_and(|setter| setter.function_id == *target))
+        }) || prototype.is_some_and(|prototype| {
+            any_accessor(prototype, target, include_getter, include_setter)
+        })
+    }
+
+    any_accessor(shape, target, include_getter, include_setter)
 }
 
 pub(crate) fn shape_data_references_function(
@@ -5318,6 +5494,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             expr_references_function(assignment.base_and_receiver(), target)
                 || property_key_references_function(assignment.referenced_name(), target)
                 || expr_references_function(assignment.rhs(), target)
+                || assignment.possible_setters().contains(target)
                 || shape_accessor_references_function(
                     assignment.base_and_receiver().heap_shape.as_deref(),
                     assignment.referenced_name(),
@@ -5326,9 +5503,25 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     true,
                 )
         }
+        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+            expr_references_function(assignment.base_and_receiver(), target)
+                || property_key_references_function(assignment.referenced_name(), target)
+                || expr_references_function(assignment.rhs(), target)
+                || assignment.possible_getters().contains(target)
+                || assignment.possible_setters().contains(target)
+                || shape_accessor_references_function(
+                    assignment.base_and_receiver().heap_shape.as_deref(),
+                    assignment.referenced_name(),
+                    target,
+                    true,
+                    true,
+                )
+        }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             expr_references_function(update.base_and_receiver(), target)
                 || property_key_references_function(update.referenced_name(), target)
+                || update.possible_getters().contains(target)
+                || update.possible_setters().contains(target)
                 || shape_accessor_references_function(
                     update.base_and_receiver().heap_shape.as_deref(),
                     update.referenced_name(),
@@ -5341,6 +5534,8 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             expr_references_function(mutation.base_and_receiver(), target)
                 || property_key_references_function(mutation.referenced_name(), target)
                 || expr_references_function(mutation.result(), target)
+                || mutation.possible_getters().contains(target)
+                || mutation.possible_setters().contains(target)
                 || shape_accessor_references_function(
                     mutation.base_and_receiver().heap_shape.as_deref(),
                     mutation.referenced_name(),
@@ -6758,6 +6953,7 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         ExprIr::OrdinaryPropertyAssignment(assignment) => {
             expr_result_tag_is_runtime_dynamic(&assignment.rhs().expr)
         }
+        ExprIr::OrdinaryPropertyLogicalAssignment(_) => true,
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
             expr_result_tag_is_runtime_dynamic(&mutation.result().expr)
         }
@@ -7343,6 +7539,17 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
+        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+            matches!(assignment.base_and_receiver().kind, ValueKind::Object)
+                || expr_uses_function_table(assignment.base_and_receiver())
+                || expr_uses_function_table(assignment.rhs())
+                || match assignment.referenced_name() {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_function_table(expr)
+                    }
+                }
+        }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             matches!(update.base_and_receiver().kind, ValueKind::Object)
                 || expr_uses_function_table(update.base_and_receiver())
@@ -7547,6 +7754,16 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                 }
         }
         ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            expr_uses_calls(assignment.base_and_receiver())
+                || expr_uses_calls(assignment.rhs())
+                || match assignment.referenced_name() {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_calls(expr)
+                    }
+                }
+        }
+        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
             expr_uses_calls(assignment.base_and_receiver())
                 || expr_uses_calls(assignment.rhs())
                 || match assignment.referenced_name() {
@@ -8261,24 +8478,31 @@ const SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
 const SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
 const SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
 
-// The eager ordinary-property Reference is emitted in two non-overlapping
-// phases. GetValue retains the two old-value locals below the four-local raw
-// base/key carrier. Applying the result adds its payload/tag and the Set result
-// local. The Set helper then reserves four own locals plus its two-local
-// argument-vector phase. The carried Strictness is a compile-time property of
-// this fused Reference, so its false-result branch reserves no runtime local.
-const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4;
-const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 3;
+// A read/modify/write ordinary-property Reference is emitted in two
+// non-overlapping phases. GetValue retains the two old-value locals below the
+// four-local raw base/key carrier and the distinct two-local boxed target.
+// Applying the result adds its payload/tag and the Set result local. The Set
+// helper then reserves four own locals plus its two-local argument-vector
+// phase. Strictness itself is a compile-time property of this fused Reference,
+// so there is no carried flag local; a strict false Set still builds an error
+// object while every write-persistent local remains live, however.
+const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2;
+const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;
+const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;
+const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;
 const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
 const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
 const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+// `emit_runtime_error_object` retains object/key/value payload/value tag while
+// `emit_object_define_data` materializes its three complete-descriptor flags.
+const ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS: usize = 4 + 3;
 
 // Plain assignment has three explicit, non-overlapping phases. Reference
 // evaluation retains the four-local raw base/key carrier while its children
 // run. RHS evaluation adds its payload/tag. PutValue then canonicalizes the
 // retained raw key after reserving the distinct boxed target, then adds its
-// single Set-result local. The Set helper's four own locals and two-local
-// argument vector are the final peak.
+// single Set-result local. The final phase is the larger of the Set helper's
+// four own locals plus two-local argument vector and a strict failed-Set error.
 const ORDINARY_PROPERTY_ASSIGNMENT_RAW_TEMP_LOCALS: usize = 4;
 const ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS: usize = 4 + 2;
 const ORDINARY_PROPERTY_ASSIGNMENT_CANONICAL_TEMP_LOCALS: usize = 4 + 2 + 2;
@@ -8512,11 +8736,31 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 + ORDINARY_PROPERTY_ASSIGNMENT_TO_OBJECT_TEMP_LOCALS
                     .max(ORDINARY_PROPERTY_ASSIGNMENT_TO_PROPERTY_KEY_TEMP_LOCALS);
             let write_phase = ORDINARY_PROPERTY_ASSIGNMENT_READY_TEMP_LOCALS
-                + ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS;
+                + ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS
+                    .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS);
             raw_phase
                 .max(evaluated_phase)
                 .max(canonical_phase)
                 .max(write_phase)
+        }
+        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+            let key_child = match assignment.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    count_expr_temp_locals(expr)
+                }
+            };
+            let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(assignment.base_and_receiver())
+                    .max(key_child)
+                    .max(ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS)
+                    .max(ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS)
+                    .max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS);
+            let taken_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(assignment.rhs())
+                    .max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)
+                    .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS);
+            read_phase.max(taken_phase)
         }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             let key_child = match update.referenced_name() {
@@ -8543,10 +8787,13 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
                 + count_expr_temp_locals(update.base_and_receiver())
                     .max(key_child)
+                    .max(ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS)
+                    .max(ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS)
                     .max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)
                     .max(to_numeric_temps);
             let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
-                + ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS;
+                + ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS
+                    .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS);
             read_phase.max(write_phase)
         }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
@@ -8559,10 +8806,13 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
                 + count_expr_temp_locals(mutation.base_and_receiver())
                     .max(key_child)
+                    .max(ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS)
+                    .max(ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS)
                     .max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS);
             let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
                 + count_expr_temp_locals(mutation.result())
-                    .max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS);
+                    .max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)
+                    .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS);
             read_phase.max(write_phase)
         }
         ExprIr::DeleteIdentifier { .. } => 0,
