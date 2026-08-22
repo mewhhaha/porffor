@@ -997,6 +997,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn class_field_arguments_rejections_cover_all_field_forms_and_goals() {
+        for source in [
+            "class C { value = arguments; }",
+            "const C = class { static value = arguments; };",
+            "class C { #value = arguments; }",
+            "const C = class { static #value = arguments; };",
+            "class C { accessor value = arguments; }",
+            "const C = class { static accessor value = arguments; };",
+            "class C { accessor #value = arguments; }",
+            "const C = class { static accessor #value = arguments; };",
+            "class C { value = () => arguments; }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("lexical arguments use in a class field should fail");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassFieldContainsArguments),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_field_arguments_stop_at_function_and_method_boundaries() {
+        for source in [
+            "class C { value = function () { return arguments; }; }",
+            "const C = class { static value = async function () { return arguments; }; };",
+            "class C { #value = function* () { yield arguments; }; }",
+            "const C = class { static #value = async function* () { yield arguments; }; };",
+            "class C { accessor value = ({ method() { return arguments; } }); }",
+            "const C = class { static accessor #value = ({ get value() { return arguments; } }); };",
+            "class C { value = ({ arguments: 1, ['arguments']: 2 }); }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("nested functions, methods and property names own no lexical arguments use");
+            }
+        }
+    }
+
     /// Drift B3, closed.
     ///
     /// `ModuleParser::parse` words this one ``lexical name `x` declared
@@ -1427,6 +1473,7 @@ switch (0) {
             ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)
                 .is_some()
         );
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassFieldContainsArguments).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());

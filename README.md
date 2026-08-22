@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-22`:
 
+- Class-field `ContainsArguments` parser rejections now carry one typed early-
+  error code across public/private, instance/static and auto-accessor
+  initializers. The front-end preserves lexical traversal through arrows and
+  stops at ordinary function/method boundaries; retained dependency modules
+  project the same `Early`/`SyntaxError` diagnostic. The focused front and IR
+  gates pass `40/40` and `3/3`, and the exact 60-file pinned Test262 cohort
+  passes `120/120` Wasm-AOT executions with every failure bucket at zero.
+  Literal direct-`eval` source remains explicit T13 dynamic-source debt.
 - Ordinary-property `&&=`, `||=` and `??=` now consume one fused Reference
   carrier. One base/receiver and raw key flow through nullish validation, a
   sole `ToPropertyKey`/GetValue transition, branch-local RHS and same-reference

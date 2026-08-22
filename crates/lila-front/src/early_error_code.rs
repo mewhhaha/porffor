@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 28] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 29] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -220,6 +220,10 @@ early_error_codes! {
     /// `ClassStaticBlockStatementList` is true. Nested ordinary function and
     /// method bodies are traversal boundaries; arrow functions are not.
     ClassStaticBlockContainsArguments => "E_CLASS_STATIC_BLOCK_CONTAINS_ARGUMENTS";
+    /// FieldDefinition early errors: `ContainsArguments` of a public/private,
+    /// instance/static or auto-accessor initializer is true. Nested ordinary
+    /// function and method bodies are boundaries; arrow functions are not.
+    ClassFieldContainsArguments => "E_CLASS_FIELD_CONTAINS_ARGUMENTS";
     /// 14.13.1. `ContainsDuplicateLabels` with argument « » is `true`.
     DuplicateLabel => "E_DUPLICATE_LABEL";
     /// 14.13.1, applied by 16.1.1 / 16.2.1.2. `ContainsUndefinedBreakTarget`
@@ -298,7 +302,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 26;
+const PARSE_FAILURE_RULE_COUNT: usize = 27;
 
 /// The one fragment table.
 ///
@@ -468,25 +472,33 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassStaticBlockContainsArguments,
         witnesses: &["'arguments' not allowed in class static block"],
     },
-    // 19. boa_parser/src/parser/mod.rs:567
+    // 19. statement/declaration/hoistable/class_decl/mod.rs:1522-1558. The
+    //     exhaustive class-element match uses this one exact wording for
+    //     public/private, instance/static and auto-accessor field initializers.
+    ParseFailureRule {
+        fragments: &["'arguments' not allowed in class field definition"],
+        code: EarlyErrorCode::ClassFieldContainsArguments,
+        witnesses: &["'arguments' not allowed in class field definition"],
+    },
+    // 20. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
         fragments: &["module cannot contain", "super"],
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
-    // 20. boa_parser/src/parser/mod.rs:575
+    // 21. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
         fragments: &["module cannot contain", "new.target"],
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
-    // 21. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
+    // 22. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
         fragments: &["invalid private identifier usage"],
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
-    // 22-26. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
+    // 23-27. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
         fragments: &["duplicate label"],
         code: EarlyErrorCode::DuplicateLabel,

@@ -379,6 +379,10 @@ mod tests {
                 EarlyErrorCode::ClassStaticBlockContainsArguments,
             ),
             (
+                "'arguments' not allowed in class field definition",
+                EarlyErrorCode::ClassFieldContainsArguments,
+            ),
+            (
                 "module cannot contain `super` on the top-level",
                 EarlyErrorCode::ModuleTopLevelSuper,
             ),
@@ -579,6 +583,25 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::ClassStaticBlockContainsArguments)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_field_arguments_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export default class { static accessor #value = () => arguments; }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("lexical arguments use in a class field should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassFieldContainsArguments)
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");

@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor, constructor method/private-name restrictions and class-static-block `ContainsArguments` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor, constructor method/private-name restrictions and class static-block/field `ContainsArguments` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -92,6 +92,18 @@ classification only: it does not implement static-block lowering or execution,
 class-field `ContainsArguments`, or adjacent static-block early errors. Focused
 Cargo and Test262 verification remains deferred to the shared verification
 lane.
+
+Class public/private, instance/static and auto-accessor field initializers whose
+retained syntax has `ContainsArguments` now share one closed condition for
+Boa's exact common wording. Script and Module witnesses preserve lexical
+traversal through arrows and the stop at ordinary function and method bodies;
+retained dependency failures use the same typed code. Direct-eval strings are
+T13 dynamic-source debt rather than parser classifications. The boundary is
+recorded in
+`docs/rust-rewrite/contracts/class-field-contains-arguments-early-errors.md`.
+At `2026-08-22`, the full front-end gate passes `40/40`, the focused IR early-
+error gate passes `3/3`, and the exact 60-file pinned cohort passes `120/120`
+Wasm-AOT executions with zero failure or non-success outcomes.
 
 ## Objective
 

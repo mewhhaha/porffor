@@ -1,5 +1,17 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-22 class-field `ContainsArguments` amendment
+
+T07 now classifies Boa's exact shared rejection for an `arguments` reference in
+a public/private, instance/static, or auto-accessor field initializer. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/class-field-contains-arguments-early-errors.md`
+
+The domain has **29** variants and the one parse-failure table has **27** rows.
+Source witnesses preserve traversal through arrows and the stop at ordinary
+function and method boundaries. Direct-eval source remains T13 debt.
+
 ## 2026-08-20 remaining class-constructor restriction amendment
 
 T07 now classifies the four exact Boa rejections for a non-static async method,
