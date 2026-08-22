@@ -1,5 +1,30 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-20 remaining class-constructor restriction amendment
+
+T07 now classifies the four exact Boa rejections for a non-static async method,
+getter or setter named `constructor`, and for any private ClassElement named
+`#constructor`. The normative extension is:
+
+`docs/rust-rewrite/contracts/class-constructor-nonordinary-method-early-errors.md`
+
+The current domain has **28** variants and the one parse-failure table has
+**26** rows. Eighteen pinned phase-parse negatives cover declaration and
+expression forms, while static and computed public names remain positive
+boundaries.
+
+## 2026-08-20 class-constructor generator-method amendment
+
+T07 now classifies the exact rejection shared by Boa's generator and
+async-generator constructor producers. The normative extension is:
+
+`docs/rust-rewrite/contracts/class-constructor-generator-method-early-errors.md`
+
+At that extension's checkpoint the domain had **24** variants and the one
+parse-failure table had **22** rows. Script and Module witnesses preserve
+static and computed generator methods named `constructor` as positive
+boundaries.
+
 ## 2026-08-17 class-static-block `ContainsArguments` amendment
 
 T07 now classifies the one exact rejection Boa produces when a class static
@@ -8,9 +33,10 @@ top amendment in:
 
 `docs/rust-rewrite/contracts/Early-error taxonomy: one closed EarlyErrorCode domain and one fragment table, not two that have already drifted.md`
 
-The current domain has **23** variants and the one parse-failure table has
-**21** rows. Source witnesses preserve the lexical traversal through arrows and
-the specified stop at ordinary function and method boundaries.
+At that extension's checkpoint the domain had **23** variants and the one
+parse-failure table had **21** rows. Source witnesses preserve the lexical
+traversal through arrows and the specified stop at ordinary function and method
+boundaries.
 
 ## 2026-08-13 duplicate-class-constructor amendment
 
@@ -96,7 +122,10 @@ area brief, three of which change the encoding:
   condition; the duplicate-catch-parameter extension adds the twentieth; the
   catch-body-declaration-conflict extension adds the twenty-first, the
   duplicate-class-constructor extension adds the twenty-second, and the
-  class-static-block `ContainsArguments` extension above adds the twenty-third.
+  class-static-block `ContainsArguments` extension adds the twenty-third, and
+  the class-constructor generator-method extension adds the twenty-fourth. The
+  remaining async/getter/setter/private-constructor extension adds four more,
+  bringing the current domain to twenty-eight.
 - §0.4 — the `E_DUPLICATE_LEXICAL_DECLARATION` drift is bidirectional and one
   direction is conformance-visible, not merely taxonomy-visible.
 

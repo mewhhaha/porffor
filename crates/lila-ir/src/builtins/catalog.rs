@@ -22,6 +22,7 @@ pub enum StandardBuiltinInstaller {
     WeakRef,
     FinalizationRegistry,
     AsyncDisposableStack,
+    DisposableStack,
     Set,
     Object,
     Proxy,
@@ -5673,6 +5674,71 @@ standard_builtin_catalog! {
         installer: None,
         native: DECODE_URI_COMPONENT_NAME,
     }
+    DisposableStackConstructor {
+        function: FunctionOrdinal(779) => BUILTIN_DISPOSABLE_STACK_FUNCTION_ID,
+        global: GlobalOrdinal(52),
+        global_name: DISPOSABLE_STACK_NAME,
+        debug: DISPOSABLE_STACK_NAME,
+        flags: [CONSTRUCTABLE],
+        installer: DisposableStack,
+        native: DISPOSABLE_STACK_NAME,
+    }
+    DisposableStackPrototypeUse {
+        function: FunctionOrdinal(780) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID,
+        debug: "DisposableStack.prototype.use",
+        flags: [],
+        installer: None,
+        native: "use",
+    }
+    DisposableStackPrototypeAdopt {
+        function: FunctionOrdinal(781) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID,
+        debug: "DisposableStack.prototype.adopt",
+        flags: [],
+        installer: None,
+        native: "adopt",
+    }
+    DisposableStackPrototypeDefer {
+        function: FunctionOrdinal(782) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID,
+        debug: "DisposableStack.prototype.defer",
+        flags: [],
+        installer: None,
+        native: "defer",
+    }
+    DisposableStackPrototypeMove {
+        function: FunctionOrdinal(783) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID,
+        debug: "DisposableStack.prototype.move",
+        flags: [],
+        installer: None,
+        native: "move",
+    }
+    DisposableStackPrototypeDispose {
+        function: FunctionOrdinal(784) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID,
+        debug: "DisposableStack.prototype.dispose",
+        flags: [],
+        installer: None,
+        native: "dispose",
+    }
+    DisposableStackPrototypeDisposedGetter {
+        function: FunctionOrdinal(785) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID,
+        debug: "get DisposableStack.prototype.disposed",
+        flags: [],
+        installer: None,
+        native: "get disposed",
+    }
+    FunctionPrototype {
+        function: FunctionOrdinal(786) => BUILTIN_FUNCTION_PROTOTYPE_FUNCTION_ID,
+        debug: "%Function.prototype%",
+        flags: [],
+        installer: None,
+        native: "",
+    }
+    FunctionPrototypeSymbolHasInstance {
+        function: FunctionOrdinal(787) => BUILTIN_FUNCTION_PROTOTYPE_SYMBOL_HAS_INSTANCE_FUNCTION_ID,
+        debug: "Function.prototype[Symbol.hasInstance]",
+        flags: [],
+        installer: None,
+        native: "[Symbol.hasInstance]",
+    }
 }
 
 impl StandardBuiltinId {
@@ -5686,6 +5752,35 @@ impl StandardBuiltinId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disposable_stack_surface_has_one_closed_builtin_identity_per_algorithm() {
+        let constructor = StandardBuiltinId::DisposableStackConstructor;
+        for (builtin, native_name) in [
+            (constructor, "DisposableStack"),
+            (StandardBuiltinId::DisposableStackPrototypeUse, "use"),
+            (StandardBuiltinId::DisposableStackPrototypeAdopt, "adopt"),
+            (StandardBuiltinId::DisposableStackPrototypeDefer, "defer"),
+            (StandardBuiltinId::DisposableStackPrototypeMove, "move"),
+            (
+                StandardBuiltinId::DisposableStackPrototypeDispose,
+                "dispose",
+            ),
+            (
+                StandardBuiltinId::DisposableStackPrototypeDisposedGetter,
+                "get disposed",
+            ),
+        ] {
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+            assert_eq!(builtin.constructable(), builtin == constructor);
+        }
+        assert!(StandardBuiltinId::all_globals().contains(&constructor));
+    }
 
     #[test]
     fn math_random_alone_declares_the_host_random_import() {
@@ -5785,6 +5880,10 @@ mod tests {
                 (Builtin::SetConstructor, Installer::Set),
                 (Builtin::SymbolConstructor, Installer::Symbol),
                 (Builtin::ErrorConstructor, Installer::Error),
+                (
+                    Builtin::DisposableStackConstructor,
+                    Installer::DisposableStack,
+                ),
             ]
         );
     }

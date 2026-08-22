@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 23] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 28] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -198,6 +198,24 @@ early_error_codes! {
     /// one occurrence of `"constructor"`. Static and computed methods named
     /// `constructor` are not constructor definitions and remain excluded.
     DuplicateClassConstructor => "E_DUPLICATE_CLASS_CONSTRUCTOR";
+    /// ClassElement early errors: a non-static generator or async-generator
+    /// method has the literal property name `"constructor"`. Static and
+    /// computed generator methods named `constructor` remain excluded.
+    ClassConstructorGeneratorMethod => "E_CLASS_CONSTRUCTOR_GENERATOR_METHOD";
+    /// ClassElement early errors: a non-static async method has the literal
+    /// property name `"constructor"`. Static and computed async methods remain
+    /// excluded.
+    ClassConstructorAsyncMethod => "E_CLASS_CONSTRUCTOR_ASYNC_METHOD";
+    /// ClassElement early errors: a non-static getter has the literal property
+    /// name `"constructor"`. Static and computed getters remain excluded.
+    ClassConstructorGetter => "E_CLASS_CONSTRUCTOR_GETTER";
+    /// ClassElement early errors: a non-static setter has the literal property
+    /// name `"constructor"`. Static and computed setters remain excluded.
+    ClassConstructorSetter => "E_CLASS_CONSTRUCTOR_SETTER";
+    /// ClassElementName early errors: the PrivateIdentifier is
+    /// `#constructor`. Public computed names whose StringValue is
+    /// `"#constructor"` remain excluded.
+    ClassPrivateConstructorName => "E_CLASS_PRIVATE_CONSTRUCTOR_NAME";
     /// ClassStaticBlockBody early errors: `ContainsArguments` of the
     /// `ClassStaticBlockStatementList` is true. Nested ordinary function and
     /// method bodies are traversal boundaries; arrow functions are not.
@@ -280,7 +298,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 21;
+const PARSE_FAILURE_RULE_COUNT: usize = 26;
 
 /// The one fragment table.
 ///
@@ -405,32 +423,70 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::DuplicateClassConstructor,
         witnesses: &["a class may only have one constructor"],
     },
-    // 13. statement/declaration/hoistable/class_decl/mod.rs:740-745. This is
+    // 13. statement/declaration/hoistable/class_decl/mod.rs:786-792,850-855.
+    //     These are the two pinned producers, for generator and async-generator
+    //     methods, and they share this complete, case-sensitive wording.
+    ParseFailureRule {
+        fragments: &["class constructor may not be a generator method"],
+        code: EarlyErrorCode::ClassConstructorGeneratorMethod,
+        witnesses: &["class constructor may not be a generator method"],
+    },
+    // 14. statement/declaration/hoistable/class_decl/mod.rs:890-896. This is
+    //     the sole pinned producer and its complete, case-sensitive wording.
+    ParseFailureRule {
+        fragments: &["class constructor may not be an async method"],
+        code: EarlyErrorCode::ClassConstructorAsyncMethod,
+        witnesses: &["class constructor may not be an async method"],
+    },
+    // 15. statement/declaration/hoistable/class_decl/mod.rs:1155-1161. This is
+    //     the sole pinned producer and its complete, case-sensitive wording.
+    ParseFailureRule {
+        fragments: &["class constructor may not be a getter method"],
+        code: EarlyErrorCode::ClassConstructorGetter,
+        witnesses: &["class constructor may not be a getter method"],
+    },
+    // 16. statement/declaration/hoistable/class_decl/mod.rs:1257-1263. This is
+    //     the sole pinned producer and its complete, case-sensitive wording.
+    ParseFailureRule {
+        fragments: &["class constructor may not be a setter method"],
+        code: EarlyErrorCode::ClassConstructorSetter,
+        witnesses: &["class constructor may not be a setter method"],
+    },
+    // 17. statement/declaration/hoistable/class_decl/mod.rs:810-816,
+    //     843-849,918-924,986-992,1119-1125,1220-1226,1316-1322. These seven
+    //     pinned producers cover private fields and every private method form
+    //     with one complete, case-sensitive wording.
+    ParseFailureRule {
+        fragments: &["class constructor may not be a private method"],
+        code: EarlyErrorCode::ClassPrivateConstructorName,
+        witnesses: &["class constructor may not be a private method"],
+    },
+    // 18. statement/declaration/hoistable/class_decl/mod.rs:740-745. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
         fragments: &["'arguments' not allowed in class static block"],
         code: EarlyErrorCode::ClassStaticBlockContainsArguments,
         witnesses: &["'arguments' not allowed in class static block"],
     },
-    // 14. boa_parser/src/parser/mod.rs:567
+    // 19. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
         fragments: &["module cannot contain", "super"],
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
-    // 15. boa_parser/src/parser/mod.rs:575
+    // 20. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
         fragments: &["module cannot contain", "new.target"],
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
-    // 16. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
+    // 21. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
         fragments: &["invalid private identifier usage"],
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
-    // 17-21. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
+    // 22-26. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
         fragments: &["duplicate label"],
         code: EarlyErrorCode::DuplicateLabel,

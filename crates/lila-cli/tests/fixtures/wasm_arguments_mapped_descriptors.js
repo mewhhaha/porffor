@@ -60,6 +60,202 @@ function indexedWriteDoesNotChangeArgumentsLength(a) {
   return arguments.length === 1 && arguments[5] === 9;
 }
 
+let escapedArguments;
+
+function redefinesDeletedIndexAsAccessor(a) {
+  const args = arguments;
+  escapedArguments = args;
+  let assigned;
+  const getter = function () { return 10; };
+  const setter = function (value) {
+    assigned = value;
+    escapedArguments.setterEffect = value;
+  };
+  delete args[0];
+  Object.defineProperties(args, {
+    "0": {
+      get: getter,
+      set: setter,
+      enumerable: true,
+      configurable: true,
+    },
+  });
+  args[0] = 20;
+  const descriptor = Object.getOwnPropertyDescriptor(args, "0");
+  return args[0] === 10
+    && assigned === 20
+    && args.setterEffect === 20
+    && descriptor.get === getter
+    && descriptor.set === setter
+    && descriptor.enumerable === true
+    && descriptor.configurable === true;
+}
+
+function updatesDetachedAccessor(a) {
+  const args = arguments;
+  const firstGetter = function () { return 10; };
+  const secondGetter = function () { return 20; };
+  Object.defineProperty(args, "0", {
+    get: firstGetter,
+    enumerable: true,
+    configurable: true,
+  });
+  Object.defineProperties(args, {
+    "0": {
+      get: secondGetter,
+      enumerable: false,
+      configurable: false,
+    },
+  });
+  const descriptor = Object.getOwnPropertyDescriptor(args, "0");
+  return descriptor.get === secondGetter
+    && descriptor.set === undefined
+    && descriptor.enumerable === false
+    && descriptor.configurable === false;
+}
+
+function preservesNonzeroMappedSlot(a, b, c) {
+  Object.defineProperty(arguments, "1", { enumerable: false });
+  b = 7;
+  const bindingStillMapped = arguments[1] === 7;
+  Object.defineProperty(arguments, "1", { value: 9 });
+  const valueUpdatedBinding = b === 9;
+  Object.defineProperty(arguments, "1", { writable: false });
+  b = 11;
+  return bindingStillMapped
+    && valueUpdatedBinding
+    && arguments[1] === 9
+    && Object.getOwnPropertyDescriptor(arguments, "1").writable === false;
+}
+
+function writeDynamicNamed(target, key, value) {
+  target[key] = value;
+}
+
+function honorsOwnNamedSetter(a) {
+  const args = arguments;
+  let assigned;
+  const setter = function (value) { assigned = value; };
+  Object.defineProperty(args, "ownNamed", {
+    set: setter,
+    configurable: true,
+  });
+  writeDynamicNamed(args, "ownNamed", 17);
+  const descriptor = Object.getOwnPropertyDescriptor(args, "ownNamed");
+  return assigned === 17
+    && descriptor.set === setter
+    && descriptor.get === undefined;
+}
+
+function honorsInheritedNamedSetter(a) {
+  const args = arguments;
+  const prototype = {};
+  let receiver;
+  let assigned;
+  Object.defineProperty(prototype, "inheritedNamed", {
+    set(value) { receiver = this; assigned = value; },
+    configurable: true,
+  });
+  Object.setPrototypeOf(args, prototype);
+  writeDynamicNamed(args, "inheritedNamed", 23);
+  return receiver === args
+    && assigned === 23
+    && Object.getOwnPropertyDescriptor(args, "inheritedNamed") === undefined;
+}
+
+function honorsNonWritableNamedProperty(a) {
+  const args = arguments;
+  Object.defineProperty(args, "fixedNamed", {
+    value: 29,
+    writable: false,
+    configurable: true,
+  });
+  writeDynamicNamed(args, "fixedNamed", 31);
+  return args.fixedNamed === 29;
+}
+
+function rejectsAbsentIndexOnNonExtensibleArguments(a) {
+  const args = arguments;
+  delete args[0];
+  Object.preventExtensions(args);
+  let threw = false;
+  try {
+    Object.defineProperty(args, "0", { value: 37 });
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  return threw
+    && Object.getOwnPropertyDescriptor(args, "0") === undefined
+    && args[0] === undefined;
+}
+
+function honorsInheritedIndexSetterAfterDelete(a) {
+  const args = arguments;
+  const prototype = {};
+  let receiver;
+  let assigned;
+  delete args[0];
+  Object.defineProperty(prototype, "0", {
+    set(value) { receiver = this; assigned = value; },
+    configurable: true,
+  });
+  Object.setPrototypeOf(args, prototype);
+  args[0] = 41;
+  return receiver === args
+    && assigned === 41
+    && Object.getOwnPropertyDescriptor(args, "0") === undefined;
+}
+
+function rejectsAbsentIndexAssignmentOnNonExtensibleArguments(a) {
+  const args = arguments;
+  delete args[0];
+  Object.preventExtensions(args);
+  args[0] = 43;
+  return Object.getOwnPropertyDescriptor(args, "0") === undefined
+    && args[0] === undefined;
+}
+
+function honorsArgumentsPrototypeIndexedDescriptors() {
+  let receiver;
+  let assigned;
+  const setterPrototype = (function (a) {
+    Object.defineProperty(arguments, "0", {
+      set(value) { receiver = this; assigned = value; },
+      configurable: true,
+    });
+    return arguments;
+  }(1));
+  const setterChild = (function (a) {
+    delete arguments[0];
+    return arguments;
+  }(1));
+  Object.setPrototypeOf(setterChild, setterPrototype);
+  setterChild[0] = 47;
+
+  const fixedPrototype = (function (a) {
+    Object.defineProperty(arguments, "0", {
+      value: 53,
+      writable: false,
+      configurable: true,
+    });
+    return arguments;
+  }(1));
+  const fixedChild = (function (a) {
+    delete arguments[0];
+    return arguments;
+  }(1));
+  Object.setPrototypeOf(fixedChild, fixedPrototype);
+  fixedChild[0] = 59;
+
+  return receiver === setterChild
+    && assigned === 47
+    && Object.getPrototypeOf(setterChild) === setterPrototype
+    && Object.getOwnPropertyDescriptor(setterChild, "0") === undefined
+    && fixedPrototype[0] === 53
+    && Object.getPrototypeOf(fixedChild) === fixedPrototype
+    && Object.getOwnPropertyDescriptor(fixedChild, "0") === undefined;
+}
+
 function genericLengthUpdatePreservesAccessor(a) {
   const args = arguments;
   let value = 7;
@@ -90,4 +286,14 @@ freezesMappedValue(1)
   && rejectedRedefinitionKeepsMapping(1)
   && accessorConversionDoesNotCallGetter(1)
   && indexedWriteDoesNotChangeArgumentsLength(1)
+  && redefinesDeletedIndexAsAccessor(1)
+  && updatesDetachedAccessor(1)
+  && preservesNonzeroMappedSlot(1, 2, 3)
+  && honorsOwnNamedSetter(1)
+  && honorsInheritedNamedSetter(1)
+  && honorsNonWritableNamedProperty(1)
+  && rejectsAbsentIndexOnNonExtensibleArguments(1)
+  && honorsInheritedIndexSetterAfterDelete(1)
+  && rejectsAbsentIndexAssignmentOnNonExtensibleArguments(1)
+  && honorsArgumentsPrototypeIndexedDescriptors()
   && genericLengthUpdatePreservesAccessor(1);

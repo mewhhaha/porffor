@@ -9,6 +9,7 @@ mod bootstrap;
 mod collections;
 mod date;
 mod decimal;
+mod disposable_stack;
 mod errors;
 mod finalization_registry;
 mod function;

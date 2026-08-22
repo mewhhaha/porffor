@@ -1,19 +1,12 @@
-// PER-ITERATION BINDINGS ACROSS AN AWAIT — the oracle for a defect that is NOT
-// fixed at this head. This fixture is deliberately NOT wired into
-// `crates/lila-cli/tests/cli/functions.rs`: its async half does not compile
-// today, and a lane lands green or does not land. Read
-// `target/lane-notes/ir-shapes-b7-integration.md` §2 before wiring it.
+// PER-ITERATION BINDINGS ACROSS AN AWAIT
 //
 // # What it is for
 //
 // `for (const v of [..]) { …; await …; }` inside a plain async function is
 // specialized by `lower_async_for_of_array_with_body_await` into a
-// `StatementIr::GeneratorLoop` index walk. That specialization refuses any head
-// whose loop binding is captured by a closure, because ECMA-262 14.7.5.7 then
-// requires a fresh environment record per iteration.
-//
-// Batch 7 made the refusal say so (it used to claim "requires an array iterable
-// and a plain binding", which is false for exactly this shape) and filed the fix.
+// `StatementIr::GeneratorLoop` index walk. When the loop binding is captured by
+// a closure, ECMA-262 14.7.5.7 requires that loop to allocate and preserve a
+// fresh environment record for every entered iteration.
 //
 // # Why the two test262 cases are NOT a sufficient gate
 //
@@ -57,7 +50,7 @@ for (let i = 0; i < syncValues.length; i++) {
 if (syncValues.join(",") !== "1,2,3,4,5,6") throw "sync for-of captured wrong values";
 log += "sync=" + syncValues.join(",");
 
-// ------------------------------------------------ async half (does not compile yet)
+// ------------------------------------------------------------- async contract
 
 let asyncValues = null;
 

@@ -26,8 +26,9 @@ pub mod reference;
 
 pub use reference::{
     carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
-    IdentifierWriteReferenceIr, PutValueFailure, Strictness, SuspendedPropertyReferenceIr,
-    SuspendedPropertyReferenceUse,
+    IdentifierWriteReferenceIr, OrdinaryPropertyEagerCompoundAssignmentIr,
+    OrdinaryPropertyNumericUpdateIr, PutValueFailure, Strictness, SuperPropertyMutationIr,
+    SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -647,6 +648,54 @@ pub enum ClassElementExecutionKind {
     StaticBlock,
 }
 
+/// Exact function identity for an object-literal method whose materializer
+/// must attach the allocated literal as `[[HomeObject]]`.
+///
+/// The fields are private so a generic function expression cannot be placed in
+/// a method property without first proving the corresponding function protocol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an object-method function must be materialized with its HomeObject"]
+pub struct ObjectMethodFunctionIr {
+    function_id: FunctionId,
+    protocol: FunctionProtocolIr,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObjectMethodProtocolIr {
+    Method(FunctionExecutionKind),
+    Getter,
+    Setter,
+}
+
+impl ObjectMethodProtocolIr {
+    pub(crate) const fn function_protocol(self) -> FunctionProtocolIr {
+        match self {
+            Self::Method(execution) => FunctionProtocolIr::ObjectMethod(execution),
+            Self::Getter => FunctionProtocolIr::ObjectGetter,
+            Self::Setter => FunctionProtocolIr::ObjectSetter,
+        }
+    }
+}
+
+impl ObjectMethodFunctionIr {
+    pub(crate) fn new(function_id: FunctionId, protocol: ObjectMethodProtocolIr) -> Self {
+        Self {
+            function_id,
+            protocol: protocol.function_protocol(),
+        }
+    }
+
+    #[must_use]
+    pub fn function_id(&self) -> &FunctionId {
+        &self.function_id
+    }
+
+    #[must_use]
+    pub const fn protocol(&self) -> FunctionProtocolIr {
+        self.protocol
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectPropertyIr {
     PrototypeSetter {
@@ -670,27 +719,27 @@ pub enum ObjectPropertyIr {
     },
     ComputedMethod {
         key: TypedExpr,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     ComputedGetter {
         key: TypedExpr,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     ComputedSetter {
         key: TypedExpr,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     Method {
         key: String,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     Getter {
         key: String,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
     Setter {
         key: String,
-        function: TypedExpr,
+        function: ObjectMethodFunctionIr,
     },
 }
 
@@ -1720,23 +1769,8 @@ pub enum ExprIr {
         /// when it is true.
         strictness: Strictness,
     },
-    PropertyUpdate {
-        target: Box<TypedExpr>,
-        key: PropertyKeyIr,
-        op: NumericUpdateOp,
-        return_mode: UpdateReturnMode,
-        value_kind: ValueKind,
-        /// PutValue step 3.d, for the write-back half of `++`/`--`.
-        strictness: Strictness,
-    },
-    PropertyCompoundAssign {
-        target: Box<TypedExpr>,
-        key: PropertyKeyIr,
-        op: ArithmeticBinaryOp,
-        value: Box<TypedExpr>,
-        /// PutValue step 3.d, for the write-back half of `op=`.
-        strictness: Strictness,
-    },
+    OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr),
+    OrdinaryPropertyEagerCompoundAssignment(OrdinaryPropertyEagerCompoundAssignmentIr),
     UpdateIdentifier {
         name: String,
         op: NumericUpdateOp,
@@ -1942,16 +1976,20 @@ pub enum ExprIr {
     },
     SuperPropertyRead {
         key: PropertyKeyIr,
+        receiver: Box<TypedExpr>,
     },
     SuperPropertyWrite {
         key: PropertyKeyIr,
+        /// GetThisValue of the super Reference, evaluated before the RHS and
+        /// passed as the Receiver to `superBase.[[Set]]`.
+        receiver: Box<TypedExpr>,
         value: Box<TypedExpr>,
-        /// PutValue step 3.d. The Receiver of the `[[Set]]` is `[[ThisValue]]`
-        /// (GetThisValue, 6.2.5.4) and is still implicit in the backend; see
-        /// the MC4b entry in
-        /// `docs/rust-rewrite/contracts/reference-records.md`.
+        /// PutValue step 3.d.
         strictness: Strictness,
     },
+    /// One non-resumable numeric or eager compound mutation through a single
+    /// retained Super Property Reference.
+    SuperPropertyMutation(SuperPropertyMutationIr),
     PrivateRead {
         target: Box<TypedExpr>,
         private_name_id: PrivateNameId,
@@ -2058,6 +2096,16 @@ pub enum ForInitIr {
     /// The statements run in the loop's own scope, so the names they bind stay
     /// visible to the test, update and body.
     Statements(Vec<StatementIr>),
+    /// A non-empty, declaration-ordered synchronous `using` head.
+    ///
+    /// The containing `StatementIr::For` owns the loop control targets and its
+    /// lexical environment. This variant separately requires the backend to
+    /// keep one DisposeCapability active from before the first initializer
+    /// until the loop's final completion.
+    SyncDisposable(SyncDisposableResourcesIr),
+    /// A non-empty async-disposable head whose activation-backed capability
+    /// remains live across the whole classic loop.
+    AsyncDisposable(AsyncDisposableForInitIr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2102,6 +2150,137 @@ pub struct ForInOfEnvironmentIr {
     pub tdz_environment: Option<LexicalEnvironmentIr>,
     pub iteration_environment: Option<LexicalEnvironmentIr>,
     pub tdz_binding_names: Vec<String>,
+}
+
+/// The assignment performed by an ordinary `for-of` head.
+///
+/// Array and String index-walk specializations accept only this type. Resource
+/// heads are instead [`ForOfIteratorHeadIr`] variants and cannot accidentally
+/// enter either specialization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForOfAssignmentIr {
+    pub mode: BindingMode,
+    pub name: String,
+}
+
+/// One immutable synchronous resource binding owned by a `for-of` iteration.
+///
+/// The private field and crate-private constructor keep patterns, multiple
+/// bindings, mutable modes and async disposal out of this closed capability.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncDisposableForOfHeadIr {
+    binding_name: String,
+}
+
+impl SyncDisposableForOfHeadIr {
+    pub(crate) fn new(binding_name: String) -> Self {
+        Self { binding_name }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+}
+
+/// The activation-backed DisposeCapability for one plain-async-function
+/// `for-of` `await using` head.
+///
+/// This capability is deliberately distinct from a lexical scope or
+/// classic-for capability: its finalizer states are reused once per entered
+/// iteration, while its exit state belongs to the loop as a whole.
+#[must_use = "a plain-async for-of async DisposeCapability must be attached to its head"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncFunctionAsyncDisposableForOfCapabilityIr {
+    binding_name: String,
+    finalizer: AsyncDisposableFinalizerPlanIr,
+}
+
+impl AsyncFunctionAsyncDisposableForOfCapabilityIr {
+    pub(crate) fn new(binding_name: String, finalizer: AsyncDisposableFinalizerPlanIr) -> Self {
+        Self {
+            binding_name,
+            finalizer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
+        &self.finalizer
+    }
+}
+
+/// One immutable async-disposable resource binding owned by every iteration
+/// of a synchronous `for-of` iterator walk in a plain async function.
+///
+/// Private fields and the crate-private constructor make the generic sync
+/// protocol, activation-backed iterator record, and repeating async finalizer
+/// one indivisible producer obligation.
+#[must_use = "an async-disposable for-of head must be attached to its iterator loop"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableForOfHeadIr {
+    binding_name: String,
+    capability: AsyncFunctionAsyncDisposableForOfCapabilityIr,
+    record: IteratorRecordIr,
+}
+
+impl AsyncDisposableForOfHeadIr {
+    pub(crate) fn new(
+        binding_name: String,
+        capability: AsyncFunctionAsyncDisposableForOfCapabilityIr,
+        record: IteratorRecordIr,
+    ) -> Self {
+        Self {
+            binding_name,
+            capability,
+            record,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn capability(&self) -> &AsyncFunctionAsyncDisposableForOfCapabilityIr {
+        &self.capability
+    }
+
+    pub fn record(&self) -> &IteratorRecordIr {
+        &self.record
+    }
+}
+
+/// The exhaustive head domain of the generic iterator protocol path.
+///
+/// Both resource variants structurally select synchronous generic iteration:
+/// only `Assignment` owns an optional async plan and explicit protocol witness,
+/// and Array/String specializations cannot accept this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForOfIteratorHeadIr {
+    Assignment {
+        binding: ForOfAssignmentIr,
+        async_plan: Option<AsyncForOfIteratorPlanIr>,
+        protocol: IteratorProtocolWitness,
+    },
+    SyncDisposable(SyncDisposableForOfHeadIr),
+    AsyncDisposable(AsyncDisposableForOfHeadIr),
+}
+
+/// The runtime Environment Record lifecycle owned by a resumable loop.
+///
+/// This is required on every [`StatementIr::GeneratorLoop`] so neither a new
+/// lowerer nor a backend consumer can silently forget whether the loop needs a
+/// fresh record for each iteration. See
+/// `docs/rust-rewrite/contracts/resumable-loop-per-iteration-environment.md`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResumableLoopIterationEnvironmentIr {
+    /// The loop's carried bindings live entirely in their existing storage.
+    StorageOnly,
+    /// Allocate this environment once for every entered iteration and preserve
+    /// the active record across the loop body's suspension.
+    FreshPerIteration(LexicalEnvironmentIr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2200,6 +2379,27 @@ pub enum StatementIr {
         target: AnnexBFunctionCopyTargetIr,
     },
     LexicalBlock(Vec<StatementIr>),
+    /// A synchronous DisposeCapability with an explicit execution owner.
+    ///
+    /// `resources` is non-empty and in declaration order. Each entry owns its
+    /// binding initialization; the backend acquires and registers its dispose
+    /// method before initializing `binding_name`, then evaluates `body` and
+    /// disposes every registered entry in reverse on every completion.
+    SyncDisposableScope {
+        execution: SyncDisposableScopeExecutionIr,
+        resources: SyncDisposableResourcesIr,
+        body: BlockIr,
+    },
+    /// An async DisposeCapability with an explicit resumable execution owner.
+    ///
+    /// This is deliberately distinct from `SyncDisposableScope`: each
+    /// registered resource follows the async-dispose protocol and the required
+    /// finalizer plan suspends before the saved completion may leave the scope.
+    AsyncDisposableScope {
+        execution: AsyncDisposableScopeExecutionIr,
+        resources: AsyncDisposableResourcesIr,
+        body: BlockIr,
+    },
     ParameterInitialization {
         parameter_index: usize,
         statements: Vec<StatementIr>,
@@ -2223,6 +2423,7 @@ pub enum StatementIr {
         init: Option<ForInitIr>,
         test: Option<TypedExpr>,
         update: Option<TypedExpr>,
+        iteration_environment: ResumableLoopIterationEnvironmentIr,
         before_suspension: Vec<StatementIr>,
         suspension_statement: Box<StatementIr>,
         after_suspension: Vec<StatementIr>,
@@ -2265,8 +2466,7 @@ pub enum StatementIr {
         lexical_environment: Option<ForLexicalEnvironmentIr>,
     },
     ForOfArray {
-        mode: BindingMode,
-        name: String,
+        head: ForOfAssignmentIr,
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
@@ -2282,8 +2482,7 @@ pub enum StatementIr {
         protocol: IteratorProtocolWitness,
     },
     ForOfString {
-        mode: BindingMode,
-        name: String,
+        head: ForOfAssignmentIr,
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
@@ -2291,14 +2490,10 @@ pub enum StatementIr {
         protocol: IteratorProtocolWitness,
     },
     ForOfIterator {
-        mode: BindingMode,
-        name: String,
+        head: ForOfIteratorHeadIr,
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
-        /// See `ForOfArray::protocol`.
-        protocol: IteratorProtocolWitness,
-        async_plan: Option<AsyncForOfIteratorPlanIr>,
     },
     ForInArray {
         mode: BindingMode,
@@ -2367,6 +2562,341 @@ pub enum StatementIr {
     },
 }
 
+/// One declarator registered by [`StatementIr::SyncDisposableScope`].
+///
+/// There is deliberately no disposal-kind flag: this closed node only accepts
+/// synchronous `using`. `binding_name` is the immutable lexical binding's IR
+/// storage name, and this entry is its sole runtime initialization owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncDisposableResourceIr {
+    pub binding_name: String,
+    pub initializer: TypedExpr,
+}
+
+/// Where a synchronous DisposeCapability must remain live.
+///
+/// The owner is required rather than inferred by backend context: adding a new
+/// lifetime requires an exhaustive producer and consumer decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncDisposableScopeExecutionIr {
+    /// The scope never suspends, so backend-private locals own its capability.
+    Immediate,
+    /// The scope may yield and therefore owns activation-backed capability
+    /// storage rather than temporary locals.
+    PlainGenerator(PlainGeneratorSyncDisposableCapabilityIr),
+    /// The scope may await and therefore owns activation-backed capability
+    /// storage until the async function settles.
+    AsyncFunction(AsyncFunctionSyncDisposableCapabilityIr),
+    /// The scope may yield or await and therefore owns activation-backed
+    /// capability storage until the async generator completes.
+    AsyncGenerator(AsyncGeneratorSyncDisposableCapabilityIr),
+}
+
+/// The hidden activation binding for one plain-generator DisposeCapability.
+///
+/// Fields are private and the sole crate constructor is fed only by lowering's
+/// suspension-owned binding allocator. Backend crates can consume the binding
+/// identity but cannot manufacture this proof from an arbitrary `String`.
+#[must_use = "a plain-generator synchronous DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlainGeneratorSyncDisposableCapabilityIr {
+    binding_name: String,
+}
+
+impl PlainGeneratorSyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String) -> Self {
+        Self { binding_name }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+}
+
+/// The hidden activation binding for one plain-async-function
+/// DisposeCapability.
+///
+/// Fields are private and the sole crate constructor is fed only by lowering's
+/// suspension-owned binding allocator. Backend crates can consume the binding
+/// identity but cannot manufacture this proof from an arbitrary `String`.
+#[must_use = "a plain-async-function synchronous DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncFunctionSyncDisposableCapabilityIr {
+    binding_name: String,
+}
+
+impl AsyncFunctionSyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String) -> Self {
+        Self { binding_name }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+}
+
+/// The hidden activation binding for one async-generator DisposeCapability.
+///
+/// Fields are private and the sole crate constructor is fed only by lowering's
+/// suspension-owned binding allocator. Backend crates can consume the binding
+/// identity but cannot manufacture this proof from an arbitrary `String`.
+#[must_use = "an async-generator synchronous DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncGeneratorSyncDisposableCapabilityIr {
+    binding_name: String,
+}
+
+impl AsyncGeneratorSyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String) -> Self {
+        Self { binding_name }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+}
+
+/// A declaration-ordered, statically non-empty synchronous resource list.
+///
+/// Fields stay private so a backend consumer can inspect but cannot mint an
+/// empty DisposeCapability. Lowering is the sole constructor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncDisposableResourcesIr {
+    first: SyncDisposableResourceIr,
+    rest: Vec<SyncDisposableResourceIr>,
+}
+
+/// One declarator registered by [`StatementIr::AsyncDisposableScope`].
+///
+/// Fields are private so only lowering can transfer binding initialization to
+/// the async resource protocol. The backend can inspect the entry but cannot
+/// manufacture one from a generic lexical initializer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableResourceIr {
+    binding_name: String,
+    initializer: TypedExpr,
+}
+
+impl AsyncDisposableResourceIr {
+    pub(crate) fn new(binding_name: String, initializer: TypedExpr) -> Self {
+        Self {
+            binding_name,
+            initializer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn initializer(&self) -> &TypedExpr {
+        &self.initializer
+    }
+}
+
+/// A declaration-ordered, statically non-empty async-dispose resource list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableResourcesIr {
+    first: AsyncDisposableResourceIr,
+    rest: Vec<AsyncDisposableResourceIr>,
+}
+
+/// The complete async-dispose ownership proof for one classic-for initializer.
+///
+/// Private fields prevent a backend from pairing resources with a different
+/// execution owner or manufacturing an unfinished finalizer. Lowering is the
+/// sole constructor and can call it only after the complete loop region has
+/// allocated its source suspension states.
+#[must_use = "an async-disposable classic-for initializer must be attached to its loop"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableForInitIr {
+    capability: AsyncFunctionAsyncDisposableCapabilityIr,
+    resources: AsyncDisposableResourcesIr,
+}
+
+impl AsyncDisposableForInitIr {
+    pub(crate) fn new(
+        capability: AsyncFunctionAsyncDisposableCapabilityIr,
+        resources: AsyncDisposableResourcesIr,
+    ) -> Self {
+        Self {
+            capability,
+            resources,
+        }
+    }
+
+    pub fn capability(&self) -> &AsyncFunctionAsyncDisposableCapabilityIr {
+        &self.capability
+    }
+
+    pub fn resources(&self) -> &AsyncDisposableResourcesIr {
+        &self.resources
+    }
+}
+
+impl AsyncDisposableResourcesIr {
+    pub(crate) fn new(
+        first: AsyncDisposableResourceIr,
+        rest: Vec<AsyncDisposableResourceIr>,
+    ) -> Self {
+        Self { first, rest }
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &AsyncDisposableResourceIr> {
+        std::iter::once(&self.first).chain(self.rest.iter())
+    }
+
+    pub fn len(&self) -> usize {
+        1 + self.rest.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+}
+
+/// The closed async state transition required to finalize one lexical
+/// async-dispose capability.
+#[must_use = "an async-dispose finalizer plan must be attached to its capability"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDisposableFinalizerPlanIr {
+    entry_state: u32,
+    dispose_state: u32,
+    resume_state: u32,
+    exit_state: u32,
+}
+
+impl AsyncDisposableFinalizerPlanIr {
+    /// The disposal walk, its Await resume, and its exit continuation each own
+    /// one state beyond the scope's current entry state.
+    pub(crate) const IMPLICIT_STATE_COUNT: u32 = 3;
+
+    pub(crate) fn new(
+        entry_state: u32,
+        dispose_state: u32,
+        resume_state: u32,
+        exit_state: u32,
+    ) -> Self {
+        assert!(
+            entry_state < dispose_state
+                && dispose_state < resume_state
+                && resume_state < exit_state,
+            "async-dispose finalizer states must be strictly ordered"
+        );
+        Self {
+            entry_state,
+            dispose_state,
+            resume_state,
+            exit_state,
+        }
+    }
+
+    pub fn entry_state(&self) -> u32 {
+        self.entry_state
+    }
+
+    pub fn dispose_state(&self) -> u32 {
+        self.dispose_state
+    }
+
+    pub fn resume_state(&self) -> u32 {
+        self.resume_state
+    }
+
+    pub fn exit_state(&self) -> u32 {
+        self.exit_state
+    }
+}
+
+/// The activation-backed capability for one plain-async-function `await using`
+/// scope.
+#[must_use = "a plain-async-function async DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncFunctionAsyncDisposableCapabilityIr {
+    binding_name: String,
+    finalizer: AsyncDisposableFinalizerPlanIr,
+}
+
+/// Where an asynchronous DisposeCapability must remain live.
+///
+/// The required owner proof keeps activation layout and completion routing an
+/// exhaustive backend decision. Neither capability can be manufactured by a
+/// backend from an arbitrary binding name.
+#[must_use = "an async DisposeCapability execution owner must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AsyncDisposableScopeExecutionIr {
+    AsyncFunction(AsyncFunctionAsyncDisposableCapabilityIr),
+    AsyncGenerator(AsyncGeneratorAsyncDisposableCapabilityIr),
+}
+
+/// The activation-backed capability for one async-generator `await using`
+/// scope.
+///
+/// Fields are private and the sole crate constructor is fed only by lowering's
+/// suspension-owned binding allocator. Backend crates can consume the binding
+/// identity and finalizer roles but cannot manufacture this proof.
+#[must_use = "an async-generator async DisposeCapability must be attached to its scope"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncGeneratorAsyncDisposableCapabilityIr {
+    binding_name: String,
+    finalizer: AsyncDisposableFinalizerPlanIr,
+}
+
+impl AsyncGeneratorAsyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String, finalizer: AsyncDisposableFinalizerPlanIr) -> Self {
+        Self {
+            binding_name,
+            finalizer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
+        &self.finalizer
+    }
+}
+
+impl AsyncFunctionAsyncDisposableCapabilityIr {
+    pub(crate) fn new(binding_name: String, finalizer: AsyncDisposableFinalizerPlanIr) -> Self {
+        Self {
+            binding_name,
+            finalizer,
+        }
+    }
+
+    pub fn binding_name(&self) -> &str {
+        &self.binding_name
+    }
+
+    pub fn finalizer(&self) -> &AsyncDisposableFinalizerPlanIr {
+        &self.finalizer
+    }
+}
+
+impl SyncDisposableResourcesIr {
+    pub(crate) fn new(
+        first: SyncDisposableResourceIr,
+        rest: Vec<SyncDisposableResourceIr>,
+    ) -> Self {
+        Self { first, rest }
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &SyncDisposableResourceIr> {
+        std::iter::once(&self.first).chain(self.rest.iter())
+    }
+
+    pub fn len(&self) -> usize {
+        1 + self.rest.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnexBFunctionCopyTargetIr {
     OwnerBinding { storage_name: String },
@@ -2390,6 +2920,8 @@ impl StatementIr {
             | Self::Lexical { .. }
             | Self::AnnexBFunctionCopy { .. }
             | Self::LexicalBlock(_)
+            | Self::SyncDisposableScope { .. }
+            | Self::AsyncDisposableScope { .. }
             | Self::ParameterInitialization { .. }
             | Self::Var(_)
             | Self::Expression(_)
@@ -3126,6 +3658,22 @@ impl IrSummaryCounts {
                     self.visit_statement(statement);
                 }
             }
+            StatementIr::SyncDisposableScope {
+                resources, body, ..
+            } => {
+                for resource in resources.iter() {
+                    self.visit_expr(&resource.initializer);
+                }
+                self.visit_block(body);
+            }
+            StatementIr::AsyncDisposableScope {
+                resources, body, ..
+            } => {
+                for resource in resources.iter() {
+                    self.visit_expr(resource.initializer());
+                }
+                self.visit_block(body);
+            }
             StatementIr::Var(declarators) => {
                 self.vars += declarators.len();
                 for declarator in declarators {
@@ -3373,6 +3921,18 @@ impl IrSummaryCounts {
                     self.visit_statement(statement);
                 }
             }
+            ForInitIr::SyncDisposable(resources) => {
+                self.consts += resources.len();
+                for resource in resources.iter() {
+                    self.visit_expr(&resource.initializer);
+                }
+            }
+            ForInitIr::AsyncDisposable(init) => {
+                self.consts += init.resources().len();
+                for resource in init.resources().iter() {
+                    self.visit_expr(resource.initializer());
+                }
+            }
         }
     }
 
@@ -3436,32 +3996,32 @@ impl IrSummaryCounts {
                             self.visit_expr(key);
                             self.visit_expr(value);
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function } => {
+                        ObjectPropertyIr::ComputedMethod { key, .. } => {
                             self.object_methods += 1;
+                            self.function_values += 1;
                             self.visit_expr(key);
-                            self.visit_expr(function);
                         }
-                        ObjectPropertyIr::Method { function, .. } => {
+                        ObjectPropertyIr::Method { .. } => {
                             self.object_methods += 1;
-                            self.visit_expr(function);
+                            self.function_values += 1;
                         }
-                        ObjectPropertyIr::ComputedGetter { key, function } => {
+                        ObjectPropertyIr::ComputedGetter { key, .. } => {
                             self.object_getters += 1;
+                            self.function_values += 1;
                             self.visit_expr(key);
-                            self.visit_expr(function);
                         }
-                        ObjectPropertyIr::Getter { function, .. } => {
+                        ObjectPropertyIr::Getter { .. } => {
                             self.object_getters += 1;
-                            self.visit_expr(function);
+                            self.function_values += 1;
                         }
-                        ObjectPropertyIr::ComputedSetter { key, function } => {
+                        ObjectPropertyIr::ComputedSetter { key, .. } => {
                             self.object_setters += 1;
+                            self.function_values += 1;
                             self.visit_expr(key);
-                            self.visit_expr(function);
                         }
-                        ObjectPropertyIr::Setter { function, .. } => {
+                        ObjectPropertyIr::Setter { .. } => {
                             self.object_setters += 1;
-                            self.visit_expr(function);
+                            self.function_values += 1;
                         }
                     }
                 }
@@ -3551,30 +4111,23 @@ impl IrSummaryCounts {
                 self.visit_property_key(key);
                 self.visit_expr(value);
             }
-            ExprIr::PropertyUpdate {
-                target,
-                key,
-                return_mode,
-                ..
-            } => {
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.property_reads += 1;
                 self.property_writes += 1;
-                match return_mode {
+                match update.return_mode() {
                     UpdateReturnMode::Prefix => self.prefix_updates += 1,
                     UpdateReturnMode::Postfix => self.postfix_updates += 1,
                 }
-                self.visit_expr(target);
-                self.visit_property_key(key);
+                self.visit_expr(update.base_and_receiver());
+                self.visit_property_key(update.referenced_name());
             }
-            ExprIr::PropertyCompoundAssign {
-                target, key, value, ..
-            } => {
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
                 self.property_reads += 1;
                 self.property_writes += 1;
                 self.compound_assignments += 1;
-                self.visit_expr(target);
-                self.visit_property_key(key);
-                self.visit_expr(value);
+                self.visit_expr(assignment.base_and_receiver());
+                self.visit_property_key(assignment.referenced_name());
+                self.visit_expr(assignment.result());
             }
             ExprIr::UpdateIdentifier { return_mode, .. } => match return_mode {
                 UpdateReturnMode::Prefix => self.prefix_updates += 1,
@@ -3877,14 +4430,40 @@ impl IrSummaryCounts {
                     self.visit_expr(arg);
                 }
             }
-            ExprIr::SuperPropertyRead { key } => {
+            ExprIr::SuperPropertyRead { key, receiver } => {
                 self.super_uses += 1;
                 self.visit_property_key(key);
+                self.visit_expr(receiver);
             }
-            ExprIr::SuperPropertyWrite { key, value, .. } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                receiver,
+                value,
+                ..
+            } => {
                 self.super_uses += 1;
                 self.visit_property_key(key);
+                self.visit_expr(receiver);
                 self.visit_expr(value);
+            }
+            ExprIr::SuperPropertyMutation(mutation) => {
+                self.super_uses += 1;
+                self.property_reads += 1;
+                self.property_writes += 1;
+                self.visit_property_key(mutation.referenced_name());
+                self.visit_expr(mutation.receiver());
+                match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { return_mode, .. } => {
+                        match return_mode {
+                            UpdateReturnMode::Prefix => self.prefix_updates += 1,
+                            UpdateReturnMode::Postfix => self.postfix_updates += 1,
+                        }
+                    }
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        self.compound_assignments += 1;
+                        self.visit_expr(result);
+                    }
+                }
             }
             ExprIr::PrivateRead {
                 target,

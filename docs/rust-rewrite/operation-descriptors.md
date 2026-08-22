@@ -53,7 +53,7 @@ returning to their caller.
 
 ## Migrated abrupt routes
 
-Five bounded slices now use typed routing:
+Six bounded slices now use typed routing:
 
 1. `GetMethod` invokes `GetV` through a wrapper that routes the tagged thrown
    value to the active in-function handler.
@@ -110,6 +110,15 @@ Five bounded slices now use typed routing:
    larger surface also crosses the still-open full-ToNumber helper boundary and
    would not become safer merely by spelling the same implicit policy 56 times.
 
+6. The shared primitive `ToNumber` emitter requires a private
+   `PrimitiveToNumberThrowRouting` at its raw seam. Its named ordinary wrapper
+   fixes current-function return, while its named composite wrapper leaves the
+   throw in the completion tuple for its surrounding operation to inspect. The
+   raw emitter is private, its match is exhaustive, and both the BigInt and
+   Symbol TypeError branches consume the policy between creating the error and
+   emitting their existing placeholder NaN. A new internal caller therefore
+   cannot invert an unlabelled boolean or bypass an explicit completion owner.
+
 The complete primitive-to-string route inventory is deliberately small and
 explicit: shared ToString, ToPropertyKey, `String(value)`, array-element
 stringification and the String matching fallback use the active handler;
@@ -132,9 +141,9 @@ work and continue to use their existing local routing sequences.
   routing declared by its descriptor.
 - Property internal-method dispatch and proxy correctness still depend on T10
   and T11.
-- Feature-local primitive-to-number and full value-to-string conversions remain
-  open migration work. Full ToNumber and the ordinary 56-caller ToLength wrapper
-  also remain open. The object/function ToPrimitive, primitive-ToString and
+- Feature-local full value-to-string conversions remain open migration work.
+  Full ToNumber and the ordinary 56-caller ToLength wrapper also remain open.
+  The object/function ToPrimitive, primitive-ToString, primitive-ToNumber and
   three-consumer exceptional-ToLength seams themselves are closed: raw
   completion ownership cannot cross those boundaries, and every internal
   composite must consume its pending token or choose an abrupt route.

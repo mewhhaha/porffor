@@ -242,13 +242,12 @@ operand or new state compile-visible while reusing the existing exhaustive
 variant and a second AOT implementation would add surface without carrying
 another invariant.
 
-Object-literal methods still lack the home-object/class-context lowering needed
-to construct this plan and remain explicit unsupported debt. In particular,
-the pinned `super-property-topropertykey.js` object-literal case is not claimed
-by this class-context seam. This closes only the supported delete half of the
-old L6 note. `SuperPropertyWrite` still
-lacks its distinct `[[ThisValue]]` receiver, and super compound/update and
-suspended assignment remain gaps. A structural unit and a Wasm fixture cover
+The later object-literal HomeObject contract closes the old L6 receiver debt
+for supported non-resumable object methods: `SuperPropertyRead`,
+`SuperPropertyWrite`, and `ReferenceBase::Super` now carry the distinct actual
+`this` receiver. See `object-literal-home-object.md`. Delete-super remains the
+independent fused path described above; super update and suspended assignment
+remain gaps. A structural unit and a Wasm fixture cover
 the fused tree, uninitialized-this/key order, raw-key abrupt completion, absent
 key coercion, null base, and absence of a proxy delete trap. Their Cargo and
 Test262 execution gates remain deferred to the integration checkpoint.
@@ -263,8 +262,9 @@ hidden binding is captured unconditionally by ordinary source functions whose
 definition cursor passes through that environment, using the existing lexical
 slot/hop and closure machinery.
 
-`WithEnvironmentBindingObject` admits only identifier reads of one such
-materialized binding. Distinct newtypes represent current scope depth and
+The materialized-with constructor of `ObjectEnvironmentBindingObject` admits
+only identifier reads of one such hidden binding. Distinct newtypes represent
+current scope depth and
 captured cursor depth for both Object and declarative environments; one
 exhaustive cross-product filters the ordered Object chain at the declarative
 fallback located by the same lookup used for the eventual write. A private
@@ -312,8 +312,15 @@ typed current/captured positions used by writes.
 The `typeof unresolvableName` shortcut remains valid only when no selected
 Object Environment Record may bind the name. A selected plan instead uses
 `undefined` only as its terminal unresolvable fallback, runs any selected
-GetBindingValue first, then applies `typeof`. This does not close identifier-call
-`WithBaseObject`, compound/logical/update/destructuring/delete operations,
-generated contexts or resumable captured Object Environment Records. Its
-Cargo, Wasm and pinned Test262 gates remain deferred to the integration
-checkpoint.
+GetBindingValue first, then applies `typeof`.
+
+The adjacent direct non-eval identifier-call seam now consumes a distinct
+`WithEnvironmentIdentifierCallReferencePlan`. Each selected branch derives
+both its GetBindingValue callee and `WithBaseObject` receiver from the same
+materialized binding object, while the already-located fallback remains a
+Dynamic ordinary call with undefined `this`. This claim does not include
+optional/property/super/eval calls, generated contexts, or resumable captured
+Object Environment Records. Compound/logical/update/destructuring/delete
+operations retain their separately recorded boundaries. Cargo, Wasm and pinned
+Test262 focused gates are green at the integration checkpoint; the broader
+call/with subtree and pinned matrix remain unclaimed.

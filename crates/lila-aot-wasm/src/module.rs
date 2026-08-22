@@ -194,6 +194,9 @@ pub(crate) const THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX: u32 = 135;
 // `GLOBAL_INDEX_REGISTRY`, after `throw_error_message_heap`.
 pub(crate) const ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX: u32 = 136;
 pub(crate) const ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 137;
+// The constructor-only synchronous pair is likewise append-only.
+pub(crate) const DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX: u32 = 138;
+pub(crate) const DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 139;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -1071,7 +1074,7 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
     // dynamic globals or the typed runtime GC root. Its sibling
     // `throw_error_name_heap` sits at index 64 and cannot be joined here
     // without renumbering 70 globals. It no longer holds the highest index —
-    // the `AsyncDisposableStack` pair below was appended after it — but it
+    // the resource-stack pairs below were appended after it — but it
     // must stay at *this* position, because its index is 135.
     GlobalIndexSlot {
         name: "throw_error_message_heap",
@@ -1084,6 +1087,14 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
     GlobalIndexSlot {
         name: "AsyncDisposableStack",
         index: ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "DisposableStack.prototype",
+        index: DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "DisposableStack",
+        index: DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX,
     },
 ];
 
@@ -1111,6 +1122,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         }
         StandardBuiltinId::AsyncDisposableStackConstructor => {
             Some(ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::DisposableStackConstructor => {
+            Some(DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX)
         }
         StandardBuiltinId::SetConstructor => Some(SET_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::AggregateErrorConstructor => {
@@ -1914,7 +1928,15 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
         | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
-        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => None,
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected
+        | StandardBuiltinId::DisposableStackPrototypeUse
+        | StandardBuiltinId::DisposableStackPrototypeAdopt
+        | StandardBuiltinId::DisposableStackPrototypeDefer
+        | StandardBuiltinId::DisposableStackPrototypeMove
+        | StandardBuiltinId::DisposableStackPrototypeDispose
+        | StandardBuiltinId::DisposableStackPrototypeDisposedGetter
+        | StandardBuiltinId::FunctionPrototype
+        | StandardBuiltinId::FunctionPrototypeSymbolHasInstance => None,
     }
 }
 
@@ -2169,6 +2191,9 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::AsyncDisposableStackConstructor => {
             Some(ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX)
         }
+        StandardBuiltinId::DisposableStackConstructor => {
+            Some(DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX)
+        }
         StandardBuiltinId::SetConstructor => Some(SET_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::ArrayConstructor => Some(ARRAY_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::IteratorConstructor => Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
@@ -2226,6 +2251,7 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
 
 pub(crate) fn standard_builtin_function_global_index(builtin: StandardBuiltinId) -> Option<u32> {
     match builtin {
+        StandardBuiltinId::FunctionPrototype => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::RegExpPrototypeSymbolMatch => {
             Some(REGEXP_PROTOTYPE_SYMBOL_MATCH_GLOBAL_INDEX)
         }
@@ -2412,7 +2438,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
+            DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
         );
@@ -2425,6 +2451,11 @@ mod tests {
             ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX > THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX,
             "the AsyncDisposableStack pair was appended after the previous maximum for the same \
              reason: no existing global index may move"
+        );
+        assert!(
+            DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX
+                > ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX,
+            "the DisposableStack pair is append-only so existing global indices stay stable"
         );
     }
 

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 use std::sync::OnceLock;
@@ -58,6 +58,13 @@ pub const REGEXP_OPCODE_LOOKBEHIND_START: u64 = 20;
 pub const REGEXP_OPCODE_LOOKBEHIND_END: u64 = 21;
 /// Handle exhaustion of every path through a lookbehind body.
 pub const REGEXP_OPCODE_LOOKBEHIND_FAILURE: u64 = 22;
+/// Enter one optional iteration whose atom may leave the input index unchanged.
+/// `operand0` is the attempt target. `operand1` packs the fallback target in
+/// bits 1 and above and [`QuantifierPreference::Lazy`] in bit 0.
+pub const REGEXP_OPCODE_PROGRESS_SPLIT: u64 = 23;
+/// Complete one nullable optional iteration. `operand0` names its paired
+/// progress split and `operand1` is the continuation for a changed input index.
+pub const REGEXP_OPCODE_PROGRESS_CHECK: u64 = 24;
 
 /// The encoded width of one code-point range-pool entry in bytes.
 pub const REGEXP_RANGE_ENTRY_WIDTH: usize = 8;
@@ -139,6 +146,26 @@ impl RegExpInstruction {
             opcode: REGEXP_OPCODE_SPLIT,
             operand0: primary_pc as u64,
             operand1: fallback_pc as u64,
+        }
+    }
+
+    fn progress_split(
+        attempt_pc: usize,
+        fallback_pc: usize,
+        preference: QuantifierPreference,
+    ) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_PROGRESS_SPLIT,
+            operand0: attempt_pc as u64,
+            operand1: ((fallback_pc as u64) << 1) | preference.word(),
+        }
+    }
+
+    fn progress_check(progress_split_pc: usize, continuation_pc: usize) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_PROGRESS_CHECK,
+            operand0: progress_split_pc as u64,
+            operand1: continuation_pc as u64,
         }
     }
 
@@ -522,7 +549,7 @@ impl RegExpProgram {
                 instructions,
                 ranges: parsed.ranges,
             }),
-            ParsedPatternCapability::RequiresClassStringSemantics(required) => {
+            ParsedPatternCapability::RequiresUnicodeSetSemantics(required) => {
                 Err(required.unsupported_error())
             }
         }
@@ -761,9 +788,7 @@ impl SyntaxRule {
             SyntaxRule::UnicodePropertyName => {
                 "22.2.1.1: it is a Syntax Error if UnicodeMatchProperty / UnicodeMatchPropertyValue does not resolve against tables 69-72"
             }
-            SyntaxRule::UnclosedCharacterClass => {
-                "22.2.1 CharacterClass :: `[` ClassContents `]`"
-            }
+            SyntaxRule::UnclosedCharacterClass => "22.2.1 CharacterClass :: `[` ClassContents `]`",
             SyntaxRule::ClassRangeOrder => {
                 "22.2.1.1 range early errors: the CharacterValue of the first ClassAtom or ClassSetCharacter must not be strictly greater than that of the second"
             }
@@ -863,39 +888,57 @@ struct ParsedPattern {
     capability: ParsedPatternCapability,
 }
 
-/// A syntax-valid Pattern either has a complete matcher representation or
-/// retains the first class-string operand whose semantics the matcher lacks.
-/// Keeping this closed prevents a parsed capability gap from becoming an
-/// accidentally emitted program.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A syntax-valid Pattern either has a complete matcher representation or one
+/// of the two explicitly deferred UnicodeSets string capabilities.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ParsedPatternCapability {
     MatcherReady,
-    RequiresClassStringSemantics(RequiresClassStringSemantics),
+    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
 }
 
-/// The typed capability marker carried from a locally validated `\q{…}`
-/// through the full Pattern parse and early-error pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RequiresClassStringSemantics {
+struct RequiresUnicodePropertyOfStrings {
     first_offset: usize,
 }
 
-impl RequiresClassStringSemantics {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RequiresUnicodeSetStringCaseFolding {
+    first_offset: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RequiresUnicodeSetSemantics {
+    PropertyOfStrings(RequiresUnicodePropertyOfStrings),
+    StringCaseFolding(RequiresUnicodeSetStringCaseFolding),
+}
+
+impl RequiresUnicodeSetSemantics {
+    const fn first_offset(self) -> usize {
+        match self {
+            Self::PropertyOfStrings(required) => required.first_offset,
+            Self::StringCaseFolding(required) => required.first_offset,
+        }
+    }
+
     const fn earliest(self, other: Self) -> Self {
-        Self {
-            first_offset: if self.first_offset < other.first_offset {
-                self.first_offset
-            } else {
-                other.first_offset
-            },
+        if self.first_offset() <= other.first_offset() {
+            self
+        } else {
+            other
         }
     }
 
     fn unsupported_error(self) -> RegExpCompileError {
-        RegExpCompileError::unsupported_feature(
-            self.first_offset,
-            "`\\q` string literals are unsupported by this matcher-program grammar",
-        )
+        match self {
+            Self::PropertyOfStrings(required) => RegExpCompileError::unsupported_feature(
+                required.first_offset,
+                "Unicode properties of strings are unsupported by this matcher-program grammar",
+            ),
+            Self::StringCaseFolding(required) => RegExpCompileError::unsupported_feature(
+                required.first_offset,
+                "case-insensitive `\\q` string literals are unsupported by this matcher-program grammar",
+            ),
+        }
     }
 }
 
@@ -949,6 +992,7 @@ enum ParsedTermAtom {
 
 enum ParsedAtom {
     Instruction(RegExpInstruction),
+    FiniteClassSet(FiniteClassSetAtom),
     Capture {
         id: u32,
         body: Vec<Vec<ParsedTerm>>,
@@ -971,7 +1015,7 @@ enum ParsedAtom {
         negative: bool,
         body: Vec<Vec<ParsedTerm>>,
     },
-    RequiresClassStringSemantics(RequiresClassStringSemantics),
+    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
 }
 
 struct NamedCapture {
@@ -1018,8 +1062,8 @@ fn parse_pattern(
     let alternatives = parser.alternatives(None)?;
     let named_groups = named_groups(&parser.named_captures)?;
     validate_named_backreferences(&alternatives, &named_groups)?;
-    let capability = match first_required_class_string_semantics(&alternatives) {
-        Some(required) => ParsedPatternCapability::RequiresClassStringSemantics(required),
+    let capability = match first_required_unicode_set_semantics(&alternatives) {
+        Some(required) => ParsedPatternCapability::RequiresUnicodeSetSemantics(required),
         None => ParsedPatternCapability::MatcherReady,
     };
     Ok(ParsedPattern {
@@ -1142,7 +1186,7 @@ impl PatternParser<'_> {
                             let negative = self.bytes[self.offset + 3] == b'!';
                             self.offset += 4;
                             let body = self.alternatives(Some(atom_offset))?;
-                            if first_required_class_string_semantics(&body).is_none()
+                            if first_required_unicode_set_semantics(&body).is_none()
                                 && !lookbehind_body_supported(&body)
                             {
                                 return Err(RegExpCompileError::unsupported_feature(
@@ -1262,32 +1306,19 @@ impl PatternParser<'_> {
                 ..
             }))
         ) {
-            quantifier = if quantifier.min == 0 {
+            quantifier = if quantifier.is_optional() {
                 Quantifier {
-                    min: 0,
-                    max: Some(0),
-                    lazy: quantifier.lazy,
+                    required_iterations: 0,
+                    optional_iterations: QuantifierOptionalIterations::Finite(0),
+                    preference: quantifier.preference,
                 }
             } else {
                 Quantifier {
-                    min: 1,
-                    max: Some(1),
-                    lazy: quantifier.lazy,
+                    required_iterations: 1,
+                    optional_iterations: QuantifierOptionalIterations::Finite(0),
+                    preference: quantifier.preference,
                 }
             };
-        }
-        if quantifier.max.is_none()
-            && matches!(
-                &atom,
-                ParsedTermAtom::Ordinary(atom)
-                    if atom_nullable(atom)
-                        && first_required_class_string_semantics_in_atom(atom).is_none()
-            )
-        {
-            return Err(RegExpCompileError::unsupported_feature(
-                quantifier_offset,
-                "unbounded quantifier over a nullable atom is unsupported by this matcher-program grammar",
-            ));
         }
         Ok(match atom {
             ParsedTermAtom::Ordinary(atom) => ParsedTerm::Quantified {
@@ -1549,9 +1580,12 @@ fn parse_instruction_atom(
             RegExpUnicodeMode::UnicodeSets => {
                 match parse_unicode_sets_class(bytes, offset, modifiers, pool)? {
                     UnicodeSetsClassAtom::Instruction(instruction) => instruction,
-                    UnicodeSetsClassAtom::RequiresClassStringSemantics(required) => {
+                    UnicodeSetsClassAtom::FiniteClassSet(atom) => {
+                        return Ok(ParsedTermAtom::Ordinary(ParsedAtom::FiniteClassSet(atom)));
+                    }
+                    UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required) => {
                         return Ok(ParsedTermAtom::Ordinary(
-                            ParsedAtom::RequiresClassStringSemantics(required),
+                            ParsedAtom::RequiresUnicodeSetSemantics(required),
                         ));
                     }
                 }
@@ -1641,10 +1675,11 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
         ParsedAtom::NamedBackreference { .. } => true,
         ParsedAtom::NumberedBackreference { nullable, .. } => *nullable,
         ParsedAtom::Lookbehind { .. } => true,
+        ParsedAtom::FiniteClassSet(atom) => atom.contains_empty,
         // Parsing must continue through the whole Pattern. Its actual
         // nullability is a matcher-semantic question and the typed capability
         // marker prevents this tree from becoming a program.
-        ParsedAtom::RequiresClassStringSemantics(_) => false,
+        ParsedAtom::RequiresUnicodeSetSemantics(_) => false,
     }
 }
 
@@ -1661,7 +1696,7 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
             ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
                 lookbehind_body_supported(body)
             }
-            ParsedAtom::RequiresClassStringSemantics(_) => true,
+            ParsedAtom::FiniteClassSet(_) | ParsedAtom::RequiresUnicodeSetSemantics(_) => true,
             ParsedAtom::NamedBackreference { .. }
             | ParsedAtom::NumberedBackreference { .. }
             | ParsedAtom::Lookbehind { .. } => false,
@@ -1673,39 +1708,40 @@ fn term_nullable(term: &ParsedTerm) -> bool {
     match term {
         ParsedTerm::Quantified {
             atom, quantifier, ..
-        } => quantifier.min == 0 || atom_nullable(atom),
+        } => quantifier.is_optional() || atom_nullable(atom),
         ParsedTerm::LegacyUtf16Pair { .. } => false,
     }
 }
 
-fn first_required_class_string_semantics(
+fn first_required_unicode_set_semantics(
     alternatives: &[Vec<ParsedTerm>],
-) -> Option<RequiresClassStringSemantics> {
+) -> Option<RequiresUnicodeSetSemantics> {
     alternatives
         .iter()
         .flatten()
         .filter_map(|term| match term {
             ParsedTerm::Quantified { atom, .. } => {
-                first_required_class_string_semantics_in_atom(atom)
+                first_required_unicode_set_semantics_in_atom(atom)
             }
             ParsedTerm::LegacyUtf16Pair { .. } => None,
         })
-        .reduce(RequiresClassStringSemantics::earliest)
+        .reduce(RequiresUnicodeSetSemantics::earliest)
 }
 
-/// Finds the first deferred class-string capability inside one atom subtree.
+/// Finds the first deferred UnicodeSets capability inside one atom subtree.
 /// Parser-side matcher restrictions must consult this before returning an
 /// `UnsupportedFeature`, because the marker owns the capability verdict only
 /// after the rest of the Pattern has passed its early-error checks.
-fn first_required_class_string_semantics_in_atom(
+fn first_required_unicode_set_semantics_in_atom(
     atom: &ParsedAtom,
-) -> Option<RequiresClassStringSemantics> {
+) -> Option<RequiresUnicodeSetSemantics> {
     match atom {
         ParsedAtom::Capture { body, .. }
         | ParsedAtom::NonCapture { body, .. }
-        | ParsedAtom::Lookbehind { body, .. } => first_required_class_string_semantics(body),
-        ParsedAtom::RequiresClassStringSemantics(required) => Some(*required),
+        | ParsedAtom::Lookbehind { body, .. } => first_required_unicode_set_semantics(body),
+        ParsedAtom::RequiresUnicodeSetSemantics(required) => Some(*required),
         ParsedAtom::Instruction(_)
+        | ParsedAtom::FiniteClassSet(_)
         | ParsedAtom::NamedBackreference { .. }
         | ParsedAtom::NumberedBackreference { .. } => None,
     }
@@ -1738,8 +1774,9 @@ fn validate_named_backreferences(
                 }
             }
             ParsedAtom::Instruction(_)
+            | ParsedAtom::FiniteClassSet(_)
             | ParsedAtom::NumberedBackreference { .. }
-            | ParsedAtom::RequiresClassStringSemantics(_) => {}
+            | ParsedAtom::RequiresUnicodeSetSemantics(_) => {}
         }
     }
     Ok(())
@@ -2954,7 +2991,49 @@ fn parse_class_atom(
 /// typed parser atom until the complete Pattern has passed early errors.
 enum UnicodeSetsClassAtom {
     Instruction(RegExpInstruction),
-    RequiresClassStringSemantics(RequiresClassStringSemantics),
+    FiniteClassSet(FiniteClassSetAtom),
+    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FiniteClassSetAtom {
+    multi_code_point_strings: Vec<Vec<RegExpInstruction>>,
+    singleton: RegExpInstruction,
+    contains_empty: bool,
+}
+
+impl FiniteClassSetAtom {
+    fn new(
+        value: FiniteClassSet,
+        negated: bool,
+        ignore_case: bool,
+        pool: &mut RegExpRangePool,
+        offset: usize,
+    ) -> Result<Self, RegExpCompileError> {
+        let FiniteClassSet { ranges, strings } = if negated { value.complement() } else { value };
+        let singleton = finish_range_set(ranges, false, ignore_case, pool, offset)?;
+        let contains_empty = strings.iter().any(Vec::is_empty);
+        let mut multi_code_point_strings = strings
+            .into_iter()
+            .filter(|string| !string.is_empty())
+            .map(|string| {
+                string
+                    .into_iter()
+                    .map(RegExpInstruction::literal_code_point)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        multi_code_point_strings.sort_by_key(|string| std::cmp::Reverse(string.len()));
+        Ok(Self {
+            multi_code_point_strings,
+            singleton,
+            contains_empty,
+        })
+    }
+
+    fn has_strings(&self) -> bool {
+        self.contains_empty || !self.multi_code_point_strings.is_empty()
+    }
 }
 
 /// Parses a `v`-mode `ClassSetExpression`, including nested classes, `--`
@@ -2969,14 +3048,34 @@ fn parse_unicode_sets_class(
     let mut cursor = class_offset;
     let ParsedClassSet { value, negated } = parse_class_set(bytes, &mut cursor)?;
     *offset = cursor;
-    match value.semantics {
-        ClassSetSemantics::CodePoints(ranges) => {
-            finish_range_set(ranges, negated, modifiers.ignore_case, pool, class_offset)
-                .map(UnicodeSetsClassAtom::Instruction)
+    let case_folding = value
+        .first_direct_class_string_offset
+        .and_then(|first_offset| {
+            modifiers
+                .ignore_case
+                .then_some(RequiresUnicodeSetSemantics::StringCaseFolding(
+                    RequiresUnicodeSetStringCaseFolding { first_offset },
+                ))
+        });
+    match (value.semantics, case_folding) {
+        (ClassSetSemantics::Finite(value), None) => {
+            let atom =
+                FiniteClassSetAtom::new(value, negated, modifiers.ignore_case, pool, class_offset)?;
+            if atom.has_strings() {
+                Ok(UnicodeSetsClassAtom::FiniteClassSet(atom))
+            } else {
+                Ok(UnicodeSetsClassAtom::Instruction(atom.singleton))
+            }
         }
-        ClassSetSemantics::RequiresClassStringSemantics(required) => {
-            Ok(UnicodeSetsClassAtom::RequiresClassStringSemantics(required))
+        (ClassSetSemantics::RequiresUnicodeSetSemantics(required), None) => {
+            Ok(UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required))
         }
+        (ClassSetSemantics::Finite(_), Some(required)) => {
+            Ok(UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required))
+        }
+        (ClassSetSemantics::RequiresUnicodeSetSemantics(required), Some(case_folding)) => Ok(
+            UnicodeSetsClassAtom::RequiresUnicodeSetSemantics(required.earliest(case_folding)),
+        ),
     }
 }
 
@@ -3022,31 +3121,34 @@ impl ClassSetOperator {
             Self::Intersection => left.may_contain_strings && right.may_contain_strings,
             Self::Subtraction => left.may_contain_strings,
         };
+        let first_direct_class_string_offset = earliest_offset(
+            left.first_direct_class_string_offset,
+            right.first_direct_class_string_offset,
+        );
         let semantics = match (left.semantics, right.semantics) {
-            (ClassSetSemantics::CodePoints(left), ClassSetSemantics::CodePoints(right)) => {
-                let left = normalize_ranges(left);
-                let right = normalize_ranges(right);
-                ClassSetSemantics::CodePoints(match self {
-                    Self::Intersection => intersect_ranges(&left, &right),
-                    Self::Subtraction => subtract_ranges(&left, &right),
+            (ClassSetSemantics::Finite(left), ClassSetSemantics::Finite(right)) => {
+                ClassSetSemantics::Finite(match self {
+                    Self::Intersection => left.intersection(right),
+                    Self::Subtraction => left.subtraction(right),
                 })
             }
             (
-                ClassSetSemantics::CodePoints(_),
-                ClassSetSemantics::RequiresClassStringSemantics(required),
+                ClassSetSemantics::Finite(_),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
             )
             | (
-                ClassSetSemantics::RequiresClassStringSemantics(required),
-                ClassSetSemantics::CodePoints(_),
-            ) => ClassSetSemantics::RequiresClassStringSemantics(required),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
+                ClassSetSemantics::Finite(_),
+            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(required),
             (
-                ClassSetSemantics::RequiresClassStringSemantics(left),
-                ClassSetSemantics::RequiresClassStringSemantics(right),
-            ) => ClassSetSemantics::RequiresClassStringSemantics(left.earliest(right)),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(left),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(right),
+            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(left.earliest(right)),
         };
         ClassSetValue {
             semantics,
             may_contain_strings,
+            first_direct_class_string_offset,
         }
     }
 }
@@ -3062,9 +3164,10 @@ struct ClassSetCharacter(u32);
 
 /// A fully parsed `ClassStringDisjunction`, including the exact
 /// `MayContainStrings` result needed by negated-class early errors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ValidatedClassStringDisjunction {
     offset: usize,
+    alternatives: BTreeSet<Vec<u32>>,
     may_contain_strings: bool,
 }
 
@@ -3096,74 +3199,151 @@ impl ClassStringLength {
 /// Matcher semantics retained while the complete enclosing class is parsed.
 /// A class-string operand never becomes fake code-point ranges merely so the
 /// remaining syntax can be checked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FiniteClassSet {
+    ranges: Vec<(u32, u32)>,
+    strings: BTreeSet<Vec<u32>>,
+}
+
+impl FiniteClassSet {
+    fn code_points(ranges: Vec<(u32, u32)>) -> Self {
+        Self {
+            ranges: normalize_ranges(ranges),
+            strings: BTreeSet::new(),
+        }
+    }
+
+    fn class_strings(alternatives: BTreeSet<Vec<u32>>) -> Self {
+        let mut ranges = Vec::new();
+        let mut strings = BTreeSet::new();
+        for alternative in alternatives {
+            match alternative.as_slice() {
+                [code_point] => ranges.push((*code_point, *code_point)),
+                [] | [_, _, ..] => {
+                    strings.insert(alternative);
+                }
+            }
+        }
+        Self {
+            ranges: normalize_ranges(ranges),
+            strings,
+        }
+    }
+
+    fn union(self, right: Self) -> Self {
+        let mut ranges = self.ranges;
+        ranges.extend(right.ranges);
+        let mut strings = self.strings;
+        strings.extend(right.strings);
+        Self {
+            ranges: normalize_ranges(ranges),
+            strings,
+        }
+    }
+
+    fn intersection(self, right: Self) -> Self {
+        Self {
+            ranges: intersect_ranges(&self.ranges, &right.ranges),
+            strings: self.strings.intersection(&right.strings).cloned().collect(),
+        }
+    }
+
+    fn subtraction(self, right: Self) -> Self {
+        Self {
+            ranges: subtract_ranges(&self.ranges, &right.ranges),
+            strings: self.strings.difference(&right.strings).cloned().collect(),
+        }
+    }
+
+    fn complement(self) -> Self {
+        debug_assert!(self.strings.is_empty());
+        Self {
+            ranges: complement_ranges(&self.ranges),
+            strings: BTreeSet::new(),
+        }
+    }
+}
+
 enum ClassSetSemantics {
-    CodePoints(Vec<(u32, u32)>),
-    RequiresClassStringSemantics(RequiresClassStringSemantics),
+    Finite(FiniteClassSet),
+    RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
 }
 
 struct ClassSetValue {
     semantics: ClassSetSemantics,
     may_contain_strings: bool,
+    first_direct_class_string_offset: Option<usize>,
 }
 
 impl ClassSetValue {
     fn code_points(ranges: Vec<(u32, u32)>) -> Self {
         Self {
-            semantics: ClassSetSemantics::CodePoints(ranges),
+            semantics: ClassSetSemantics::Finite(FiniteClassSet::code_points(ranges)),
             may_contain_strings: false,
+            first_direct_class_string_offset: None,
         }
     }
 
     fn class_string(string: ValidatedClassStringDisjunction) -> Self {
         Self {
-            semantics: ClassSetSemantics::RequiresClassStringSemantics(
-                RequiresClassStringSemantics {
-                    first_offset: string.offset,
-                },
-            ),
+            semantics: ClassSetSemantics::Finite(FiniteClassSet::class_strings(
+                string.alternatives,
+            )),
             may_contain_strings: string.may_contain_strings,
+            first_direct_class_string_offset: Some(string.offset),
+        }
+    }
+
+    fn property_of_strings(required: RequiresUnicodePropertyOfStrings) -> Self {
+        Self {
+            semantics: ClassSetSemantics::RequiresUnicodeSetSemantics(
+                RequiresUnicodeSetSemantics::PropertyOfStrings(required),
+            ),
+            may_contain_strings: true,
+            first_direct_class_string_offset: None,
         }
     }
 
     fn union(self, right: Self) -> Self {
         let may_contain_strings = self.may_contain_strings || right.may_contain_strings;
+        let first_direct_class_string_offset = earliest_offset(
+            self.first_direct_class_string_offset,
+            right.first_direct_class_string_offset,
+        );
         let semantics = match (self.semantics, right.semantics) {
-            (ClassSetSemantics::CodePoints(mut left), ClassSetSemantics::CodePoints(right)) => {
-                left.extend(right);
-                ClassSetSemantics::CodePoints(left)
+            (ClassSetSemantics::Finite(left), ClassSetSemantics::Finite(right)) => {
+                ClassSetSemantics::Finite(left.union(right))
             }
             (
-                ClassSetSemantics::CodePoints(_),
-                ClassSetSemantics::RequiresClassStringSemantics(required),
+                ClassSetSemantics::Finite(_),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
             )
             | (
-                ClassSetSemantics::RequiresClassStringSemantics(required),
-                ClassSetSemantics::CodePoints(_),
-            ) => ClassSetSemantics::RequiresClassStringSemantics(required),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(required),
+                ClassSetSemantics::Finite(_),
+            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(required),
             (
-                ClassSetSemantics::RequiresClassStringSemantics(left),
-                ClassSetSemantics::RequiresClassStringSemantics(right),
-            ) => ClassSetSemantics::RequiresClassStringSemantics(left.earliest(right)),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(left),
+                ClassSetSemantics::RequiresUnicodeSetSemantics(right),
+            ) => ClassSetSemantics::RequiresUnicodeSetSemantics(left.earliest(right)),
         };
         Self {
             semantics,
             may_contain_strings,
+            first_direct_class_string_offset,
         }
     }
 
     fn normalize_code_points(self) -> Self {
-        let semantics = match self.semantics {
-            ClassSetSemantics::CodePoints(ranges) => {
-                ClassSetSemantics::CodePoints(normalize_ranges(ranges))
-            }
-            ClassSetSemantics::RequiresClassStringSemantics(required) => {
-                ClassSetSemantics::RequiresClassStringSemantics(required)
-            }
-        };
-        Self {
-            semantics,
-            may_contain_strings: self.may_contain_strings,
-        }
+        self
+    }
+}
+
+fn earliest_offset(left: Option<usize>, right: Option<usize>) -> Option<usize> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (Some(offset), None) | (None, Some(offset)) => Some(offset),
+        (None, None) => None,
     }
 }
 
@@ -3179,20 +3359,18 @@ impl ParsedClassSet {
     fn into_nested_value(self) -> ClassSetValue {
         debug_assert!(!self.negated || !self.value.may_contain_strings);
         let semantics = match (self.negated, self.value.semantics) {
-            (false, ClassSetSemantics::CodePoints(ranges)) => ClassSetSemantics::CodePoints(ranges),
-            (false, ClassSetSemantics::RequiresClassStringSemantics(required)) => {
-                ClassSetSemantics::RequiresClassStringSemantics(required)
+            (false, semantics) => semantics,
+            (true, ClassSetSemantics::Finite(value)) => {
+                ClassSetSemantics::Finite(value.complement())
             }
-            (true, ClassSetSemantics::CodePoints(ranges)) => {
-                ClassSetSemantics::CodePoints(complement_ranges(&normalize_ranges(ranges)))
-            }
-            (true, ClassSetSemantics::RequiresClassStringSemantics(required)) => {
-                ClassSetSemantics::RequiresClassStringSemantics(required)
+            (true, ClassSetSemantics::RequiresUnicodeSetSemantics(required)) => {
+                ClassSetSemantics::RequiresUnicodeSetSemantics(required)
             }
         };
         ClassSetValue {
             semantics,
             may_contain_strings: self.value.may_contain_strings,
+            first_direct_class_string_offset: self.value.first_direct_class_string_offset,
         }
     }
 }
@@ -3317,12 +3495,55 @@ fn parse_unicode_sets_operand(
             let nested = parse_class_set(bytes, cursor)?;
             Ok(ClassSetOperand::NestedSet(nested.into_nested_value()))
         }
+        Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'p') => {
+            if let Some(required) = parse_unicode_property_of_strings(bytes, cursor)? {
+                Ok(ClassSetOperand::NestedSet(
+                    ClassSetValue::property_of_strings(required),
+                ))
+            } else {
+                parse_unicode_sets_character_or_class_escape(bytes, cursor)
+                    .map(ClassSetAtomicOperand::into_operand)
+            }
+        }
         Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'q') => {
             validate_class_string_disjunction(bytes, cursor).map(ClassSetOperand::ClassString)
         }
         Some(_) => parse_unicode_sets_character_or_class_escape(bytes, cursor)
             .map(ClassSetAtomicOperand::into_operand),
     }
+}
+
+fn parse_unicode_property_of_strings(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<Option<RequiresUnicodePropertyOfStrings>, RegExpCompileError> {
+    let offset = *cursor;
+    if bytes.get(offset..offset + 3) != Some(br"\p{") {
+        return Ok(None);
+    }
+    let value_start = offset + 3;
+    let Some(relative_end) = bytes[value_start..].iter().position(|byte| *byte == b'}') else {
+        return Ok(None);
+    };
+    let value_end = value_start + relative_end;
+    let value = std::str::from_utf8(&bytes[value_start..value_end])
+        .map_err(|_| RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE))?;
+    if !matches!(
+        value,
+        "Basic_Emoji"
+            | "Emoji_Keycap_Sequence"
+            | "RGI_Emoji_Modifier_Sequence"
+            | "RGI_Emoji_Flag_Sequence"
+            | "RGI_Emoji_Tag_Sequence"
+            | "RGI_Emoji_ZWJ_Sequence"
+            | "RGI_Emoji"
+    ) {
+        return Ok(None);
+    }
+    *cursor = value_end + 1;
+    Ok(Some(RequiresUnicodePropertyOfStrings {
+        first_offset: offset,
+    }))
 }
 
 /// Validates one `ClassStringDisjunction` without lowering its string
@@ -3341,6 +3562,8 @@ fn validate_class_string_disjunction(
         ));
     }
     *cursor += 3;
+    let mut alternatives = BTreeSet::new();
+    let mut string = Vec::new();
     let mut string_length = ClassStringLength::Empty;
     let mut may_contain_strings = false;
 
@@ -3355,9 +3578,11 @@ fn validate_class_string_disjunction(
             }
             Some(b'}') => {
                 may_contain_strings |= string_length.may_contain_strings();
+                alternatives.insert(std::mem::take(&mut string));
                 *cursor += 1;
                 return Ok(ValidatedClassStringDisjunction {
                     offset,
+                    alternatives,
                     may_contain_strings,
                 });
             }
@@ -3365,11 +3590,14 @@ fn validate_class_string_disjunction(
             // disjunction delimiters are all grammatical.
             Some(b'|') => {
                 may_contain_strings |= string_length.may_contain_strings();
+                alternatives.insert(std::mem::take(&mut string));
                 string_length = ClassStringLength::Empty;
                 *cursor += 1;
             }
             Some(_) => {
-                parse_unicode_sets_class_set_character(bytes, cursor)?;
+                let ClassSetCharacter(code_point) =
+                    parse_unicode_sets_class_set_character(bytes, cursor)?;
+                string.push(code_point);
                 string_length = string_length.push_character();
             }
         }
@@ -3963,11 +4191,54 @@ fn parse_legacy_octal_escape(bytes: &[u8], escape_offset: usize) -> (u8, usize) 
     (value, cursor)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuantifierOptionalIterations {
+    Finite(usize),
+    Unbounded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuantifierPreference {
+    Greedy,
+    Lazy,
+}
+
+impl QuantifierPreference {
+    const fn word(self) -> u64 {
+        match self {
+            Self::Greedy => 0,
+            Self::Lazy => 1,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Quantifier {
-    min: usize,
-    max: Option<usize>,
-    lazy: bool,
+    required_iterations: usize,
+    optional_iterations: QuantifierOptionalIterations,
+    preference: QuantifierPreference,
+}
+
+impl Quantifier {
+    fn new(min: usize, max: Option<usize>, lazy: bool) -> Self {
+        let optional_iterations = match max {
+            Some(max) => QuantifierOptionalIterations::Finite(max - min),
+            None => QuantifierOptionalIterations::Unbounded,
+        };
+        Self {
+            required_iterations: min,
+            optional_iterations,
+            preference: if lazy {
+                QuantifierPreference::Lazy
+            } else {
+                QuantifierPreference::Greedy
+            },
+        }
+    }
+
+    fn is_optional(self) -> bool {
+        self.required_iterations == 0
+    }
 }
 
 fn parse_postfix_quantifier(
@@ -3975,11 +4246,7 @@ fn parse_postfix_quantifier(
     offset: &mut usize,
 ) -> Result<Quantifier, RegExpCompileError> {
     let Some(&byte) = bytes.get(*offset) else {
-        return Ok(Quantifier {
-            min: 1,
-            max: Some(1),
-            lazy: false,
-        });
+        return Ok(Quantifier::new(1, Some(1), false));
     };
     let start = *offset;
     let (min, max) = match byte {
@@ -3998,19 +4265,11 @@ fn parse_postfix_quantifier(
         b'{' => match parse_braced_quantifier(bytes, offset)? {
             Some(quantifier) => quantifier,
             None => {
-                return Ok(Quantifier {
-                    min: 1,
-                    max: Some(1),
-                    lazy: false,
-                });
+                return Ok(Quantifier::new(1, Some(1), false));
             }
         },
         _ => {
-            return Ok(Quantifier {
-                min: 1,
-                max: Some(1),
-                lazy: false,
-            });
+            return Ok(Quantifier::new(1, Some(1), false));
         }
     };
     let lazy = if bytes.get(*offset) == Some(&b'?') {
@@ -4036,7 +4295,7 @@ fn parse_postfix_quantifier(
         ));
     }
     debug_assert!(start < *offset);
-    Ok(Quantifier { min, max, lazy })
+    Ok(Quantifier::new(min, max, lazy))
 }
 
 fn parse_braced_quantifier(
@@ -4106,10 +4365,51 @@ fn parse_decimal_checked(bytes: &[u8], offset: &mut usize) -> (usize, bool) {
     (value, overflow || *offset == first)
 }
 
+#[derive(Clone, Copy)]
+enum OptionalAtomProgress {
+    MustAdvance,
+    MayRemainAtSameIndex,
+}
+
+impl OptionalAtomProgress {
+    fn for_atom(atom: &ParsedAtom) -> Self {
+        if atom_nullable(atom) {
+            Self::MayRemainAtSameIndex
+        } else {
+            Self::MustAdvance
+        }
+    }
+}
+
+enum NullableQuantifierContinuation {
+    NextInstruction,
+    Repeat,
+}
+
+#[must_use = "a nullable optional quantifier attempt must emit its paired progress check"]
+struct PendingNullableQuantifierProgress {
+    split_pc: usize,
+    attempt_pc: usize,
+    preference: QuantifierPreference,
+}
+
+#[must_use = "a completed nullable quantifier attempt must receive its quantifier fallback"]
+struct PendingNullableQuantifierFallback {
+    split_pc: usize,
+    attempt_pc: usize,
+    preference: QuantifierPreference,
+}
+
 struct ProgramLowerer<'a> {
     instructions: &'a mut Vec<RegExpInstruction>,
     error_offset: usize,
     named_groups: &'a [RegExpNamedGroup],
+}
+
+#[derive(Clone, Copy)]
+enum FiniteClassSetDirection {
+    Forward,
+    Reverse,
 }
 
 impl<'a> ProgramLowerer<'a> {
@@ -4195,52 +4495,151 @@ impl<'a> ProgramLowerer<'a> {
         offset: usize,
     ) -> Result<(), RegExpCompileError> {
         self.error_offset = offset;
-        for _ in 0..quantifier.min {
+        for _ in 0..quantifier.required_iterations {
             self.atom(atom)?;
         }
-        match quantifier.max {
-            Some(max) => {
-                for _ in quantifier.min..max {
-                    self.optional(atom, quantifier.lazy)?;
+        let progress = OptionalAtomProgress::for_atom(atom);
+        match quantifier.optional_iterations {
+            QuantifierOptionalIterations::Finite(count) => match progress {
+                OptionalAtomProgress::MustAdvance => {
+                    for _ in 0..count {
+                        self.optional(atom, quantifier.preference)?;
+                    }
                 }
-            }
-            None => self.star(atom, quantifier.lazy)?,
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.nullable_finite(atom, quantifier.preference, count)?;
+                }
+            },
+            QuantifierOptionalIterations::Unbounded => match progress {
+                OptionalAtomProgress::MustAdvance => self.star(atom, quantifier.preference)?,
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.nullable_star(atom, quantifier.preference)?;
+                }
+            },
         }
         Ok(())
     }
 
-    fn optional(&mut self, atom: &ParsedAtom, lazy: bool) -> Result<(), RegExpCompileError> {
+    fn optional(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
         let split = self.instructions.len();
         self.push(RegExpInstruction::split(0, 0))?;
         let attempt = self.instructions.len();
         self.atom(atom)?;
         let after = self.instructions.len();
-        self.instructions[split] = if lazy {
-            RegExpInstruction::split(after, attempt)
-        } else {
-            RegExpInstruction::split(attempt, after)
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
         };
         Ok(())
     }
 
-    fn star(&mut self, atom: &ParsedAtom, lazy: bool) -> Result<(), RegExpCompileError> {
+    fn star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
         let split = self.instructions.len();
         self.push(RegExpInstruction::split(0, 0))?;
         let attempt = self.instructions.len();
         self.atom(atom)?;
         self.push(RegExpInstruction::jump(split))?;
         let after = self.instructions.len();
-        self.instructions[split] = if lazy {
-            RegExpInstruction::split(after, attempt)
-        } else {
-            RegExpInstruction::split(attempt, after)
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
         };
         Ok(())
+    }
+
+    fn nullable_finite(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+        count: usize,
+    ) -> Result<(), RegExpCompileError> {
+        let mut fallbacks = Vec::with_capacity(count);
+        for _ in 0..count {
+            let pending = self.begin_nullable_optional(preference)?;
+            self.atom(atom)?;
+            fallbacks.push(self.complete_nullable_optional(
+                pending,
+                NullableQuantifierContinuation::NextInstruction,
+            )?);
+        }
+        let after = self.instructions.len();
+        for fallback in fallbacks {
+            self.finish_nullable_optional(fallback, after);
+        }
+        Ok(())
+    }
+
+    fn nullable_star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let pending = self.begin_nullable_optional(preference)?;
+        self.atom(atom)?;
+        let fallback =
+            self.complete_nullable_optional(pending, NullableQuantifierContinuation::Repeat)?;
+        let after = self.instructions.len();
+        self.finish_nullable_optional(fallback, after);
+        Ok(())
+    }
+
+    fn begin_nullable_optional(
+        &mut self,
+        preference: QuantifierPreference,
+    ) -> Result<PendingNullableQuantifierProgress, RegExpCompileError> {
+        let split_pc = self.instructions.len();
+        self.push(RegExpInstruction::progress_split(0, 0, preference))?;
+        Ok(PendingNullableQuantifierProgress {
+            split_pc,
+            attempt_pc: self.instructions.len(),
+            preference,
+        })
+    }
+
+    fn complete_nullable_optional(
+        &mut self,
+        pending: PendingNullableQuantifierProgress,
+        continuation: NullableQuantifierContinuation,
+    ) -> Result<PendingNullableQuantifierFallback, RegExpCompileError> {
+        let check_pc = self.instructions.len();
+        let continuation_pc = match continuation {
+            NullableQuantifierContinuation::NextInstruction => check_pc + 1,
+            NullableQuantifierContinuation::Repeat => pending.split_pc,
+        };
+        self.push(RegExpInstruction::progress_check(
+            pending.split_pc,
+            continuation_pc,
+        ))?;
+        Ok(PendingNullableQuantifierFallback {
+            split_pc: pending.split_pc,
+            attempt_pc: pending.attempt_pc,
+            preference: pending.preference,
+        })
+    }
+
+    fn finish_nullable_optional(
+        &mut self,
+        pending: PendingNullableQuantifierFallback,
+        fallback_pc: usize,
+    ) {
+        self.instructions[pending.split_pc] =
+            RegExpInstruction::progress_split(pending.attempt_pc, fallback_pc, pending.preference);
     }
 
     fn atom(&mut self, atom: &ParsedAtom) -> Result<(), RegExpCompileError> {
         match atom {
             ParsedAtom::Instruction(instruction) => self.push(*instruction),
+            ParsedAtom::FiniteClassSet(atom) => {
+                self.finite_class_set_atom(atom, FiniteClassSetDirection::Forward)
+            }
             ParsedAtom::Capture {
                 id,
                 body,
@@ -4307,8 +4706,66 @@ impl<'a> ProgramLowerer<'a> {
             // Syntax-only placeholder. `ParsedPatternCapability` prevents the
             // containing tree from becoming a returned matcher program, but
             // lowering continues so its remaining early-error checks run.
-            ParsedAtom::RequiresClassStringSemantics(_) => Ok(()),
+            ParsedAtom::RequiresUnicodeSetSemantics(_) => Ok(()),
         }
+    }
+
+    fn finite_class_set_atom(
+        &mut self,
+        atom: &FiniteClassSetAtom,
+        direction: FiniteClassSetDirection,
+    ) -> Result<(), RegExpCompileError> {
+        let alternative_count =
+            atom.multi_code_point_strings.len() + 1 + usize::from(atom.contains_empty);
+        let mut exits = Vec::with_capacity(alternative_count.saturating_sub(1));
+        for index in 0..alternative_count {
+            if index + 1 == alternative_count {
+                self.finite_class_set_alternative(atom, index, direction)?;
+                break;
+            }
+            let split = self.instructions.len();
+            self.push(RegExpInstruction::split(0, 0))?;
+            let primary = self.instructions.len();
+            self.finite_class_set_alternative(atom, index, direction)?;
+            let exit = self.instructions.len();
+            self.push(RegExpInstruction::jump(0))?;
+            let fallback = self.instructions.len();
+            self.instructions[split] = RegExpInstruction::split(primary, fallback);
+            exits.push(exit);
+        }
+        let after = self.instructions.len();
+        for exit in exits {
+            self.instructions[exit] = RegExpInstruction::jump(after);
+        }
+        Ok(())
+    }
+
+    fn finite_class_set_alternative(
+        &mut self,
+        atom: &FiniteClassSetAtom,
+        index: usize,
+        direction: FiniteClassSetDirection,
+    ) -> Result<(), RegExpCompileError> {
+        if let Some(string) = atom.multi_code_point_strings.get(index) {
+            match direction {
+                FiniteClassSetDirection::Forward => {
+                    for instruction in string {
+                        self.push(*instruction)?;
+                    }
+                }
+                FiniteClassSetDirection::Reverse => {
+                    for instruction in string.iter().rev() {
+                        self.push(*instruction)?;
+                    }
+                }
+            }
+            return Ok(());
+        }
+        if index == atom.multi_code_point_strings.len() {
+            return self.push(atom.singleton);
+        }
+        debug_assert!(atom.contains_empty);
+        Ok(())
     }
 
     fn reverse_alternatives(
@@ -4370,45 +4827,110 @@ impl<'a> ProgramLowerer<'a> {
         offset: usize,
     ) -> Result<(), RegExpCompileError> {
         self.error_offset = offset;
-        for _ in 0..quantifier.min {
+        for _ in 0..quantifier.required_iterations {
             self.reverse_atom(atom)?;
         }
-        match quantifier.max {
-            Some(max) => {
-                for _ in quantifier.min..max {
-                    let split = self.instructions.len();
-                    self.push(RegExpInstruction::split(0, 0))?;
-                    let attempt = self.instructions.len();
-                    self.reverse_atom(atom)?;
-                    let after = self.instructions.len();
-                    self.instructions[split] = if quantifier.lazy {
-                        RegExpInstruction::split(after, attempt)
-                    } else {
-                        RegExpInstruction::split(attempt, after)
-                    };
+        let progress = OptionalAtomProgress::for_atom(atom);
+        match quantifier.optional_iterations {
+            QuantifierOptionalIterations::Finite(count) => match progress {
+                OptionalAtomProgress::MustAdvance => {
+                    for _ in 0..count {
+                        self.reverse_optional(atom, quantifier.preference)?;
+                    }
                 }
-                Ok(())
-            }
-            None => {
-                let split = self.instructions.len();
-                self.push(RegExpInstruction::split(0, 0))?;
-                let attempt = self.instructions.len();
-                self.reverse_atom(atom)?;
-                self.push(RegExpInstruction::jump(split))?;
-                let after = self.instructions.len();
-                self.instructions[split] = if quantifier.lazy {
-                    RegExpInstruction::split(after, attempt)
-                } else {
-                    RegExpInstruction::split(attempt, after)
-                };
-                Ok(())
-            }
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.reverse_nullable_finite(atom, quantifier.preference, count)?;
+                }
+            },
+            QuantifierOptionalIterations::Unbounded => match progress {
+                OptionalAtomProgress::MustAdvance => {
+                    self.reverse_star(atom, quantifier.preference)?;
+                }
+                OptionalAtomProgress::MayRemainAtSameIndex => {
+                    self.reverse_nullable_star(atom, quantifier.preference)?;
+                }
+            },
         }
+        Ok(())
+    }
+
+    fn reverse_optional(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let split = self.instructions.len();
+        self.push(RegExpInstruction::split(0, 0))?;
+        let attempt = self.instructions.len();
+        self.reverse_atom(atom)?;
+        let after = self.instructions.len();
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
+        };
+        Ok(())
+    }
+
+    fn reverse_star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let split = self.instructions.len();
+        self.push(RegExpInstruction::split(0, 0))?;
+        let attempt = self.instructions.len();
+        self.reverse_atom(atom)?;
+        self.push(RegExpInstruction::jump(split))?;
+        let after = self.instructions.len();
+        self.instructions[split] = match preference {
+            QuantifierPreference::Greedy => RegExpInstruction::split(attempt, after),
+            QuantifierPreference::Lazy => RegExpInstruction::split(after, attempt),
+        };
+        Ok(())
+    }
+
+    fn reverse_nullable_finite(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+        count: usize,
+    ) -> Result<(), RegExpCompileError> {
+        let mut fallbacks = Vec::with_capacity(count);
+        for _ in 0..count {
+            let pending = self.begin_nullable_optional(preference)?;
+            self.reverse_atom(atom)?;
+            fallbacks.push(self.complete_nullable_optional(
+                pending,
+                NullableQuantifierContinuation::NextInstruction,
+            )?);
+        }
+        let after = self.instructions.len();
+        for fallback in fallbacks {
+            self.finish_nullable_optional(fallback, after);
+        }
+        Ok(())
+    }
+
+    fn reverse_nullable_star(
+        &mut self,
+        atom: &ParsedAtom,
+        preference: QuantifierPreference,
+    ) -> Result<(), RegExpCompileError> {
+        let pending = self.begin_nullable_optional(preference)?;
+        self.reverse_atom(atom)?;
+        let fallback =
+            self.complete_nullable_optional(pending, NullableQuantifierContinuation::Repeat)?;
+        let after = self.instructions.len();
+        self.finish_nullable_optional(fallback, after);
+        Ok(())
     }
 
     fn reverse_atom(&mut self, atom: &ParsedAtom) -> Result<(), RegExpCompileError> {
         match atom {
             ParsedAtom::Instruction(instruction) => self.push(*instruction),
+            ParsedAtom::FiniteClassSet(atom) => {
+                self.finite_class_set_atom(atom, FiniteClassSetDirection::Reverse)
+            }
             ParsedAtom::Capture {
                 id,
                 body,
@@ -4432,8 +4954,10 @@ impl<'a> ProgramLowerer<'a> {
                 }
                 self.reverse_alternatives(body)
             }
-            ParsedAtom::RequiresClassStringSemantics(_) => Ok(()),
-            _ => Err(RegExpCompileError::unsupported_feature(
+            ParsedAtom::RequiresUnicodeSetSemantics(_) => Ok(()),
+            ParsedAtom::NamedBackreference { .. }
+            | ParsedAtom::NumberedBackreference { .. }
+            | ParsedAtom::Lookbehind { .. } => Err(RegExpCompileError::unsupported_feature(
                 self.error_offset,
                 "lookbehind body uses an unsupported matcher atom",
             )),
@@ -4878,7 +5402,7 @@ mod tests {
     }
 
     #[test]
-    fn compiles_capture_alternation_quantifier_targets_and_rejects_nullable_loops() {
+    fn compiles_capture_alternation_and_quantifier_targets() {
         let first = compile("((1)|(12))((3)|(23))");
         assert_eq!(first.capture_count, 6);
         assert!(first
@@ -4897,12 +5421,93 @@ mod tests {
             .instructions
             .iter()
             .any(|i| *i == RegExpInstruction::clear_capture_range(2, 6)));
-        for pattern in ["(a?)*", "(a?)+", "(a?){1,}"] {
+    }
+
+    #[test]
+    fn nullable_quantifier_progress() {
+        fn progress_pairs(program: &RegExpProgram) -> Vec<(usize, usize)> {
+            program
+                .instructions
+                .iter()
+                .enumerate()
+                .filter_map(|(check_pc, instruction)| {
+                    (instruction.opcode == REGEXP_OPCODE_PROGRESS_CHECK)
+                        .then_some((instruction.operand0 as usize, check_pc))
+                })
+                .collect()
+        }
+
+        let exact = compile("(a?b??)*");
+        let exact_pairs = progress_pairs(&exact);
+        assert_eq!(exact_pairs.len(), 1);
+        let (split_pc, check_pc) = exact_pairs[0];
+        let split = exact.instructions[split_pc];
+        let check = exact.instructions[check_pc];
+        assert_eq!(split.opcode, REGEXP_OPCODE_PROGRESS_SPLIT);
+        assert_eq!(split.operand1 & 1, QuantifierPreference::Greedy.word());
+        assert_eq!((split.operand1 >> 1) as usize, check_pc + 1);
+        assert_eq!(check.operand0 as usize, split_pc);
+        assert_eq!(check.operand1 as usize, split_pc);
+
+        let lazy = compile("(?:a?)*?");
+        let lazy_pairs = progress_pairs(&lazy);
+        assert_eq!(lazy_pairs.len(), 1);
+        let (lazy_split_pc, lazy_check_pc) = lazy_pairs[0];
+        assert_eq!(
+            lazy.instructions[lazy_split_pc].operand1 & 1,
+            QuantifierPreference::Lazy.word()
+        );
+        assert_eq!(
+            lazy.instructions[lazy_check_pc].operand1 as usize,
+            lazy_split_pc
+        );
+
+        let finite = compile("(){1,3}");
+        let finite_pairs = progress_pairs(&finite);
+        assert_eq!(finite_pairs.len(), 2);
+        assert_eq!(
+            finite
+                .instructions
+                .iter()
+                .filter(|instruction| instruction.opcode == REGEXP_OPCODE_CAPTURE_START)
+                .count(),
+            3,
+            "one required empty iteration and two optional attempts are emitted"
+        );
+        for (split_pc, check_pc) in finite_pairs {
+            assert!(split_pc < check_pc);
             assert_eq!(
-                RegExpProgram::compile(pattern, "").expect_err(pattern).kind,
-                RegExpCompileErrorKind::UnsupportedFeature
+                finite.instructions[check_pc].operand1 as usize,
+                check_pc + 1,
+                "a finite optional iteration continues instead of looping"
+            );
+            assert_eq!(
+                (finite.instructions[split_pc].operand1 >> 1) as usize,
+                finite.instructions.len() - 1,
+                "an empty attempt skips every remaining optional iteration"
             );
         }
+
+        let nested = compile("(?:(?:a?)*)*");
+        let nested_pairs = progress_pairs(&nested);
+        assert_eq!(nested_pairs.len(), 2);
+        assert_ne!(nested_pairs[0].0, nested_pairs[1].0);
+        for (split_pc, check_pc) in nested_pairs {
+            assert_eq!(nested.instructions[check_pc].operand0 as usize, split_pc);
+        }
+
+        let reverse = compile("(?<=(?:a?)*)b");
+        let reverse_pairs = progress_pairs(&reverse);
+        assert_eq!(reverse_pairs.len(), 1);
+        let (reverse_split_pc, reverse_check_pc) = reverse_pairs[0];
+        assert_eq!(
+            reverse.instructions[reverse_check_pc].operand0 as usize,
+            reverse_split_pc
+        );
+        assert_eq!(
+            reverse.instructions[reverse_check_pc].operand1 as usize,
+            reverse_split_pc
+        );
     }
 
     #[test]
@@ -5491,7 +6096,7 @@ mod tests {
     }
 
     #[test]
-    fn unicode_sets_validates_class_strings_before_capability_rejection() {
+    fn unicode_sets_validates_class_strings_before_finite_lowering() {
         for pattern in [
             r"[\q{}]",
             r"[\q{a|b}]",
@@ -5506,14 +6111,8 @@ mod tests {
             r"([\q{a}])",
             r"(?:[\q{a}]|)*",
         ] {
-            let error = RegExpProgram::compile(pattern, "v")
-                .expect_err("legal class strings remain a capability gap");
-            assert_eq!(
-                error.kind,
-                RegExpCompileErrorKind::UnsupportedFeature,
-                "{pattern}"
-            );
-            assert_eq!(error.rule, None, "{pattern}");
+            RegExpProgram::compile(pattern, "v")
+                .unwrap_or_else(|error| panic!("legal finite class string `{pattern}`: {error}"));
         }
 
         for pattern in [r"[\q]", r"[\q{a]", r"[\q{a", r"[\q{a\}]"] {
@@ -5555,6 +6154,109 @@ mod tests {
             assert_eq!(error.rule, Some(SyntaxRule::ClassSetCharacter), "{pattern}");
             assert_eq!(error.offset, 4, "{pattern}");
         }
+    }
+
+    #[test]
+    fn unicode_sets_finite_string_algebra() {
+        fn finite_atom(pattern: &str) -> FiniteClassSetAtom {
+            let mut parsed = parse_pattern(pattern, RegExpUnicodeMode::UnicodeSets, false).unwrap();
+            assert_eq!(parsed.capability, ParsedPatternCapability::MatcherReady);
+            let term = parsed
+                .alternatives
+                .pop()
+                .and_then(|mut sequence| sequence.pop())
+                .expect("one finite class atom");
+            match term {
+                ParsedTerm::Quantified {
+                    atom: ParsedAtom::FiniteClassSet(atom),
+                    ..
+                } => atom,
+                _ => panic!("`{pattern}` did not retain a finite class-set atom"),
+            }
+        }
+
+        let singleton = RegExpProgram::compile(r"[\q{a}&&a]", "v").unwrap();
+        let ordinary = RegExpProgram::compile("[a&&a]", "v").unwrap();
+        assert_eq!(singleton.instructions, ordinary.instructions);
+        assert_eq!(singleton.ranges, ordinary.ranges);
+
+        let subtracted = finite_atom(r"[\q{ab|cd|a}--\q{cd|a}]");
+        assert_eq!(
+            subtracted.multi_code_point_strings,
+            vec![vec![
+                RegExpInstruction::literal_code_point(u32::from(b'a')),
+                RegExpInstruction::literal_code_point(u32::from(b'b')),
+            ]]
+        );
+        assert_eq!(subtracted.singleton.operand1, 0);
+        assert!(!subtracted.contains_empty);
+
+        let direct = finite_atom(r"[\q{ab|abc|ab|}]");
+        let nested = finite_atom(r"[[\q{ab|abc|ab|}]&&[\q{ab|abc|}]]");
+        assert_eq!(direct, nested);
+        assert_eq!(
+            direct
+                .multi_code_point_strings
+                .iter()
+                .map(Vec::len)
+                .collect::<Vec<_>>(),
+            vec![3, 2]
+        );
+        assert!(direct.contains_empty);
+        assert!(atom_nullable(&ParsedAtom::FiniteClassSet(direct.clone())));
+
+        let mut forward = Vec::new();
+        ProgramLowerer::new(&mut forward, 0, &[])
+            .finite_class_set_atom(&direct, FiniteClassSetDirection::Forward)
+            .unwrap();
+        let mut reverse = Vec::new();
+        ProgramLowerer::new(&mut reverse, 0, &[])
+            .finite_class_set_atom(&direct, FiniteClassSetDirection::Reverse)
+            .unwrap();
+        let literals = |instructions: &[RegExpInstruction]| {
+            instructions
+                .iter()
+                .filter(|instruction| {
+                    instruction.opcode == REGEXP_OPCODE_LITERAL_CODE_POINT
+                        || instruction.opcode == REGEXP_OPCODE_LITERAL_ASCII
+                })
+                .map(|instruction| instruction.operand0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            literals(&forward),
+            [b'a', b'b', b'c', b'a', b'b'].map(u64::from)
+        );
+        assert_eq!(
+            literals(&reverse),
+            [b'c', b'b', b'a', b'b', b'a'].map(u64::from)
+        );
+        assert!(forward
+            .iter()
+            .all(|instruction| instruction.opcode != REGEXP_OPCODE_PROGRESS_SPLIT));
+
+        let negated = RegExpProgram::compile(r"[^\q{ab}--\q{ab}]", "v")
+            .expect_err("static MayContainStrings is independent of the empty product");
+        assert_eq!(
+            negated.rule,
+            Some(SyntaxRule::NegatedClassMayContainStrings)
+        );
+
+        for pattern in [r"[\q{a}&&A]", r"[\q{ab}--\q{ab}]"] {
+            let unsupported = RegExpProgram::compile(pattern, "iv")
+                .expect_err("direct-q provenance requires operand-local case folding");
+            assert_eq!(unsupported.kind, RegExpCompileErrorKind::UnsupportedFeature);
+            assert_eq!(unsupported.rule, None);
+        }
+        let property = RegExpProgram::compile(r"[\p{Emoji_Keycap_Sequence}\q{a}]", "v")
+            .expect_err("properties of strings retain their distinct capability");
+        assert_eq!(property.kind, RegExpCompileErrorKind::UnsupportedFeature);
+        assert_eq!(property.rule, None);
+
+        let oversized = format!(r"[\q{{{}}}]", "a".repeat(REGEXP_MAX_INSTRUCTIONS + 1));
+        let error = RegExpProgram::compile(&oversized, "v")
+            .expect_err("finite class strings remain under the matcher-program cap");
+        assert_eq!(error.kind, RegExpCompileErrorKind::UnsupportedFeature);
     }
 
     #[test]
@@ -5674,7 +6376,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_syntax_and_unsupported_features_with_offsets() {
+    fn reports_invalid_syntax_with_offsets() {
         let invalid_cases = [("[a", 0), ("[z-a]", 2), ("\\", 0)];
         for (pattern, offset) in invalid_cases {
             let error = RegExpProgram::compile(pattern, "").expect_err("pattern should be invalid");
@@ -5685,11 +6387,6 @@ mod tests {
             );
             assert_eq!(error.offset, offset, "{pattern}");
         }
-
-        let error = RegExpProgram::compile("(a?)*", "")
-            .expect_err("unbounded repetition of a nullable atom should be unsupported");
-        assert_eq!(error.kind, RegExpCompileErrorKind::UnsupportedFeature);
-        assert_eq!(error.offset, 4);
     }
 
     /// No "unsupported" category any more: the `first_unsupported` arm this test

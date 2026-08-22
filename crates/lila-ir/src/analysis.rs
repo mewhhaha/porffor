@@ -126,6 +126,7 @@ pub(crate) struct EnvironmentPlan {
 #[derive(Debug, Clone)]
 pub(crate) struct OwnerPlan {
     pub(crate) flavor: FunctionFlavor,
+    pub(crate) lexical_super_owner_role: LexicalSuperOwnerRole,
     pub(crate) strict: bool,
     pub(crate) parent_owner_id: Option<String>,
     pub(crate) activation_environment_id: EnvironmentId,
@@ -133,7 +134,6 @@ pub(crate) struct OwnerPlan {
     pub(crate) root_bindings: BTreeSet<String>,
     pub(crate) function_bindings: BTreeMap<String, FunctionId>,
     pub(crate) owned_env_slots: BTreeMap<String, u32>,
-    pub(crate) is_derived_constructor: bool,
     pub(crate) private_environment_id: Option<PrivateEnvironmentId>,
 }
 
@@ -152,6 +152,52 @@ pub(crate) struct FunctionPlan<'a> {
     pub(crate) root_functions: Vec<PendingFunction<'a>>,
     pub(crate) captures: BTreeMap<String, CaptureBindingPlan>,
     pub(crate) lexical_derived_activation_owner: Option<FunctionId>,
+}
+
+/// The analyzed execution owner of an ordinary statement-list `using` scope.
+///
+/// Resumable owners remain named so lowering must mint the corresponding
+/// activation-backed proof or reject that owner explicitly rather than
+/// falling through to immediate storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncDisposableScopeOwnerPlan {
+    Immediate,
+    PlainGenerator,
+    AsyncFunction,
+    AsyncGenerator,
+}
+
+/// The exhaustive function owner decision for an ordinary statement-list
+/// `await using` declaration.
+///
+/// Unsupported owners stay named instead of collapsing into `Option`, so a new
+/// execution kind cannot silently acquire the plain-async capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableScopeOwnerPlan {
+    Ordinary,
+    Generator,
+    AsyncFunction,
+    AsyncGenerator,
+}
+
+impl FunctionPlan<'_> {
+    pub(crate) fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
+        match self.protocol.execution_kind() {
+            FunctionExecutionKind::Ordinary => SyncDisposableScopeOwnerPlan::Immediate,
+            FunctionExecutionKind::Generator => SyncDisposableScopeOwnerPlan::PlainGenerator,
+            FunctionExecutionKind::Async => SyncDisposableScopeOwnerPlan::AsyncFunction,
+            FunctionExecutionKind::AsyncGenerator => SyncDisposableScopeOwnerPlan::AsyncGenerator,
+        }
+    }
+
+    pub(crate) fn async_disposable_scope_owner(&self) -> AsyncDisposableScopeOwnerPlan {
+        match self.protocol.execution_kind() {
+            FunctionExecutionKind::Ordinary => AsyncDisposableScopeOwnerPlan::Ordinary,
+            FunctionExecutionKind::Generator => AsyncDisposableScopeOwnerPlan::Generator,
+            FunctionExecutionKind::Async => AsyncDisposableScopeOwnerPlan::AsyncFunction,
+            FunctionExecutionKind::AsyncGenerator => AsyncDisposableScopeOwnerPlan::AsyncGenerator,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +380,7 @@ impl<'a> AnalysisBuilder<'a> {
             SCRIPT_OWNER_ID.to_string(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                lexical_super_owner_role: LexicalSuperOwnerRole::None,
                 strict: script.strict(),
                 parent_owner_id: None,
                 activation_environment_id: script_activation_environment_id,
@@ -347,7 +394,6 @@ impl<'a> AnalysisBuilder<'a> {
                     .map(|function| (function.name.clone(), function.id.clone()))
                     .collect(),
                 owned_env_slots: BTreeMap::new(),
-                is_derived_constructor: false,
                 private_environment_id: None,
             },
         );
@@ -1325,26 +1371,14 @@ impl<'a> AnalysisBuilder<'a> {
         } else {
             Vec::new()
         };
-        let mut parameter_environment_bindings = function
-            .parameters
-            .as_ref()
-            .iter()
-            .flat_map(|parameter| {
-                let mut names = Vec::new();
-                collect_binding_names(interner, parameter.variable().binding(), &mut names);
-                names
-            })
-            .collect::<BTreeSet<_>>();
-        if let Some(self_binding_name) = function.self_binding_name.as_ref() {
-            parameter_environment_bindings.insert(self_binding_name.clone());
-        }
-        if function.protocol.flavor() == FunctionFlavor::Ordinary {
-            parameter_environment_bindings.extend([
-                LEXICAL_THIS_NAME.to_string(),
-                LEXICAL_ARGUMENTS_NAME.to_string(),
-                LEXICAL_NEW_TARGET_NAME.to_string(),
-            ]);
-        }
+        let lexical_super_owner_role = function.protocol.lexical_super_owner_role();
+        let parameter_environment_bindings = self.collect_parameter_environment_bindings(
+            interner,
+            function.parameters.as_ref(),
+            function.self_binding_name.as_deref(),
+            function.protocol.flavor() == FunctionFlavor::Ordinary,
+            lexical_super_owner_role,
+        );
         self.parameter_environment_bindings
             .insert(owner_id.clone(), parameter_environment_bindings);
         let mut owned_env_slots = BTreeMap::new();
@@ -1379,6 +1413,9 @@ impl<'a> AnalysisBuilder<'a> {
                     &root_functions,
                 ),
             );
+            if lexical_super_owner_role == LexicalSuperOwnerRole::HomeObject {
+                bindings.insert(LEXICAL_HOME_OBJECT_NAME.to_string());
+            }
             bindings
         };
         let mut activation_binding_modes = self.activation_binding_modes(
@@ -1403,6 +1440,7 @@ impl<'a> AnalysisBuilder<'a> {
             owner_id.clone(),
             OwnerPlan {
                 flavor: function.protocol.flavor(),
+                lexical_super_owner_role,
                 strict: function.strict,
                 parent_owner_id: Some(parent_owner_id.clone()),
                 activation_environment_id,
@@ -1413,7 +1451,6 @@ impl<'a> AnalysisBuilder<'a> {
                     .map(|nested| (nested.name.clone(), nested.id.clone()))
                     .collect(),
                 owned_env_slots,
-                is_derived_constructor: false,
                 private_environment_id: self.current_private_environment_id(),
             },
         );
@@ -1493,6 +1530,49 @@ impl<'a> AnalysisBuilder<'a> {
             bindings.insert(function.name.clone());
         }
         self.collect_owner_root_bindings_from_items(interner, items, &mut bindings);
+        bindings
+    }
+
+    fn collect_parameter_environment_bindings(
+        &self,
+        interner: &Interner,
+        params: &[FormalParameter],
+        self_name: Option<&str>,
+        has_own_this: bool,
+        lexical_super_owner_role: LexicalSuperOwnerRole,
+    ) -> BTreeSet<String> {
+        let mut bindings = params
+            .iter()
+            .flat_map(|parameter| {
+                let mut names = Vec::new();
+                collect_binding_names(interner, parameter.variable().binding(), &mut names);
+                names
+            })
+            .collect::<BTreeSet<_>>();
+        if let Some(self_name) = self_name {
+            bindings.insert(self_name.to_string());
+        }
+        if has_own_this {
+            bindings.extend([
+                LEXICAL_THIS_NAME.to_string(),
+                LEXICAL_ARGUMENTS_NAME.to_string(),
+                LEXICAL_NEW_TARGET_NAME.to_string(),
+            ]);
+        }
+        match lexical_super_owner_role {
+            LexicalSuperOwnerRole::None => {}
+            LexicalSuperOwnerRole::HomeObject => {
+                bindings.insert(LEXICAL_HOME_OBJECT_NAME.to_string());
+            }
+            LexicalSuperOwnerRole::DerivedConstructorActivation => {
+                bindings.extend([
+                    DERIVED_ACTIVATION_THIS_NAME.to_string(),
+                    DERIVED_ACTIVATION_THIS_STATUS_NAME.to_string(),
+                    DERIVED_ACTIVATION_NEW_TARGET_NAME.to_string(),
+                    DERIVED_ACTIVATION_FUNCTION_NAME.to_string(),
+                ]);
+            }
+        }
         bindings
     }
 
@@ -1832,11 +1912,10 @@ impl<'a> AnalysisBuilder<'a> {
                         ForLoopInitializer::Lexical(lexical) => {
                             let declaration = lexical.declaration();
                             let list = match declaration {
-                                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => {
-                                    list
-                                }
-                                LexicalDeclaration::Using(_)
-                                | LexicalDeclaration::AwaitUsing(_) => return,
+                                LexicalDeclaration::Let(list)
+                                | LexicalDeclaration::Const(list)
+                                | LexicalDeclaration::Using(list)
+                                | LexicalDeclaration::AwaitUsing(list) => list,
                             };
                             for declarator in list.as_ref() {
                                 let Some(bound_names) =
@@ -1864,7 +1943,9 @@ impl<'a> AnalysisBuilder<'a> {
             Statement::ForOfLoop(for_of) => {
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding)
+                    | IterableLoopInitializer::AwaitUsing(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 bindings.insert(
@@ -1878,7 +1959,9 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding)
+                    | IterableLoopInitializer::AwaitUsing(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 bindings.insert(for_of_loop_binding_storage_name(
@@ -2047,11 +2130,10 @@ impl<'a> AnalysisBuilder<'a> {
                         ForLoopInitializer::Lexical(lexical) => {
                             let declaration = lexical.declaration();
                             let list = match declaration {
-                                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => {
-                                    list
-                                }
-                                LexicalDeclaration::Using(_)
-                                | LexicalDeclaration::AwaitUsing(_) => return,
+                                LexicalDeclaration::Let(list)
+                                | LexicalDeclaration::Const(list)
+                                | LexicalDeclaration::Using(list)
+                                | LexicalDeclaration::AwaitUsing(list) => list,
                             };
                             for declarator in list.as_ref() {
                                 let Some(bound_names) =
@@ -2082,7 +2164,9 @@ impl<'a> AnalysisBuilder<'a> {
                         }
                     }
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding)
+                    | IterableLoopInitializer::AwaitUsing(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 bindings.insert(
@@ -2339,10 +2423,10 @@ impl<'a> AnalysisBuilder<'a> {
             return BTreeSet::new();
         };
         let list = match lexical.declaration() {
-            LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                return BTreeSet::new();
-            }
+            LexicalDeclaration::Let(list)
+            | LexicalDeclaration::Const(list)
+            | LexicalDeclaration::Using(list)
+            | LexicalDeclaration::AwaitUsing(list) => list,
         };
         list.as_ref()
             .iter()
@@ -2362,10 +2446,9 @@ impl<'a> AnalysisBuilder<'a> {
         };
         let (mode, list) = match lexical.declaration() {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
-            LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                return BTreeMap::new();
-            }
+            LexicalDeclaration::Const(list)
+            | LexicalDeclaration::Using(list)
+            | LexicalDeclaration::AwaitUsing(list) => (BindingMode::Const, list),
         };
         list.as_ref()
             .iter()
@@ -2386,7 +2469,10 @@ impl<'a> AnalysisBuilder<'a> {
         for_of: &'a ForOfLoop,
     ) -> BTreeSet<String> {
         match for_of.initializer() {
-            IterableLoopInitializer::Let(binding) | IterableLoopInitializer::Const(binding) => {
+            IterableLoopInitializer::Let(binding)
+            | IterableLoopInitializer::Const(binding)
+            | IterableLoopInitializer::Using(binding)
+            | IterableLoopInitializer::AwaitUsing(binding) => {
                 supported_bound_names(interner, binding)
                     .unwrap_or_default()
                     .into_iter()
@@ -2406,7 +2492,9 @@ impl<'a> AnalysisBuilder<'a> {
     ) -> BTreeMap<String, BindingMode> {
         let (mode, binding) = match for_of.initializer() {
             IterableLoopInitializer::Let(binding) => (BindingMode::Let, binding),
-            IterableLoopInitializer::Const(binding) => (BindingMode::Const, binding),
+            IterableLoopInitializer::Const(binding)
+            | IterableLoopInitializer::Using(binding)
+            | IterableLoopInitializer::AwaitUsing(binding) => (BindingMode::Const, binding),
             _ => return BTreeMap::new(),
         };
         supported_bound_names(interner, binding)
@@ -2427,7 +2515,10 @@ impl<'a> AnalysisBuilder<'a> {
         for_of: &'a ForOfLoop,
     ) -> BTreeSet<String> {
         match for_of.initializer() {
-            IterableLoopInitializer::Let(binding) | IterableLoopInitializer::Const(binding) => {
+            IterableLoopInitializer::Let(binding)
+            | IterableLoopInitializer::Const(binding)
+            | IterableLoopInitializer::Using(binding)
+            | IterableLoopInitializer::AwaitUsing(binding) => {
                 supported_bound_names(interner, binding)
                     .unwrap_or_default()
                     .into_iter()
@@ -2445,7 +2536,9 @@ impl<'a> AnalysisBuilder<'a> {
     ) -> BTreeMap<String, BindingMode> {
         let (mode, binding) = match for_of.initializer() {
             IterableLoopInitializer::Let(binding) => (BindingMode::Let, binding),
-            IterableLoopInitializer::Const(binding) => (BindingMode::Const, binding),
+            IterableLoopInitializer::Const(binding)
+            | IterableLoopInitializer::Using(binding)
+            | IterableLoopInitializer::AwaitUsing(binding) => (BindingMode::Const, binding),
             _ => return BTreeMap::new(),
         };
         supported_bound_names(interner, binding)
@@ -3106,6 +3199,16 @@ impl<'a> AnalysisBuilder<'a> {
                         &root_functions,
                     );
                     root_bindings.insert(LEXICAL_HOME_OBJECT_NAME.to_string());
+                    self.parameter_environment_bindings.insert(
+                        id.clone(),
+                        self.collect_parameter_environment_bindings(
+                            interner,
+                            method.parameters().as_ref(),
+                            None,
+                            true,
+                            LexicalSuperOwnerRole::HomeObject,
+                        ),
+                    );
                     let activation_binding_modes = self.activation_binding_modes(
                         interner,
                         method.parameters().as_ref(),
@@ -3141,6 +3244,7 @@ impl<'a> AnalysisBuilder<'a> {
                         id.clone(),
                         OwnerPlan {
                             flavor: FunctionFlavor::Ordinary,
+                            lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
                             strict,
                             parent_owner_id: Some(parent_owner_id.to_string()),
                             activation_environment_id,
@@ -3151,7 +3255,6 @@ impl<'a> AnalysisBuilder<'a> {
                                 .map(|nested| (nested.name.clone(), nested.id.clone()))
                                 .collect(),
                             owned_env_slots,
-                            is_derived_constructor: false,
                             private_environment_id: self.current_private_environment_id(),
                         },
                     );
@@ -3252,6 +3355,7 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
                 strict: true,
                 parent_owner_id: Some(class_parent_owner_id.to_string()),
                 activation_environment_id,
@@ -3259,7 +3363,6 @@ impl<'a> AnalysisBuilder<'a> {
                 root_bindings,
                 function_bindings: BTreeMap::new(),
                 owned_env_slots: BTreeMap::new(),
-                is_derived_constructor: false,
                 private_environment_id: self.current_private_environment_id(),
             },
         );
@@ -3318,6 +3421,7 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
                 strict,
                 parent_owner_id: Some(parent_owner_id.to_string()),
                 activation_environment_id,
@@ -3328,7 +3432,6 @@ impl<'a> AnalysisBuilder<'a> {
                     .map(|nested| (nested.name.clone(), nested.id.clone()))
                     .collect(),
                 owned_env_slots: BTreeMap::new(),
-                is_derived_constructor: false,
                 private_environment_id: self.current_private_environment_id(),
             },
         );
@@ -3368,6 +3471,11 @@ impl<'a> AnalysisBuilder<'a> {
         }
         let id = self.alloc_function_id();
         self.class_execution_ids.insert(key, id.clone());
+        let lexical_super_owner_role = if is_derived_constructor {
+            LexicalSuperOwnerRole::DerivedConstructorActivation
+        } else {
+            LexicalSuperOwnerRole::HomeObject
+        };
         let root_functions = self.collect_root_functions(
             interner,
             source_text,
@@ -3397,6 +3505,16 @@ impl<'a> AnalysisBuilder<'a> {
             ]);
         }
         root_bindings.insert(LEXICAL_HOME_OBJECT_NAME.to_string());
+        self.parameter_environment_bindings.insert(
+            id.clone(),
+            self.collect_parameter_environment_bindings(
+                interner,
+                constructor.parameters().as_ref(),
+                None,
+                true,
+                lexical_super_owner_role,
+            ),
+        );
         let activation_binding_modes = self.activation_binding_modes(
             interner,
             constructor.parameters().as_ref(),
@@ -3415,6 +3533,7 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                lexical_super_owner_role,
                 strict: self
                     .owner_plans
                     .get(parent_owner_id)
@@ -3429,7 +3548,6 @@ impl<'a> AnalysisBuilder<'a> {
                     .map(|nested| (nested.name.clone(), nested.id.clone()))
                     .collect(),
                 owned_env_slots: BTreeMap::new(),
-                is_derived_constructor,
                 private_environment_id: self.current_private_environment_id(),
             },
         );
@@ -3497,6 +3615,11 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                lexical_super_owner_role: if is_derived_constructor {
+                    LexicalSuperOwnerRole::DerivedConstructorActivation
+                } else {
+                    LexicalSuperOwnerRole::HomeObject
+                },
                 strict: true,
                 parent_owner_id: Some(parent_owner_id.to_string()),
                 activation_environment_id,
@@ -3504,7 +3627,6 @@ impl<'a> AnalysisBuilder<'a> {
                 root_bindings,
                 function_bindings: BTreeMap::new(),
                 owned_env_slots: BTreeMap::new(),
-                is_derived_constructor,
                 private_environment_id: self.current_private_environment_id(),
             },
         );
@@ -3707,7 +3829,10 @@ impl<'a> AnalysisBuilder<'a> {
                     Some(ForLoopInitializer::Lexical(lexical))
                         if matches!(
                             lexical.declaration(),
-                            LexicalDeclaration::Let(_) | LexicalDeclaration::Const(_)
+                            LexicalDeclaration::Let(_)
+                                | LexicalDeclaration::Const(_)
+                                | LexicalDeclaration::Using(_)
+                                | LexicalDeclaration::AwaitUsing(_)
                         ) =>
                     {
                         Some(self.register_lexical_environment_with_modes(
@@ -3769,11 +3894,10 @@ impl<'a> AnalysisBuilder<'a> {
                         ForLoopInitializer::Lexical(lexical) => {
                             let declaration = lexical.declaration();
                             let list = match declaration {
-                                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => {
-                                    list
-                                }
-                                LexicalDeclaration::Using(_)
-                                | LexicalDeclaration::AwaitUsing(_) => return,
+                                LexicalDeclaration::Let(list)
+                                | LexicalDeclaration::Const(list)
+                                | LexicalDeclaration::Using(list)
+                                | LexicalDeclaration::AwaitUsing(list) => list,
                             };
                             for declarator in list.as_ref() {
                                 let Some(bound_names) =
@@ -4179,7 +4303,10 @@ impl<'a> AnalysisBuilder<'a> {
                 let mut head_aliases = capture_aliases.clone();
                 let lexical_loop = matches!(
                     for_of.initializer(),
-                    IterableLoopInitializer::Let(_) | IterableLoopInitializer::Const(_)
+                    IterableLoopInitializer::Let(_)
+                        | IterableLoopInitializer::Const(_)
+                        | IterableLoopInitializer::Using(_)
+                        | IterableLoopInitializer::AwaitUsing(_)
                 );
                 let tdz_head_cursor = lexical_loop.then(|| {
                     self.register_lexical_environment_with_modes(
@@ -4199,7 +4326,9 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding)
+                    | IterableLoopInitializer::AwaitUsing(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 head_aliases.insert(
@@ -4231,7 +4360,9 @@ impl<'a> AnalysisBuilder<'a> {
                 let mut body_aliases = capture_aliases.clone();
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
-                    | IterableLoopInitializer::Const(binding) => {
+                    | IterableLoopInitializer::Const(binding)
+                    | IterableLoopInitializer::Using(binding)
+                    | IterableLoopInitializer::AwaitUsing(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
                                 body_aliases.insert(
@@ -5038,20 +5169,8 @@ impl<'a> AnalysisBuilder<'a> {
                                         CallableToStringRepresentation::ExactSource(
                                             object_method_source_slice(method, source_text),
                                         ),
-                                    protocol: match method.kind() {
-                                        MethodDefinitionKind::Generator => {
-                                            FunctionProtocolIr::Generator
-                                        }
-                                        MethodDefinitionKind::Async => FunctionProtocolIr::Async,
-                                        MethodDefinitionKind::AsyncGenerator => {
-                                            FunctionProtocolIr::AsyncGenerator
-                                        }
-                                        MethodDefinitionKind::Ordinary
-                                        | MethodDefinitionKind::Get
-                                        | MethodDefinitionKind::Set => {
-                                            FunctionProtocolIr::OrdinaryCallOnly
-                                        }
-                                    },
+                                    protocol: object_method_protocol(method.kind())
+                                        .function_protocol(),
                                     strict: self
                                         .owner_plans
                                         .get(owner_id)
@@ -5807,15 +5926,16 @@ impl<'a> AnalysisBuilder<'a> {
         {
             return;
         }
-        if self.lexical_derived_constructor_owner(owner_id).is_some() {
-            self.record_derived_activation_refs(owner_id, capture_aliases, refs);
-            return;
-        }
-        if self.lexical_class_member_owner(owner_id).is_none() {
-            return;
-        }
-        for name in [LEXICAL_THIS_NAME, LEXICAL_HOME_OBJECT_NAME] {
-            self.record_ref(owner_id, name.to_string(), capture_aliases, refs);
+        match self.lexical_super_owner_role(owner_id) {
+            LexicalSuperOwnerRole::None => {}
+            LexicalSuperOwnerRole::HomeObject => {
+                for name in [LEXICAL_THIS_NAME, LEXICAL_HOME_OBJECT_NAME] {
+                    self.record_ref(owner_id, name.to_string(), capture_aliases, refs);
+                }
+            }
+            LexicalSuperOwnerRole::DerivedConstructorActivation => {
+                self.record_derived_activation_binding_refs(owner_id, capture_aliases, refs);
+            }
         }
     }
 
@@ -5829,10 +5949,20 @@ impl<'a> AnalysisBuilder<'a> {
             .owner_plans
             .get(owner_id)
             .is_some_and(|owner| owner.flavor == FunctionFlavor::Arrow)
-            || self.lexical_derived_constructor_owner(owner_id).is_none()
+            || self.lexical_super_owner_role(owner_id)
+                != LexicalSuperOwnerRole::DerivedConstructorActivation
         {
             return;
         }
+        self.record_derived_activation_binding_refs(owner_id, capture_aliases, refs);
+    }
+
+    fn record_derived_activation_binding_refs(
+        &self,
+        owner_id: &str,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
         for name in [
             DERIVED_ACTIVATION_THIS_NAME,
             DERIVED_ACTIVATION_THIS_STATUS_NAME,
@@ -5868,7 +5998,8 @@ impl<'a> AnalysisBuilder<'a> {
         // even when no nested arrow currently captures it. Direct `super()`,
         // derived `this`, and completion normalization all share these slots.
         for owner in self.owner_plans.values() {
-            if owner.is_derived_constructor {
+            if owner.lexical_super_owner_role == LexicalSuperOwnerRole::DerivedConstructorActivation
+            {
                 owned_names
                     .entry(owner.activation_environment_id)
                     .or_default()
@@ -5893,10 +6024,36 @@ impl<'a> AnalysisBuilder<'a> {
                 .owner_plans
                 .get(&function.id)
                 .expect("generator owner must be planned");
+            // A resumable activation owns only bindings whose physical
+            // Environment Record is that activation. `root_bindings` is also
+            // the owner's all-descendants name inventory, so it contains the
+            // unique aliases of captured block/catch/head bindings. Copying
+            // that inventory wholesale into the activation duplicates those
+            // cells and makes capture hops disagree with the lexical
+            // environment chain that lowering emits. The physical-binding
+            // index spans every owner, so same-spelled bindings in sibling
+            // functions are ignored by the owner-local test below.
+            let activation_binding_names = owner
+                .root_bindings
+                .iter()
+                .filter(|name| {
+                    self.physical_binding_environments
+                        .get(*name)
+                        .is_some_and(|environments| {
+                            environments.contains(&owner.activation_environment_id)
+                                && environments.iter().all(|environment_id| {
+                                    let environment = &self.environment_plans[environment_id];
+                                    environment.owner_id != function.id
+                                        || *environment_id == owner.activation_environment_id
+                                })
+                        })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
             owned_names
                 .entry(owner.activation_environment_id)
                 .or_default()
-                .extend(owner.root_bindings.iter().cloned());
+                .extend(activation_binding_names);
         }
         let function_ids = self.function_order.clone();
         for function_id in function_ids {
@@ -6073,7 +6230,8 @@ impl<'a> AnalysisBuilder<'a> {
             let owner_id = self.environment_plans[&environment_id].owner_id.clone();
             let is_activation =
                 self.owner_plans[&owner_id].activation_environment_id == environment_id;
-            let is_derived_constructor = self.owner_plans[&owner_id].is_derived_constructor;
+            let is_derived_constructor = self.owner_plans[&owner_id].lexical_super_owner_role
+                == LexicalSuperOwnerRole::DerivedConstructorActivation;
             let environment = self
                 .environment_plans
                 .get_mut(&environment_id)
@@ -6148,18 +6306,6 @@ impl<'a> AnalysisBuilder<'a> {
         }
     }
 
-    fn lexical_derived_constructor_owner(&self, owner_id: &str) -> Option<FunctionId> {
-        let mut current = Some(owner_id.to_string());
-        while let Some(id) = current {
-            let owner = self.owner_plans.get(&id)?;
-            if owner.flavor != FunctionFlavor::Arrow {
-                return owner.is_derived_constructor.then_some(id);
-            }
-            current = owner.parent_owner_id.clone();
-        }
-        None
-    }
-
     fn owner_depth(&self, owner_id: &str) -> usize {
         let mut depth = 0;
         let mut current = Some(owner_id);
@@ -6191,20 +6337,19 @@ impl<'a> AnalysisBuilder<'a> {
         false
     }
 
-    fn lexical_class_member_owner(&self, owner_id: &str) -> Option<FunctionId> {
-        let mut current = Some(owner_id.to_string());
+    fn lexical_super_owner_role(&self, owner_id: &str) -> LexicalSuperOwnerRole {
+        let mut current = Some(owner_id);
         while let Some(id) = current {
-            let owner = self.owner_plans.get(&id)?;
+            let owner = self
+                .owner_plans
+                .get(id)
+                .unwrap_or_else(|| panic!("lexical super owner `{id}` must be planned"));
             if owner.flavor != FunctionFlavor::Arrow {
-                return self
-                    .class_execution_ids
-                    .values()
-                    .any(|method_id| method_id == &id)
-                    .then_some(id);
+                return owner.lexical_super_owner_role;
             }
-            current = owner.parent_owner_id.clone();
+            current = owner.parent_owner_id.as_deref();
         }
-        None
+        LexicalSuperOwnerRole::None
     }
 
     fn resolve_capture_environment(

@@ -81,6 +81,18 @@ properties. `emit_array_define_named_data_descriptor` and
 `requested_data_descriptor: bool`, six positional field fragments and the
 hand-written four-field presence fold have been deleted.
 
+Array-index `[[DefineOwnProperty]]` has the same boundary invariant: one
+`ValidatedDescriptor<WasmLocals>` crosses from `Object.defineProperty` into
+the Array exotic path. Validation reads the existing indexed descriptor and
+finishes before the first element, accessor or descriptor-word store. Absent
+fields preserve the corresponding existing field; a kind transition supplies
+the 6.2.6.6 defaults. Non-configurable compatibility uses tagged `SameValue`,
+so `NaN` may be redefined as `NaN`, `+0` and `-0` remain distinct, and
+object/function identity is exact. Array length changes only after descriptor
+compatibility succeeds. Indexed `[[GetOwnProperty]]` materialization also
+matches the stored kind: accessor entries expose their raw getter and setter
+without invoking either, rather than being flattened into data descriptors.
+
 Arguments `length` now retains the same distinction through storage and use.
 Its descriptor kind is updated from `PropertyDescriptorKind`, the observable
 value remains a tagged value, and getter/setter identity is preserved across a
@@ -95,9 +107,13 @@ The arguments `callee` and `length` attribute-update tables now transport
 word without a Rust type error; conversion to the Wasm `i64` encoding occurs
 only where the instruction is emitted.
 
-This does not close T10 or the rest of the ledger. Array application/index
-paths and arguments/exotic emitters still contain derived word operations, and
-LN10's `Presence::Present` step-4 exemption remains explicit in both the
-ordinary and array consumers. The full contract's note-routed LN6 text is kept
-as the historical design record; its current-state supersession is recorded in
-the appended integration section there.
+This does not close T10 or the rest of the ledger. Array application paths and
+remaining arguments/exotic emitters still contain derived word operations, and LN10's
+`Presence::Present` step-4 exemption remains explicit in the ordinary and
+array-named consumers. The full contract's note-routed LN6 text is kept as the
+historical design record; its current-state supersession is recorded in the
+appended integration section there. Arguments indexed descriptors are outside
+the Array-index lane, but now consume the same typed descriptor and stored
+compatibility authority through the separate exotic protocol in
+`arguments-index-descriptor-exotic.md`; its focused witnesses are Test262
+15.2.3.7-6-a-279 and 15.2.3.7-6-a-280.

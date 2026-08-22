@@ -10,6 +10,13 @@ This identity cleanup does not block Test262 work or the T26 conformance gate.
 
 ## Current repository state
 
+The identity audit explicitly excludes only the status-artifact upgrader and
+its regression fixture from legacy-token scanning. Those two tooling files
+must spell the retired generated-block identity in order to recognize and test
+historical inputs; the exception does not admit that identity on a product,
+package, command, cache, host or publication surface. The upgrader regression
+suite remains the authority for that narrow read-only migration boundary.
+
 The public project is Lila and the legacy JavaScript implementation is gone.
 The coordinated clean-break rename has moved all workspace crates, Rust
 imports, the `lila` executable, environment/config/cache names, diagnostics,

@@ -1,13 +1,22 @@
 mod array_literal;
+mod async_disposable;
 mod builtin_shapes;
 mod dynamic_source;
+mod object_environment_logical;
+mod ordinary_property_compound;
+mod ordinary_property_update;
 mod proxy_traps;
+mod super_property_mutation;
+mod with_environment_call;
+mod with_environment_compound;
 
 use super::*;
+use async_disposable::{LoweredForOfHeadKind, LoweredStatementListItemIr};
 use dynamic_source::{
     already_accounted_optional_calls, resolved_builtin_call_context, BuiltinCallContext,
     OptionalCallSource, ResolvedDynamicSourceCall,
 };
+use object_environment_logical::LogicalAssignmentReachability;
 use proxy_traps::{ProxyTrap, ProxyTrapSignature};
 
 /// Reference Records (6.2.5). `Strictness` and `carried_strictness` arrive
@@ -18,9 +27,11 @@ use proxy_traps::{ProxyTrap, ProxyTrapSignature};
 use crate::ir::reference::{
     reference_base_of_lowered_read, CapturedBindingPosition, CapturedCursorDepth,
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
-    DeleteSuperReferencePlan, OrderedWithEnvironmentChain, PositionedWithEnvironment,
+    DeleteSuperReferencePlan, EagerCompoundAssignmentBindings, EagerCompoundAssignmentOp,
+    GlobalObjectEnvironmentReferencePlan, NumericUpdateBindings, ObjectEnvironmentBindingObject,
+    OrderedWithEnvironmentChain, OrdinaryPropertyReferencePlan, PositionedWithEnvironment,
     ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord,
-    SelectedWithEnvironmentObjects, WithEnvironmentBindingObject, WithEnvironmentReferencePlan,
+    SelectedWithEnvironmentObjects, SuperPropertyReferencePlan, WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +93,52 @@ enum ToPrimitiveLookupKey {
     Method(&'static str),
 }
 
+/// Builtin methods whose inferred target proves the acquired function's
+/// identity, but does not prove that the property base has the receiver brand
+/// required by that function.
+///
+/// This is deliberately the complete Boolean/Number/BigInt/String
+/// primitive-brand family, not a list of destination property names.
+/// Possessing one of these values is the proof that lowering must retain the
+/// acquired callee and `this` base as separate operands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonGenericBuiltinMethod {
+    BooleanToString,
+    BooleanValueOf,
+    NumberToExponential,
+    NumberToFixed,
+    NumberToLocaleString,
+    NumberToPrecision,
+    NumberToString,
+    NumberValueOf,
+    BigIntToString,
+    BigIntToLocaleString,
+    BigIntValueOf,
+    StringToString,
+    StringValueOf,
+}
+
+impl NonGenericBuiltinMethod {
+    fn from_function_id(function_id: &str) -> Option<Self> {
+        match StandardBuiltinId::from_function_id(function_id)? {
+            StandardBuiltinId::BooleanPrototypeToString => Some(Self::BooleanToString),
+            StandardBuiltinId::BooleanPrototypeValueOf => Some(Self::BooleanValueOf),
+            StandardBuiltinId::NumberPrototypeToExponential => Some(Self::NumberToExponential),
+            StandardBuiltinId::NumberPrototypeToFixed => Some(Self::NumberToFixed),
+            StandardBuiltinId::NumberPrototypeToLocaleString => Some(Self::NumberToLocaleString),
+            StandardBuiltinId::NumberPrototypeToPrecision => Some(Self::NumberToPrecision),
+            StandardBuiltinId::NumberPrototypeToString => Some(Self::NumberToString),
+            StandardBuiltinId::NumberPrototypeValueOf => Some(Self::NumberValueOf),
+            StandardBuiltinId::BigIntPrototypeToString => Some(Self::BigIntToString),
+            StandardBuiltinId::BigIntPrototypeToLocaleString => Some(Self::BigIntToLocaleString),
+            StandardBuiltinId::BigIntPrototypeValueOf => Some(Self::BigIntValueOf),
+            StandardBuiltinId::StringPrototypeToString => Some(Self::StringToString),
+            StandardBuiltinId::StringPrototypeValueOf => Some(Self::StringValueOf),
+            _ => None,
+        }
+    }
+}
+
 /// The operator a compound or logical assignment applies to a property
 /// Reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +146,25 @@ enum PropertyUpdateOp {
     Arithmetic(ArithmeticOp),
     Bitwise(BitwiseOp),
     Logical(LogicalBinaryOp),
+}
+
+/// The two lowering outcomes for a computed property key on a String exotic.
+///
+/// `CanonicalIndex` is available only after static proof. Every other key is
+/// preserved for the ordinary `ToPropertyKey` path; failure to prove an index
+/// is not a reason to reject the program.
+enum StringExoticComputedKey {
+    CanonicalIndex(Box<TypedExpr>),
+    OrdinaryPropertyKey(PropertyKeyIr),
+}
+
+impl StringExoticComputedKey {
+    fn into_property_key(self) -> PropertyKeyIr {
+        match self {
+            Self::CanonicalIndex(index) => PropertyKeyIr::ArrayIndex(index),
+            Self::OrdinaryPropertyKey(key) => key,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +187,24 @@ enum LocatedIdentifierReference {
         position: DeclarativeEnvironmentPosition,
     },
     Unresolvable,
+}
+
+/// Whether an identifier operation is definitely reached or is the fallback
+/// of a run-time Object Environment Record selection. The latter invalidates
+/// prior static binding shape because observable HasBinding may mutate it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdentifierUpdateReachability {
+    Definite,
+    WithEnvironmentFallback,
+}
+
+fn unknown_runtime_value_info() -> ValueInfo {
+    ValueInfo {
+        kind: ValueKind::Dynamic,
+        possible_kinds: KindSet::all_runtime_tags(),
+        heap_shape: None,
+        function_targets: BTreeSet::new(),
+    }
 }
 
 impl LocatedIdentifierReference {
@@ -146,7 +240,7 @@ fn captured_environment_positions(
             .get(&current.environment_id)
             .expect("definition cursor must name a planned environment");
         let cursor_depth = CapturedCursorDepth::at(depth);
-        for (storage_name, capture) in function
+        for (storage_name, _) in function
             .captures
             .iter()
             .filter(|(_, capture)| capture.environment_id == environment.id)
@@ -563,40 +657,6 @@ type ExactHelperContextId = String;
 type ExactCallbackContextKey = (FunctionId, ExactHelperContextId);
 type DirectCallContextKey = (FunctionId, ExactHelperContextId);
 
-/// One entry of a scope's DisposeCapability `[[DisposableResourceStack]]`.
-///
-/// `value_name` holds the resource (spec `[[ResourceValue]]`) and
-/// `method_name` its `[[Symbol.dispose]]` method (spec `[[DisposeMethod]]`).
-/// `method_name` staying `undefined` marks the entry as never registered —
-/// either the declaration was not reached before an abrupt completion, or the
-/// resource was null/undefined and ECMA-262 27.3.1.1 step 1.a adds nothing.
-#[derive(Clone)]
-struct UsingSlot {
-    value_name: String,
-    method_name: String,
-    /// `true` for an `await using` declarator (spec hint `async-dispose`): the
-    /// disposal call result is awaited, and the dispose method is looked up as
-    /// `@@asyncDispose` with an `@@dispose` fallback.
-    is_async: bool,
-    /// Temporary holding the disposal call result of an `await using` entry so
-    /// the `Await` can stay a top-level statement of the finally block.
-    result_name: Option<String>,
-}
-
-/// The DisposeCapability of one statement list being lowered.
-///
-/// Slots are pre-allocated from a scan of the list so the temporaries can be
-/// declared ahead of the guarded region; `next` walks them in declaration
-/// order as `using` declarations are lowered.
-struct UsingFrame {
-    slots: Vec<UsingSlot>,
-    next: usize,
-    /// Resume state the guarded region starts at, when the enclosing body is a
-    /// linear async function. Used to build the `AsyncTryPlanIr` of the
-    /// `try`/`finally` that [`ScriptLowerer::finish_using_frame`] emits.
-    async_entry_state: Option<u32>,
-}
-
 pub(crate) struct ScriptLowerer<'a> {
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
@@ -674,15 +734,6 @@ pub(crate) struct ScriptLowerer<'a> {
     generated_owned_env_bindings: Vec<OwnedEnvBindingIr>,
     next_generated_function_index: usize,
     next_temp_binding_index: usize,
-    /// Dispose capabilities of the statement lists currently being lowered.
-    ///
-    /// ECMA-262 explicit resource management gives every Block-like scope a
-    /// DisposeCapability; a `using` declaration in that scope registers its
-    /// resource on the innermost one and the scope disposes them in reverse on
-    /// any completion. Frames are pushed by the statement-list lowering entry
-    /// points, so `lower_using_declaration` always registers against the scope
-    /// that syntactically contains it.
-    using_frames: Vec<UsingFrame>,
     is_prepass: bool,
     active_direct_call_propagations: BTreeSet<FunctionId>,
     completed_direct_call_propagations: BTreeSet<DirectCallContextKey>,
@@ -711,7 +762,7 @@ impl<'a> ScriptLowerer<'a> {
                     .get(binding_name.as_str())
                     .expect("surrounding WithObject environment must be captured");
                 PositionedWithEnvironment::captured(
-                    WithEnvironmentBindingObject::materialized(
+                    ObjectEnvironmentBindingObject::materialized(
                         &binding_name,
                         self.capture_value_info(
                             capture.owner_id.as_str(),
@@ -1186,7 +1237,6 @@ impl<'a> ScriptLowerer<'a> {
             generated_owned_env_bindings: Vec::new(),
             next_generated_function_index: 0,
             next_temp_binding_index: 0,
-            using_frames: Vec::new(),
             is_prepass: false,
             active_direct_call_propagations: BTreeSet::new(),
             completed_direct_call_propagations: BTreeSet::new(),
@@ -2711,14 +2761,18 @@ impl<'a> ScriptLowerer<'a> {
         scope: LexicalScopeInstantiation,
     ) -> BlockIr {
         let mut scope = scope;
-        let mut statements = Vec::new();
-        let mut result_kind = ValueKind::Undefined;
+        let mut lowered_items = Vec::new();
 
         self.prepare_annex_b_function_bindings();
         self.prepare_static_generator_declarations(items);
         self.prepare_root_function_binding_ids(root_functions);
-        statements.extend(self.root_function_init_statements(root_functions));
-        self.push_using_frame(items);
+        lowered_items.extend(
+            self.root_function_init_statements(root_functions)
+                .into_iter()
+                .map(|statement| {
+                    LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
+                }),
+        );
 
         for item in items {
             match item {
@@ -2739,9 +2793,7 @@ impl<'a> ScriptLowerer<'a> {
                 StatementListItem::Declaration(declaration)
                     if self.is_static_generator_declaration(declaration) => {}
                 _ => {
-                    let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
-                    statements.push(statement);
-                    result_kind = kind;
+                    lowered_items.push(self.lower_statement_list_item(item, &mut scope));
                 }
             }
         }
@@ -2752,11 +2804,7 @@ impl<'a> ScriptLowerer<'a> {
         // what decides that.
         scope.finish(self);
 
-        self.finish_using_frame(BlockIr {
-            statements,
-            result_kind,
-            lexical_environment: None,
-        })
+        self.finish_disposable_scopes(lowered_items)
     }
 
     /// Lowers one statement list against the BlockDeclarationInstantiation that
@@ -2770,17 +2818,24 @@ impl<'a> ScriptLowerer<'a> {
         scope: LexicalScopeInstantiation,
     ) -> BlockIr {
         let mut scope = scope;
-        let mut statements = Vec::new();
-        let mut result_kind = ValueKind::Undefined;
+        let mut lowered_items = Vec::new();
 
-        statements.extend(self.lower_block_function_declarations(items));
-        self.push_using_frame(items);
+        lowered_items.extend(
+            self.lower_block_function_declarations(items)
+                .into_iter()
+                .map(|statement| {
+                    LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
+                }),
+        );
 
         for item in items {
             if let StatementListItem::Declaration(declaration) = item {
                 if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
                     if let Some(copy) = self.lower_annex_b_function_copy(function) {
-                        statements.push(copy);
+                        lowered_items.push(LoweredStatementListItemIr::statement(
+                            copy,
+                            ValueKind::Undefined,
+                        ));
                     }
                     continue;
                 }
@@ -2796,9 +2851,7 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
-            statements.push(statement);
-            result_kind = kind;
+            lowered_items.push(self.lower_statement_list_item(item, &mut scope));
         }
 
         // 14.3.1.2's `env` ends with the statement list. The token pushed it and
@@ -2807,308 +2860,20 @@ impl<'a> ScriptLowerer<'a> {
         // to push before constructing.
         scope.finish(self);
 
-        self.finish_using_frame(BlockIr {
-            statements,
-            result_kind,
-            lexical_environment: None,
-        })
+        self.finish_disposable_scopes(lowered_items)
     }
 
-    /// The resources a statement list can register on its DisposeCapability:
-    /// one per `using` or `await using` declarator directly in the list. `true`
-    /// marks an `await using` declarator, whose disposal is awaited (spec hint
-    /// `async-dispose`).
-    fn using_declarator_hints(items: &[StatementListItem]) -> Vec<bool> {
-        items
-            .iter()
-            .flat_map(|item| match item {
-                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
-                    Declaration::Lexical(LexicalDeclaration::Using(list)) => {
-                        vec![false; list.as_ref().len()]
-                    }
-                    Declaration::Lexical(LexicalDeclaration::AwaitUsing(list)) => {
-                        vec![true; list.as_ref().len()]
-                    }
-                    _ => Vec::new(),
-                },
-                StatementListItem::Statement(_) => Vec::new(),
-            })
-            .collect()
-    }
-
-    /// Opens the DisposeCapability of a statement list (ECMA-262 14.2.2
-    /// step 1: `NewDeclarativeEnvironment` + `NewDisposeCapability`).
-    ///
-    /// The resource stack has a statically known depth, so the temporaries per
-    /// entry are allocated and declared here, ahead of the guarded region, and
-    /// left `undefined` until the matching declaration runs.
-    fn push_using_frame(&mut self, items: &[StatementListItem]) {
-        let mut hints = Self::using_declarator_hints(items);
-        // A generator body (or an async generator, which is compiled from a
-        // pre-planned resumable state machine) does not thread the emitted
-        // `try`/`finally` through its resume dispatch, so the finalizer would
-        // simply never run on the resume path that completes the body. Report
-        // that instead of silently dropping the disposal. A *linear* async body
-        // is fine: `finish_using_frame` builds the matching `AsyncTryPlanIr`.
-        if !hints.is_empty()
-            && (self.current_generator_resume_state.is_some()
-                || self.current_resumable_plan.is_some())
-        {
-            self.unsupported("using declaration in a generator or resumable async body");
-            hints.clear();
-        }
-        // A linear async body numbers its resume states once, statically, so a
-        // `try`/`finally` whose plan sits inside a loop would replay the same
-        // states on every iteration. Plain `try`/`finally` in an async loop has
-        // the same limitation; refuse rather than emit a body that runs one
-        // iteration and then traps.
-        if !hints.is_empty() && self.current_async_resume_state.is_some() && self.loop_depth > 0 {
-            self.unsupported("using declaration in an async loop body");
-            hints.clear();
-        }
-        // `await using` needs a suspension point per entry, which only a linear
-        // async body provides.
-        if hints.iter().any(|is_async| *is_async) && self.current_async_resume_state.is_none() {
-            self.unsupported("await using declaration outside an async body");
-            hints.clear();
-        }
-        let async_entry_state = (!hints.is_empty())
-            .then_some(self.current_async_resume_state)
-            .flatten();
-        let mut slots = Vec::with_capacity(hints.len());
-        for is_async in hints {
-            // Inside an async body the guarded region can suspend between the
-            // declaration and the finalizer, and plain locals do not survive a
-            // suspension — the activation is re-entered with fresh locals. The
-            // resource and its dispose method therefore have to live in the
-            // suspension-owned environment.
-            let dynamic_info = ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            };
-            let alloc = |lowerer: &mut Self, hint: &str| {
-                if async_entry_state.is_some() {
-                    lowerer.alloc_suspension_owned_binding(hint, dynamic_info.clone())
-                } else {
-                    let name = lowerer.alloc_temp_binding_name(hint);
-                    lowerer.declare_binding(
-                        name.clone(),
-                        BindingInfo {
-                            mode: BindingMode::Let,
-                            storage_name: name.clone(),
-                            kind: dynamic_info.kind,
-                            possible_kinds: dynamic_info.possible_kinds,
-                            heap_shape: None,
-                            function_targets: BTreeSet::new(),
-                            initialization: Initialization::Initialized,
-                        },
-                    );
-                    name
-                }
-            };
-            let value_name = alloc(self, "using.value.");
-            let method_name = alloc(self, "using.method.");
-            let result_name = is_async.then(|| alloc(self, "using.dispose.result."));
-            slots.push(UsingSlot {
-                value_name,
-                method_name,
-                is_async,
-                result_name,
-            });
-        }
-        self.using_frames.push(UsingFrame {
-            slots,
-            next: 0,
-            async_entry_state,
-        });
-    }
-
-    /// Closes the DisposeCapability opened by [`Self::push_using_frame`].
-    ///
-    /// A list that registered nothing is returned unchanged. Otherwise the
-    /// lowered list becomes the try block of a `try`/`finally` whose finally
-    /// runs `DisposeResources` (ECMA-262 27.3.1.2) — every registered entry, in
-    /// reverse registration order — so it also covers the abrupt completions
-    /// (`throw`, `return`, `break`, `continue`) that leave the scope early.
-    fn finish_using_frame(&mut self, block: BlockIr) -> BlockIr {
-        let frame = self
-            .using_frames
-            .pop()
-            .expect("using frame stack must match statement list lowering");
-        if frame.slots.is_empty() {
-            return block;
-        }
-        let mut statements = Vec::with_capacity(frame.slots.len() * 3 + 1);
-        for slot in &frame.slots {
-            for name in [&slot.value_name, &slot.method_name]
-                .into_iter()
-                .chain(slot.result_name.as_ref())
-            {
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: name.clone(),
-                    init: TypedExpr::undefined(),
-                });
+    fn statement_list_ends_in_return(statements: &[StatementIr]) -> bool {
+        match statements.last() {
+            Some(StatementIr::Return(_)) => true,
+            Some(StatementIr::SyncDisposableScope { body, .. }) => {
+                Self::statement_list_ends_in_return(&body.statements)
             }
-        }
-        // Mirror `lower_try`'s resume-state accounting: the guarded region is
-        // the try block (already lowered, so the state counter has advanced
-        // over its awaits), then one state for the try exit, then the finally
-        // block's own awaits, then one state for the whole statement's exit.
-        let async_try_exit_state = frame.async_entry_state.map(|_| {
-            if let Some(state) = self.current_async_resume_state.as_mut() {
-                *state += 1;
+            Some(StatementIr::AsyncDisposableScope { body, .. }) => {
+                Self::statement_list_ends_in_return(&body.statements)
             }
-            self.current_async_resume_state.unwrap_or_default()
-        });
-        let mut finally_statements = Vec::with_capacity(frame.slots.len() * 3);
-        for slot in frame.slots.iter().rev() {
-            self.append_using_dispose_statements(slot, &mut finally_statements);
+            _ => false,
         }
-        let async_plan = frame.async_entry_state.map(|entry_state| {
-            let finally_entry_state = async_try_exit_state.unwrap_or(entry_state);
-            if let Some(state) = self.current_async_resume_state.as_mut() {
-                *state += 1;
-            }
-            let exit_state = self.current_async_resume_state.unwrap_or(entry_state);
-            AsyncTryPlanIr {
-                entry_state,
-                try_exit_state: async_try_exit_state.unwrap_or(entry_state),
-                catch_entry_state: None,
-                catch_exit_state: None,
-                finally_entry_state: Some(finally_entry_state),
-                finally_exit_state: Some(exit_state),
-                exit_state,
-            }
-        });
-        let result_kind = block.result_kind;
-        statements.push(StatementIr::TryFinally {
-            try_block: block,
-            finally_block: BlockIr {
-                statements: finally_statements,
-                result_kind: ValueKind::Undefined,
-                lexical_environment: None,
-            },
-            generator_plan: None,
-            async_plan,
-        });
-        BlockIr {
-            statements,
-            result_kind,
-            lexical_environment: None,
-        }
-    }
-
-    /// One `DisposeResources` step: `Call(method, resource)` for an entry that
-    /// was actually registered.
-    ///
-    /// An entry whose method is still `undefined` was either never reached or
-    /// held a null/undefined resource, which ECMA-262 27.3.1.1 step 1.a never
-    /// adds to the stack.
-    fn append_using_dispose_statements(
-        &mut self,
-        slot: &UsingSlot,
-        statements: &mut Vec<StatementIr>,
-    ) {
-        let method = self.lower_identifier_name(slot.method_name.clone(), false);
-        let value = self.lower_identifier_name(slot.value_name.clone(), false);
-        let condition = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::StrictEquality {
-                op: EqualityBinaryOp::StrictNotEqual,
-                lhs: Box::new(method.clone()),
-                rhs: Box::new(TypedExpr::undefined()),
-            },
-        );
-        let call = TypedExpr::spec_call(method, value, Vec::new());
-        let Some(result_name) = slot.result_name.clone() else {
-            statements.push(StatementIr::If {
-                condition,
-                then_branch: Box::new(StatementIr::Expression(call)),
-                else_branch: None,
-            });
-            return;
-        };
-        // `await using`: `Await(Call(method, resource))` (ECMA-262 27.3.1.2
-        // step 3.a.ii for an `async-dispose` entry). The call result is parked
-        // in a temporary so the `Await` stays a top-level statement of the
-        // finally block — the async resume dispatch only reaches suspension
-        // points at statement-list level.
-        statements.push(StatementIr::If {
-            condition,
-            then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                call.value_info(),
-                ExprIr::AssignIdentifier {
-                    name: result_name.clone(),
-                    value: Box::new(call),
-                },
-            ))),
-            else_branch: None,
-        });
-        let awaited = self.lower_identifier_name(result_name, false);
-        let (await_statement, _) =
-            self.lower_linear_async_await_value(awaited, AsyncResumeModeIr::Ignore);
-        statements.push(await_statement);
-    }
-
-    /// The next free DisposeCapability entry of the innermost open frame.
-    fn take_using_slot(&mut self) -> Option<UsingSlot> {
-        let frame = self.using_frames.last_mut()?;
-        let slot = frame.slots.get(frame.next)?.clone();
-        frame.next += 1;
-        Some(slot)
-    }
-
-    /// `%Symbol%.dispose`, the well-known `@@dispose` symbol used as the
-    /// dispose-method key.
-    ///
-    /// Read off the global `Symbol` object rather than a scope lookup so a
-    /// local binding named `Symbol` cannot redirect it.
-    fn symbol_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value(WellKnownSymbol::Dispose)
-    }
-
-    /// `%Symbol%.asyncDispose`, the `@@asyncDispose` key an `await using`
-    /// declaration looks up first (ECMA-262 27.3.1.4 `GetDisposeMethod` with
-    /// hint `async-dispose`).
-    fn symbol_async_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value(WellKnownSymbol::AsyncDispose)
-    }
-
-    /// Reads `%Symbol%.<member>` for a well-known symbol.
-    ///
-    /// Takes the symbol, not its member name. The member name is load-bearing
-    /// twice here — it is the shape lookup key *and* the emitted
-    /// `PropertyKeyIr::StaticString` — and this used to be a `&str` parameter
-    /// called with the literals `"dispose"` and `"asyncDispose"`. Misspelling
-    /// one compiled, emitted a read of a property that does not exist, resolved
-    /// to `undefined`, and made `await using` silently never dispose. The shape
-    /// half of that was masked (the modelled `Symbol` constructor shape carries
-    /// only `prototype`, `for` and `keyFor`, so the lookup always missed and
-    /// fell back to `ValueKind::Symbol`); the emitted-key half was not.
-    fn symbol_well_known_value(&mut self, symbol: WellKnownSymbol) -> TypedExpr {
-        let property = symbol.member_name();
-        let symbol_info = self
-            .lookup_global_property(SYMBOL_NAME)
-            .unwrap_or_else(|| ValueInfo::new(ValueKind::Object));
-        let symbol_global = TypedExpr::from_info(
-            symbol_info,
-            ExprIr::GlobalPropertyRead {
-                name: SYMBOL_NAME.to_string(),
-            },
-        );
-        let info = self
-            .read_object_shape(&symbol_global, property)
-            .unwrap_or_else(|| ValueInfo::new(ValueKind::Symbol));
-        TypedExpr::from_info(
-            info,
-            ExprIr::PropertyRead {
-                target: Box::new(symbol_global),
-                key: PropertyKeyIr::StaticString(property.to_string()),
-            },
-        )
     }
 
     fn lower_block_function_declarations(
@@ -3139,7 +2904,6 @@ impl<'a> ScriptLowerer<'a> {
     ) -> BlockIr {
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
-        self.push_using_frame(items);
         for item in items {
             if let StatementListItem::Declaration(declaration) = item {
                 if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
@@ -3160,15 +2924,31 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item, scope);
-            statements.push(statement);
-            result_kind = kind;
+            match self.lower_statement_list_item(item, scope) {
+                LoweredStatementListItemIr::Statement {
+                    statement,
+                    result_kind: kind,
+                } => {
+                    statements.push(statement);
+                    result_kind = kind;
+                }
+                LoweredStatementListItemIr::SyncDisposableScope { .. } => {
+                    self.unsupported("using declaration in a switch CaseBlock");
+                    statements.push(StatementIr::Empty);
+                    result_kind = ValueKind::Undefined;
+                }
+                LoweredStatementListItemIr::AsyncDisposableScope(_) => {
+                    self.unsupported("await using declaration in a switch CaseBlock");
+                    statements.push(StatementIr::Empty);
+                    result_kind = ValueKind::Undefined;
+                }
+            }
         }
-        self.finish_using_frame(BlockIr {
+        BlockIr {
             statements,
             result_kind,
             lexical_environment: None,
-        })
+        }
     }
 
     fn prepare_annex_b_function_bindings(&mut self) {
@@ -3288,16 +3068,46 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         item: &StatementListItem,
         scope: &mut LexicalScopeInstantiation,
-    ) -> (StatementIr, ValueKind) {
+    ) -> LoweredStatementListItemIr {
         match item {
-            StatementListItem::Statement(statement) => self.lower_statement(statement),
-            StatementListItem::Declaration(declaration) => {
-                if self.is_static_generator_declaration(declaration.as_ref()) {
-                    (StatementIr::Empty, ValueKind::Undefined)
-                } else {
-                    self.lower_declaration(declaration, scope)
-                }
+            StatementListItem::Statement(statement) => {
+                let (statement, result_kind) = self.lower_statement(statement);
+                LoweredStatementListItemIr::statement(statement, result_kind)
             }
+            StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                Declaration::Lexical(LexicalDeclaration::Using(list)) => self
+                    .lower_using_declaration(list.as_ref(), scope)
+                    .map_or_else(
+                        || {
+                            LoweredStatementListItemIr::statement(
+                                StatementIr::Empty,
+                                ValueKind::Undefined,
+                            )
+                        },
+                        |(execution, resources)| LoweredStatementListItemIr::SyncDisposableScope {
+                            execution,
+                            resources,
+                        },
+                    ),
+                Declaration::Lexical(LexicalDeclaration::AwaitUsing(list)) => self
+                    .lower_await_using_declaration(list.as_ref(), scope)
+                    .map_or_else(
+                        || {
+                            LoweredStatementListItemIr::statement(
+                                StatementIr::Empty,
+                                ValueKind::Undefined,
+                            )
+                        },
+                        LoweredStatementListItemIr::AsyncDisposableScope,
+                    ),
+                _ if self.is_static_generator_declaration(declaration.as_ref()) => {
+                    LoweredStatementListItemIr::statement(StatementIr::Empty, ValueKind::Undefined)
+                }
+                _ => {
+                    let (statement, result_kind) = self.lower_declaration(declaration, scope);
+                    LoweredStatementListItemIr::statement(statement, result_kind)
+                }
+            },
         }
     }
 
@@ -3616,7 +3426,7 @@ impl<'a> ScriptLowerer<'a> {
         if crosses_suspension {
             self.add_suspension_owned_binding(object_name.clone());
         }
-        let with_object = WithEnvironmentBindingObject::materialized(&binding_name, object_info);
+        let with_object = ObjectEnvironmentBindingObject::materialized(&binding_name, object_info);
         self.with_environment_chain.enter_current(
             with_object,
             CurrentScopeDepth::at_with_entry(self.scopes.len()),
@@ -5325,6 +5135,40 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
+            StatementIr::SyncDisposableScope {
+                resources, body, ..
+            } => {
+                let mut info = Some(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                });
+                for resource in resources.iter() {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_expr_throw_info(&resource.initializer),
+                    );
+                }
+                self.merge_optional_value_info(info, self.infer_block_throw_info(body))
+            }
+            StatementIr::AsyncDisposableScope {
+                resources, body, ..
+            } => {
+                let mut info = Some(ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                });
+                for resource in resources.iter() {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_expr_throw_info(resource.initializer()),
+                    );
+                }
+                self.merge_optional_value_info(info, self.infer_block_throw_info(body))
+            }
             StatementIr::If {
                 condition,
                 then_branch,
@@ -5390,6 +5234,22 @@ impl<'a> ScriptLowerer<'a> {
                             )
                         })
                     }
+                    ForInitIr::SyncDisposable(resources) => {
+                        resources.iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(&resource.initializer),
+                            )
+                        })
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        init.resources().iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(resource.initializer()),
+                            )
+                        })
+                    }
                 });
                 info = self.merge_optional_value_info(
                     info,
@@ -5439,6 +5299,22 @@ impl<'a> ScriptLowerer<'a> {
                             self.merge_optional_value_info(
                                 info,
                                 self.infer_statement_throw_info(statement),
+                            )
+                        })
+                    }
+                    ForInitIr::SyncDisposable(resources) => {
+                        resources.iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(&resource.initializer),
+                            )
+                        })
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        init.resources().iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(resource.initializer()),
                             )
                         })
                     }
@@ -5631,8 +5507,22 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::UpdateIdentifier { .. }
             | ExprIr::GlobalPropertyUpdate { .. }
             | ExprIr::NewTarget
-            | ExprIr::TypeOfUnresolvedIdentifier { .. }
-            | ExprIr::SuperPropertyRead { .. } => None,
+            | ExprIr::TypeOfUnresolvedIdentifier { .. } => None,
+            ExprIr::SuperPropertyRead { receiver, .. } => self.infer_expr_throw_info(receiver),
+            ExprIr::SuperPropertyMutation(mutation) => {
+                let mut info = self.infer_expr_throw_info(mutation.receiver());
+                if let PropertyKeyIr::StringExpr(key) | PropertyKeyIr::ArrayIndex(key) =
+                    mutation.referenced_name()
+                {
+                    info = self.merge_optional_value_info(info, self.infer_expr_throw_info(key));
+                }
+                match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => info,
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        self.merge_optional_value_info(info, self.infer_expr_throw_info(result))
+                    }
+                }
+            }
             ExprIr::GlobalIdentifierRead { .. } => Some(Self::standard_error_instance_info(
                 StandardBuiltinId::ReferenceErrorConstructor,
             )),
@@ -5655,16 +5545,7 @@ impl<'a> ScriptLowerer<'a> {
                         ObjectPropertyIr::PrototypeSetter { value }
                         | ObjectPropertyIr::Spread { source: value }
                         | ObjectPropertyIr::Data { value, .. }
-                        | ObjectPropertyIr::NonEnumerableData { value, .. }
-                        | ObjectPropertyIr::Getter {
-                            function: value, ..
-                        }
-                        | ObjectPropertyIr::Setter {
-                            function: value, ..
-                        }
-                        | ObjectPropertyIr::Method {
-                            function: value, ..
-                        } => {
+                        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(value));
                         }
@@ -5674,16 +5555,15 @@ impl<'a> ScriptLowerer<'a> {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(value));
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function }
-                        | ObjectPropertyIr::ComputedGetter { key, function }
-                        | ObjectPropertyIr::ComputedSetter { key, function } => {
+                        ObjectPropertyIr::ComputedMethod { key, .. }
+                        | ObjectPropertyIr::ComputedGetter { key, .. }
+                        | ObjectPropertyIr::ComputedSetter { key, .. } => {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(key));
-                            info = self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(function),
-                            );
                         }
+                        ObjectPropertyIr::Method { .. }
+                        | ObjectPropertyIr::Getter { .. }
+                        | ObjectPropertyIr::Setter { .. } => {}
                     }
                 }
                 info
@@ -5732,8 +5612,13 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::LogicalNot { expr: value }
             | ExprIr::UnaryNumber { expr: value, .. }
             | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
-            | ExprIr::StringFromCharCode { code: value }
-            | ExprIr::SuperPropertyWrite { value, .. } => self.infer_expr_throw_info(value),
+            | ExprIr::StringFromCharCode { code: value } => self.infer_expr_throw_info(value),
+            ExprIr::SuperPropertyWrite {
+                receiver, value, ..
+            } => self.merge_optional_value_info(
+                self.infer_expr_throw_info(receiver),
+                self.infer_expr_throw_info(value),
+            ),
             ExprIr::StringCharCodeAt { target, index } => self.merge_optional_value_info(
                 self.infer_expr_throw_info(target),
                 self.infer_expr_throw_info(index),
@@ -5823,17 +5708,20 @@ impl<'a> ScriptLowerer<'a> {
                 info = self.merge_optional_value_info(info, self.infer_expr_throw_info(value));
                 info
             }
-            ExprIr::PropertyUpdate { target, key, .. } => self.merge_optional_value_info(
-                self.infer_expr_throw_info(target),
-                self.infer_property_key_throw_info(key),
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => self.merge_optional_value_info(
+                self.infer_expr_throw_info(update.base_and_receiver()),
+                self.infer_property_key_throw_info(update.referenced_name()),
             ),
-            ExprIr::PropertyCompoundAssign {
-                target, key, value, ..
-            } => {
-                let mut info = self.infer_expr_throw_info(target);
-                info =
-                    self.merge_optional_value_info(info, self.infer_property_key_throw_info(key));
-                self.merge_optional_value_info(info, self.infer_expr_throw_info(value))
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
+                let mut info = self.infer_expr_throw_info(assignment.base_and_receiver());
+                info = self.merge_optional_value_info(
+                    info,
+                    self.infer_property_key_throw_info(assignment.referenced_name()),
+                );
+                self.merge_optional_value_info(
+                    info,
+                    self.infer_expr_throw_info(assignment.result()),
+                )
             }
             ExprIr::BinaryNumber { lhs, rhs, .. }
             | ExprIr::CoerciveAdd { lhs, rhs }
@@ -6226,6 +6114,7 @@ impl<'a> ScriptLowerer<'a> {
                         init: None,
                         test: Some(condition),
                         update: None,
+                        iteration_environment: ResumableLoopIterationEnvironmentIr::StorageOnly,
                         before_suspension,
                         suspension_statement: Box::new(suspension_statement),
                         after_suspension,
@@ -6274,10 +6163,19 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_for_loop(&mut self, for_loop: &ForLoop) -> (StatementIr, ValueKind) {
+        let async_disposable_head = Self::async_disposable_for_head(for_loop);
+        if async_disposable_head.is_some() {
+            let loop_has_suspension = Self::async_disposable_for_has_source_suspension(for_loop);
+            if loop_has_suspension {
+                self.unsupported("suspension inside an await using classic-for loop");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            }
+        }
         let generator_entry_state = self.current_generator_resume_state;
-        let loop_head_has_await = for_loop
-            .init()
-            .is_some_and(|init| contains(init, ContainsSymbol::AwaitExpression))
+        let loop_head_has_await = async_disposable_head.is_none()
+            && for_loop
+                .init()
+                .is_some_and(|init| contains(init, ContainsSymbol::AwaitExpression))
             || for_loop
                 .condition()
                 .is_some_and(|condition| contains(condition, ContainsSymbol::AwaitExpression))
@@ -6312,18 +6210,11 @@ impl<'a> ScriptLowerer<'a> {
         self.push_scope();
         if let Some(ForLoopInitializer::Lexical(lexical)) = for_loop.init() {
             let declaration = lexical.declaration();
-            let list = match declaration {
-                LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-                LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                    self.unsupported("using declaration");
-                    self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
-                }
-            };
-            let mode = match declaration {
-                LexicalDeclaration::Let(_) => BindingMode::Let,
-                LexicalDeclaration::Const(_) => BindingMode::Const,
-                LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => unreachable!(),
+            let (mode, list) = match declaration {
+                LexicalDeclaration::Let(list) => (BindingMode::Let, list),
+                LexicalDeclaration::Const(list)
+                | LexicalDeclaration::Using(list)
+                | LexicalDeclaration::AwaitUsing(list) => (BindingMode::Const, list),
             };
             for variable in list.as_ref() {
                 if let Some(bound_names) = supported_bound_names(self.interner, variable.binding())
@@ -6340,7 +6231,17 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
-        let init = for_loop.init().and_then(|init| self.lower_for_init(init));
+        let mut pending_async_disposable_init = None;
+        let mut init = if let Some(list) = async_disposable_head {
+            pending_async_disposable_init = self.lower_async_disposable_for_init(list);
+            if pending_async_disposable_init.is_none() {
+                self.pop_scope();
+                return (StatementIr::Empty, ValueKind::Undefined);
+            }
+            None
+        } else {
+            for_loop.init().and_then(|init| self.lower_for_init(init))
+        };
         let lexical_environment = self.lower_for_lexical_environment(for_loop, init.as_ref());
         if resumable_await_loop {
             if lexical_environment.is_some() {
@@ -6367,6 +6268,14 @@ impl<'a> ScriptLowerer<'a> {
                     self.pop_scope();
                     return (StatementIr::Empty, ValueKind::Undefined);
                 }
+                Some(ForInitIr::SyncDisposable(_)) => {
+                    self.unsupported("resumable async loop with a synchronous using head");
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
+                }
+                Some(ForInitIr::AsyncDisposable(_)) => {
+                    unreachable!("pending async-disposable init is finalized after loop lowering")
+                }
                 Some(ForInitIr::Var(_)) | Some(ForInitIr::Expression(_)) | None => {}
             }
         }
@@ -6377,6 +6286,11 @@ impl<'a> ScriptLowerer<'a> {
             .final_expr()
             .map(|expr| self.lower_expression(expr));
         let (body, body_kind) = self.lower_loop_body(for_loop.body());
+        if let Some(pending) = pending_async_disposable_init {
+            init = Some(ForInitIr::AsyncDisposable(
+                self.finish_async_disposable_for_init(pending),
+            ));
+        }
         self.pop_scope();
         let after_body_vars = self.var_bindings.clone();
         let after_body_globals = self.global_properties.clone();
@@ -6420,6 +6334,7 @@ impl<'a> ScriptLowerer<'a> {
                             init,
                             test,
                             update,
+                            iteration_environment: ResumableLoopIterationEnvironmentIr::StorageOnly,
                             before_suspension,
                             suspension_statement: Box::new(suspension_statement),
                             after_suspension,
@@ -6546,22 +6461,24 @@ impl<'a> ScriptLowerer<'a> {
         entry_state: Option<u32>,
         head_environment: Option<ForInOfEnvironmentIr>,
     ) -> ForOfLoweringIr {
-        // Four premises, five messages — [`AsyncForOfArrayWalkForm`] carries
-        // four of the five, one per rejecting variant, and the entry state is
-        // the fifth. They used to be one `&&`/`||` chain behind one string —
+        // Four premises and one entry-state safety net used to be one `&&`/`||`
+        // chain behind one string —
         // "requires an array iterable and a plain binding" — which was reported
         // for `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`, whose
         // head is `for (const v of [array literal])`, i.e. a case where both
         // named premises hold. A rejection reason that names the wrong premise
         // is worse than none: it routes triage away from the defect.
         //
-        // The order the messages depend on (typing, then binding shape, then
-        // captured environment) lives inside `classify` rather than here, so a
-        // second call site cannot get it wrong. See the type's doc.
-        if let Some(message) = head_form.rejection() {
-            self.unsupported(message);
-            return ForOfLoweringIr::no_iteration();
-        }
+        // Classification order (typing, then binding shape, then captured
+        // environment) lives inside `classify` rather than here, so a second
+        // call site cannot get it wrong. See the type's doc.
+        let iteration_environment = match head_form.into_plan() {
+            Ok(plan) => plan,
+            Err(message) => {
+                self.unsupported(message);
+                return ForOfLoweringIr::no_iteration();
+            }
+        };
         // A SAFETY NET, not a fifth diagnostic family — do not count it among
         // the messages this split delivers, and do not expect it in a sweep
         // family map. Reaching it requires `plain_async_entry_state()` to answer
@@ -6680,7 +6597,8 @@ impl<'a> ScriptLowerer<'a> {
             Vec::new()
         } else {
             head_environment
-                .map(|environment| environment.tdz_binding_names)
+                .as_ref()
+                .map(|environment| environment.tdz_binding_names.clone())
                 .unwrap_or_default()
         };
         let mut before = Vec::with_capacity(before_suspension.len() + tdz_names.len() + 1);
@@ -6703,6 +6621,7 @@ impl<'a> ScriptLowerer<'a> {
                 init: Some(init),
                 test: Some(test),
                 update: Some(update),
+                iteration_environment,
                 before_suspension: before,
                 suspension_statement: Box::new(suspension_statement),
                 after_suspension,
@@ -6774,40 +6693,96 @@ impl<'a> ScriptLowerer<'a> {
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
         let mut assignment_pattern_initializer: Option<Pattern> = None;
         let mut access_initializer: Option<PropertyAccess> = None;
-        let (mode, name) = match for_of.initializer() {
+        let (head_kind, mode, name) = match for_of.initializer() {
             IterableLoopInitializer::Identifier(identifier) => (
+                LoweredForOfHeadKind::Assignment,
                 BindingMode::Var,
                 self.interner.resolve_expect(identifier.sym()).to_string(),
             ),
             IterableLoopInitializer::Var(variable) => match variable.binding() {
                 Binding::Identifier(identifier) => (
+                    LoweredForOfHeadKind::Assignment,
                     BindingMode::Var,
                     self.interner.resolve_expect(identifier.sym()).to_string(),
                 ),
                 Binding::Pattern(pattern) => {
                     pattern_initializer = Some((BindingMode::Var, pattern.clone()));
-                    (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                    (
+                        LoweredForOfHeadKind::Assignment,
+                        BindingMode::Let,
+                        self.alloc_temp_binding_name("forof"),
+                    )
                 }
             },
             IterableLoopInitializer::Let(Binding::Identifier(identifier)) => (
+                LoweredForOfHeadKind::Assignment,
                 BindingMode::Let,
                 self.interner.resolve_expect(identifier.sym()).to_string(),
             ),
             IterableLoopInitializer::Const(Binding::Identifier(identifier)) => (
+                LoweredForOfHeadKind::Assignment,
                 BindingMode::Const,
                 self.interner.resolve_expect(identifier.sym()).to_string(),
             ),
             IterableLoopInitializer::Let(Binding::Pattern(pattern)) => {
                 pattern_initializer = Some((BindingMode::Let, pattern.clone()));
-                (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                (
+                    LoweredForOfHeadKind::Assignment,
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forof"),
+                )
             }
             IterableLoopInitializer::Const(Binding::Pattern(pattern)) => {
                 pattern_initializer = Some((BindingMode::Const, pattern.clone()));
-                (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                (
+                    LoweredForOfHeadKind::Assignment,
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forof"),
+                )
+            }
+            IterableLoopInitializer::Using(Binding::Identifier(identifier)) => {
+                if for_of.r#await() {
+                    self.unsupported("using declaration in for-await-of");
+                    return ForOfLoweringIr::no_iteration();
+                }
+                if self.root_this_binding == RootThisBinding::Undefined {
+                    self.unsupported("using declaration in a module");
+                    return ForOfLoweringIr::no_iteration();
+                }
+                if self.current_generator_resume_state.is_some()
+                    || self.current_async_resume_state.is_some()
+                    || self.current_resumable_plan.is_some()
+                {
+                    self.unsupported("using declaration in a generator or async function");
+                    return ForOfLoweringIr::no_iteration();
+                }
+                (
+                    LoweredForOfHeadKind::SyncDisposable,
+                    BindingMode::Const,
+                    self.interner.resolve_expect(identifier.sym()).to_string(),
+                )
+            }
+            IterableLoopInitializer::Using(Binding::Pattern(_)) => {
+                self.unsupported("using declaration binding pattern in for-of");
+                return ForOfLoweringIr::no_iteration();
+            }
+            IterableLoopInitializer::AwaitUsing(binding) => {
+                let Some(name) = self.admit_async_disposable_for_of_head(for_of, binding) else {
+                    return ForOfLoweringIr::no_iteration();
+                };
+                (
+                    LoweredForOfHeadKind::AsyncDisposable,
+                    BindingMode::Const,
+                    name,
+                )
             }
             IterableLoopInitializer::Pattern(pattern) => {
                 assignment_pattern_initializer = Some(pattern.clone());
-                (BindingMode::Let, self.alloc_temp_binding_name("forof"))
+                (
+                    LoweredForOfHeadKind::Assignment,
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forof"),
+                )
             }
             // `for (obj.key of …)` and `for (this.#field of …)` both assign to a
             // reference that the spec re-evaluates on every iteration, so the
@@ -6817,6 +6792,7 @@ impl<'a> ScriptLowerer<'a> {
             ) => {
                 access_initializer = Some(access.clone());
                 (
+                    LoweredForOfHeadKind::Assignment,
                     BindingMode::Let,
                     self.alloc_temp_binding_name("forof.access"),
                 )
@@ -6939,6 +6915,12 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             for_of_loop_binding_storage_name(for_of, &name)
         };
+        let Ok(pending_async_disposable_head) =
+            self.begin_async_disposable_for_of_if_needed(head_kind, &storage_name)
+        else {
+            self.pop_scope();
+            return ForOfLoweringIr::no_iteration();
+        };
         self.declare_binding(
             name.clone(),
             BindingInfo {
@@ -7010,6 +6992,8 @@ impl<'a> ScriptLowerer<'a> {
         };
         let plain_async_entry_state = self.plain_async_entry_state();
         let (mut body, body_kind) = self.lower_loop_body(for_of.body());
+        let async_disposable_head = pending_async_disposable_head
+            .map(|pending| self.finish_async_disposable_for_of_head(pending));
         let async_generator_close_suspension = uses_unified_resumable_plan
             .then(|| self.take_resumable_suspension(ResumableSuspensionKindIr::ForAwaitClose))
             .flatten();
@@ -7060,12 +7044,15 @@ impl<'a> ScriptLowerer<'a> {
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Array))
             && !for_of.r#await()
+            && head_kind == LoweredForOfHeadKind::Assignment
         {
             let protocol = IteratorProtocolWitness::ARRAY_INDEX_WALK;
             (
                 StatementIr::ForOfArray {
-                    mode,
-                    name: storage_name,
+                    head: ForOfAssignmentIr {
+                        mode,
+                        name: storage_name,
+                    },
                     iterable,
                     body: Box::new(body),
                     lexical_environment,
@@ -7077,12 +7064,15 @@ impl<'a> ScriptLowerer<'a> {
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::String))
             && !for_of.r#await()
+            && head_kind == LoweredForOfHeadKind::Assignment
         {
             let protocol = IteratorProtocolWitness::STRING_CODE_POINT_WALK;
             (
                 StatementIr::ForOfString {
-                    mode,
-                    name: storage_name,
+                    head: ForOfAssignmentIr {
+                        mode,
+                        name: storage_name,
+                    },
                     iterable,
                     body: Box::new(body),
                     lexical_environment,
@@ -7096,76 +7086,105 @@ impl<'a> ScriptLowerer<'a> {
             // which does `ToObject` and then looks `@@iterator` up on the wrapper
             // prototype, so a missing or non-callable method throws a TypeError at
             // runtime instead of being refused at compile time.
-            let async_states = if uses_unified_resumable_plan {
-                async_generator_next_suspension
-                    .zip(async_generator_close_suspension)
-                    .map(|(next, close)| {
-                        (
-                            next.suspend_state,
-                            next.resume_state,
-                            close.suspend_state,
-                            close.resume_state,
-                        )
-                    })
-            } else {
-                async_entry_state.map(|entry_state| {
-                    let value_resume_state = entry_state + 1;
-                    let close_resume_state = entry_state + 2;
-                    let exit_state = entry_state + 3;
-                    self.current_async_resume_state = Some(exit_state);
+            match head_kind {
+                LoweredForOfHeadKind::SyncDisposable => {
+                    let protocol = IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL;
                     (
-                        entry_state,
-                        value_resume_state,
-                        close_resume_state,
-                        exit_state,
+                        StatementIr::ForOfIterator {
+                            head: ForOfIteratorHeadIr::SyncDisposable(
+                                SyncDisposableForOfHeadIr::new(storage_name),
+                            ),
+                            iterable,
+                            body: Box::new(body),
+                            lexical_environment,
+                        },
+                        protocol,
                     )
-                })
-            };
-            let async_plan = async_states.map(
-                |(entry_state, value_resume_state, close_resume_state, exit_state)| {
-                    // Allocation order is load-bearing: `alloc_temp_binding_name`
-                    // numbers bindings as it hands them out, so these five calls
-                    // must stay in this sequence for the emitted names to be the
-                    // ones they were before the Iterator Record retrofit.
-                    let iterator = self.alloc_iterator_slot();
-                    let next_method = self.alloc_next_method_slot();
-                    let async_iterator_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.async_iterator.",
-                        ValueInfo::new(ValueKind::Boolean),
-                    );
-                    let done = self.alloc_done_slot();
-                    let close_on_rejection_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.close_on_rejection.",
-                        ValueInfo::new(ValueKind::Boolean),
-                    );
-                    AsyncForOfIteratorPlanIr {
-                        entry_state,
-                        value_resume_state,
-                        close_resume_state,
-                        exit_state,
-                        record: IteratorRecordIr::new(iterator, next_method, done),
-                        async_iterator_binding,
-                        close_on_rejection_binding,
-                    }
-                },
-            );
-            let protocol = if async_plan.is_some() {
-                IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
-            } else {
-                IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL
-            };
-            (
-                StatementIr::ForOfIterator {
-                    mode,
-                    name: storage_name,
+                }
+                LoweredForOfHeadKind::AsyncDisposable => Self::async_disposable_for_of_statement(
+                    async_disposable_head
+                        .expect("an admitted async-disposable head must be finalized"),
                     iterable,
-                    body: Box::new(body),
+                    body,
                     lexical_environment,
-                    protocol,
-                    async_plan,
-                },
-                protocol,
-            )
+                ),
+                LoweredForOfHeadKind::Assignment => {
+                    let async_states = if uses_unified_resumable_plan {
+                        async_generator_next_suspension
+                            .zip(async_generator_close_suspension)
+                            .map(|(next, close)| {
+                                (
+                                    next.suspend_state,
+                                    next.resume_state,
+                                    close.suspend_state,
+                                    close.resume_state,
+                                )
+                            })
+                    } else {
+                        async_entry_state.map(|entry_state| {
+                            let value_resume_state = entry_state + 1;
+                            let close_resume_state = entry_state + 2;
+                            let exit_state = entry_state + 3;
+                            self.current_async_resume_state = Some(exit_state);
+                            (
+                                entry_state,
+                                value_resume_state,
+                                close_resume_state,
+                                exit_state,
+                            )
+                        })
+                    };
+                    let async_plan = async_states.map(
+                        |(entry_state, value_resume_state, close_resume_state, exit_state)| {
+                            // Allocation order is load-bearing: `alloc_temp_binding_name`
+                            // numbers bindings as it hands them out, so these five calls
+                            // must stay in this sequence for the emitted names to be the
+                            // ones they were before the Iterator Record retrofit.
+                            let iterator = self.alloc_iterator_slot();
+                            let next_method = self.alloc_next_method_slot();
+                            let async_iterator_binding = self.alloc_suspension_owned_binding(
+                                "async.forof.async_iterator.",
+                                ValueInfo::new(ValueKind::Boolean),
+                            );
+                            let done = self.alloc_done_slot();
+                            let close_on_rejection_binding = self.alloc_suspension_owned_binding(
+                                "async.forof.close_on_rejection.",
+                                ValueInfo::new(ValueKind::Boolean),
+                            );
+                            AsyncForOfIteratorPlanIr {
+                                entry_state,
+                                value_resume_state,
+                                close_resume_state,
+                                exit_state,
+                                record: IteratorRecordIr::new(iterator, next_method, done),
+                                async_iterator_binding,
+                                close_on_rejection_binding,
+                            }
+                        },
+                    );
+                    let protocol = if async_plan.is_some() {
+                        IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
+                    } else {
+                        IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL
+                    };
+                    (
+                        StatementIr::ForOfIterator {
+                            head: ForOfIteratorHeadIr::Assignment {
+                                binding: ForOfAssignmentIr {
+                                    mode,
+                                    name: storage_name,
+                                },
+                                async_plan,
+                                protocol,
+                            },
+                            iterable,
+                            body: Box::new(body),
+                            lexical_environment,
+                        },
+                        protocol,
+                    )
+                }
+            }
         };
         ForOfLoweringIr::new(statement, body_kind, protocol)
     }
@@ -7351,8 +7370,13 @@ impl<'a> ScriptLowerer<'a> {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                self.unsupported("using declaration");
+            LexicalDeclaration::Using(list) => {
+                return self
+                    .lower_for_sync_disposable_init(list.as_ref())
+                    .map(ForInitIr::SyncDisposable);
+            }
+            LexicalDeclaration::AwaitUsing(_) => {
+                self.unsupported("await using declaration");
                 return None;
             }
         };
@@ -7380,6 +7404,66 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         Some(ForInitIr::LexicalBlock(bindings))
+    }
+
+    /// Lowers a classic `for (using ...; ...; ...)` initializer into the
+    /// non-empty resource capability that owns each binding's runtime
+    /// InitializeBinding.
+    fn lower_for_sync_disposable_init(
+        &mut self,
+        list: &[Variable],
+    ) -> Option<SyncDisposableResourcesIr> {
+        if self.root_this_binding == RootThisBinding::Undefined {
+            self.unsupported("using declaration in a module");
+            return None;
+        }
+        if self.current_generator_resume_state.is_some()
+            || self.current_async_resume_state.is_some()
+            || self.current_resumable_plan.is_some()
+        {
+            self.unsupported("using declaration in a generator or async function");
+            return None;
+        }
+        if list.is_empty() {
+            self.unsupported("empty using declaration");
+            return None;
+        }
+        if list
+            .iter()
+            .any(|variable| !matches!(variable.binding(), Binding::Identifier(_)))
+        {
+            self.unsupported("using declaration binding pattern");
+            return None;
+        }
+        if list.iter().any(|variable| variable.init().is_none()) {
+            self.unsupported("using declaration without initializer");
+            return None;
+        }
+
+        let mut resources = Vec::with_capacity(list.len());
+        for variable in list {
+            let Binding::Identifier(identifier) = variable.binding() else {
+                unreachable!("binding patterns were rejected before lowering")
+            };
+            let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let initializer = variable
+                .init()
+                .expect("using initializers were validated before lowering");
+            let init = self.lower_expression(initializer);
+            self.static_iterator_binding_values.remove(&name);
+            self.static_string_bindings.remove(&name);
+            self.static_to_string_regexp_object_bindings.remove(&name);
+            let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
+            let initialized =
+                InitializedBinding::without_creation(name, BindingMode::Const, storage_name, init);
+            resources.push(initialized.into_sync_disposable_resource(self));
+        }
+
+        let mut resources = resources.into_iter();
+        let first = resources
+            .next()
+            .expect("a parsed using BindingList is non-empty");
+        Some(SyncDisposableResourcesIr::new(first, resources.collect()))
     }
 
     /// `for (let [a, b] = x; …)` - a loop head that binds a pattern.
@@ -8072,7 +8156,9 @@ impl<'a> ScriptLowerer<'a> {
                 is_derived_constructor: true,
                 ..ClassLoweringContext::default()
             });
-        } else if function.captures.contains_key(LEXICAL_HOME_OBJECT_NAME) {
+        } else if function.protocol.is_object_literal_method()
+            || function.captures.contains_key(LEXICAL_HOME_OBJECT_NAME)
+        {
             lowerer.class_context = Some(ClassLoweringContext::default());
         }
         let Some(parameters) =
@@ -8418,8 +8504,7 @@ impl<'a> ScriptLowerer<'a> {
             .current_return_info
             .clone()
             .unwrap_or_else(ValueInfo::undefined);
-        let final_statement_is_return =
-            matches!(body.statements.last(), Some(StatementIr::Return(_)));
+        let final_statement_is_return = Self::statement_list_ends_in_return(&body.statements);
         if !final_statement_is_return {
             return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
         }
@@ -9619,8 +9704,8 @@ impl<'a> ScriptLowerer<'a> {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(list) | LexicalDeclaration::AwaitUsing(list) => {
-                return self.lower_using_declaration(list.as_ref(), scope);
+            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+                unreachable!("statement-list lowering owns dedicated using declarations")
             }
         };
 
@@ -9933,33 +10018,61 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    /// Lowers `using a = expr, b = expr;` (ECMA-262 14.3.4).
+    /// Lowers `using a = expr, b = expr;` into one non-empty resource list.
     ///
-    /// Each declarator binds immutably like `const`, then runs
-    /// `AddDisposableResource` (27.3.1.1) against the enclosing scope's
-    /// DisposeCapability. The matching `DisposeResources` call is emitted by
-    /// [`Self::finish_using_frame`] once the whole statement list is lowered.
+    /// The returned entries, not generic lexical statements, own runtime
+    /// InitializeBinding. This preserves 14.3.1.3's order: evaluate, validate
+    /// and register through AddDisposableResource, then initialize the binding.
     fn lower_using_declaration(
         &mut self,
         list: &[Variable],
         scope: &mut LexicalScopeInstantiation,
-    ) -> (StatementIr, ValueKind) {
-        let mut statements = Vec::with_capacity(list.len() * 3);
+    ) -> Option<(SyncDisposableScopeExecutionIr, SyncDisposableResourcesIr)> {
+        if self.root_this_binding == RootThisBinding::Undefined {
+            self.unsupported("using declaration in a module");
+            return None;
+        }
+        if list.is_empty() {
+            self.unsupported("empty using declaration");
+            return None;
+        }
+
+        if list
+            .iter()
+            .any(|variable| !matches!(variable.binding(), Binding::Identifier(_)))
+        {
+            self.unsupported("using declaration binding pattern");
+            return None;
+        }
+        if list.iter().any(|variable| variable.init().is_none()) {
+            self.unsupported("using declaration without initializer");
+            return None;
+        }
+
+        let owner = self.sync_disposable_scope_owner();
+        if owner == SyncDisposableScopeOwnerPlan::AsyncGenerator
+            && list.iter().filter_map(Variable::init).any(|initializer| {
+                contains(initializer, ContainsSymbol::AwaitExpression)
+                    || contains(initializer, ContainsSymbol::YieldExpression)
+            })
+        {
+            self.unsupported("suspension inside an async-generator using initializer");
+            return None;
+        }
+
+        let execution = self.sync_disposable_scope_execution(owner);
+
+        let mut resources = Vec::with_capacity(list.len());
         for variable in list {
             let Binding::Identifier(identifier) = variable.binding() else {
-                self.unsupported("using declaration binding pattern");
-                return (StatementIr::Empty, ValueKind::Undefined);
-            };
-            let Some(slot) = self.take_using_slot() else {
-                self.unsupported("using declaration outside a disposable scope");
-                return (StatementIr::Empty, ValueKind::Undefined);
+                unreachable!("binding patterns were rejected before lowering")
             };
             let name = self.interner.resolve_expect(identifier.sym()).to_string();
             let pending = scope.take(&name);
-            let init = variable
+            let initializer = variable
                 .init()
-                .map(|expression| self.lower_expression(expression))
-                .unwrap_or_else(TypedExpr::undefined);
+                .expect("using initializers were validated before lowering");
+            let init = self.lower_expression(initializer);
             self.static_iterator_binding_values.remove(&name);
             self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
@@ -9976,170 +10089,68 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 }
             };
-            statements.push(initialized.declare(self));
-            statements.extend(self.add_disposable_resource_statements(&name, &slot));
+            resources.push(initialized.into_sync_disposable_resource(self));
         }
 
-        if statements.len() == 1 {
-            (statements.remove(0), ValueKind::Undefined)
-        } else {
-            (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
-        }
+        let mut resources = resources.into_iter();
+        let first = resources
+            .next()
+            .expect("a parsed using BindingList is non-empty");
+        Some((
+            execution,
+            SyncDisposableResourcesIr::new(first, resources.collect()),
+        ))
     }
 
-    /// `AddDisposableResource(disposeCapability, resource, sync-dispose)`
-    /// (ECMA-262 27.3.1.1) for one already-bound `using` declarator.
+    /// Selects the only legal lifetime for an ordinary statement-list `using`.
     ///
-    /// A null or undefined resource registers nothing (step 1.a), so the
-    /// entry's method stays `undefined` and disposal skips it. Anything else
-    /// goes through `CreateDisposableResource` (27.3.1.3): a non-Object is a
-    /// TypeError, then `GetMethod(resource, @@dispose)` — which itself throws
-    /// when the property is present but not callable — must yield a method.
-    fn add_disposable_resource_statements(
+    /// This consumes the analyzed function protocol exhaustively. In
+    /// particular, resumable capabilities can only be minted through the
+    /// suspension-owned allocator below; an async generator cannot fall
+    /// through to the immediate representation.
+    fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
+        self.current_function_id
+            .as_ref()
+            .and_then(|function_id| self.analysis.function_plans.get(function_id))
+            .map_or(SyncDisposableScopeOwnerPlan::Immediate, |function| {
+                function.sync_disposable_scope_owner()
+            })
+    }
+
+    fn sync_disposable_scope_execution(
         &mut self,
-        name: &str,
-        slot: &UsingSlot,
-    ) -> Vec<StatementIr> {
-        let resource = self.lower_identifier_name(name.to_string(), false);
-        let store_value = StatementIr::Expression(TypedExpr::from_info(
-            resource.value_info(),
-            ExprIr::AssignIdentifier {
-                name: slot.value_name.clone(),
-                value: Box::new(resource),
-            },
-        ));
-
-        let value_read = self.lower_identifier_name(slot.value_name.clone(), false);
-        let not_nullish = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LooseEquality {
-                op: EqualityBinaryOp::LooseNotEqual,
-                lhs: Box::new(value_read.clone()),
-                rhs: Box::new(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Null),
-                    ExprIr::Null,
-                )),
-            },
-        );
-
-        // `typeof` separates the two Object cases from every primitive, which
-        // is what CreateDisposableResource step 1.b.i rejects — a primitive
-        // that inherits a callable `[Symbol.dispose]` is still a TypeError.
-        let type_of_value = |lowerer: &mut Self| {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::String),
-                ExprIr::TypeOf {
-                    expr: Box::new(lowerer.lower_identifier_name(slot.value_name.clone(), false)),
-                },
-            )
-        };
-        let type_is_not = |lowerer: &mut Self, expected: &str| {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Boolean),
-                ExprIr::StrictEquality {
-                    op: EqualityBinaryOp::StrictNotEqual,
-                    lhs: Box::new(type_of_value(lowerer)),
-                    rhs: Box::new(TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::String),
-                        ExprIr::String(expected.to_string()),
-                    )),
-                },
-            )
-        };
-        let throw_not_object = StatementIr::If {
-            condition: type_is_not(self, "object"),
-            then_branch: Box::new(StatementIr::If {
-                condition: type_is_not(self, "function"),
-                then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                    ValueInfo::undefined(),
-                    ExprIr::RuntimeThrow {
-                        name: NativeErrorKind::TypeError,
-                        message: "using declaration resource is not an object",
-                    },
-                ))),
-                else_branch: None,
-            }),
-            else_branch: None,
-        };
-
-        let primary_key = if slot.is_async {
-            self.symbol_async_dispose_value()
-        } else {
-            self.symbol_dispose_value()
-        };
-        let get_method = TypedExpr::spec_get_method(value_read, primary_key);
-        let store_method = StatementIr::Expression(TypedExpr::from_info(
-            get_method.value_info(),
-            ExprIr::AssignIdentifier {
-                name: slot.method_name.clone(),
-                value: Box::new(get_method),
-            },
-        ));
-
-        let method_is_undefined = |lowerer: &mut Self| {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Boolean),
-                ExprIr::StrictEquality {
-                    op: EqualityBinaryOp::StrictEqual,
-                    lhs: Box::new(lowerer.lower_identifier_name(slot.method_name.clone(), false)),
-                    rhs: Box::new(TypedExpr::undefined()),
-                },
-            )
-        };
-
-        // `GetDisposeMethod(V, async-dispose)` (ECMA-262 27.3.1.4): when
-        // `@@asyncDispose` is absent, fall back to `@@dispose`. The spec wraps
-        // the sync method in a closure whose result the caller awaits; awaiting
-        // the sync call's own result is the same observable sequence, so the
-        // fallback method is stored directly.
-        let sync_fallback = slot.is_async.then(|| {
-            let value_read = self.lower_identifier_name(slot.value_name.clone(), false);
-            let dispose_key = self.symbol_dispose_value();
-            let fallback = TypedExpr::spec_get_method(value_read, dispose_key);
-            StatementIr::If {
-                condition: method_is_undefined(self),
-                then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                    fallback.value_info(),
-                    ExprIr::AssignIdentifier {
-                        name: slot.method_name.clone(),
-                        value: Box::new(fallback),
-                    },
-                ))),
-                else_branch: None,
+        owner: SyncDisposableScopeOwnerPlan,
+    ) -> SyncDisposableScopeExecutionIr {
+        match owner {
+            SyncDisposableScopeOwnerPlan::Immediate => SyncDisposableScopeExecutionIr::Immediate,
+            SyncDisposableScopeOwnerPlan::PlainGenerator => {
+                let binding_name = self.alloc_suspension_owned_binding(
+                    "generator.dispose.capability.",
+                    ValueInfo::new(ValueKind::Object),
+                );
+                SyncDisposableScopeExecutionIr::PlainGenerator(
+                    PlainGeneratorSyncDisposableCapabilityIr::new(binding_name),
+                )
             }
-        });
-
-        let missing_message = if slot.is_async {
-            "await using declaration resource has no [Symbol.asyncDispose] method"
-        } else {
-            "using declaration resource has no [Symbol.dispose] method"
-        };
-        let throw_missing = StatementIr::If {
-            condition: method_is_undefined(self),
-            then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::RuntimeThrow {
-                    name: NativeErrorKind::TypeError,
-                    message: missing_message,
-                },
-            ))),
-            else_branch: None,
-        };
-
-        vec![
-            store_value,
-            StatementIr::If {
-                condition: not_nullish,
-                then_branch: Box::new(StatementIr::LexicalBlock(
-                    [throw_not_object, store_method]
-                        .into_iter()
-                        .chain(sync_fallback)
-                        .chain([throw_missing])
-                        .collect(),
-                )),
-                else_branch: None,
-            },
-        ]
+            SyncDisposableScopeOwnerPlan::AsyncFunction => {
+                let binding_name = self.alloc_suspension_owned_binding(
+                    "async.dispose.capability.",
+                    ValueInfo::new(ValueKind::Object),
+                );
+                SyncDisposableScopeExecutionIr::AsyncFunction(
+                    AsyncFunctionSyncDisposableCapabilityIr::new(binding_name),
+                )
+            }
+            SyncDisposableScopeOwnerPlan::AsyncGenerator => {
+                let binding_name = self.alloc_suspension_owned_binding(
+                    "async.generator.dispose.capability.",
+                    ValueInfo::new(ValueKind::Object),
+                );
+                SyncDisposableScopeExecutionIr::AsyncGenerator(
+                    AsyncGeneratorSyncDisposableCapabilityIr::new(binding_name),
+                )
+            }
+        }
     }
 
     fn hoist_root_statement_items(&mut self, items: &[StatementListItem]) {
@@ -13314,7 +13325,7 @@ impl<'a> ScriptLowerer<'a> {
             .current_return_info
             .clone()
             .unwrap_or_else(ValueInfo::undefined);
-        if !matches!(body_ir.statements.last(), Some(StatementIr::Return(_))) {
+        if !Self::statement_list_ends_in_return(&body_ir.statements) {
             return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
         }
         if execution_kind == FunctionExecutionKind::Generator {
@@ -13712,6 +13723,14 @@ impl<'a> ScriptLowerer<'a> {
                 TypedExpr::undefined()
             }
         };
+
+        // Resolve a direct identifier through any preceding Object
+        // Environment Records before the name-specific builtin folds below.
+        // A selected with binding can shadow even `Number`/`Boolean`/`Symbol`,
+        // and the Reference's base supplies CallExpression's WithBaseObject.
+        if let Some(call) = self.lower_with_environment_identifier_call(callee, args) {
+            return call;
+        }
 
         if let Some(generator) = generator_expression_callee(callee) {
             if args.is_empty() && linear_generator_plan(generator.body()).is_none() {
@@ -16134,70 +16153,35 @@ impl<'a> ScriptLowerer<'a> {
                             },
                         );
                     }
-                    if let Some(number_builtin) = StandardBuiltinId::from_function_id(&function_id)
-                    {
-                        let method_name = match number_builtin {
-                            StandardBuiltinId::NumberPrototypeToExponential => "toExponential",
-                            StandardBuiltinId::NumberPrototypeToFixed => "toFixed",
-                            StandardBuiltinId::NumberPrototypeToLocaleString => "toLocaleString",
-                            StandardBuiltinId::NumberPrototypeToPrecision => "toPrecision",
-                            StandardBuiltinId::NumberPrototypeToString => "toString",
-                            StandardBuiltinId::NumberPrototypeValueOf => "valueOf",
-                            _ => "",
-                        };
-                        if !method_name.is_empty() {
-                            return TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                    args,
-                                },
-                            );
-                        }
-                    }
-                    if let Some(boolean_builtin) = StandardBuiltinId::from_function_id(&function_id)
-                    {
-                        let method_name = match boolean_builtin {
-                            StandardBuiltinId::BooleanPrototypeToString => "toString",
-                            StandardBuiltinId::BooleanPrototypeValueOf => "valueOf",
-                            _ => "",
-                        };
-                        if !method_name.is_empty() {
-                            return TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                    args,
-                                },
-                            );
-                        }
-                    }
-                    if let Some(bigint_builtin) = StandardBuiltinId::from_function_id(&function_id)
-                    {
-                        let method_name = match bigint_builtin {
-                            StandardBuiltinId::BigIntPrototypeToString => "toString",
-                            StandardBuiltinId::BigIntPrototypeToLocaleString => "toLocaleString",
-                            StandardBuiltinId::BigIntPrototypeValueOf => "valueOf",
-                            _ => "",
-                        };
-                        if !method_name.is_empty() {
-                            return TypedExpr::from_info(
-                                info,
-                                ExprIr::CallMethod {
-                                    receiver: Box::new(receiver),
-                                    key: PropertyKeyIr::StaticString(method_name.to_string()),
-                                    args,
-                                },
-                            );
+                    if let Some(method) = NonGenericBuiltinMethod::from_function_id(&function_id) {
+                        match method {
+                            NonGenericBuiltinMethod::BooleanToString
+                            | NonGenericBuiltinMethod::BooleanValueOf
+                            | NonGenericBuiltinMethod::NumberToExponential
+                            | NonGenericBuiltinMethod::NumberToFixed
+                            | NonGenericBuiltinMethod::NumberToLocaleString
+                            | NonGenericBuiltinMethod::NumberToPrecision
+                            | NonGenericBuiltinMethod::NumberToString
+                            | NonGenericBuiltinMethod::NumberValueOf
+                            | NonGenericBuiltinMethod::BigIntToString
+                            | NonGenericBuiltinMethod::BigIntToLocaleString
+                            | NonGenericBuiltinMethod::BigIntValueOf
+                            | NonGenericBuiltinMethod::StringToString
+                            | NonGenericBuiltinMethod::StringValueOf => {
+                                // Target inference identifies the function
+                                // that was acquired, not the receiver's
+                                // primitive brand. Keep both Reference
+                                // components so a transferred method reaches
+                                // its own closed receiver check.
+                                return self.lower_indirect_method_call(
+                                    info, callee, receiver, args, None,
+                                );
+                            }
                         }
                     }
                     if let Some(string_builtin) = StandardBuiltinId::from_function_id(&function_id)
                     {
                         let method_name = match string_builtin {
-                            StandardBuiltinId::StringPrototypeToString => "toString",
-                            StandardBuiltinId::StringPrototypeValueOf => "valueOf",
                             StandardBuiltinId::StringPrototypeCharAt => "charAt",
                             StandardBuiltinId::StringPrototypeConcat => "concat",
                             StandardBuiltinId::StringPrototypeCharCodeAt => "charCodeAt",
@@ -18782,6 +18766,10 @@ impl<'a> ScriptLowerer<'a> {
                     "dynamic-source builtins must consume their resolved disposition before builtin result analysis"
                 )
             }
+            StandardBuiltinId::FunctionPrototype => Some(ValueInfo::undefined()),
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::PromiseConstructor => {
                 if let Some(executor_id) = args
                     .first()
@@ -18940,7 +18928,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
-            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). Every arm is
+            // Explicit-resource-management stack builtins. Every arm is
             // `Some`: `None` here is not "no static information", it is a
             // refusal — the three consumers read it as "this call does not
             // happen" and return `TypedExpr::undefined()` with the argument
@@ -18952,20 +18940,27 @@ impl<'a> ScriptLowerer<'a> {
             // `IntlDateTimeFormatConstructor` arm is again the precedent for a
             // constructor with no instance shape.
             StandardBuiltinId::AsyncDisposableStackConstructor
+            | StandardBuiltinId::DisposableStackConstructor
             | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::DisposableStackPrototypeMove
             | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => {
                 Some(ValueInfo::new(ValueKind::Object))
             }
             StandardBuiltinId::AsyncDisposableStackPrototypeUse
-            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => {
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::DisposableStackPrototypeUse
+            | StandardBuiltinId::DisposableStackPrototypeAdopt => {
                 Some(ValueInfo::new(ValueKind::Dynamic))
             }
             StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDispose
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
                 Some(ValueInfo::undefined())
             }
-            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+            | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::SetConstructor => Some(Self::value_info_from_shape(Some(
@@ -21339,7 +21334,7 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         method: &ObjectMethodDefinition,
         function_name: &str,
-    ) -> Option<TypedExpr> {
+    ) -> Option<(ObjectMethodFunctionIr, ValueInfo)> {
         let Some(parameters) = self.lower_function_parameters(method.parameters(), function_name)
         else {
             return None;
@@ -21378,7 +21373,10 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported_expr("object literal method");
             return None;
         };
-        Some(self.function_value_expr(function_id))
+        let info = self.function_value_info(&function_id);
+        let function =
+            ObjectMethodFunctionIr::new(function_id, object_method_protocol(method.kind()));
+        Some((function, info))
     }
 
     fn observe_proxy_handler_trap_expression_hints(&mut self, args: &[Expression]) {
@@ -21567,7 +21565,9 @@ impl<'a> ScriptLowerer<'a> {
 
                     if let Some(key) = static_key {
                         self.observe_proxy_trap_method_hint(&key, method);
-                        let Some(function) = self.lower_object_method_function(method, &key) else {
+                        let Some((function, function_info)) =
+                            self.lower_object_method_function(method, &key)
+                        else {
                             return TypedExpr::undefined();
                         };
                         match method.kind() {
@@ -21578,14 +21578,12 @@ impl<'a> ScriptLowerer<'a> {
                                 Self::insert_string_keyed_shape_property(
                                     &mut shape,
                                     &key,
-                                    ObjectShapeProperty::Data(function.value_info()),
+                                    ObjectShapeProperty::Data(function_info),
                                 );
                                 properties.push(ObjectPropertyIr::Method { key, function });
                             }
                             MethodDefinitionKind::Get => {
-                                let function_id = self
-                                    .resolve_single_function_target(&function)
-                                    .expect("getter should resolve single target");
+                                let function_id = function.function_id().clone();
                                 let entry = shape.properties.remove(&key);
                                 let setter = match entry {
                                     Some(ObjectShapeProperty::Accessor { setter, .. }) => setter,
@@ -21602,9 +21600,7 @@ impl<'a> ScriptLowerer<'a> {
                                 properties.push(ObjectPropertyIr::Getter { key, function });
                             }
                             MethodDefinitionKind::Set => {
-                                let function_id = self
-                                    .resolve_single_function_target(&function)
-                                    .expect("setter should resolve single target");
+                                let function_id = function.function_id().clone();
                                 let entry = shape.properties.remove(&key);
                                 let getter = match entry {
                                     Some(ObjectShapeProperty::Accessor { getter, .. }) => getter,
@@ -21636,7 +21632,8 @@ impl<'a> ScriptLowerer<'a> {
                         return self.unsupported_expr("computed object key");
                     }
                     let key_may_be_string = Self::computed_key_may_be_string(&key);
-                    let Some(function) = self.lower_object_method_function(method, "<computed>")
+                    let Some((function, function_info)) =
+                        self.lower_object_method_function(method, "<computed>")
                     else {
                         return TypedExpr::undefined();
                     };
@@ -21652,7 +21649,7 @@ impl<'a> ScriptLowerer<'a> {
                                 Some(symbol) => {
                                     shape.properties.insert(
                                         shape_namespace_key(symbol),
-                                        ObjectShapeProperty::Data(function.value_info()),
+                                        ObjectShapeProperty::Data(function_info),
                                     );
                                 }
                                 None => has_unknown_key |= key_may_be_string,
@@ -22555,46 +22552,10 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_super_property_access(&mut self, access: &SuperPropertyAccess) -> TypedExpr {
-        if self.class_context.is_none() {
-            return self.unsupported_expr("object literal method");
-        }
-        let Some(key) = self.lower_super_property_key(access.field()) else {
+        let Some((key, receiver, info)) = self.lower_super_property_reference_parts(access) else {
             return TypedExpr::undefined();
         };
-        let info = match &key {
-            PropertyKeyIr::StaticString(key_name) => self
-                .class_context
-                .as_ref()
-                .and_then(|context| context.super_base_shape.as_deref())
-                .and_then(|shape| read_heap_shape_property(shape, key_name))
-                .map(|property| match property {
-                    ObjectShapeProperty::Data(info) => info,
-                    ObjectShapeProperty::Accessor {
-                        getter: Some(getter),
-                        ..
-                    } => self.accessor_return_info(&getter.function_id),
-                    ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
-                })
-                .unwrap_or(ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                }),
-            PropertyKeyIr::StringExpr(_) => ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-            PropertyKeyIr::ArrayIndex(_) | PropertyKeyIr::ArrayLength => ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-        };
-        TypedExpr::from_info(info, ExprIr::SuperPropertyRead { key })
+        TypedExpr::from_info(info, ExprIr::SuperPropertyRead { key, receiver })
     }
 
     fn lower_private_property_access(&mut self, access: &PrivatePropertyAccess) -> TypedExpr {
@@ -22895,6 +22856,31 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         };
+        let exact_function_prototype_has_instance = matches!(
+            &key,
+            PropertyKeyIr::StringExpr(expr)
+                if expr.kind == ValueKind::Symbol
+                    && matches!(
+                        &expr.expr,
+                        ExprIr::String(description)
+                            if WellKnownSymbol::from_description(SymbolDescription::new(description))
+                                == Some(WellKnownSymbol::HasInstance)
+                    )
+        ) && target.function_targets.len() == 1
+            && target
+                .function_targets
+                .contains(&StandardBuiltinId::FunctionPrototype.function_id());
+        if exact_function_prototype_has_instance {
+            return TypedExpr::from_info(
+                Self::standard_builtin_value_info(
+                    StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
+                ),
+                ExprIr::PropertyRead {
+                    target: Box::new(target),
+                    key,
+                },
+            );
+        }
         if matches!(&target.expr, ExprIr::Identifier(name) if name == GLOBAL_THIS_NAME) {
             if let PropertyKeyIr::StaticString(name) = &key {
                 if let Some(info) = self.lookup_global_property(name) {
@@ -23003,8 +22989,13 @@ impl<'a> ScriptLowerer<'a> {
                 && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
                     || self.dynamic_object_prototype_method_resolution_is_safe(&target, "toString"))
             {
-                return self
-                    .function_value_expr(StandardBuiltinId::ObjectPrototypeToString.function_id());
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ObjectPrototypeToString),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: key.clone(),
+                    },
+                );
             }
             if name == "toLocaleString"
                 && (self.is_builtin_property_expr(&target, OBJECT_NAME, "prototype")
@@ -23654,17 +23645,64 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
         }
-        let index = self.lower_expression(expr);
-        if index.kind != ValueKind::Number {
-            return self.unsupported_expr("string index must be number");
-        }
+        let key = self
+            .classify_string_exotic_computed_key(expr)
+            .into_property_key();
         TypedExpr::from_info(
-            ValueInfo::new(ValueKind::String),
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
             ExprIr::PropertyRead {
                 target: Box::new(target),
-                key: PropertyKeyIr::ArrayIndex(Box::new(index)),
+                key,
             },
         )
+    }
+
+    fn classify_string_exotic_computed_key(
+        &mut self,
+        expr: &Expression,
+    ) -> StringExoticComputedKey {
+        if let Some(key) = self.static_array_numeric_property_key(expr) {
+            return match key {
+                PropertyKeyIr::ArrayIndex(index) => StringExoticComputedKey::CanonicalIndex(index),
+                key => StringExoticComputedKey::OrdinaryPropertyKey(key),
+            };
+        }
+
+        if let Some(key) = self.lower_static_property_key(expr) {
+            return match key {
+                PropertyKeyIr::StaticString(name) => {
+                    if let Some(index) = Self::static_string_exotic_index(&name) {
+                        StringExoticComputedKey::CanonicalIndex(Box::new(
+                            self.static_number_index_expr(index),
+                        ))
+                    } else {
+                        StringExoticComputedKey::OrdinaryPropertyKey(PropertyKeyIr::StaticString(
+                            name,
+                        ))
+                    }
+                }
+                key => StringExoticComputedKey::OrdinaryPropertyKey(key),
+            };
+        }
+
+        let key = self.lower_expression(expr);
+        StringExoticComputedKey::OrdinaryPropertyKey(PropertyKeyIr::StringExpr(Box::new(key)))
+    }
+
+    fn static_string_exotic_index(name: &str) -> Option<f64> {
+        if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        if name.len() > 1 && name.starts_with('0') {
+            return None;
+        }
+        let index = name.parse::<u64>().ok()?;
+        ((index as f64) <= MAX_ARRAY_INDEX).then_some(index as f64)
     }
 
     fn lower_arguments_index_key(
@@ -23869,92 +23907,76 @@ impl<'a> ScriptLowerer<'a> {
             | AssignOp::Div
             | AssignOp::Mod
             | AssignOp::Exp => {
-                if matches!(op, AssignOp::Add) {
-                    if let AssignTarget::Access(access) = lhs {
-                        if let PropertyAccess::Simple(simple_access) = access {
-                            if matches!(simple_access.target(), Expression::Identifier(_)) {
-                                let target =
-                                    Box::new(self.lower_property_target(simple_access.target()));
-                                let key = match simple_access.field() {
-                                    PropertyAccessField::Const(name) => {
-                                        let key_name =
-                                            self.interner.resolve_expect(name.sym()).to_string();
-                                        if target.kind == ValueKind::Array && key_name == "length" {
-                                            PropertyKeyIr::ArrayLength
-                                        } else {
-                                            PropertyKeyIr::StaticString(key_name)
-                                        }
-                                    }
-                                    PropertyAccessField::Expr(expr) => {
-                                        // Only a constant index has a key this
-                                        // specialised node can carry; every
-                                        // other key falls through to the
-                                        // general Reference update below.
-                                        match self.try_constant_array_index_expr(expr) {
-                                            Some(index) => PropertyKeyIr::ArrayIndex(Box::new(
-                                                self.static_number_index_expr(index),
-                                            )),
-                                            None => {
-                                                return self.lower_property_reference_update(
-                                                    access,
-                                                    PropertyUpdateOp::Arithmetic(ArithmeticOp::Add),
-                                                    rhs,
-                                                );
-                                            }
-                                        }
-                                    }
-                                };
-                                let rhs = self.lower_expression(rhs);
-                                let possible_kinds = KindSet::from_kind(ValueKind::String)
-                                    .union(KindSet::from_kind(ValueKind::Number))
-                                    .union(KindSet::from_kind(ValueKind::BigInt));
-                                let value_info = ValueInfo {
-                                    kind: possible_kinds.as_value_kind(),
-                                    possible_kinds,
-                                    heap_shape: None,
-                                    function_targets: BTreeSet::new(),
-                                };
-                                self.update_written_shape(
-                                    simple_access.target(),
-                                    &key,
-                                    &value_info,
-                                );
-                                let strictness = self.reference_strictness();
-                                return TypedExpr::from_info(
-                                    value_info,
-                                    ExprIr::PropertyCompoundAssign {
-                                        target,
-                                        key,
-                                        op: ArithmeticBinaryOp::Add,
-                                        value: Box::new(rhs),
-                                        strictness,
-                                    },
-                                );
-                            }
-                        }
+                let arithmetic = match op {
+                    AssignOp::Add => ArithmeticOp::Add,
+                    AssignOp::Sub => ArithmeticOp::Sub,
+                    AssignOp::Mul => ArithmeticOp::Mul,
+                    AssignOp::Div => ArithmeticOp::Div,
+                    AssignOp::Mod => ArithmeticOp::Mod,
+                    AssignOp::Exp => ArithmeticOp::Exp,
+                    AssignOp::Assign
+                    | AssignOp::BoolAnd
+                    | AssignOp::BoolOr
+                    | AssignOp::Coalesce
+                    | AssignOp::And
+                    | AssignOp::Or
+                    | AssignOp::Xor
+                    | AssignOp::Shl
+                    | AssignOp::Shr
+                    | AssignOp::Ushr => {
+                        unreachable!("this match arm covers only the arithmetic operators")
                     }
-                }
-                let AssignTarget::Identifier(identifier) = lhs else {
-                    if let AssignTarget::Access(access) = lhs {
-                        let arithmetic = match op {
-                            AssignOp::Add => ArithmeticOp::Add,
-                            AssignOp::Sub => ArithmeticOp::Sub,
-                            AssignOp::Mul => ArithmeticOp::Mul,
-                            AssignOp::Div => ArithmeticOp::Div,
-                            AssignOp::Mod => ArithmeticOp::Mod,
-                            AssignOp::Exp => ArithmeticOp::Exp,
-                            _ => unreachable!(),
-                        };
-                        return self.lower_property_reference_update(
+                };
+                if let AssignTarget::Access(access) = lhs {
+                    return match access {
+                        PropertyAccess::Simple(access) => self
+                            .lower_ordinary_property_eager_compound_assignment(
+                                access,
+                                EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                                rhs,
+                            ),
+                        PropertyAccess::Super(access) => self
+                            .lower_super_property_eager_compound_assignment(
+                                access,
+                                EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                                rhs,
+                            ),
+                        PropertyAccess::Private(_) => self.lower_property_reference_update(
                             access,
                             PropertyUpdateOp::Arithmetic(arithmetic),
                             rhs,
-                        );
-                    }
+                        ),
+                    };
+                }
+                let AssignTarget::Identifier(identifier) = lhs else {
                     return self.unsupported_expr("unsupported property assignment operator");
                 };
 
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let reference = self.locate_identifier_reference(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(reference.declarative_position());
+                if let Some(objects) = selected {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_with_scoped_identifier_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                        value,
+                        objects,
+                        reference,
+                    );
+                }
+                if matches!(&reference, LocatedIdentifierReference::Unresolvable)
+                    && !self.global_property_is_proven_present(&name)
+                {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_global_object_environment_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Arithmetic(arithmetic),
+                        value,
+                    );
+                }
                 let value = self.lower_expression(rhs);
                 // 13.15.4 ApplyStringOrNumericAssignment does GetValue then
                 // PutValue, so both 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 apply
@@ -24255,128 +24277,72 @@ impl<'a> ScriptLowerer<'a> {
                 TypedExpr::from_info(result_info, expr)
             }
             AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {
+                let logical_op = match op {
+                    AssignOp::BoolAnd => LogicalBinaryOp::And,
+                    AssignOp::BoolOr => LogicalBinaryOp::Or,
+                    AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
+                    AssignOp::Assign
+                    | AssignOp::Add
+                    | AssignOp::Sub
+                    | AssignOp::Mul
+                    | AssignOp::Div
+                    | AssignOp::Mod
+                    | AssignOp::Exp
+                    | AssignOp::And
+                    | AssignOp::Or
+                    | AssignOp::Xor
+                    | AssignOp::Shl
+                    | AssignOp::Shr
+                    | AssignOp::Ushr => {
+                        unreachable!("this match arm covers only the logical operators")
+                    }
+                };
                 let AssignTarget::Identifier(identifier) = lhs else {
                     if let AssignTarget::Access(access) = lhs {
-                        let logical = match op {
-                            AssignOp::BoolAnd => LogicalBinaryOp::And,
-                            AssignOp::BoolOr => LogicalBinaryOp::Or,
-                            AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
-                            _ => unreachable!(),
-                        };
                         return self.lower_property_reference_update(
                             access,
-                            PropertyUpdateOp::Logical(logical),
+                            PropertyUpdateOp::Logical(logical_op),
                             rhs,
                         );
                     }
                     return self.unsupported_expr("logical assignment");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
-                // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
-                // immutability test below, which is the only test this arm used
-                // to make. The RHS is not lowered yet here, so the throw is in
-                // the right place.
-                match self.resolve_binding_reference(&name) {
-                    BindingResolution::Uninitialized(violation) => return violation.into_throw(),
-                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
-                }
-                let binding = self.lookup_binding(&name);
-                let binding_storage_name =
-                    binding.as_ref().map(|binding| binding.storage_name.clone());
-                let global_info = self.lookup_global_property_info(&name).cloned();
-                // 13.15.2 for `&&=` / `||=` / `??=`: PutValue runs only on the
-                // branch that evaluates the RHS. `const x = 1; x ||= 2`
-                // short-circuits, never reaches PutValue, and is not an error
-                // at all; `const x = 1; x &&= 2` does reach it and throws a
-                // TypeError. The immutability throw therefore belongs *inside*
-                // the RHS branch below — which is why this consumer cannot take
-                // the early-return shape the other three do, and why the
-                // refusal that used to sit here was wrong in two directions at
-                // once (it rejected the short-circuiting program too).
-                let const_storage_name = binding.as_ref().and_then(|binding| {
-                    (binding.mode == BindingMode::Const).then(|| binding.storage_name.clone())
-                });
-                if binding.is_none()
-                    && !global_info.as_ref().is_some_and(|info| info.proven_present)
-                {
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                    ));
-                    return TypedExpr::undefined();
-                }
-                let lhs_value = TypedExpr::from_info(
-                    binding
-                        .as_ref()
-                        .map(|binding| ValueInfo {
-                            kind: binding.kind,
-                            possible_kinds: binding.possible_kinds,
-                            heap_shape: binding.heap_shape.clone(),
-                            function_targets: binding.function_targets.clone(),
-                        })
-                        .or_else(|| global_info.as_ref().map(|info| info.value_info.clone()))
-                        .unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic)),
-                    if binding.is_some() {
-                        ExprIr::Identifier(binding_storage_name.clone().expect("binding storage"))
-                    } else {
-                        ExprIr::GlobalPropertyRead { name: name.clone() }
+                let reference = self.locate_identifier_logical_assignment(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(reference.declarative_position());
+                let reference = match selected.is_none() {
+                    true => match reference.reject_definite_tdz() {
+                        Ok(reference) => reference,
+                        Err(error) => return error,
                     },
-                );
-                let rhs_value = self.lower_expression(rhs);
-                let logical_op = match op {
-                    AssignOp::BoolAnd => LogicalBinaryOp::And,
-                    AssignOp::BoolOr => LogicalBinaryOp::Or,
-                    AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
-                    _ => unreachable!(),
+                    false => reference,
                 };
-                if let Some(storage_name) = const_storage_name {
-                    let throwing_rhs = self.immutable_binding_write(&storage_name, rhs_value);
-                    // The short-circuit branch yields the old value; the other
-                    // branch diverges (or, under the sloppy carve-out, yields
-                    // the RHS). Merging is sound for both.
-                    let result_info =
-                        self.merge_value_infos(lhs_value.value_info(), throwing_rhs.value_info());
-                    return TypedExpr::from_info(
-                        result_info,
-                        ExprIr::LogicalShortCircuit {
-                            op: logical_op,
-                            lhs: Box::new(lhs_value),
-                            rhs: Box::new(throwing_rhs),
-                        },
+                let rhs_value = self.lower_expression(rhs);
+                if let Some(objects) = selected {
+                    let plan = self.with_environment_reference_plan(name.clone(), objects);
+                    let fallback = self.lower_located_identifier_logical_assignment(
+                        name,
+                        logical_op,
+                        rhs_value.clone(),
+                        reference,
+                        LogicalAssignmentReachability::WithEnvironmentFallback,
+                    );
+                    return plan.logical_assignment(logical_op, rhs_value, fallback);
+                }
+                if reference.is_unproven_global() {
+                    return self.lower_global_object_environment_logical_assignment(
+                        name, logical_op, rhs_value,
                     );
                 }
-                let result_info =
-                    self.merge_value_infos(lhs_value.value_info(), rhs_value.value_info());
-                let value = TypedExpr::from_info(
-                    result_info,
-                    ExprIr::LogicalShortCircuit {
-                        op: logical_op,
-                        lhs: Box::new(lhs_value),
-                        rhs: Box::new(rhs_value),
-                    },
-                );
-                if let Some(storage_name) = binding_storage_name {
-                    self.set_binding_value_info(&name, value.value_info());
-                    TypedExpr::from_info(
-                        value.value_info(),
-                        ExprIr::AssignIdentifier {
-                            name: storage_name,
-                            value: Box::new(value),
-                        },
-                    )
-                } else {
-                    self.set_global_property_value_info(name.clone(), value.value_info());
-                    let strictness = self.reference_strictness();
-                    TypedExpr::from_info(
-                        value.value_info(),
-                        ExprIr::GlobalPropertyWrite {
-                            name,
-                            value: Box::new(value),
-                            implicit: false,
-                            strictness,
-                        },
-                    )
-                }
+                self.lower_located_identifier_logical_assignment(
+                    name,
+                    logical_op,
+                    rhs_value,
+                    reference,
+                    LogicalAssignmentReachability::Definite,
+                )
             }
             AssignOp::And
             | AssignOp::Or
@@ -24393,17 +24359,86 @@ impl<'a> ScriptLowerer<'a> {
                             AssignOp::Shl => BitwiseOp::Shl,
                             AssignOp::Shr => BitwiseOp::Shr,
                             AssignOp::Ushr => BitwiseOp::UShr,
-                            _ => unreachable!(),
+                            AssignOp::Assign
+                            | AssignOp::Add
+                            | AssignOp::Sub
+                            | AssignOp::Mul
+                            | AssignOp::Div
+                            | AssignOp::Mod
+                            | AssignOp::Exp
+                            | AssignOp::BoolAnd
+                            | AssignOp::BoolOr
+                            | AssignOp::Coalesce => {
+                                unreachable!("this match arm covers only the bitwise operators")
+                            }
                         };
-                        return self.lower_property_reference_update(
-                            access,
-                            PropertyUpdateOp::Bitwise(bitwise),
-                            rhs,
-                        );
+                        return match access {
+                            PropertyAccess::Simple(access) => self
+                                .lower_ordinary_property_eager_compound_assignment(
+                                    access,
+                                    EagerCompoundAssignmentOp::Bitwise(bitwise),
+                                    rhs,
+                                ),
+                            PropertyAccess::Super(access) => self
+                                .lower_super_property_eager_compound_assignment(
+                                    access,
+                                    EagerCompoundAssignmentOp::Bitwise(bitwise),
+                                    rhs,
+                                ),
+                            PropertyAccess::Private(_) => self.lower_property_reference_update(
+                                access,
+                                PropertyUpdateOp::Bitwise(bitwise),
+                                rhs,
+                            ),
+                        };
                     }
                     return self.unsupported_expr("unsupported property assignment operator");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let bitwise = match op {
+                    AssignOp::And => BitwiseOp::And,
+                    AssignOp::Or => BitwiseOp::Or,
+                    AssignOp::Xor => BitwiseOp::Xor,
+                    AssignOp::Shl => BitwiseOp::Shl,
+                    AssignOp::Shr => BitwiseOp::Shr,
+                    AssignOp::Ushr => BitwiseOp::UShr,
+                    AssignOp::Assign
+                    | AssignOp::Add
+                    | AssignOp::Sub
+                    | AssignOp::Mul
+                    | AssignOp::Div
+                    | AssignOp::Mod
+                    | AssignOp::Exp
+                    | AssignOp::BoolAnd
+                    | AssignOp::BoolOr
+                    | AssignOp::Coalesce => {
+                        unreachable!("this match arm covers only the bitwise operators")
+                    }
+                };
+                let reference = self.locate_identifier_reference(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(reference.declarative_position());
+                if let Some(objects) = selected {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_with_scoped_identifier_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Bitwise(bitwise),
+                        value,
+                        objects,
+                        reference,
+                    );
+                }
+                if matches!(&reference, LocatedIdentifierReference::Unresolvable)
+                    && !self.global_property_is_proven_present(&name)
+                {
+                    let value = self.lower_expression(rhs);
+                    return self.lower_global_object_environment_eager_compound_assignment(
+                        name,
+                        EagerCompoundAssignmentOp::Bitwise(bitwise),
+                        value,
+                    );
+                }
                 // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
                 // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
                 // immutability test below, which is the only test this arm used
@@ -26006,7 +26041,7 @@ impl<'a> ScriptLowerer<'a> {
             // PrivateSet writes a fixed slot of a known class shape; there is
             // no tracked property shape to invalidate.
             ReferenceBase::Private { .. } => {}
-            ReferenceBase::Super { key } => {
+            ReferenceBase::Super { key, .. } => {
                 // A super Reference reads through the home object's prototype
                 // but writes with `this` as the Receiver (PutValue 3.c via
                 // GetThisValue), so it is `this`'s recorded shape that goes
@@ -26450,12 +26485,14 @@ impl<'a> ScriptLowerer<'a> {
                 let Some(key) = self.lower_super_property_key(access.field()) else {
                     return TypedExpr::undefined();
                 };
+                let receiver = self.lower_current_this();
                 let value = self.lower_expression(rhs);
                 let strictness = self.reference_strictness();
                 TypedExpr::from_info(
                     value.value_info(),
                     ExprIr::SuperPropertyWrite {
                         key,
+                        receiver: Box::new(receiver),
                         value: Box::new(value),
                         strictness,
                     },
@@ -26466,65 +26503,15 @@ impl<'a> ScriptLowerer<'a> {
 
     /// 13.4 `++`/`--` on a property Reference.
     ///
-    /// Extracted from `lower_update` so that function can match `UpdateTarget`
-    /// exhaustively; the body is unchanged.
+    /// Extracted from `lower_update` so both the AST target and the ordinary,
+    /// Super, and private Reference domains remain exhaustive.
     fn lower_property_access_update(&mut self, op: UpdateOp, access: &PropertyAccess) -> TypedExpr {
-        let read = self.lower_property_access(access);
-        let value_kind = if read
-            .possible_kinds
-            .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
-        {
-            ValueKind::BigInt
-        } else {
-            ValueKind::Number
-        };
-        let (op, return_mode) = match op {
-            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
-            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
-            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
-            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
-        };
-        // 13.4: `++`/`--` evaluate the UnaryExpression once and PutValue
-        // through the Reference that evaluation produced. Recovering that
-        // Reference is the same total function the compound-assignment
-        // path uses. The two nested catch-alls this replaces matched 2 of
-        // the 77 `ExprIr` shapes and silently downgraded everything else —
-        // `super.x++`, `#priv++`, and every read the lowering had
-        // specialised — to `unsupported_expr`, with no compile error to
-        // say so.
-        let base = match reference_base_of_lowered_read(read.expr) {
-            Ok(base) => base,
-            Err(unsupported) => return self.unsupported_expr(unsupported.feature()),
-        };
-        let strictness = self.reference_strictness();
-        match base {
-            ReferenceBase::Property { target, key } => TypedExpr::from_info(
-                ValueInfo::new(value_kind),
-                ExprIr::PropertyUpdate {
-                    target: Box::new(target),
-                    key,
-                    op,
-                    return_mode,
-                    value_kind,
-                    strictness,
-                },
-            ),
-            ReferenceBase::Global { name } => TypedExpr::from_info(
-                ValueInfo::new(value_kind),
-                ExprIr::GlobalPropertyUpdate {
-                    name,
-                    op,
-                    return_mode,
-                    value_kind,
-                    strictness,
-                },
-            ),
-            // There is no `PrivateUpdate` or `SuperPropertyUpdate` IR node
-            // yet, so these two still have no lowering. They are named
-            // here rather than swallowed by a `_` arm, so that adding one
-            // is a deliberate edit at this site.
-            ReferenceBase::Private { .. } => self.unsupported_expr("private field update target"),
-            ReferenceBase::Super { .. } => self.unsupported_expr("super property update target"),
+        match access {
+            PropertyAccess::Simple(access) => {
+                self.lower_ordinary_property_numeric_update(op, access)
+            }
+            PropertyAccess::Super(access) => self.lower_super_property_numeric_update(op, access),
+            PropertyAccess::Private(_) => self.unsupported_expr("private field update target"),
         }
     }
 
@@ -26547,15 +26534,87 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        let reference = self.locate_identifier_reference(&name);
+        let selected = self
+            .with_environment_chain
+            .select_preceding(reference.declarative_position());
+        let (op, return_mode) = match op {
+            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
+            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
+            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
+            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+        };
+        if let Some(objects) = selected {
+            let plan = self.with_environment_reference_plan(name.clone(), objects);
+            let fallback = self.lower_located_identifier_numeric_update(
+                name,
+                op,
+                return_mode,
+                reference,
+                IdentifierUpdateReachability::WithEnvironmentFallback,
+            );
+            let bindings =
+                NumericUpdateBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
+            return plan.numeric_update(op, return_mode, bindings, fallback);
+        }
+        if matches!(&reference, LocatedIdentifierReference::Unresolvable)
+            && !self.global_property_is_proven_present(&name)
+        {
+            return self.lower_global_object_environment_numeric_update(name, op, return_mode);
+        }
+        self.lower_located_identifier_numeric_update(
+            name,
+            op,
+            return_mode,
+            reference,
+            IdentifierUpdateReachability::Definite,
+        )
+    }
+
+    fn lower_global_object_environment_numeric_update(
+        &mut self,
+        name: String,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+    ) -> TypedExpr {
+        if let Some(info) = self.global_properties.get_mut(&name) {
+            info.value_info = unknown_runtime_value_info();
+            info.proven_present = false;
+        }
+        let bindings =
+            NumericUpdateBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
+        let strictness = self.reference_strictness();
+        GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)
+            .numeric_update(op, return_mode, bindings)
+    }
+
+    fn lower_located_identifier_numeric_update(
+        &mut self,
+        name: String,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        reference: LocatedIdentifierReference,
+        reachability: IdentifierUpdateReachability,
+    ) -> TypedExpr {
         // 13.4.4 / 13.4.5 UpdateExpression: GetValue then PutValue, so
         // 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 both apply. `x++` on an
         // uninitialized binding used to read the slot.
-        match self.resolve_binding_reference(&name) {
-            BindingResolution::Uninitialized(violation) => return violation.into_throw(),
-            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
-        }
-        let (binding_storage_name, update_kind) = if let Some(binding) = self.lookup_binding(&name)
-        {
+        let located_binding = match reference {
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Uninitialized(violation),
+                ..
+            } => return violation.into_throw(),
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Initialized(binding),
+                ..
+            } => Some(binding),
+            LocatedIdentifierReference::Unresolvable => None,
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Unresolvable,
+                ..
+            } => unreachable!("a declarative location cannot be unresolvable"),
+        };
+        let (binding_storage_name, update_kind) = if let Some(binding) = located_binding {
             if binding.mode == BindingMode::Const {
                 // 13.4.4.1 (and 13.4.5.1 / the prefix forms) run
                 //   1. expr = evaluate the UnaryExpression
@@ -26594,17 +26653,27 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Dynamic
             };
             let storage_name = binding.storage_name.clone();
-            self.set_binding_value_info(&name, ValueInfo::new(update_kind));
+            let emitted_update_kind = match reachability {
+                IdentifierUpdateReachability::Definite => update_kind,
+                IdentifierUpdateReachability::WithEnvironmentFallback => ValueKind::Dynamic,
+            };
+            let updated_info = match reachability {
+                IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind),
+                IdentifierUpdateReachability::WithEnvironmentFallback => {
+                    unknown_runtime_value_info()
+                }
+            };
+            self.set_binding_value_info(&name, updated_info.clone());
             // A script-level `var` is a property of the global object, and
             // `lower_identifier_name_inner` reads it from there. Updating the
             // local mirror instead would read a value that is stale by every
             // write a closure made through the global object, so `n++` after
             // `function bump(){ n++ }; bump()` would resume from the old value.
             if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
-                self.set_global_property_value_info(name.clone(), ValueInfo::new(update_kind));
-                (None, update_kind)
+                self.set_global_property_value_info(name.clone(), updated_info);
+                (None, emitted_update_kind)
             } else {
-                (Some(storage_name), update_kind)
+                (Some(storage_name), emitted_update_kind)
             }
         } else if let Some(info) = self.lookup_global_property_info(&name) {
             if info.proven_present {
@@ -26623,50 +26692,116 @@ impl<'a> ScriptLowerer<'a> {
                 } else {
                     ValueKind::Dynamic
                 };
-                self.set_global_property_value_info(name.clone(), ValueInfo::new(update_kind));
-                (None, update_kind)
+                let emitted_update_kind = match reachability {
+                    IdentifierUpdateReachability::Definite => update_kind,
+                    IdentifierUpdateReachability::WithEnvironmentFallback => ValueKind::Dynamic,
+                };
+                let updated_info = match reachability {
+                    IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind),
+                    IdentifierUpdateReachability::WithEnvironmentFallback => {
+                        unknown_runtime_value_info()
+                    }
+                };
+                self.set_global_property_value_info(name.clone(), updated_info);
+                (None, emitted_update_kind)
             } else {
-                self.unsupported_with_message(format!(
-                    "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                ));
-                return TypedExpr::undefined();
+                match reachability {
+                    IdentifierUpdateReachability::Definite => {
+                        self.unsupported_with_message(format!(
+                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
+                        ));
+                        return TypedExpr::undefined();
+                    }
+                    IdentifierUpdateReachability::WithEnvironmentFallback => {
+                        (None, ValueKind::Dynamic)
+                    }
+                }
             }
         } else if self.global_property_is_proven_present(&name) {
-            return self.unsupported_expr("numeric update on non-number binding");
+            match reachability {
+                IdentifierUpdateReachability::Definite => {
+                    return self.unsupported_expr("numeric update on non-number binding");
+                }
+                IdentifierUpdateReachability::WithEnvironmentFallback => (None, ValueKind::Dynamic),
+            }
         } else {
-            self.unsupported_with_message(format!(
-                "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-            ));
-            return TypedExpr::undefined();
-        };
-
-        let (op, return_mode) = match op {
-            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
-            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
-            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
-            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+            match reachability {
+                IdentifierUpdateReachability::Definite => {
+                    self.unsupported_with_message(format!(
+                        "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
+                    ));
+                    return TypedExpr::undefined();
+                }
+                IdentifierUpdateReachability::WithEnvironmentFallback => (None, ValueKind::Dynamic),
+            }
         };
 
         let strictness = self.reference_strictness();
-        TypedExpr::from_info(
-            ValueInfo::new(update_kind),
-            if let Some(storage_name) = binding_storage_name {
+        if let Some(storage_name) = binding_storage_name {
+            return TypedExpr::from_info(
+                ValueInfo::new(update_kind),
                 ExprIr::UpdateIdentifier {
                     name: storage_name,
                     op,
                     return_mode,
                     value_kind: update_kind,
+                },
+            );
+        }
+        if reachability == IdentifierUpdateReachability::WithEnvironmentFallback {
+            if let Some(info) = self.global_properties.get_mut(&name) {
+                info.value_info = unknown_runtime_value_info();
+                if info.configurable {
+                    info.proven_present = false;
                 }
-            } else {
-                ExprIr::GlobalPropertyUpdate {
-                    name,
-                    op,
-                    return_mode,
-                    value_kind: update_kind,
-                    strictness,
-                }
+            }
+        }
+        let update = TypedExpr::from_info(
+            ValueInfo::new(update_kind),
+            ExprIr::GlobalPropertyUpdate {
+                name: name.clone(),
+                op,
+                return_mode,
+                value_kind: update_kind,
+                strictness,
             },
-        )
+        );
+        match reachability {
+            IdentifierUpdateReachability::Definite => update,
+            IdentifierUpdateReachability::WithEnvironmentFallback => {
+                // HasBinding/@@unscopables is observable and may delete a
+                // previously proven global before the fallback is reached.
+                // UpdateExpression GetValue must then throw in sloppy code as
+                // well; it must not coerce `undefined` and recreate the name.
+                let present = TypedExpr::spec_has_property(
+                    TypedExpr::from_info(
+                        self.global_this_info(),
+                        ExprIr::Identifier(GLOBAL_THIS_NAME.to_string()),
+                    ),
+                    TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(name)),
+                );
+                let missing = TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::RuntimeThrow {
+                        name: NativeErrorKind::ReferenceError,
+                        message: "unbound identifier in with scope",
+                    },
+                );
+                TypedExpr::from_info(
+                    update.value_info(),
+                    ExprIr::Conditional {
+                        condition: Box::new(present),
+                        then_expr: Box::new(update),
+                        else_expr: Box::new(missing),
+                    },
+                )
+            }
+        }
     }
 
     fn lower_unary(&mut self, op: UnaryOp, target: &Expression) -> TypedExpr {
@@ -27534,22 +27669,6 @@ impl<'a> ScriptLowerer<'a> {
             }
             RelationalOp::In => TypedExpr::spec_has_property(rhs, lhs),
             RelationalOp::InstanceOf => {
-                // 13.10.2 InstanceofOperator: a right-hand side that is not an
-                // object, or is an object that is not callable, throws a
-                // TypeError — which the emitted check already does. Only a
-                // right-hand side that could carry a `Symbol.hasInstance`
-                // handler needs the OrdinaryHasInstance shortcut to be refused.
-                if !rhs.possible_kinds.contains(ValueKind::Function)
-                    && self.may_have_has_instance_handler(&rhs)
-                {
-                    return self.unsupported_expr("unsupported comparison operator");
-                }
-                if Self::static_instanceof_expr(&lhs, &rhs) == Some(true) {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::Boolean(true),
-                    );
-                }
                 if let Some(function_id) = self.resolve_single_function_target(&rhs) {
                     let Some(signature) = self.function_signatures.get(&function_id) else {
                         return self.unsupported_expr("unsupported comparison operator");
@@ -27567,40 +27686,6 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
         }
-    }
-
-    fn static_instanceof_expr(lhs: &TypedExpr, rhs: &TypedExpr) -> Option<bool> {
-        let function_id = rhs.function_targets.iter().next()?;
-        if rhs.function_targets.len() != 1 {
-            return None;
-        }
-        let builtin = StandardBuiltinId::from_function_id(function_id)?;
-        let target_prototype = match builtin {
-            StandardBuiltinId::ErrorConstructor
-            | StandardBuiltinId::EvalErrorConstructor
-            | StandardBuiltinId::AggregateErrorConstructor
-            | StandardBuiltinId::SuppressedErrorConstructor
-            | StandardBuiltinId::RangeErrorConstructor
-            | StandardBuiltinId::SyntaxErrorConstructor
-            | StandardBuiltinId::TypeErrorConstructor
-            | StandardBuiltinId::URIErrorConstructor
-            | StandardBuiltinId::ReferenceErrorConstructor => {
-                Self::standard_error_prototype_shape(builtin)
-            }
-            StandardBuiltinId::NumberConstructor => {
-                Self::standard_boxed_prototype_shape(BoxedPrimitiveKind::Number)
-            }
-            StandardBuiltinId::StringConstructor => {
-                Self::standard_boxed_prototype_shape(BoxedPrimitiveKind::String)
-            }
-            StandardBuiltinId::BooleanConstructor => {
-                Self::standard_boxed_prototype_shape(BoxedPrimitiveKind::Boolean)
-            }
-            _ => return None,
-        };
-        lhs.heap_shape.as_deref().and_then(|shape| {
-            Self::heap_shape_has_prototype(shape, target_prototype.as_ref()).then_some(true)
-        })
     }
 
     fn heap_shape_has_prototype(shape: &HeapShape, target: &HeapShape) -> bool {
@@ -29060,17 +29145,6 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
-    /// Whether `instanceof` against `target` could dispatch to a
-    /// `Symbol.hasInstance` handler instead of OrdinaryHasInstance.
-    ///
-    /// A proven primitive never can: 13.10.2 step 1 throws before the handler
-    /// is looked up. Any object might, including one whose recorded shape has
-    /// no `Symbol.hasInstance` entry — a computed literal key is not recorded
-    /// in the shape, so absence there does not prove absence at runtime.
-    fn may_have_has_instance_handler(&self, target: &TypedExpr) -> bool {
-        !target.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-    }
-
     fn read_object_shape_property(
         &self,
         target: &TypedExpr,
@@ -29310,7 +29384,72 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// Invalidates the two facts a property write can make stale through an
+    /// untracked object alias: a remembered Boolean value and the copied heap
+    /// shape that still names its old prototype method.
+    ///
+    /// Binding shapes are copied by value; there is no object-identity carrier
+    /// joining `let alias = value` back to `value`. The pre-write Boolean fold
+    /// domain is therefore the smallest sound alias domain available here.
+    /// Preserve only the precisely resolved write target so the caller can
+    /// apply its exact shape update, and erase every other candidate's shape.
+    fn invalidate_static_boolean_alias_shapes(&mut self, target_name: &str) {
+        let target_location = (target_name != LEXICAL_THIS_NAME)
+            .then(|| self.lookup_binding_with_location(target_name))
+            .flatten()
+            .map(|(_, location)| location);
+        let candidates = std::mem::take(&mut self.static_boolean_bindings);
+        if candidates.is_empty() {
+            return;
+        }
+
+        for (scope_index, scope) in self.scopes.iter_mut().enumerate() {
+            for (name, binding) in scope {
+                let is_target = name == target_name
+                    && target_location == Some(BindingLookupLocation::Scope(scope_index));
+                if candidates.contains_key(name) && !is_target {
+                    binding.heap_shape = None;
+                }
+            }
+        }
+        for (name, binding) in &mut self.var_bindings {
+            let is_target = name == target_name
+                && (target_location == Some(BindingLookupLocation::VariableEnvironment)
+                    || (target_location.is_none() && binding.is_script_global));
+            if candidates.contains_key(name) && !is_target {
+                binding.heap_shape = None;
+            }
+        }
+        for (name, property) in &mut self.global_properties {
+            let is_target = name == target_name
+                && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
+            if candidates.contains_key(name) && !is_target {
+                property.value_info.heap_shape = None;
+            }
+        }
+        for infos in [
+            &mut self.nested_script_global_value_infos,
+            &mut self.known_nested_script_global_value_infos,
+        ] {
+            for (name, info) in infos {
+                let is_target = name == target_name
+                    && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
+                if candidates.contains_key(name) && !is_target {
+                    info.heap_shape = None;
+                }
+            }
+        }
+        if target_name != LEXICAL_THIS_NAME && candidates.contains_key(LEXICAL_THIS_NAME) {
+            if let Some(info) = &mut self.current_construct_this_info {
+                info.heap_shape = None;
+            }
+        }
+    }
+
     fn update_binding_shape_path(&mut self, name: &str, path: &[PropertyKeyIr], value: ValueInfo) {
+        if !path.is_empty() {
+            self.invalidate_static_boolean_alias_shapes(name);
+        }
         if name == LEXICAL_THIS_NAME {
             if let Some(current) = self.current_construct_this_info.clone() {
                 self.current_construct_this_info =

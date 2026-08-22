@@ -1060,10 +1060,112 @@ pub struct AggregateProgressSummary {
     pub manifest_hash: u64,
     pub snapshot_paths: SnapshotPaths,
     pub summary: AggregateRunSummary,
-    pub target_total: usize,
-    pub complete: bool,
-    pub matrix_nodes_completed: usize,
-    pub matrix_nodes_total: usize,
+    progress: AggregateProgress,
+}
+
+/// Closed aggregate progress state derived from the expected run matrix.
+///
+/// Keep this opaque: callers may observe progress, but cannot independently
+/// claim completion while also reporting fewer completed nodes than the
+/// matrix requires.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AggregateProgress {
+    target_total: usize,
+    matrix: MatrixProgress,
+}
+
+/// Whether the expected run matrix supplies no evidence, remains partial, or
+/// has been completed. Only `Complete` carries equal non-zero node counts, so
+/// an empty matrix cannot become a terminal success through `0 == 0`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MatrixProgress {
+    NoEvidence,
+    Incomplete {
+        completed: usize,
+        total: NonZeroUsize,
+    },
+    Complete {
+        total: NonZeroUsize,
+    },
+}
+
+impl AggregateProgress {
+    fn from_completed_nodes(
+        target_total: usize,
+        completed_nodes: &[String],
+        expected_node_ids: &BTreeSet<String>,
+    ) -> Result<Self, String> {
+        let completed_node_ids = completed_nodes.iter().cloned().collect::<BTreeSet<_>>();
+        if completed_node_ids.len() != completed_nodes.len() {
+            return Err("aggregate progress contains duplicate completed matrix nodes".to_string());
+        }
+        let unexpected = completed_node_ids
+            .difference(expected_node_ids)
+            .take(5)
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        if !unexpected.is_empty() {
+            return Err(format!(
+                "aggregate progress contains unexpected completed matrix nodes: [{}]",
+                unexpected.join(", ")
+            ));
+        }
+
+        let matrix = match NonZeroUsize::new(expected_node_ids.len()) {
+            None => MatrixProgress::NoEvidence,
+            Some(total) if completed_node_ids.len() == total.get() => {
+                MatrixProgress::Complete { total }
+            }
+            Some(total) => MatrixProgress::Incomplete {
+                completed: completed_node_ids.len(),
+                total,
+            },
+        };
+
+        Ok(Self {
+            target_total,
+            matrix,
+        })
+    }
+
+    fn is_complete(&self) -> bool {
+        matches!(self.matrix, MatrixProgress::Complete { .. })
+    }
+
+    fn matrix_nodes_completed(&self) -> usize {
+        match self.matrix {
+            MatrixProgress::NoEvidence => 0,
+            MatrixProgress::Incomplete { completed, .. } => completed,
+            MatrixProgress::Complete { total } => total.get(),
+        }
+    }
+
+    fn matrix_nodes_total(&self) -> usize {
+        match self.matrix {
+            MatrixProgress::NoEvidence => 0,
+            MatrixProgress::Incomplete { total, .. } | MatrixProgress::Complete { total } => {
+                total.get()
+            }
+        }
+    }
+}
+
+impl AggregateProgressSummary {
+    pub fn target_total(&self) -> usize {
+        self.progress.target_total
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.progress.is_complete()
+    }
+
+    pub fn matrix_nodes_completed(&self) -> usize {
+        self.progress.matrix_nodes_completed()
+    }
+
+    pub fn matrix_nodes_total(&self) -> usize {
+        self.progress.matrix_nodes_total()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2282,6 +2384,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 }
 
 const WASM_AOT_ASSERT_SAME_VALUE_PRELUDE: &str = r#"
+function __lilaAssertIsSameValue(a, b) {
+  if (a === b) {
+    return a !== 0 || 1 / a === 1 / b;
+  }
+  return a !== a && b !== b;
+}
+
 function __lilaAssertToString(value) {
   if (value === undefined) {
     return 'undefined';
@@ -2303,10 +2412,7 @@ function assert(mustBeTrue, message) {
 }
 
 assert.sameValue = function (actual, expected, message) {
-  if (actual === expected) {
-    return;
-  }
-  if (actual !== actual && expected !== expected) {
+  if (__lilaAssertIsSameValue(actual, expected)) {
     return;
   }
 
@@ -2324,7 +2430,7 @@ assert.sameValue = function (actual, expected, message) {
 const WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE: &str = r#"
 function __lilaAssertIsSameValue(a, b) {
   if (a === b) {
-    return true;
+    return a !== 0 || 1 / a === 1 / b;
   }
   return a !== a && b !== b;
 }
@@ -4823,9 +4929,6 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_iterator_zip_result_is_iterator_case(case) {
         return Some(source);
     }
-    if let Some(source) = rewrite_proxy_prevent_extensions_case(&case.path) {
-        return Some(source);
-    }
     if let Some(source) = rewrite_proxy_define_property_case(&case.path) {
         return Some(source);
     }
@@ -6367,28 +6470,6 @@ if (zipBasicStrictCombinationCount !== 156) throw "zip sequence combination coun
 "#,
     ]
     .concat())
-}
-
-fn rewrite_proxy_prevent_extensions_case(path: &str) -> Option<String> {
-    if path.ends_with("built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js") {
-        return Some(
-            r#"var ns = Object.create(null);
-Object.preventExtensions(ns);
-
-var nsTarget = new Proxy(ns, {});
-var nsProxy = new Proxy(nsTarget, {
-  preventExtensions: undefined,
-});
-
-if (Reflect.preventExtensions(nsProxy) !== true) {
-  throw "preventExtensions result";
-}
-"#
-            .to_string(),
-        );
-    }
-
-    None
 }
 
 fn rewrite_proxy_define_property_case(path: &str) -> Option<String> {
@@ -24001,12 +24082,11 @@ pub fn load_aggregate_progress_summary(
             resolved.snapshot_paths.json_path.display()
         )
     })?;
-    let completed_node_ids = snapshot
-        .completed_nodes
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let complete = completed_node_ids == expected_node_ids;
+    let progress = AggregateProgress::from_completed_nodes(
+        target_total,
+        &snapshot.completed_nodes,
+        &expected_node_ids,
+    )?;
     Ok(AggregateProgressSummary {
         pinned_revisions: expected_pinned,
         recorded_pinned_revisions: recorded_pinned,
@@ -24014,10 +24094,7 @@ pub fn load_aggregate_progress_summary(
         manifest_hash,
         snapshot_paths: resolved.snapshot_paths,
         summary: aggregate_summary_from_snapshot(&snapshot),
-        target_total,
-        complete,
-        matrix_nodes_completed: completed_node_ids.intersection(&expected_node_ids).count(),
-        matrix_nodes_total: expected_node_ids.len(),
+        progress,
     })
 }
 
@@ -25792,6 +25869,48 @@ mod tests {
 
     const SPEC_EXEC_HARNESS: &str = include_str!("../assets/local-harness/spec-exec.js");
     const WASM_AOT_HARNESS: &str = include_str!("../assets/local-harness/wasm-aot.js");
+
+    #[test]
+    fn aggregate_progress_derives_completion_from_validated_node_counts() {
+        let expected_node_ids = ["built-ins", "language"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>();
+        let incomplete = AggregateProgress::from_completed_nodes(
+            191,
+            &["built-ins".to_string()],
+            &expected_node_ids,
+        )
+        .expect("valid partial progress");
+        assert_eq!(incomplete.target_total, 191);
+        assert!(!incomplete.is_complete());
+        assert_eq!(incomplete.matrix_nodes_completed(), 1);
+        assert_eq!(incomplete.matrix_nodes_total(), 2);
+
+        let complete_nodes = vec!["built-ins".to_string(), "language".to_string()];
+        let complete =
+            AggregateProgress::from_completed_nodes(191, &complete_nodes, &expected_node_ids)
+                .expect("valid complete progress");
+        assert!(complete.is_complete());
+        assert_eq!(complete.matrix_nodes_completed(), 2);
+        assert_eq!(complete.matrix_nodes_total(), 2);
+
+        let no_evidence = AggregateProgress::from_completed_nodes(0, &[], &BTreeSet::new())
+            .expect("an empty matrix is explicit no-evidence progress");
+        assert!(!no_evidence.is_complete());
+        assert_eq!(no_evidence.matrix_nodes_completed(), 0);
+        assert_eq!(no_evidence.matrix_nodes_total(), 0);
+
+        let unexpected = ["built-ins".to_string(), "stale-node".to_string()];
+        let err = AggregateProgress::from_completed_nodes(191, &unexpected, &expected_node_ids)
+            .expect_err("unknown nodes cannot enter aggregate progress");
+        assert!(err.contains("unexpected completed matrix nodes: [stale-node]"));
+
+        let duplicate = ["built-ins".to_string(), "built-ins".to_string()];
+        let err = AggregateProgress::from_completed_nodes(191, &duplicate, &expected_node_ids)
+            .expect_err("duplicate nodes cannot enter aggregate progress");
+        assert!(err.contains("duplicate completed matrix nodes"));
+    }
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_test262")
@@ -28382,6 +28501,29 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
+    fn wasm_aot_property_harness_uses_same_value_for_nan_and_signed_zero() {
+        for source in [
+            WASM_AOT_HARNESS,
+            WASM_AOT_ASSERT_SAME_VALUE_PRELUDE,
+            WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE,
+        ] {
+            let same_value = javascript_function(source, "function __lilaAssertIsSameValue(");
+            assert!(same_value.contains("a !== 0 || 1 / a === 1 / b"));
+            assert!(same_value.contains("a !== a && b !== b"));
+        }
+
+        assert!(WASM_AOT_ASSERT_SAME_VALUE_PRELUDE
+            .contains("__lilaAssertIsSameValue(actual, expected)"));
+        assert!(WASM_AOT_ASSERT_COMPARE_ARRAY_PRELUDE
+            .contains("__lilaAssertIsSameValue(actual[index], expected[index])"));
+
+        let verify_property = javascript_function(WASM_AOT_HARNESS, "function verifyProperty(");
+        assert!(verify_property.contains("__lilaAssertIsSameValue(originalDesc.value, desc.value)"));
+        assert!(verify_property.contains("__lilaAssertIsSameValue(obj[name], desc.value)"));
+        assert!(!verify_property.contains("originalDesc.value !== desc.value"));
+    }
+
+    #[test]
     fn materialize_detach_array_buffer_include_loads_sta_for_262_host() {
         let mut store = PreludeStore::default();
         store.insert(
@@ -30965,31 +31107,6 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized.source.contains("harness should be skipped"));
         assert!(materialized.source.contains("effects.length !== 2"));
         assert!(materialized.source.contains("returnValue === returnValue"));
-    }
-
-    #[test]
-    fn materialize_proxy_prevent_extensions_module_namespace_case() {
-        let store = PreludeStore::default();
-        let mut case = synthetic_case(
-            "built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
-        );
-        case.execution_id = TestExecutionId::new(
-            "built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
-            TestExecutionMode::Module,
-        );
-        case.flags.insert("module".to_string());
-        case.original_source =
-            Arc::from("import * as ns from './trap-is-undefined-target-is-proxy.js';".to_string());
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(materialized.execution_mode().is_module());
-        assert!(!materialized.source.contains("import * as ns"));
-        assert!(materialized.source.contains("Object.preventExtensions(ns)"));
-        assert!(materialized
-            .source
-            .contains("Reflect.preventExtensions(nsProxy)"));
     }
 
     #[test]
@@ -39658,7 +39775,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             load_aggregate_progress_summary(&config, "latest", ExecutionBackend::SpecExec)
                 .expect("progress should resolve to the published aggregate");
         assert_eq!(progress.resolved_snapshot_name, "published-elsewhere");
-        assert!(progress.complete);
+        assert!(progress.is_complete());
         assert_eq!(progress.summary.failed, 1);
         assert!(progress
             .snapshot_paths

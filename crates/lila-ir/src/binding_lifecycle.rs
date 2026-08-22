@@ -252,8 +252,9 @@ impl PendingInitialization {
 /// BlockDeclarationInstantiation did **not** create the name — a for-head
 /// binding, a compiler-generated declarator, or a form the sweep could not
 /// resolve. It is a named constructor rather than an implicit fallback so that
-/// "there was no token" is a decision at the call site, and its four callers
-/// each sit in the `None` arm of a `match` on the token.
+/// "there was no token" is a decision at the call site. Classic `for` heads
+/// are explicit untokened paths; statement-list fallbacks sit in the `None`
+/// arm of a `match` on the token.
 #[derive(Debug)]
 #[must_use = "an initialized binding that is never declared leaves the scope \
               entry uninitialized and emits no lexical statement"]
@@ -266,8 +267,9 @@ pub(crate) struct InitializedBinding {
 }
 
 impl InitializedBinding {
-    /// The untokened path: this statement list did not create `source_name`, so
-    /// the caller allocated the storage name itself.
+    /// The untokened path: this lowering entry has no
+    /// `PendingInitialization` for `source_name`, so the caller allocated the
+    /// storage name itself.
     pub(crate) fn without_creation(
         source_name: String,
         mode: BindingMode,
@@ -294,6 +296,36 @@ impl InitializedBinding {
             name: self.storage_name,
             init: self.value,
         }
+    }
+
+    /// Transfers runtime initialization ownership to a synchronous resource
+    /// entry while completing the lowerer's compile-time lifecycle transition.
+    ///
+    /// Unlike [`Self::declare`], this emits no `Lexical`: the dedicated scope
+    /// backend must acquire and register `@@dispose` before it initializes the
+    /// binding, so a generic lexical statement would encode the wrong order.
+    pub(crate) fn into_sync_disposable_resource(
+        self,
+        lowerer: &mut ScriptLowerer<'_>,
+    ) -> SyncDisposableResourceIr {
+        lowerer.declare_initialized_binding(self.source_name, self.info);
+        SyncDisposableResourceIr {
+            binding_name: self.storage_name,
+            initializer: self.value,
+        }
+    }
+
+    /// Transfers runtime initialization ownership to an async-dispose resource
+    /// entry while completing the same compile-time binding transition.
+    ///
+    /// The dedicated scope backend must acquire and register the selected
+    /// async-dispose protocol before initializing this immutable binding.
+    pub(crate) fn into_async_disposable_resource(
+        self,
+        lowerer: &mut ScriptLowerer<'_>,
+    ) -> AsyncDisposableResourceIr {
+        lowerer.declare_initialized_binding(self.source_name, self.info);
+        AsyncDisposableResourceIr::new(self.storage_name, self.value)
     }
 }
 

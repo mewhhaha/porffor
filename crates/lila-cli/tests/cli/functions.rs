@@ -524,6 +524,30 @@ fn run_wasm_backend_preserves_parent_linked_lexical_environments() {
 }
 
 #[test]
+fn run_wasm_backend_preserves_async_for_of_iteration_environments() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_async_for_of_closure_capture.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+    assert!(
+        !stdout.contains("uncaught throw") && !stderr.contains("uncaught throw"),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_function_form_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -805,10 +829,11 @@ fn run_wasm_backend_succeeds_for_function_prototype_define_property_fixture() {
     assert!(stdout.contains("boolean(true)"));
 }
 
-/// `CreateBuiltinFunction` defaults `[[Prototype]]` from the function's
-/// defining realm. This spans constructors, methods, accessors, namespace and
-/// global functions, plus the canonical parseInt/parseFloat helper across two
-/// distinct synthetic realms.
+/// Each realm owns one callable, non-constructable `%Function.prototype%`
+/// whose own descriptors and Function constructor links keep that exact
+/// identity. `CreateBuiltinFunction` then defaults `[[Prototype]]` from the
+/// defining realm across constructors, methods, accessors, namespace and
+/// global functions, plus canonical parseInt/parseFloat helpers.
 #[test]
 fn run_wasm_backend_uses_created_realm_builtin_function_prototypes() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
@@ -830,4 +855,27 @@ fn run_wasm_backend_uses_created_realm_builtin_function_prototypes() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(stdout.contains("number(123"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_supports_function_prototype_symbol_has_instance() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_function_prototype_symbol_has_instance.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
 }

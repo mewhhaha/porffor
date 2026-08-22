@@ -11,31 +11,33 @@ use lila_ir::{
     ClassHeritageKind, ClassInstanceElementPlanIr, ClassMethodPlacementIr, ClassStaticElementIr,
     DeleteIdentifierKindIr, DestructuringPropertyKeyIr, DestructuringTargetIr, DynamicFunctionKind,
     DynamicSourceIntrinsic, EqualityBinaryOp, ExprIr, ForInOfEnvironmentIr, ForInitIr,
-    ForLexicalEnvironmentIr, FunctionExecutionKind, FunctionFlavor, FunctionId, FunctionIr,
-    FunctionParamIr, FunctionProtocolIr, GeneratorResumeModeIr, GeneratorTryPlanIr,
-    GlobalBindingPlan, GlobalPropertyInitializerIr, HeapShape, HostBuiltinId,
+    ForLexicalEnvironmentIr, ForOfIteratorHeadIr, FunctionExecutionKind, FunctionFlavor,
+    FunctionId, FunctionIr, FunctionParamIr, FunctionProtocolIr, GeneratorResumeModeIr,
+    GeneratorTryPlanIr, GlobalBindingPlan, GlobalPropertyInitializerIr, HeapShape, HostBuiltinId,
     IdentifierWriteDisposition, JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp,
-    NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty, OwnedEnvBindingIr, PrivateNameId,
-    PropertyKeyIr, RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr,
+    NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty,
+    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr,
+    PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr,
     StandardBuiltinId, StatementIr, Strictness, SuspendedPropertyReferenceIr,
-    SuspendedPropertyReferenceUse, SwitchCaseIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
-    UnaryNumericOp, UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm,
-    AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BIGINT64_ARRAY_NAME,
-    BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME,
-    EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
-    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
-    LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
-    LILA_GENERATOR_THROW_SLOT, LILA_STATIC_GENERATOR_ITERATOR_SLOT,
-    LILA_STATIC_GENERATOR_VALUES_METHOD, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
-    PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SET_NAME,
-    SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
-    TEMPORAL_DURATION_NAME, TEMPORAL_NOW_NAME, TEMPORAL_PLAIN_DATE_NAME,
-    TEMPORAL_PLAIN_DATE_TIME_NAME, TEMPORAL_PLAIN_MONTH_DAY_NAME, TEMPORAL_PLAIN_TIME_NAME,
-    TEMPORAL_PLAIN_YEAR_MONTH_NAME, TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME,
-    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
-    URI_ERROR_NAME,
+    SuspendedPropertyReferenceUse, SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint,
+    TypedExpr, UnaryBitwiseOp, UnaryNumericOp, UpdateReturnMode, ValueInfo, ValueKind,
+    VarDeclaratorIr, YieldForm, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME,
+    BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
+    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME,
+    FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME,
+    INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME,
+    JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME,
+    LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, LILA_GENERATOR_THROW_SLOT,
+    LILA_STATIC_GENERATOR_ITERATOR_SLOT, LILA_STATIC_GENERATOR_VALUES_METHOD, MAP_NAME, MATH_NAME,
+    NUMBER_NAME, OBJECT_NAME, PRINT_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME,
+    REFLECT_NAME, REGEXP_NAME, SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME,
+    SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TEMPORAL_DURATION_NAME,
+    TEMPORAL_NOW_NAME, TEMPORAL_PLAIN_DATE_NAME, TEMPORAL_PLAIN_DATE_TIME_NAME,
+    TEMPORAL_PLAIN_MONTH_DAY_NAME, TEMPORAL_PLAIN_TIME_NAME, TEMPORAL_PLAIN_YEAR_MONTH_NAME,
+    TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME, UINT16_ARRAY_NAME,
+    UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
 };
+use lila_ir::{SuperPropertyMutationIr, SuperPropertyMutationOperationIr};
 // `Function` is deliberately absent from this list. The name is bound below to
 // `code_sink::Function`, the wrapper that counts real Wasm label depth, and
 // every submodule of this crate reaches `Function` through this one binding
@@ -138,6 +140,169 @@ mod tests {
             &source,
             HostSurfacePolicy::Test262,
         ))
+    }
+
+    #[test]
+    fn disposable_stack_construction_and_lifecycle_are_one_intrinsic_unit() {
+        let constructor = include_str!("builtins/disposable_stack.rs");
+        let functions = include_str!("functions.rs");
+        let heap = include_str!("heap.rs");
+        let installer = include_str!("intrinsics/resource_management.rs");
+        let planning = include_str!("planning.rs");
+        let standard = include_str!("builtins/standard.rs");
+        let catalog = include_str!("../../lila-ir/src/builtins/catalog.rs");
+        let names = include_str!("../../lila-ir/src/names.rs");
+
+        assert!(constructor.contains(
+            "#[must_use = \"a pending DisposableStack record must be consumed by the instance finalizer\"]\nstruct PendingDisposableStackRecordLocal(u32);"
+        ));
+        assert!(!constructor.contains("derive(Clone"));
+        assert_eq!(
+            constructor
+                .matches("emit_alloc_pending_disposable_stack_record(function)?")
+                .count(),
+            2,
+            "the constructor and move each allocate one fresh pending record"
+        );
+        assert_eq!(
+            constructor
+                .matches("emit_new_target_prototype_to_locals(")
+                .count(),
+            1,
+            "the constructor body owns exactly one observable prototype Get"
+        );
+        assert_eq!(
+            constructor
+                .matches("emit_finalize_disposable_stack_instance(")
+                .count(),
+            3,
+            "constructor and move consume one record each through one private finalizer"
+        );
+        let finalizer = constructor
+            .split_once("fn emit_finalize_disposable_stack_instance(")
+            .expect("DisposableStack consuming finalizer")
+            .1
+            .split_once("fn emit_take_disposable_stack_capability(")
+            .expect("DisposableStack finalizer must be bounded")
+            .0;
+        assert_eq!(
+            finalizer
+                .matches("OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK")
+                .count(),
+            1,
+            "only the consuming finalizer may install the sync brand"
+        );
+        let receiver_check = constructor
+            .split_once("fn emit_disposable_stack_record_from_receiver(")
+            .expect("DisposableStack receiver checker")
+            .1
+            .split_once("fn emit_disposable_stack_require_pending(")
+            .expect("DisposableStack receiver checker must be bounded")
+            .0;
+        assert_eq!(
+            receiver_check
+                .matches("OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK")
+                .count(),
+            1,
+            "every lifecycle operation checks the distinct sync brand"
+        );
+        assert!(!constructor.contains("OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK"));
+        assert!(heap.contains("pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;"));
+        assert!(heap
+            .contains("pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;"));
+
+        let direct_returning = functions
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct_returning
+                .matches("StandardBuiltinId::DisposableStackConstructor,")
+                .count(),
+            1,
+            "the constructor body must run before generic prototype Get/allocation"
+        );
+
+        for (builtin, function_id, emitter) in [
+            (
+                "DisposableStackPrototypeUse",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID",
+                "emit_disposable_stack_use(function)?",
+            ),
+            (
+                "DisposableStackPrototypeAdopt",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID",
+                "emit_disposable_stack_adopt(function)?",
+            ),
+            (
+                "DisposableStackPrototypeDefer",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID",
+                "emit_disposable_stack_defer(function)?",
+            ),
+            (
+                "DisposableStackPrototypeMove",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID",
+                "emit_disposable_stack_move(function)?",
+            ),
+            (
+                "DisposableStackPrototypeDispose",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID",
+                "emit_disposable_stack_dispose(function)?",
+            ),
+            (
+                "DisposableStackPrototypeDisposedGetter",
+                "BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID",
+                "emit_disposable_stack_disposed_getter(function)?",
+            ),
+        ] {
+            assert_eq!(
+                catalog.matches(&format!("\n    {builtin} {{")).count(),
+                1,
+                "the lifecycle member must have exactly one catalog row"
+            );
+            assert_eq!(
+                names.matches(&format!("pub const {function_id}:")).count(),
+                1,
+                "the lifecycle member must have exactly one function id"
+            );
+            assert_eq!(
+                standard.matches(emitter).count(),
+                1,
+                "the lifecycle member must have exactly one dispatcher arm"
+            );
+        }
+
+        let constructor_dependencies = planning
+            .split_once("if builtin == StandardBuiltinId::DisposableStackConstructor {")
+            .expect("DisposableStack constructor dependency closure")
+            .1
+            .split_once("if builtin == StandardBuiltinId::DisposableStackPrototypeDispose {")
+            .expect("constructor dependency closure must be bounded")
+            .0;
+        for builtin in ["Use", "Adopt", "Defer", "Move", "Dispose", "DisposedGetter"] {
+            assert_eq!(
+                constructor_dependencies
+                    .matches(&format!(
+                        "StandardBuiltinId::DisposableStackPrototype{builtin},"
+                    ))
+                    .count(),
+                1,
+                "constructor installation must root {builtin} exactly once"
+            );
+        }
+
+        assert_eq!(
+            installer
+                .matches("emit_object_define_function_data_with_aliases(")
+                .count(),
+            1,
+            "dispose and Symbol.dispose must share one function value"
+        );
+        assert!(installer.contains("&[\"Symbol.dispose\"]"));
+        assert!(installer.contains("Some((payload_local, tag_local)),\n            None,"));
     }
 
     #[test]

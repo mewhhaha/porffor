@@ -67,6 +67,22 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.release_temp_local(parent_env_local);
 
+        self.begin_existing_lexical_environment_scope(environment);
+        Ok(())
+    }
+
+    /// Attaches the compiler's binding view to an environment record that is
+    /// already current at run time.
+    ///
+    /// Resumable loop bodies use this on their resume path: function entry has
+    /// reloaded the exact per-iteration record from the activation, so
+    /// allocating another record here would give the resumed body a different
+    /// cell from closures created before the suspension. The ordinary entry
+    /// path still uses [`Self::emit_enter_lexical_environment`].
+    pub(crate) fn begin_existing_lexical_environment_scope(
+        &mut self,
+        environment: &LexicalEnvironmentIr,
+    ) {
         let outer_scope_count = self.binding_scopes.len().saturating_sub(1);
         for scope in &mut self.binding_scopes[..outer_scope_count] {
             for storage in scope.values_mut() {
@@ -89,7 +105,6 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         self.environment_depth += 1;
-        Ok(())
     }
 
     pub(crate) fn emit_leave_lexical_environment(&mut self, function: &mut Function) {

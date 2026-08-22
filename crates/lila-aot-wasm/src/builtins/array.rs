@@ -1,8 +1,10 @@
 use super::super::*;
 use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::control_flow::SyncIteratorErrorPolicy;
-use crate::objects::{TaggedLocals, WasmPartialDescriptor};
-use lila_ir::property_descriptor::Presence;
+use crate::objects::{
+    StoredDescriptorLocals, TaggedLocals, WasmDescriptor, WasmLocals, WasmPartialDescriptor,
+};
+use lila_ir::property_descriptor::{classify, DescriptorSide, KindTerms, Presence};
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr, ArrayAccumulationTargetIr};
 
 /// One array-descriptor field whose value locals always exist, while its
@@ -4116,198 +4118,374 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(cap_local);
     }
 
-    pub(crate) fn emit_array_define_data_index(
-        &mut self,
-        array_local: u32,
-        index_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        writable_payload_local: u32,
-        enumerable_payload_local: u32,
-        configurable_payload_local: u32,
-        value_present_local: u32,
-        writable_present_local: u32,
-        enumerable_present_local: u32,
-        configurable_present_local: u32,
+    pub(crate) fn emit_array_descriptor_side_present_to_local(
+        terms: &KindTerms<WasmLocals>,
+        result_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let existing_descriptor_kind_local = self.reserve_temp_local();
-        let descriptor_kind_local = self.reserve_temp_local();
-        let stored_payload_local = self.reserve_temp_local();
-        let stored_tag_local = self.reserve_temp_local();
-        let flag_payload_local = self.reserve_temp_local();
+    ) {
+        if terms.statically_true {
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(result_local));
+            return;
+        }
 
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(stored_payload_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(stored_tag_local));
-        self.emit_array_descriptor_kind_for_index(
-            array_local,
-            index_local,
-            existing_descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(value_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_read(
-            array_local,
-            index_local,
-            stored_payload_local,
-            stored_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-
-        self.emit_array_write(
-            array_local,
-            index_local,
-            stored_payload_local,
-            stored_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(
-            (ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_DATA) as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-
-        for (present_local, payload_local, flag) in [
-            (
-                writable_present_local,
-                writable_payload_local,
-                OBJECT_DESCRIPTOR_WRITABLE,
-            ),
-            (
-                enumerable_present_local,
-                enumerable_payload_local,
-                OBJECT_DESCRIPTOR_ENUMERABLE,
-            ),
-            (
-                configurable_present_local,
-                configurable_payload_local,
-                OBJECT_DESCRIPTOR_CONFIGURABLE,
-            ),
-        ] {
-            function.instruction(&Instruction::LocalGet(present_local));
+        let flags = terms.runtime_flags();
+        if flags.is_empty() {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(result_local));
+            return;
+        }
+        for (index, present_local) in flags.iter().enumerate() {
+            function.instruction(&Instruction::LocalGet(*present_local));
             function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I32Eqz);
+            if index > 0 {
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(result_local));
+    }
+
+    pub(crate) fn emit_array_index_effective_flag(
+        &mut self,
+        field: Presence<u32, u32>,
+        existing_descriptor_kind_local: u32,
+        flag: DescriptorMask,
+        result_local: u32,
+        function: &mut Function,
+    ) {
+        let emit_existing = |function: &mut Function| {
             function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(flag as i64));
+            function.instruction(&Instruction::I64Const(flag.as_i64()));
             function.instruction(&Instruction::I64And);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(flag_payload_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(payload_local));
-            function.instruction(&Instruction::LocalSet(flag_payload_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(flag_payload_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(flag as i64));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            function.instruction(&Instruction::End);
+        };
+        match field {
+            Presence::Absent => emit_existing(function),
+            Presence::Present(value_local) => {
+                function.instruction(&Instruction::LocalGet(value_local));
+            }
+            Presence::Runtime {
+                present: present_local,
+                value: value_local,
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                emit_existing(function);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(value_local));
+                function.instruction(&Instruction::End);
+            }
         }
-
-        self.emit_store_array_descriptor_for_index(
-            array_local,
-            index_local,
-            descriptor_kind_local,
-            function,
-        );
-        self.release_temp_local(flag_payload_local);
-        self.release_temp_local(stored_tag_local);
-        self.release_temp_local(stored_payload_local);
-        self.release_temp_local(descriptor_kind_local);
-        self.release_temp_local(existing_descriptor_kind_local);
-        Ok(())
+        function.instruction(&Instruction::LocalSet(result_local));
     }
 
-    pub(crate) fn emit_array_define_accessor_index(
+    pub(crate) fn emit_array_index_effective_value(
+        field: Presence<TaggedLocals, u32>,
+        existing: TaggedLocals,
+        result: TaggedLocals,
+        function: &mut Function,
+    ) {
+        match field {
+            Presence::Absent => {
+                function.instruction(&Instruction::LocalGet(existing.payload));
+                function.instruction(&Instruction::LocalSet(result.payload));
+                function.instruction(&Instruction::LocalGet(existing.tag));
+                function.instruction(&Instruction::LocalSet(result.tag));
+            }
+            Presence::Present(value) => {
+                function.instruction(&Instruction::LocalGet(value.payload));
+                function.instruction(&Instruction::LocalSet(result.payload));
+                function.instruction(&Instruction::LocalGet(value.tag));
+                function.instruction(&Instruction::LocalSet(result.tag));
+            }
+            Presence::Runtime { present, value } => {
+                function.instruction(&Instruction::LocalGet(present));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(existing.payload));
+                function.instruction(&Instruction::LocalSet(result.payload));
+                function.instruction(&Instruction::LocalGet(existing.tag));
+                function.instruction(&Instruction::LocalSet(result.tag));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(value.payload));
+                function.instruction(&Instruction::LocalSet(result.payload));
+                function.instruction(&Instruction::LocalGet(value.tag));
+                function.instruction(&Instruction::LocalSet(result.tag));
+                function.instruction(&Instruction::End);
+            }
+        }
+    }
+
+    /// Array exotic `[[DefineOwnProperty]]` for an array index.
+    ///
+    /// The validated descriptor is the only semantic input. Existing storage
+    /// is read first, all 10.1.6.3 compatibility checks finish next, and only
+    /// then may an element, accessor, descriptor word or array length change.
+    pub(crate) fn emit_array_define_index_descriptor(
         &mut self,
         array_local: u32,
         index_local: u32,
-        getter_payload_local: u32,
-        getter_tag_local: u32,
-        setter_payload_local: u32,
-        setter_tag_local: u32,
-        enumerable_payload_local: u32,
-        enumerable_present_local: u32,
-        configurable_payload_local: u32,
-        configurable_present_local: u32,
+        descriptor: WasmDescriptor,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let classification = classify(&descriptor);
+        let data_terms = classification.terms(DescriptorSide::Data);
+        let accessor_terms = classification.terms(DescriptorSide::Accessor);
+
         let existing_descriptor_kind_local = self.reserve_temp_local();
+        let requested_data_local = self.reserve_temp_local();
+        let requested_accessor_local = self.reserve_temp_local();
         let descriptor_kind_local = self.reserve_temp_local();
-        let flag_payload_local = self.reserve_temp_local();
+        let writable_local = self.reserve_temp_local();
+        let enumerable_local = self.reserve_temp_local();
+        let configurable_local = self.reserve_temp_local();
+        let existing_value =
+            TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
+        let existing_setter =
+            TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
+        let stored_value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
+        let stored_setter = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
+
         self.emit_array_descriptor_kind_for_index(
             array_local,
             index_local,
             existing_descriptor_kind_local,
             function,
         );
+        // This is the raw element/getter carrier, not `[[Get]]`; descriptor
+        // validation must never invoke the existing getter.
+        self.emit_array_read(
+            array_local,
+            index_local,
+            existing_value.payload,
+            existing_value.tag,
+            function,
+        );
+        self.emit_array_accessor_setter_for_index(
+            array_local,
+            index_local,
+            existing_setter.payload,
+            existing_setter.tag,
+            function,
+        );
+        Self::emit_array_descriptor_side_present_to_local(
+            &data_terms,
+            requested_data_local,
+            function,
+        );
+        Self::emit_array_descriptor_side_present_to_local(
+            &accessor_terms,
+            requested_accessor_local,
+            function,
+        );
+
+        // Reuse the canonical stored-descriptor validator. The Array layout
+        // projects its shared data/getter carrier into both typed roles; the
+        // stored kind selects which role is observable.
+        let validation_success_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(validation_success_local));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_validate_stored_descriptor(
+            existing_descriptor_kind_local,
+            StoredDescriptorLocals::new(existing_value, existing_value, existing_setter),
+            &descriptor,
+            validation_success_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(validation_success_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot redefine array index property",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(validation_success_local);
+        let descriptor = descriptor.into_partial();
+        self.emit_array_index_effective_flag(
+            descriptor.enumerable,
+            existing_descriptor_kind_local,
+            DescriptorMask::ENUMERABLE,
+            enumerable_local,
+            function,
+        );
+        self.emit_array_index_effective_flag(
+            descriptor.configurable,
+            existing_descriptor_kind_local,
+            DescriptorMask::CONFIGURABLE,
+            configurable_local,
+            function,
+        );
+
+        // Apply only after the validation block above has closed.
+        function.instruction(&Instruction::LocalGet(requested_accessor_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(existing_value.payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(existing_value.tag));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(existing_setter.payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(existing_setter.tag));
+        function.instruction(&Instruction::End);
+        Self::emit_array_index_effective_value(
+            descriptor.get,
+            existing_value,
+            stored_value,
+            function,
+        );
+        Self::emit_array_index_effective_value(
+            descriptor.set,
+            existing_setter,
+            stored_setter,
+            function,
+        );
+        self.emit_array_descriptor_flags_to_local(
+            ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR,
+            None,
+            enumerable_local,
+            configurable_local,
+            descriptor_kind_local,
+            function,
+        );
         self.emit_array_write(
             array_local,
             index_local,
-            getter_payload_local,
-            getter_tag_local,
+            stored_value.payload,
+            stored_value.tag,
             function,
         )?;
         self.emit_store_array_accessor_setter_for_index(
             array_local,
             index_local,
-            setter_payload_local,
-            setter_tag_local,
+            stored_setter.payload,
+            stored_setter.tag,
             function,
         );
-        function.instruction(&Instruction::I64Const(
-            (ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR) as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-        for (present_local, payload_local, flag) in [
-            (
-                enumerable_present_local,
-                enumerable_payload_local,
-                DescriptorMask::ENUMERABLE,
-            ),
-            (
-                configurable_present_local,
-                configurable_payload_local,
-                DescriptorMask::CONFIGURABLE,
-            ),
-        ] {
-            self.emit_descriptor_flag_payload_from_existing_descriptor(
-                existing_descriptor_kind_local,
-                payload_local,
-                Some(present_local),
-                flag,
-                flag_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(flag_payload_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(flag.as_i64()));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            function.instruction(&Instruction::End);
-        }
         self.emit_store_array_descriptor_for_index(
             array_local,
             index_local,
             descriptor_kind_local,
             function,
         );
-        self.release_temp_local(flag_payload_local);
-        self.release_temp_local(descriptor_kind_local);
-        self.release_temp_local(existing_descriptor_kind_local);
+        function.instruction(&Instruction::Else);
+
+        // A runtime-generic descriptor preserves an existing accessor without
+        // touching either accessor carrier. A missing property completes to a
+        // data property, as does an actual data descriptor.
+        function.instruction(&Instruction::LocalGet(requested_data_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_array_descriptor_flags_to_local(
+            ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR,
+            None,
+            enumerable_local,
+            configurable_local,
+            descriptor_kind_local,
+            function,
+        );
+        self.emit_store_array_descriptor_for_index(
+            array_local,
+            index_local,
+            descriptor_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(existing_value.payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(existing_value.tag));
+        function.instruction(&Instruction::End);
+        Self::emit_array_index_effective_value(
+            descriptor.value,
+            existing_value,
+            stored_value,
+            function,
+        );
+        self.emit_array_index_effective_flag(
+            descriptor.writable,
+            existing_descriptor_kind_local,
+            DescriptorMask::WRITABLE,
+            writable_local,
+            function,
+        );
+        self.emit_array_descriptor_flags_to_local(
+            ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_DATA,
+            Some(writable_local),
+            enumerable_local,
+            configurable_local,
+            descriptor_kind_local,
+            function,
+        );
+        self.emit_array_write(
+            array_local,
+            index_local,
+            stored_value.payload,
+            stored_value.tag,
+            function,
+        )?;
+        self.emit_store_array_descriptor_for_index(
+            array_local,
+            index_local,
+            descriptor_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        for local in [
+            stored_setter.tag,
+            stored_setter.payload,
+            stored_value.tag,
+            stored_value.payload,
+            existing_setter.tag,
+            existing_setter.payload,
+            existing_value.tag,
+            existing_value.payload,
+            configurable_local,
+            enumerable_local,
+            writable_local,
+            descriptor_kind_local,
+            requested_accessor_local,
+            requested_data_local,
+            existing_descriptor_kind_local,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 

@@ -179,6 +179,52 @@ The exact Wasm-AOT regression covering those four handler representations,
 Object and Reflect entry points, exact `this`, and abrupt lookup is written but
 has not run while the release matrix owns runtime verification.
 
+Proxy `[[PreventExtensions]]` now has a closed recursive request boundary. A
+private, non-copyable `ObjectPreventExtensionsRequest` owns distinct tagged
+traversal and Boolean-result roles, and pending/normal trap-result carriers
+make consuming a thrown call result as a Boolean a type error. Its outlined
+runtime helper is catalogued by `RuntimeHelperId::ObjectPreventExtensions`;
+missing, `undefined`, or `null` traps call that same helper with the retained
+target tag instead of decrementing a Rust emission depth. Trap lookup keeps the
+typed live handler, abrupt lookup/call completion is routed before
+classification or invariants, and a true result performs the complete
+proxy-aware `[[IsExtensible]]` check before publication.
+
+The retained source-free fixture now covers Object-versus-Reflect false
+results, more than four nested fallbacks, Function/Array/arguments/Proxy
+handlers, exact getter/trap receivers, a callable Proxy trap, abrupt lookup and
+call identity, non-callable traps, invariants, and revocation. The sole
+`rewrite_proxy_prevent_extensions_case` shortcut and its materialization unit
+have been removed. Consequently the original Module file
+`built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js` now
+runs from its vendored self-import source. Verification on `2026-08-21` is
+green for that exact raw Module execution (`1/1`), the complete leaf's 12
+physical files / 23 executions (`23/23`), the typed structure witness (`3/3`),
+and the expanded source-free Wasm fixture (`1/1`, 55.92 s). The adjacent
+recursive `built-ins/Proxy/isExtensible` and
+`built-ins/Reflect/preventExtensions` leaves are green at `24/24` and `20/20`.
+At clean pre-batch commit `22ab459107`, the broader
+`built-ins/Object/preventExtensions` regression reported `77/78`; the sole
+failure was the strict-script half of `15.2.3.10-3-4.js`. Its expected
+array-index PutValue `TypeError` returned from the non-main harness function
+instead of entering the catch owned by that same function. The adjacent batch
+now uses one canonical route: fresh runtime errors delegate to
+`emit_propagate_current_throw`, whose typed `ControlTarget` branch wins whenever
+a handler or finalizer is active, and only the no-target case returns the
+current completion. The retained fixture now distinguishes an external catch
+around a strict call from the load-bearing catch inside the same strict
+non-main function, and separately pins two nested finalizers running in order
+before the unchanged array-index TypeError reaches the outer catch. Verification
+on `2026-08-21` is green for workspace/all-target and `cargo xc`, the bounded
+structure witness (`3/3`), the expanded Wasm fixture (`1/1`, 21.08 s), the
+exact file (`2/2`), and the complete `built-ins/Object/preventExtensions` leaf
+(`78/78`, zero unsupported, crashes, timeouts, or runtime failures). Resumable
+throw transport, unrelated throw/catch paths, and
+object-literal method `[[HomeObject]]` remain outside this batch. Focused
+Object freeze, primitive-integrity, and TypedArray prevention fixtures remain
+green at `1/1` each. The older path-counted green leaf included the rewrite and
+is not promoted to source-level evidence here.
+
 The shared proxy-aware `[[GetPrototypeOf]]` emitter now consumes that same typed
 live-slot reader and full object-read seam. It no longer reconstructs every
 handler as an Object, so Function, Array and arguments handlers retain their

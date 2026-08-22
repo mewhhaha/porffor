@@ -35,13 +35,151 @@ inner to outer, the selected record performs GetBindingValue's second
 `HasProperty`, and deletion during `@@unscopables` returns `undefined` in
 sloppy code or throws `ReferenceError` in a captured strict function. The raw
 innermost-object/read accessors are private or deleted, so lowering cannot
-bypass declarative cutoff, outer chaining or the recheck. Object-literal
-methods still lack the required home-object context
-and remain explicit unsupported debt. Async-generator property assignment remains an explicit
-activation-ABI gap, as do private and `super` yield-assignment targets. The
-parse-once boundary is landed, several environment/control-flow files remain
+bypass declarative cutoff, outer chaining or the recheck. Non-resumable
+object-literal methods and accessors now carry an explicit receiver for each
+super Reference and a typed HomeObject-bearing function carrier; their focused
+IR/structure/CLI gates and exact five-file `10/10` Wasm cohort are green.
+Object-method lexical arrows now have a verified closed owner-role boundary:
+the first non-arrow owner either supplies the paired lexical `this` and
+HomeObject capability, supplies the distinct derived-constructor activation,
+or supplies neither. At clean pre-batch commit `039253d27`, exact
+`prop-dot-obj-val-from-arrow.js` and `prop-expr-obj-val-from-arrow.js` were
+`0/4` with the object-literal-method Runtime/NotImplemented diagnostic. The
+workspace/all-target check, focused IR invariant (`1/1`), bounded structure
+executable (`4/4`), Wasm CLI fixture (`1/1` in 19.37s), and both exact files
+(`4/4`, zero unsupported/crash/bug outcomes) are green. Direct generator and
+async object-method body/parameter controls remain green at `4/4` each and
+`concise-generator.js` remains `2/2`; those results do not establish complete
+suspension-safe transport. Complete async-generator object-method transport
+remains explicit debt, and async-generator property assignment remains an
+explicit activation-ABI gap, as do private and `super` yield-assignment
+targets. The parse-once boundary is landed, several environment/control-flow
+files remain
 large shared hotspots, and the language subtrees assigned to this task have not
 been proven zero-failure on a current complete Wasm-AOT matrix.
+
+Non-resumable numeric update and eager arithmetic/bitwise compound assignment
+through a `super` property now use a fused Reference contract and verified
+consumer fixture. The private plan retains current receiver, raw key, captured
+strictness in the fused IR. The AOT raw/coerced carriers then evaluate and
+retain the single super base through GetValue and PutValue; a key coercion that
+changes the method's HomeObject prototype cannot redirect either operation. The
+fixture pins the exact mutation traces
+`key,getA,rhs,setA:3:true` and `key,getA,setA:2:true` with an alien receiver,
+all four increment/decrement modes for Number and BigInt, strict failed Set,
+and uninitialized-`this` before key/RHS evaluation. At the near-HEAD pre-batch
+`b0d1d1300` boundary, the four exact
+`language/expressions/super/prop-expr-{getsuperbase-before-topropertykey,uninitialized-this}-putvalue-{increment,compound-assign}.js`
+files reported `2/8`; two increment files were `0/4`
+Runtime/NotImplemented, uninitialized-`this` compound assignment was `0/2`
+Runtime/Bug, and the existing GetSuperBase compound guard was `2/2`. The debug
+binary preceded the commit by four minutes, so these are near-HEAD rather than
+exact-commit measurements. Post-batch workspace check and `cargo xc`, focused
+IR `1/1`, structure `5/5`, compiled Wasm fixture `1/1`, exact cohort `8/8`,
+and both adjacent eight-execution order/control filters are green with zero
+unsupported, crash or bug outcomes. Logical super assignment, private fields,
+suspension and the broader super-expression matrix remain explicit nonclaims.
+
+All four identifier numeric-update forms inside `with` now spend that same
+non-empty, non-`Clone`, non-`Copy` Reference plan. A selected branch composes
+GetBindingValue's independent `HasProperty`/Get, one closed numeric update and
+SetMutableBinding's post-Get `HasProperty`/Set around three compiler-private
+materializations. The same binding-object identity therefore survives a getter
+that deletes the property; strict nested-function References throw before Set,
+while sloppy References recreate the property without falling through to an
+outer function, global or Object Environment Record. A durable CLI oracle and
+bounded source witness cover the lifecycle, all four prefix/postfix results,
+and an `@@unscopables` getter that changes a Number fallback to BigInt before
+blocking the object binding; the branch-local update therefore remains Dynamic
+while post-expression metadata widens to all runtime tags. Proxy `has` traps
+separately delete a previously proven global and create a previously unresolved
+global before declining the object binding, forcing one run-time `HasProperty`
+guard to reject the former without recreation and admit the latter; a
+configurable global also loses its static `proven_present` fact. They pin the
+exact 16-file `noStrict` Test262 inventory. At pre-batch commit
+`156aeb38b28378e04bb852f8d00679f47b401d34`, the representative prefix-increment
+and postfix-decrement strict-reference witnesses each reported `0/1` as
+`Runtime/NotImplemented`, with the exact diagnostic
+``unsupported in lila wasm-aot first slice: unbound identifier `x```. The
+integrated IR invariant is `1/1`, the source-bounded contract suite is `4/4`,
+the Wasm lifecycle fixture is `1/1`, and the exact current-source cohort is now
+`16/16`; these focused results do not claim the full language subtree or pinned
+matrix is green.
+
+Strict global compound assignment and prefix update now retain their computed
+payload and tag in reserved locals across PutValue's run-time `HasProperty`
+check. The checked write path may use emitter scratch/result locals internally;
+passing those same locals as the value previously let `x += 1` or `++x`
+compute `1`, then publish or return a helper temporary instead. The strict
+DisposableStack constructor fixture carries a focused global-write preamble
+that pins both the stored value and expression result for the two IR forms.
+
+Computed ordinary-property eager arithmetic and bitwise compound assignment now
+uses one fused Reference. A private, non-copyable producer plan
+owns the evaluated base/receiver, raw computed key and captured `[[Strict]]`;
+its consuming operation alone can mint the old-value read, apply one closed
+`EagerCompoundAssignmentOp`, and produce the backend carrier. The intended AOT
+lifecycle keeps the raw key distinct from the canonical key: evaluate base,
+evaluate raw key, reject a nullish base, perform exactly one `ToPropertyKey`
+and `[[Get]]`, then lower/apply the RHS and perform `[[Set]]` with the same
+base, receiver and key. A false Set result is routed through the captured
+strictness, and the expression result is published only after PutValue returns
+normally.
+
+The durable CLI fixture covers all twelve eager operators, including `**=` as
+a local closed-domain boundary, and makes each Reference phase observable with
+Proxy and accessor traces. It also covers base/raw-key/ToPropertyKey/RHS abrupt
+completion, nullish ordering, mutation of the raw key during RHS evaluation,
+strict and sloppy false-Set behavior, and nonpublication on abrupt completion.
+The exact raw Test262 inventory is the 44 physical files
+`language/expressions/compound-assignment/S11.13.2_A7.1_T1.js` through
+`S11.13.2_A7.11_T4.js`, each executed in sloppy and strict Script mode. At
+clean pre-batch commit `ae1bd994b`, a fresh full run measured `22/88`: every
+T3 control passed (`22` executions), while every T1, T2 and T4 execution was
+`Runtime/Bug` (`66` executions). No source rewrite, matrix mask or
+known-failure entry owns the cohort. Post-batch verification is green:
+workspace/all-target check and `cargo xc`; the focused IR invariant `1/1`; the
+bounded structure executable `7/7`; retained Super, `with`, and global
+compound-assignment structures `5/5`, `5/5`, and `4/4`; the compiled Wasm
+lifecycle fixture `1/1` in `75.42s`; and the exact raw matrix `88/88`, with zero
+unsupported, not-implemented, crash, or bug outcomes. The legacy matrix
+evidences eleven operators; `**=` adds no
+twelfth Test262 claim. Plain, logical and numeric property assignment,
+`super`, private, identifier/global/Object Environment, `with`, suspending RHS
+and the broader compound-assignment subtree remain explicit nonclaims.
+
+Computed ordinary-property numeric update now uses the same fused Reference
+ownership boundary. `OrdinaryPropertyReferencePlan::numeric_update`
+consumes the evaluated base/receiver, raw key and captured `[[Strict]]` into
+closed `NumericUpdateOp::{Increment, Decrement}` and
+`UpdateReturnMode::{Prefix, Postfix}` domains. The backend contract orders base,
+raw key, nullish rejection, one `ToPropertyKey`, `[[Get]]`, one `ToNumeric`,
+new-value computation, same-Reference `[[Set]]`, strict false-Set routing and
+only then old/new result publication.
+
+The durable CLI fixture covers all eight Number/BigInt prefix/postfix modes,
+their stored and returned values, Proxy/accessor receiver identity, raw-key
+mutation during `ToNumeric`, every abrupt phase, and strict versus sloppy
+false-Set behavior. The exact raw Test262 inventory is:
+
+- `language/expressions/postfix-decrement/S11.3.2_A6_T1.js`;
+- `language/expressions/postfix-increment/S11.3.1_A6_T1.js`;
+- `language/expressions/prefix-decrement/S11.4.5_A6_T1.js`; and
+- `language/expressions/prefix-increment/S11.4.4_A6_T1.js`.
+
+Each file has no explicit flags and therefore contributes sloppy and strict
+Script executions. At pre-batch head `0f004c0c6`, a fresh exact run measured
+`0/8`, all `Runtime/Bug`, because observable key coercion incorrectly preceded
+the required nullish-base `TypeError`. No source rewrite, matrix mask or
+known-failure entry owns the cohort. Post-batch verification is green:
+workspace/all-target check; the focused IR invariant `1/1`; the new and
+retained eager-compound structure executables `7/7` each; the compiled Wasm
+lifecycle fixture `1/1` in `60.43s`; and the exact raw cohort `8/8`, with zero
+unsupported, not-implemented, crash, or bug outcomes. Eager/logical/plain
+property assignment, `super`, private,
+identifier/global/Object Environment, `with`, optional chains, suspended
+References and the broader update-expression subtree remain explicit
+nonclaims.
 
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
@@ -50,11 +188,194 @@ feature-enabled CLI compile, and its exact generator-suspension Wasm fixture is
 green. The delete-super and Object Environment Record read/write structural
 units and Wasm fixtures are present, while their Cargo and pinned Test262
 execution gates remain deferred to the current integration checkpoint. The
-Object Environment seam is intentionally limited to plain assignment and direct
-identifier GetValue (including `typeof` operands) in scripts and ordinary
-source functions. Identifier-call `WithBaseObject`, compound/logical/update/
-destructuring/delete operations, generated class/helper contexts and resumable
-captured WithObject environments remain explicit debt.
+Object Environment seam is intentionally limited to plain assignment, direct
+identifier GetValue (including `typeof` operands), identifier numeric update
+and eager arithmetic/bitwise compound assignment in scripts and ordinary source
+functions, plus direct identifier-call `WithBaseObject`. Logical compound
+assignment, destructuring/delete operations, generated class/helper contexts
+and resumable captured WithObject environments remain explicit debt.
+
+Global Object Environment identifier numeric updates now have a verified
+Reference lifecycle adjacent to the already-green `with` numeric-update lane.
+One private `NumericUpdateBindings` carrier fixes the old-value, result and
+write-completion roles for both environment kinds. The shared binding-object
+operation orders an independent GetBindingValue `HasProperty`/Get, the closed
+Number-or-BigInt update, the independently rechecked SetMutableBinding, and
+result publication after PutValue. A separate non-`Clone`, non-`Copy`
+`GlobalObjectEnvironmentReferencePlan` owns the compiler-known global object,
+name and strictness, performs the initial plain `HasProperty`, and consumes the
+carrier without admitting an unscopables lookup or fallback chain. Lowering
+maps all four prefix/postfix increment/decrement modes exhaustively and only
+selects this plan for an unproven unresolvable global, while invalidating any
+configurable global metadata to fully Dynamic runtime information.
+
+The durable CLI oracle covers successful prefix/postfix Number and BigInt
+updates, all four strict accessor-deletion modes with no recreation, sloppy
+deletion and recreation, an initially absent binding throwing from GetValue
+before ToNumeric, and a Proxy-prototype trace that distinguishes the initial
+HasBinding, GetBindingValue recheck/Get, ToNumeric, SetMutableBinding recheck
+and Set. The bounded source witness owns these exact four `noStrict` files:
+
+- `language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue--1.js`;
+- `language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue--1.js`;
+- `language/expressions/postfix-increment/operator-x-postfix-increment-calls-putvalue-lhs-newvalue--1.js`;
+- `language/expressions/postfix-decrement/operator-x-postfix-decrement-calls-putvalue-lhs-newvalue--1.js`.
+
+The four corresponding bare-suffix `with` files and the eleven odd-suffix
+global eager-compound files remain explicit regression inventories. At
+pre-batch commit `f6b6af6a1779840eaf5d7c88cff2b9ff33db9381`, an isolated
+current-pin run measured the prefix-increment global witness at `0/1` as
+`Runtime/NotImplemented` with the exact diagnostic ``unsupported in lila
+wasm-aot first slice: unbound identifier `x```; the adjacent plain-assignment
+witness was `1/1`. The other three numeric files are source-proven to have
+entered the same closed lowering route and refusal, but were not separately
+measured pre-batch. The current integration checkpoint is green: package checks
+for `lila-ir`, `lila-aot-wasm` and `lila-cli`, plus `cargo xc`, all pass; the
+focused IR lifecycle test is `1/1`, four source-bounded structure executables
+total `17/17`, and the Wasm lifecycle fixture is `1/1` in 45.02 seconds. The
+exact selected global numeric cohort now passes `4/4`, the four bare-suffix
+`with` controls remain `4/4`, and the modern eager-compound prefix remains
+`22/22` with zero unsupported, crash or bug outcomes. These focused results do
+not claim the complete language subtree or pinned matrix is green.
+
+Direct identifier calls selected through a `with` Object Environment Record
+now have a verified Reference capability. The private, non-copyable,
+must-use `WithEnvironmentIdentifierCallReferencePlan` wraps the existing
+non-empty Object Environment chain; its sole consuming `call` transition pairs
+GetBindingValue's callee with the exact same binding object as
+CallExpression's `WithBaseObject()` receiver. Each selected branch carries
+`this_arg: Some(bindingObject)`, while the complete ordinary fallback remains
+outside that path with `this_arg: None`.
+
+The lowerer intercepts direct identifier calls before generator and
+name-specific builtin folds, so a selected `Boolean` or `Number` binding cannot
+bypass ResolveBinding. It locates the declarative/global fallback before the
+observable HasBinding walk, forces mutable fallback value and function-target
+metadata to the full runtime domain, then lowers arguments once. The AOT
+consumer retains the existing callee, explicit-this, arguments and Call order.
+The durable CLI oracle covers selected receiver identity, a getter deleting the
+method before its retained-base call, exact `huhrgac`
+HasProperty/unscopables/Get/getter/argument/call ordering, nested-unscopables
+selection, strict undefined-this and sloppy global-this fallback calls,
+selected builtin shadowing, an empty-with builtin fallback, and a declining
+Proxy HasBinding trap which replaces the known fallback function before its
+runtime GetValue.
+
+The exact selected Test262 inventory is the single `flags: [noStrict]` file
+`language/expressions/call/with-base-obj.js`. At clean pre-batch commit
+`88de596ce22a69b8b7c47dacaed051172adf46b6`, it measured `0/1` under Wasm AOT
+as `Bug/Runtime`, with its `via CallExpression` SameValue assertion observing
+the wrong receiver. The current integration checkpoint is green: package
+checks and `cargo xc` pass; the focused IR filter is `2/2`, the bounded
+structure executable is `4/4`, and the exact CLI fixture is `1/1` in 23.19
+seconds. The broader CLI `environment` slice is `13/13` in 315.07 seconds. One
+test-only hardcoded-key expectation was corrected during the focused IR rerun.
+The exact selected Test262 file now passes `1/1` with zero unsupported, crash
+or bug outcomes. These focused results do not claim the complete
+`language/expressions/call` or `with` subtree, or pinned matrix is green.
+
+Object Environment identifier logical assignment now has a verified shared
+Reference lifecycle for all three closed `LogicalBinaryOp::{And, Or,
+Coalesce}` modes. `ObjectEnvironmentBindingObject::logical_assignment` keeps
+GetBindingValue on one binding-object identity and places SetMutableBinding,
+including its RHS and independent `HasProperty` recheck, wholly inside the
+taken `LogicalShortCircuit` branch. The non-empty, non-copyable
+`WithEnvironmentReferencePlan` wraps that lifecycle in inner-to-outer
+HasProperty/unscopables selection and a pre-located fallback. The separate
+non-copyable `GlobalObjectEnvironmentReferencePlan` performs one initial plain
+HasProperty, emits ReferenceError on a miss, and cannot carry unscopables state.
+
+A private, non-copyable, must-use `LocatedIdentifierLogicalAssignment` owns the
+located Reference and `Option<ValueInfo>` proven-global snapshot before RHS
+lowering; its consuming helper cannot silently reread metadata after the RHS
+has changed it. The durable CLI oracle makes that snapshot load-bearing with an
+untaken String-writing RHS beside an old Number value. It also covers all three
+modes for initially absent globals, dynamically present short circuits with no
+RHS or PutValue, taken global writes, strict getter deletion without Set,
+sloppy recreation, visible and fallback `with` bindings, nested
+`Symbol.unscopables`, and the exact observable `huhgdrhs` order from HasBinding
+through SetMutableBinding.
+
+The exact selected `onlyStrict` Test262 files are:
+
+- `language/expressions/logical-assignment/lgcl-and-assignment-operator-unresolved-lhs.js`;
+- `language/expressions/logical-assignment/lgcl-or-assignment-operator-unresolved-lhs.js`;
+- `language/expressions/logical-assignment/lgcl-nullish-assignment-operator-unresolved-lhs.js`.
+
+The current integration checkpoint is green: package checks for `lila-ir`,
+`lila-aot-wasm` and `lila-cli`, plus `cargo xc`, all pass; the focused IR
+lifecycle tests are `2/2`, and four final source-bounded structure executables
+are `4/4`. One stale derive marker was corrected during that focused structural
+rerun without changing product code. The exact Wasm lifecycle fixture is `1/1`
+in 87.88 seconds, while the broader focused `environment` test selection is
+`12/12` in 270.93 seconds. The three selected strict unresolved-lhs Test262
+files now pass `3/3` with zero unsupported, crash or bug outcomes. The six
+adjacent unresolved-RHS physical files pass all `12/12` sloppy and strict
+executions. No vendored logical-assignment witness contains `with`, so the
+fixture remains the honest evidence for that behavior. These focused results
+do not claim the complete language subtree or pinned matrix is green.
+
+Resumable loops now carry a required closed
+`ResumableLoopIterationEnvironmentIr::{StorageOnly, FreshPerIteration}` policy.
+For the specialized plain-async array `for-of` path, a captured lexical head
+selects the fresh policy instead of being rejected. The corresponding backend
+contract allocates the iteration record only after the loop test succeeds,
+preserves that exact record across `await`, then restores and persists its
+parent before the update and next test. A focused CLI fixture invokes all
+capturing closures after the loop and requires six distinct values, with the
+synchronous `for-of` shape as its control. This lane is dry-written and
+statically checked. The integrated current-SHA checkpoint is green: `cargo xc`,
+three source-bounded backend structure tests, two focused IR tests, the existing
+resumable-loop Wasm module test, and the six-closure consumer fixture all pass.
+The two exact pinned `Array.fromAsync` witnesses report `4/4` under Wasm-AOT;
+the complete 95-file leaf was not rerun.
+
+Eager identifier compound assignments inside `with` now use the same non-empty
+consuming Reference plan. One private closed operation
+separates all six arithmetic and all six bitwise operators from the three
+short-circuiting logical forms. An opaque old-value/result/write carrier is
+sealed to the applied expression before the plan accepts it, so lowering cannot
+transpose the three compiler-private bindings or return before same-base
+PutValue succeeds. The durable CLI oracle covers all twelve eager operators,
+selected-object identity across getter deletion and RHS effects, strict
+post-Get deletion, function/global/outer fallbacks, and observable fallback
+mutation, deletion and creation. The bounded source witness owns the exact 44
+`noStrict` current-source Test262 files: 33 historical function/global/nested
+Object Environment Record cases and 11 modern strict nested-function
+SetMutableBinding rechecks. `**=` is included by the closed local operation but
+has no additional direct vendored witness. The integrated IR domain test is
+`1/1`, the source-bounded suite is `5/5`, the retained numeric-reference suite
+is `4/4`, the Wasm lifecycle fixture is `1/1`, and the exact current-source
+cohort is `44/44`. The broader modern filename filter also exposed 11 adjacent
+global Object Environment cases; they are explicit follow-up evidence, not part
+of this `with`-scope passing claim.
+
+That adjacent global Object Environment follow-up is now verified around a
+distinct non-copyable `GlobalObjectEnvironmentReferencePlan`. Its constructor
+owns the compiler-provided global object rather than accepting an arbitrary
+expression, and its consuming compound-assignment operation performs the
+Global Object Record's initial plain `HasProperty` before reusing the sealed
+old-value/result/write carrier and shared independent GetBindingValue and
+SetMutableBinding rechecks. Unlike `WithEnvironmentReferencePlan`, this type
+cannot carry an outer fallback chain or `Symbol.unscopables` selection. The
+durable CLI fixture covers all eleven directly evidenced operators, an initial
+miss throwing before RHS evaluation, strict accessor deletion without
+recreation, sloppy accessor deletion with recreation, inherited selection and
+result publication only after PutValue succeeds. The source-bounded witness
+owns the exact eleven odd-suffix `noStrict` Test262 files and retains the whole
+22-file modern prefix as an adjacent regression gate for the already-green
+`with` siblings. At pre-batch commit
+`450f67050a270eebb4459b8ebd3cb2b171f5b7ee`, that prefix reported `11/22`: all
+eleven selected global executions were `Runtime/NotImplemented` with the exact
+diagnostic ``unsupported in lila wasm-aot first slice: unbound identifier
+`x```; all eleven `with` executions passed. The affected-package compile is
+green; the IR lifecycle test is `1/1`, the new source-bounded suite is `4/4`,
+the retained compound/numeric suites are `5/5` and `4/4`, and the Wasm
+lifecycle fixture is `1/1`. The selected current-source Test262 cohort now
+passes `11/11`, and the adjacent prefix passes `22/22` with zero unsupported,
+crash or bug outcomes. The shared closed operation includes `**=`, but there is
+no twelfth direct vendored witness and no full language-subtree or pinned-matrix
+claim.
 
 ## Objective
 

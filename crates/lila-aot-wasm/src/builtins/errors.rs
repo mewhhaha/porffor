@@ -1179,6 +1179,13 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Creates a fresh native error and routes its Throw completion to the
+    /// innermost active catch/finally target, or returns it when there is none.
+    ///
+    /// The routing is deliberately delegated to
+    /// [`Self::emit_propagate_current_throw`]. Whether this builder emits the
+    /// main export or a user function does not affect a handler owned by the
+    /// current body.
     pub(crate) fn emit_throw_runtime_error_to_active_handler(
         &mut self,
         name: &str,
@@ -1188,13 +1195,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)?;
-        if !self.is_main() {
-            self.emit_return_current_completion(function);
-        } else if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, function);
-        } else {
-            self.emit_return_current_completion(function);
-        }
+        self.emit_propagate_current_throw(function);
         Ok(())
     }
 

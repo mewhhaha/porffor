@@ -1,7 +1,8 @@
 use super::*;
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
-    ArrayDestructuringEvaluationIr, ObjectDestructuringPatternIr, OptionalChainOperationIr,
+    ArrayDestructuringEvaluationIr, AsyncDisposableResourcesIr, ObjectDestructuringPatternIr,
+    OptionalChainOperationIr, SyncDisposableScopeExecutionIr,
 };
 
 #[derive(Debug, Clone)]
@@ -58,9 +59,13 @@ impl WasmFunctionMeta {
             )
     }
 
+    pub(crate) const fn has_home_object_execution_context(&self) -> bool {
+        self.has_class_execution_context() || self.protocol.is_object_literal_method()
+    }
+
     pub(crate) const fn has_function_context(&self) -> bool {
         self.needs_active_function_identity
-            || self.has_class_execution_context()
+            || self.has_home_object_execution_context()
             || self.captures_private_environment
     }
 }
@@ -1460,6 +1465,40 @@ impl RuntimeBootstrapPlan {
         if !self.walked.insert(builtin) {
             return;
         }
+        if builtin == StandardBuiltinId::FunctionConstructor {
+            // `%Function.prototype%` is a callable intrinsic, not an Object
+            // shell, and its non-configurable `@@hasInstance` property publishes
+            // another exact function value. Root both bodies whenever the
+            // foundational Function family is present so bootstrap cannot
+            // publish either a stubbed call target or a half-installed
+            // prototype.
+            for dependency in [
+                StandardBuiltinId::FunctionPrototype,
+                StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
+            ] {
+                self.require_standard_builtin(dependency);
+            }
+        }
+        if builtin == StandardBuiltinId::DisposableStackConstructor {
+            // The constructor installer publishes the complete prototype as one
+            // intrinsic unit. Root every function value it reads so an emitted
+            // constructor can never observe a half-installed prototype.
+            for dependency in [
+                StandardBuiltinId::DisposableStackPrototypeUse,
+                StandardBuiltinId::DisposableStackPrototypeAdopt,
+                StandardBuiltinId::DisposableStackPrototypeDefer,
+                StandardBuiltinId::DisposableStackPrototypeMove,
+                StandardBuiltinId::DisposableStackPrototypeDispose,
+                StandardBuiltinId::DisposableStackPrototypeDisposedGetter,
+            ] {
+                self.require_standard_builtin(dependency);
+            }
+        }
+        if builtin == StandardBuiltinId::DisposableStackPrototypeDispose {
+            // DisposeResources constructs this intrinsic when a later disposer
+            // suppresses an earlier abrupt completion.
+            self.require_standard_builtin(StandardBuiltinId::SuppressedErrorConstructor);
+        }
         if builtin == StandardBuiltinId::ArrayFromAsync {
             self.standard_roots
                 .insert(StandardBuiltinId::ArrayConstructor);
@@ -1704,6 +1743,12 @@ impl RuntimeBootstrapPlan {
             self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptor);
         }
         match builtin {
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
+                // This body is installed only by the Function constructor
+                // intrinsic family. Walking back to its owner closes direct IR
+                // references without leaving property installation optional.
+                self.require_standard_builtin(StandardBuiltinId::FunctionConstructor);
+            }
             StandardBuiltinId::ObjectGroupBy | StandardBuiltinId::ObjectFromEntries => {
                 self.standard_roots
                     .insert(StandardBuiltinId::ObjectConstructor);
@@ -2632,6 +2677,14 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::AsyncDisposableStackConstructor);
             }
+            StandardBuiltinId::DisposableStackPrototypeUse
+            | StandardBuiltinId::DisposableStackPrototypeAdopt
+            | StandardBuiltinId::DisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeMove
+            | StandardBuiltinId::DisposableStackPrototypeDispose
+            | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => {
+                self.require_standard_builtin(StandardBuiltinId::DisposableStackConstructor);
+            }
             StandardBuiltinId::SetSpeciesGetter
             | StandardBuiltinId::SetPrototypeAdd
             | StandardBuiltinId::SetPrototypeClear
@@ -3055,6 +3108,22 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                 })
         }
         StatementIr::Labelled { statement, .. } => statement_exposes_global_object(statement),
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
+            resources
+                .iter()
+                .any(|resource| expr_exposes_global_object(&resource.initializer))
+                || block_exposes_global_object(body)
+        }
+        StatementIr::AsyncDisposableScope {
+            resources, body, ..
+        } => {
+            resources
+                .iter()
+                .any(|resource| expr_exposes_global_object(resource.initializer()))
+                || block_exposes_global_object(body)
+        }
         StatementIr::TryCatch {
             try_block,
             catch_block,
@@ -3093,6 +3162,13 @@ fn for_init_exposes_global_object(init: &ForInitIr) -> bool {
                 .is_some_and(expr_exposes_global_object)
         }),
         ForInitIr::Statements(statements) => statements.iter().any(statement_exposes_global_object),
+        ForInitIr::SyncDisposable(resources) => resources
+            .iter()
+            .any(|resource| expr_exposes_global_object(&resource.initializer)),
+        ForInitIr::AsyncDisposable(init) => init
+            .resources()
+            .iter()
+            .any(|resource| expr_exposes_global_object(resource.initializer())),
     }
 }
 
@@ -3125,24 +3201,16 @@ fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
         ObjectPropertyIr::PrototypeSetter { value }
         | ObjectPropertyIr::Spread { source: value }
         | ObjectPropertyIr::Data { value, .. }
-        | ObjectPropertyIr::NonEnumerableData { value, .. }
-        | ObjectPropertyIr::Method {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Getter {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Setter {
-            function: value, ..
-        } => expr_exposes_global_object(value),
+        | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_exposes_global_object(value),
+        ObjectPropertyIr::Method { .. }
+        | ObjectPropertyIr::Getter { .. }
+        | ObjectPropertyIr::Setter { .. } => false,
         ObjectPropertyIr::ComputedData { key, value } => {
             expr_exposes_global_object(key) || expr_exposes_global_object(value)
         }
-        ObjectPropertyIr::ComputedMethod { key, function }
-        | ObjectPropertyIr::ComputedGetter { key, function }
-        | ObjectPropertyIr::ComputedSetter { key, function } => {
-            expr_exposes_global_object(key) || expr_exposes_global_object(function)
-        }
+        ObjectPropertyIr::ComputedMethod { key, .. }
+        | ObjectPropertyIr::ComputedGetter { key, .. }
+        | ObjectPropertyIr::ComputedSetter { key, .. } => expr_exposes_global_object(key),
     }
 }
 
@@ -3218,18 +3286,22 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => expr_exposes_global_object(value),
         ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_exposes_global_object),
-        ExprIr::PropertyRead { target, key }
-        | ExprIr::DeleteProperty { target, key, .. }
-        | ExprIr::PropertyUpdate { target, key, .. } => {
+        ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            property_access_exposes_global_object(target, key)
-                || property_key_exposes_global_object(key)
-                || expr_exposes_global_object(value)
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            property_access_exposes_global_object(
+                update.base_and_receiver(),
+                update.referenced_name(),
+            ) || property_key_exposes_global_object(update.referenced_name())
+        }
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            property_access_exposes_global_object(
+                mutation.base_and_receiver(),
+                mutation.referenced_name(),
+            ) || property_key_exposes_global_object(mutation.referenced_name())
+                || expr_exposes_global_object(mutation.result())
         }
         ExprIr::OptionalPropertyChain { target, chain } => {
             expr_exposes_global_object(target)
@@ -3314,9 +3386,28 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                 || property_key_exposes_global_object(key)
                 || args.iter().any(expr_exposes_global_object)
         }
-        ExprIr::SuperPropertyRead { key } => property_key_exposes_global_object(key),
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
-            property_key_exposes_global_object(key) || expr_exposes_global_object(value)
+        ExprIr::SuperPropertyRead { key, receiver } => {
+            property_key_exposes_global_object(key) || expr_exposes_global_object(receiver)
+        }
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
+            property_key_exposes_global_object(key)
+                || expr_exposes_global_object(receiver)
+                || expr_exposes_global_object(value)
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            property_key_exposes_global_object(mutation.referenced_name())
+                || expr_exposes_global_object(mutation.receiver())
+                || match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => false,
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        expr_exposes_global_object(result)
+                    }
+                }
         }
         ExprIr::PrivateRead { target, .. } => expr_exposes_global_object(target),
         ExprIr::PrivateWrite { target, value, .. } => {
@@ -3524,6 +3615,22 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         StatementIr::Labelled { statement, .. } => {
             collect_statement_global_property_names(statement, names);
         }
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
+            for resource in resources.iter() {
+                collect_expr_global_property_names(&resource.initializer, names);
+            }
+            collect_block_global_property_names(body, names);
+        }
+        StatementIr::AsyncDisposableScope {
+            resources, body, ..
+        } => {
+            for resource in resources.iter() {
+                collect_expr_global_property_names(resource.initializer(), names);
+            }
+            collect_block_global_property_names(body, names);
+        }
         StatementIr::TryCatch {
             try_block,
             catch_block,
@@ -3575,6 +3682,16 @@ fn collect_for_init_global_property_names(init: &ForInitIr, names: &mut BTreeSet
                 collect_statement_global_property_names(statement, names);
             }
         }
+        ForInitIr::SyncDisposable(resources) => {
+            for resource in resources.iter() {
+                collect_expr_global_property_names(&resource.initializer, names);
+            }
+        }
+        ForInitIr::AsyncDisposable(init) => {
+            for resource in init.resources().iter() {
+                collect_expr_global_property_names(resource.initializer(), names);
+            }
+        }
     }
 }
 
@@ -3595,27 +3712,20 @@ fn collect_object_property_global_property_names(
         ObjectPropertyIr::PrototypeSetter { value }
         | ObjectPropertyIr::Spread { source: value }
         | ObjectPropertyIr::Data { value, .. }
-        | ObjectPropertyIr::NonEnumerableData { value, .. }
-        | ObjectPropertyIr::Method {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Getter {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Setter {
-            function: value, ..
-        } => {
+        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
             collect_expr_global_property_names(value, names);
         }
+        ObjectPropertyIr::Method { .. }
+        | ObjectPropertyIr::Getter { .. }
+        | ObjectPropertyIr::Setter { .. } => {}
         ObjectPropertyIr::ComputedData { key, value } => {
             collect_expr_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
         }
-        ObjectPropertyIr::ComputedMethod { key, function }
-        | ObjectPropertyIr::ComputedGetter { key, function }
-        | ObjectPropertyIr::ComputedSetter { key, function } => {
+        ObjectPropertyIr::ComputedMethod { key, .. }
+        | ObjectPropertyIr::ComputedGetter { key, .. }
+        | ObjectPropertyIr::ComputedSetter { key, .. } => {
             collect_expr_global_property_names(key, names);
-            collect_expr_global_property_names(function, names);
         }
     }
 }
@@ -3679,18 +3789,18 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(operand, names);
             }
         }
-        ExprIr::PropertyRead { target, key }
-        | ExprIr::DeleteProperty { target, key, .. }
-        | ExprIr::PropertyUpdate { target, key, .. } => {
+        ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            collect_expr_global_property_names(target, names);
-            collect_property_key_global_property_names(key, names);
-            collect_expr_global_property_names(value, names);
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            collect_expr_global_property_names(update.base_and_receiver(), names);
+            collect_property_key_global_property_names(update.referenced_name(), names);
+        }
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            collect_expr_global_property_names(mutation.base_and_receiver(), names);
+            collect_property_key_global_property_names(mutation.referenced_name(), names);
+            collect_expr_global_property_names(mutation.result(), names);
         }
         ExprIr::OptionalPropertyChain { target, chain } => {
             collect_expr_global_property_names(target, names);
@@ -3895,10 +4005,29 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(arg, names);
             }
         }
-        ExprIr::SuperPropertyRead { key } => collect_property_key_global_property_names(key, names),
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
+        ExprIr::SuperPropertyRead { key, receiver } => {
             collect_property_key_global_property_names(key, names);
+            collect_expr_global_property_names(receiver, names);
+        }
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
+            collect_property_key_global_property_names(key, names);
+            collect_expr_global_property_names(receiver, names);
             collect_expr_global_property_names(value, names);
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            collect_property_key_global_property_names(mutation.referenced_name(), names);
+            collect_expr_global_property_names(mutation.receiver(), names);
+            match mutation.operation() {
+                SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
+                SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    collect_expr_global_property_names(result, names);
+                }
+            }
         }
         ExprIr::PrivateRead { target, .. } => collect_expr_global_property_names(target, names),
         ExprIr::PrivateWrite { target, value, .. } => {
@@ -4633,6 +4762,22 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                 })
         }
         StatementIr::Labelled { statement, .. } => statement_references_function(statement, target),
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
+            resources
+                .iter()
+                .any(|resource| expr_references_function(&resource.initializer, target))
+                || block_references_function(body, target)
+        }
+        StatementIr::AsyncDisposableScope {
+            resources, body, ..
+        } => {
+            resources
+                .iter()
+                .any(|resource| expr_references_function(resource.initializer(), target))
+                || block_references_function(body, target)
+        }
         StatementIr::TryCatch {
             try_block,
             catch_block,
@@ -4679,6 +4824,13 @@ pub(crate) fn for_init_references_function(init: &ForInitIr, target: &FunctionId
         ForInitIr::Statements(statements) => statements
             .iter()
             .any(|statement| statement_references_function(statement, target)),
+        ForInitIr::SyncDisposable(resources) => resources
+            .iter()
+            .any(|resource| expr_references_function(&resource.initializer, target)),
+        ForInitIr::AsyncDisposable(init) => init
+            .resources()
+            .iter()
+            .any(|resource| expr_references_function(resource.initializer(), target)),
     }
 }
 
@@ -4743,16 +4895,12 @@ pub(crate) fn object_property_references_function(
     match property {
         ObjectPropertyIr::PrototypeSetter { value }
         | ObjectPropertyIr::Data { value, .. }
-        | ObjectPropertyIr::NonEnumerableData { value, .. }
-        | ObjectPropertyIr::Method {
-            function: value, ..
+        | ObjectPropertyIr::NonEnumerableData { value, .. } => {
+            expr_references_function(value, target)
         }
-        | ObjectPropertyIr::Getter {
-            function: value, ..
-        }
-        | ObjectPropertyIr::Setter {
-            function: value, ..
-        } => expr_references_function(value, target),
+        ObjectPropertyIr::Method { function, .. }
+        | ObjectPropertyIr::Getter { function, .. }
+        | ObjectPropertyIr::Setter { function, .. } => function.function_id() == target,
         ObjectPropertyIr::Spread { source } => {
             expr_references_function(source, target)
                 || *target == StandardBuiltinId::ReflectOwnKeys.function_id()
@@ -4764,7 +4912,7 @@ pub(crate) fn object_property_references_function(
         ObjectPropertyIr::ComputedMethod { key, function }
         | ObjectPropertyIr::ComputedGetter { key, function }
         | ObjectPropertyIr::ComputedSetter { key, function } => {
-            expr_references_function(key, target) || expr_references_function(function, target)
+            expr_references_function(key, target) || function.function_id() == target
         }
     }
 }
@@ -5154,33 +5302,24 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             expr_references_function(object, target)
                 || property_key_references_function(key, target)
         }
-        ExprIr::PropertyUpdate {
-            target: object,
-            key,
-            ..
-        } => {
-            expr_references_function(object, target)
-                || property_key_references_function(key, target)
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            expr_references_function(update.base_and_receiver(), target)
+                || property_key_references_function(update.referenced_name(), target)
                 || shape_accessor_references_function(
-                    object.heap_shape.as_deref(),
-                    key,
+                    update.base_and_receiver().heap_shape.as_deref(),
+                    update.referenced_name(),
                     target,
                     true,
                     true,
                 )
         }
-        ExprIr::PropertyCompoundAssign {
-            target: object,
-            key,
-            value,
-            ..
-        } => {
-            expr_references_function(object, target)
-                || property_key_references_function(key, target)
-                || expr_references_function(value, target)
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            expr_references_function(mutation.base_and_receiver(), target)
+                || property_key_references_function(mutation.referenced_name(), target)
+                || expr_references_function(mutation.result(), target)
                 || shape_accessor_references_function(
-                    object.heap_shape.as_deref(),
-                    key,
+                    mutation.base_and_receiver().heap_shape.as_deref(),
+                    mutation.referenced_name(),
                     target,
                     true,
                     true,
@@ -5285,9 +5424,29 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                 || optimized_call_method_references_function(key, target)
                 || args.iter().any(|arg| expr_references_function(arg, target))
         }
-        ExprIr::SuperPropertyRead { key } => property_key_references_function(key, target),
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
-            property_key_references_function(key, target) || expr_references_function(value, target)
+        ExprIr::SuperPropertyRead { key, receiver } => {
+            property_key_references_function(key, target)
+                || expr_references_function(receiver, target)
+        }
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
+            property_key_references_function(key, target)
+                || expr_references_function(receiver, target)
+                || expr_references_function(value, target)
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            property_key_references_function(mutation.referenced_name(), target)
+                || expr_references_function(mutation.receiver(), target)
+                || match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => false,
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        expr_references_function(result, target)
+                    }
+                }
         }
         ExprIr::PrivateRead { target: object, .. } => expr_references_function(object, target),
         ExprIr::PrivateWrite {
@@ -5693,6 +5852,7 @@ pub(crate) fn function_length(params: &[FunctionParamIr]) -> u64 {
 pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
     match builtin {
         StandardBuiltinId::FunctionConstructor
+        | StandardBuiltinId::FunctionPrototypeSymbolHasInstance
         | StandardBuiltinId::WeakRefConstructor
         | StandardBuiltinId::FinalizationRegistryConstructor
         | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => 1,
@@ -6359,6 +6519,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::ArrayBufferSpeciesGetter
         | StandardBuiltinId::RegExpSpeciesGetter
         | StandardBuiltinId::PromiseSpeciesGetter
+        | StandardBuiltinId::FunctionPrototype
         | StandardBuiltinId::FunctionPrototypeToString
         | StandardBuiltinId::ErrorPrototypeToString
         | StandardBuiltinId::ThrowTypeError
@@ -6462,18 +6623,26 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::EncodeUriComponent
         | StandardBuiltinId::DecodeUri
         | StandardBuiltinId::DecodeUriComponent => 1,
-        // Pinned by `built-ins/AsyncDisposableStack/**/length.js`, one file per
-        // row. The settlement callbacks are anonymous reaction handlers and take
-        // the settled value, like the `AsyncIterator` `@@asyncDispose` pair.
+        // Pinned by the two DisposableStack families' `length.js` files, one
+        // file per row. The async settlement callbacks are anonymous reaction
+        // handlers and take the settled value, like the `AsyncIterator`
+        // `@@asyncDispose` pair.
         StandardBuiltinId::AsyncDisposableStackConstructor
+        | StandardBuiltinId::DisposableStackConstructor
         | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+        | StandardBuiltinId::DisposableStackPrototypeMove
+        | StandardBuiltinId::DisposableStackPrototypeDispose
         | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
-        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => 0,
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+        | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => 0,
         StandardBuiltinId::AsyncDisposableStackPrototypeUse
         | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+        | StandardBuiltinId::DisposableStackPrototypeUse
+        | StandardBuiltinId::DisposableStackPrototypeDefer
         | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
         | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => 1,
-        StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => 2,
+        StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+        | StandardBuiltinId::DisposableStackPrototypeAdopt => 2,
     }
 }
 
@@ -6553,6 +6722,18 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
                 | SpecOperationIr::ToBigInt,
             ..
         } => true,
+        ExprIr::SuperPropertyMutation(mutation) => match mutation.operation() {
+            SuperPropertyMutationOperationIr::NumericUpdate { value_kind, .. } => {
+                *value_kind == ValueKind::Dynamic
+            }
+            SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                expr_result_tag_is_runtime_dynamic(&result.expr)
+            }
+        },
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => update.value_kind() == ValueKind::Dynamic,
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            expr_result_tag_is_runtime_dynamic(&mutation.result().expr)
+        }
         ExprIr::AssignIdentifier { value, .. }
         | ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::PropertyWrite { value, .. }
@@ -6678,6 +6859,7 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
         | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().any(statement_uses_calls)
         }
+        StatementIr::SyncDisposableScope { .. } | StatementIr::AsyncDisposableScope { .. } => true,
         StatementIr::Return(value) | StatementIr::Throw(value) => expr_uses_calls(value),
         StatementIr::Var(declarators) => declarators
             .iter()
@@ -6772,7 +6954,6 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. }
         | StatementIr::ForInArray {
             target: iterable,
             body,
@@ -6788,6 +6969,10 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
             body,
             ..
         } => expr_uses_calls(iterable) || statement_uses_calls(body),
+        // The generic protocol always calls @@iterator/next and may call return.
+        // A resource head additionally calls the captured disposer, so neither
+        // closed head can be represented as call-free.
+        StatementIr::ForOfIterator { .. } => true,
         StatementIr::Switch {
             discriminant,
             lexical_declarations,
@@ -6819,6 +7004,7 @@ pub(crate) fn for_init_uses_calls(init: &ForInitIr) -> bool {
             .filter_map(|declarator| declarator.init.as_ref())
             .any(expr_uses_calls),
         ForInitIr::Statements(statements) => statements.iter().any(statement_uses_calls),
+        ForInitIr::SyncDisposable(_) | ForInitIr::AsyncDisposable(_) => true,
     }
 }
 
@@ -6855,6 +7041,7 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
         | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().any(statement_uses_function_table)
         }
+        StatementIr::SyncDisposableScope { .. } | StatementIr::AsyncDisposableScope { .. } => true,
         StatementIr::Var(declarators) => declarators
             .iter()
             .filter_map(|declarator| declarator.init.as_ref())
@@ -6953,7 +7140,6 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
         }
         StatementIr::ForOfArray { iterable, body, .. }
         | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. }
         | StatementIr::ForInArray {
             target: iterable,
             body,
@@ -6969,6 +7155,7 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
             body,
             ..
         } => expr_uses_function_table(iterable) || statement_uses_function_table(body),
+        StatementIr::ForOfIterator { .. } => true,
         StatementIr::Switch {
             discriminant,
             lexical_declarations,
@@ -7004,6 +7191,7 @@ pub(crate) fn for_init_uses_function_table(init: &ForInitIr) -> bool {
             .filter_map(|declarator| declarator.init.as_ref())
             .any(expr_uses_function_table),
         ForInitIr::Statements(statements) => statements.iter().any(statement_uses_function_table),
+        ForInitIr::SyncDisposable(_) | ForInitIr::AsyncDisposable(_) => true,
     }
 }
 
@@ -7021,6 +7209,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::SuperConstruct { .. }
         | ExprIr::SuperPropertyRead { .. }
         | ExprIr::SuperPropertyWrite { .. }
+        | ExprIr::SuperPropertyMutation(_)
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. } => true,
@@ -7053,14 +7242,12 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
             ObjectPropertyIr::ComputedData { key, value } => {
                 expr_uses_function_table(key) || expr_uses_function_table(value)
             }
-            ObjectPropertyIr::ComputedMethod { key, function }
-            | ObjectPropertyIr::ComputedGetter { key, function }
-            | ObjectPropertyIr::ComputedSetter { key, function } => {
-                expr_uses_function_table(key) || expr_uses_function_table(function)
-            }
-            ObjectPropertyIr::Method { function, .. }
-            | ObjectPropertyIr::Getter { function, .. }
-            | ObjectPropertyIr::Setter { function, .. } => expr_uses_function_table(function),
+            ObjectPropertyIr::ComputedMethod { .. }
+            | ObjectPropertyIr::ComputedGetter { .. }
+            | ObjectPropertyIr::ComputedSetter { .. } => true,
+            ObjectPropertyIr::Method { .. }
+            | ObjectPropertyIr::Getter { .. }
+            | ObjectPropertyIr::Setter { .. } => true,
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_function_table),
         ExprIr::ArrayAccumulation(accumulation) => {
@@ -7118,23 +7305,21 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyUpdate { target, key, .. } => {
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || match key {
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            matches!(update.base_and_receiver().kind, ValueKind::Object)
+                || expr_uses_function_table(update.base_and_receiver())
+                || match update.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_function_table(expr)
                     }
                 }
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || expr_uses_function_table(value)
-                || match key {
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            matches!(mutation.base_and_receiver().kind, ValueKind::Object)
+                || expr_uses_function_table(mutation.base_and_receiver())
+                || expr_uses_function_table(mutation.result())
+                || match mutation.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_function_table(expr)
@@ -7233,6 +7418,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::SuperConstruct { .. }
         | ExprIr::SuperPropertyRead { .. }
         | ExprIr::SuperPropertyWrite { .. }
+        | ExprIr::SuperPropertyMutation(_)
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. } => true,
@@ -7265,14 +7451,12 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
             ObjectPropertyIr::ComputedData { key, value } => {
                 expr_uses_calls(key) || expr_uses_calls(value)
             }
-            ObjectPropertyIr::ComputedMethod { key, function }
-            | ObjectPropertyIr::ComputedGetter { key, function }
-            | ObjectPropertyIr::ComputedSetter { key, function } => {
-                expr_uses_calls(key) || expr_uses_calls(function)
-            }
-            ObjectPropertyIr::Method { function, .. }
-            | ObjectPropertyIr::Getter { function, .. }
-            | ObjectPropertyIr::Setter { function, .. } => expr_uses_calls(function),
+            ObjectPropertyIr::ComputedMethod { key, .. }
+            | ObjectPropertyIr::ComputedGetter { key, .. }
+            | ObjectPropertyIr::ComputedSetter { key, .. } => expr_uses_calls(key),
+            ObjectPropertyIr::Method { .. }
+            | ObjectPropertyIr::Getter { .. }
+            | ObjectPropertyIr::Setter { .. } => false,
         }),
         ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_calls),
         ExprIr::ArrayAccumulation(accumulation) => {
@@ -7324,21 +7508,19 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyUpdate { target, key, .. } => {
-            expr_uses_calls(target)
-                || match key {
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            expr_uses_calls(update.base_and_receiver())
+                || match update.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_calls(expr)
                     }
                 }
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            expr_uses_calls(target)
-                || expr_uses_calls(value)
-                || match key {
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            expr_uses_calls(mutation.base_and_receiver())
+                || expr_uses_calls(mutation.result())
+                || match mutation.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_calls(expr)
@@ -7421,6 +7603,49 @@ pub(crate) fn count_block_temp_locals(block: &BlockIr) -> usize {
         .unwrap_or(0)
 }
 
+fn count_for_in_of_binding_lexicals(
+    mode: BindingMode,
+    name: &str,
+    lexical_environment: Option<&ForInOfEnvironmentIr>,
+) -> usize {
+    if mode == BindingMode::Var {
+        return 0;
+    }
+    let Some(environment) = lexical_environment else {
+        return 2;
+    };
+    let tdz_locals = 2 * environment
+        .tdz_binding_names
+        .iter()
+        .filter(|name| {
+            environment
+                .tdz_environment
+                .as_ref()
+                .map(|tdz_environment| {
+                    !tdz_environment
+                        .bindings
+                        .iter()
+                        .any(|binding| binding.name == ***name)
+                })
+                .unwrap_or(true)
+        })
+        .count();
+    let iteration_locals = if environment
+        .iteration_environment
+        .as_ref()
+        .is_some_and(|iteration| {
+            iteration
+                .bindings
+                .iter()
+                .any(|binding| binding.name == name)
+        }) {
+        0
+    } else {
+        2
+    };
+    tdz_locals + iteration_locals
+}
+
 pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
     match statement {
         StatementIr::ModuleUnitOnce { block, .. } => {
@@ -7469,6 +7694,12 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         | StatementIr::ParameterInitialization { statements, .. } => {
             statements.iter().map(count_statement_lexicals).sum()
         }
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => resources.len() * 2 + count_block_lexicals(body),
+        StatementIr::AsyncDisposableScope {
+            resources, body, ..
+        } => resources.len() * 2 + count_block_lexicals(body),
         StatementIr::Block(block) => count_block_lexicals(block),
         StatementIr::TryCatch {
             try_block,
@@ -7521,6 +7752,8 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                     ForInitIr::Statements(statements) => {
                         statements.iter().map(count_statement_lexicals).sum()
                     }
+                    ForInitIr::SyncDisposable(resources) => 2 * resources.len(),
+                    ForInitIr::AsyncDisposable(init) => 2 * init.resources().len(),
                 })
                 .unwrap_or(0)
                 + count_statement_lexicals(body)
@@ -7540,6 +7773,8 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                     ForInitIr::Statements(statements) => {
                         statements.iter().map(count_statement_lexicals).sum()
                     }
+                    ForInitIr::SyncDisposable(resources) => 2 * resources.len(),
+                    ForInitIr::AsyncDisposable(init) => 2 * init.resources().len(),
                 })
                 .unwrap_or(0)
                 + before_suspension
@@ -7570,27 +7805,41 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             .map(count_statement_lexicals)
             .sum(),
         StatementIr::ForOfArray {
-            mode,
-            name,
+            head,
             body,
             lexical_environment,
             ..
         }
         | StatementIr::ForOfString {
-            mode,
-            name,
+            head,
             body,
             lexical_environment,
             ..
+        } => {
+            count_for_in_of_binding_lexicals(head.mode, &head.name, lexical_environment.as_ref())
+                + count_statement_lexicals(body)
         }
-        | StatementIr::ForOfIterator {
-            mode,
-            name,
+        StatementIr::ForOfIterator {
+            head,
             body,
             lexical_environment,
             ..
+        } => {
+            let (mode, name) = match head {
+                ForOfIteratorHeadIr::Assignment { binding, .. } => {
+                    (binding.mode, binding.name.as_str())
+                }
+                ForOfIteratorHeadIr::SyncDisposable(head) => {
+                    (BindingMode::Const, head.binding_name())
+                }
+                ForOfIteratorHeadIr::AsyncDisposable(head) => {
+                    (BindingMode::Const, head.binding_name())
+                }
+            };
+            count_for_in_of_binding_lexicals(mode, name, lexical_environment.as_ref())
+                + count_statement_lexicals(body)
         }
-        | StatementIr::ForInArray {
+        StatementIr::ForInArray {
             mode,
             name,
             body,
@@ -7611,44 +7860,8 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             lexical_environment,
             ..
         } => {
-            let binding_locals =
-                if *mode == BindingMode::Var {
-                    0
-                } else if let Some(environment) = lexical_environment {
-                    let tdz_locals = 2 * environment
-                        .tdz_binding_names
-                        .iter()
-                        .filter(|name| {
-                            environment
-                                .tdz_environment
-                                .as_ref()
-                                .map(|tdz_environment| {
-                                    !tdz_environment
-                                        .bindings
-                                        .iter()
-                                        .any(|binding| binding.name == ***name)
-                                })
-                                .unwrap_or(true)
-                        })
-                        .count();
-                    let iteration_locals = if environment
-                        .iteration_environment
-                        .as_ref()
-                        .is_some_and(|iteration| {
-                            iteration
-                                .bindings
-                                .iter()
-                                .any(|binding| binding.name == *name)
-                        }) {
-                        0
-                    } else {
-                        2
-                    };
-                    tdz_locals + iteration_locals
-                } else {
-                    2
-                };
-            binding_locals + count_statement_lexicals(body)
+            count_for_in_of_binding_lexicals(*mode, name, lexical_environment.as_ref())
+                + count_statement_lexicals(body)
         }
         StatementIr::Switch {
             lexical_declarations,
@@ -7715,6 +7928,18 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .map(count_statement_temp_locals)
             .max()
             .unwrap_or(0),
+        StatementIr::SyncDisposableScope {
+            execution,
+            resources,
+            body,
+        } => count_sync_disposable_scope_temp_locals(
+            execution,
+            resources,
+            count_block_temp_locals(body),
+        ),
+        StatementIr::AsyncDisposableScope {
+            resources, body, ..
+        } => count_async_disposable_scope_temp_locals(resources, count_block_temp_locals(body)),
         StatementIr::Block(block) => count_block_temp_locals(block),
         StatementIr::TryCatch {
             try_block,
@@ -7761,13 +7986,30 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             update,
             body,
             ..
-        } => init
-            .as_ref()
-            .map(count_for_init_temp_locals)
-            .unwrap_or(0)
-            .max(test.as_ref().map(count_expr_temp_locals).unwrap_or(0))
-            .max(update.as_ref().map(count_expr_temp_locals).unwrap_or(0))
-            .max(count_statement_temp_locals(body)),
+        } => {
+            let test_temps = test.as_ref().map(count_expr_temp_locals).unwrap_or(0);
+            let update_temps = update.as_ref().map(count_expr_temp_locals).unwrap_or(0);
+            let body_temps = count_statement_temp_locals(body);
+            match init.as_ref() {
+                Some(ForInitIr::SyncDisposable(resources)) => {
+                    count_sync_disposable_resources_temp_locals(
+                        resources,
+                        test_temps.max(update_temps).max(body_temps),
+                    )
+                }
+                Some(ForInitIr::AsyncDisposable(init)) => count_async_disposable_scope_temp_locals(
+                    init.resources(),
+                    test_temps.max(update_temps).max(body_temps),
+                ),
+                _ => init
+                    .as_ref()
+                    .map(count_for_init_temp_locals)
+                    .unwrap_or(0)
+                    .max(test_temps)
+                    .max(update_temps)
+                    .max(body_temps),
+            }
+        }
         StatementIr::GeneratorLoop {
             init,
             test,
@@ -7821,9 +8063,32 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
         StatementIr::ForOfString { iterable, body, .. } => 12
             .max(count_expr_temp_locals(iterable))
             .max(count_statement_temp_locals(body)),
-        StatementIr::ForOfIterator { iterable, body, .. } => 18
-            .max(count_expr_temp_locals(iterable))
-            .max(count_statement_temp_locals(body)),
+        StatementIr::ForOfIterator {
+            head,
+            iterable,
+            body,
+            ..
+        } => match head {
+            ForOfIteratorHeadIr::Assignment { .. } => 18
+                .max(count_expr_temp_locals(iterable))
+                .max(count_statement_temp_locals(body)),
+            ForOfIteratorHeadIr::SyncDisposable(_) => {
+                18 + 5
+                    + count_expr_temp_locals(iterable)
+                        .max(count_statement_temp_locals(body))
+                        .max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS)
+            }
+            ForOfIteratorHeadIr::AsyncDisposable(_) => {
+                ASYNC_DISPOSABLE_FOR_OF_PERSISTENT_TEMP_LOCALS
+                    + count_expr_temp_locals(iterable)
+                        .max(count_statement_temp_locals(body))
+                        .max(
+                            ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS
+                                + ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS,
+                        )
+                        .max(ASYNC_DISPOSABLE_FOR_OF_BINDING_RESTORE_TEMP_LOCALS)
+            }
+        },
         StatementIr::ForInArray { target, body, .. } => 10
             .max(count_expr_temp_locals(target))
             .max(count_statement_temp_locals(body)),
@@ -7881,6 +8146,12 @@ pub(crate) fn count_for_init_temp_locals(init: &ForInitIr) -> usize {
             .map(count_statement_temp_locals)
             .max()
             .unwrap_or(0),
+        ForInitIr::SyncDisposable(resources) => {
+            count_sync_disposable_resources_temp_locals(resources, 0)
+        }
+        ForInitIr::AsyncDisposable(init) => {
+            count_async_disposable_scope_temp_locals(init.resources(), 0)
+        }
     }
 }
 
@@ -7898,6 +8169,119 @@ fn call_args_have_spread(args: &[TypedExpr]) -> bool {
 /// a second flag local and a planner that still says one is a panic in the
 /// middle of code generation, not a compile error.
 pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
+
+// Four captured-completion locals, seven disposal-walker locals, and the same
+// 64-local indirect-call allowance used by `ExprIr::CallIndirect` below. The
+// phases do not overlap initializer/body child temporaries, so their maximum
+// is the accurate budget rather than an additive guess.
+const SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS: usize = 4 + 7 + 64;
+
+// The activation-backed path holds five detached-capability locals while it
+// materializes five locals per statically possible entry. Acquisition instead
+// holds the active three-local capability and one five-local resource; its
+// initializer/call phase never overlaps the body or detached walk.
+const ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS: usize = 5;
+const ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5;
+
+// Await-using acquisition holds the three-local published capability and one
+// five-local resource while evaluating/validating that entry. The resumable
+// finalizer instead holds its activation/capability cursor and one complete
+// entry/call result bundle (17 locals); it never overlaps acquisition or the
+// body and schedules at most one Await before returning to the driver.
+const ACTIVATION_ASYNC_DISPOSE_ACTIVE_TEMP_LOCALS: usize = 3 + 5;
+const ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS: usize = 17;
+const ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS: usize = 64;
+
+// State; iterable, method, Iterator, NextMethod, result, done and value pairs;
+// key; two four-local saved-completion bundles; and the five-local acquired
+// resource remain live across the selected phase. The walker/helper allowance
+// is added by the exhaustive head arm above rather than hidden in this count.
+const ASYNC_DISPOSABLE_FOR_OF_PERSISTENT_TEMP_LOCALS: usize = 1 + 7 * 2 + 1 + 2 * 4 + 5;
+// Object/tag, boxed record, first entry and the entry's value pair are one
+// bounded phase used only to restore a nested-body resume's immutable binding.
+const ASYNC_DISPOSABLE_FOR_OF_BINDING_RESTORE_TEMP_LOCALS: usize = 6;
+
+// Five mutation-result locals (old payload/tag, new payload/tag, Set result)
+// stay live below the six-local raw/coerced Super Reference carrier. Each
+// following constant is one non-overlapping phase above those persistent
+// locals: GetValue's property-key/read work, dynamic ToNumeric, the selected
+// ordinary-Set helper's four own locals plus its argument vector's two nested
+// locals, and the carried-Strictness guard emitted only after that helper has
+// returned and released its locals.
+const SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS: usize = 5 + 6;
+const SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
+const SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
+const SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+
+// The eager ordinary-property Reference is emitted in two non-overlapping
+// phases. GetValue retains the two old-value locals below the four-local raw
+// base/key carrier. Applying the result adds its payload/tag and the Set result
+// local. The Set helper then reserves four own locals plus its two-local
+// argument-vector phase. The carried Strictness is a compile-time property of
+// this fused Reference, so its false-result branch reserves no runtime local.
+const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4;
+const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 3;
+const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
+const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
+const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+
+fn count_sync_disposable_resources_temp_locals(
+    resources: &SyncDisposableResourcesIr,
+    active_scope_temps: usize,
+) -> usize {
+    let initializer_temps = resources
+        .iter()
+        .map(|resource| count_expr_temp_locals(&resource.initializer))
+        .max()
+        .unwrap_or(0);
+    resources.len() * 5
+        + initializer_temps
+            .max(active_scope_temps)
+            .max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS)
+}
+
+fn count_sync_disposable_scope_temp_locals(
+    execution: &SyncDisposableScopeExecutionIr,
+    resources: &SyncDisposableResourcesIr,
+    body_temps: usize,
+) -> usize {
+    match execution {
+        SyncDisposableScopeExecutionIr::Immediate => {
+            count_sync_disposable_resources_temp_locals(resources, body_temps)
+        }
+        SyncDisposableScopeExecutionIr::PlainGenerator(_)
+        | SyncDisposableScopeExecutionIr::AsyncFunction(_)
+        | SyncDisposableScopeExecutionIr::AsyncGenerator(_) => {
+            let initializer_temps = resources
+                .iter()
+                .map(|resource| count_expr_temp_locals(&resource.initializer))
+                .max()
+                .unwrap_or(0);
+            let acquisition_peak = ACTIVATION_SYNC_DISPOSE_ACTIVE_TEMP_LOCALS
+                + initializer_temps.max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS);
+            let disposal_peak = ACTIVATION_SYNC_DISPOSE_DETACHED_TEMP_LOCALS
+                + resources.len() * 5
+                + SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS;
+            acquisition_peak.max(disposal_peak).max(body_temps)
+        }
+    }
+}
+
+fn count_async_disposable_scope_temp_locals(
+    resources: &AsyncDisposableResourcesIr,
+    body_temps: usize,
+) -> usize {
+    let initializer_temps = resources
+        .iter()
+        .map(|resource| count_expr_temp_locals(resource.initializer()))
+        .max()
+        .unwrap_or(0);
+    let acquisition_peak = ACTIVATION_ASYNC_DISPOSE_ACTIVE_TEMP_LOCALS
+        + initializer_temps.max(ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS);
+    let disposal_peak =
+        ACTIVATION_ASYNC_DISPOSE_WALKER_TEMP_LOCALS + ACTIVATION_ASYNC_DISPOSE_HELPER_TEMP_LOCALS;
+    acquisition_peak.max(disposal_peak).max(body_temps)
+}
 
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
@@ -7947,18 +8331,19 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     ObjectPropertyIr::ComputedData { key, value } => {
                         count_expr_temp_locals(key).max(count_expr_temp_locals(value))
                     }
-                    ObjectPropertyIr::ComputedMethod { key, function }
-                    | ObjectPropertyIr::ComputedGetter { key, function }
-                    | ObjectPropertyIr::ComputedSetter { key, function } => {
-                        count_expr_temp_locals(key).max(count_expr_temp_locals(function))
-                    }
-                    ObjectPropertyIr::Method { function, .. }
-                    | ObjectPropertyIr::Getter { function, .. }
-                    | ObjectPropertyIr::Setter { function, .. } => count_expr_temp_locals(function),
+                    ObjectPropertyIr::ComputedMethod { key, .. }
+                    | ObjectPropertyIr::ComputedGetter { key, .. }
+                    | ObjectPropertyIr::ComputedSetter { key, .. } => count_expr_temp_locals(key),
+                    ObjectPropertyIr::Method { .. }
+                    | ObjectPropertyIr::Getter { .. }
+                    | ObjectPropertyIr::Setter { .. } => 0,
                 })
                 .max()
                 .unwrap_or(0);
-            child.max(12)
+            // A named getter followed by its paired setter retains both
+            // accessor values while the second HomeObject-bearing function
+            // context is materialized.
+            child.max(13)
         }
         ExprIr::ArrayLiteral(elements) => {
             let child = elements
@@ -8046,28 +8431,52 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             });
             child.max(12)
         }
-        ExprIr::PropertyUpdate { target, key, .. } => {
-            let child = count_expr_temp_locals(target).max(match key {
-                PropertyKeyIr::StaticString(_) => 0,
-                PropertyKeyIr::ArrayLength => 0,
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            let key_child = match update.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     count_expr_temp_locals(expr)
                 }
-            });
-            child.max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
+            };
+            let to_numeric_temps = match update.value_kind() {
+                ValueKind::Dynamic => ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS,
+                ValueKind::Number | ValueKind::BigInt => 0,
+                ValueKind::Undefined
+                | ValueKind::Null
+                | ValueKind::Boolean
+                | ValueKind::String
+                | ValueKind::Symbol
+                | ValueKind::Object
+                | ValueKind::Array
+                | ValueKind::Function
+                | ValueKind::Arguments => {
+                    unreachable!("ordinary property numeric update kind is closed")
+                }
+            };
+            let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(update.base_and_receiver())
+                    .max(key_child)
+                    .max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)
+                    .max(to_numeric_temps);
+            let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+                + ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS;
+            read_phase.max(write_phase)
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            let child = count_expr_temp_locals(target)
-                .max(count_expr_temp_locals(value))
-                .max(match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        count_expr_temp_locals(expr)
-                    }
-                });
-            child.max(96) + REFERENCE_STRICTNESS_FLAG_LOCALS
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
+            let key_child = match mutation.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    count_expr_temp_locals(expr)
+                }
+            };
+            let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(mutation.base_and_receiver())
+                    .max(key_child)
+                    .max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS);
+            let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(mutation.result())
+                    .max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS);
+            read_phase.max(write_phase)
         }
         ExprIr::DeleteIdentifier { .. } => 0,
         ExprIr::DeleteGlobalProperty { .. } => 12,
@@ -8543,20 +8952,55 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .max()
             .unwrap_or(0)
             .max(if call_args_have_spread(args) { 192 } else { 12 }),
-        ExprIr::SuperPropertyRead { key } => match key {
-            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 8,
+        ExprIr::SuperPropertyRead { key, receiver } => match key {
+            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {
+                count_expr_temp_locals(receiver).max(8)
+            }
             PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                count_expr_temp_locals(expr).max(8)
+                count_expr_temp_locals(expr)
+                    .max(count_expr_temp_locals(receiver))
+                    .max(8)
             }
         },
-        ExprIr::SuperPropertyWrite { key, value, .. } => {
+        ExprIr::SuperPropertyWrite {
+            key,
+            receiver,
+            value,
+            ..
+        } => {
             let key_child = match key {
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     count_expr_temp_locals(expr)
                 }
             };
-            count_expr_temp_locals(value).max(key_child).max(10) + REFERENCE_STRICTNESS_FLAG_LOCALS
+            count_expr_temp_locals(receiver)
+                .max(count_expr_temp_locals(value))
+                .max(key_child)
+                .max(12)
+                + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            let key_child = match mutation.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    count_expr_temp_locals(expr)
+                }
+            };
+            let operation_child = match mutation.operation() {
+                SuperPropertyMutationOperationIr::NumericUpdate { .. } => 0,
+                SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    count_expr_temp_locals(result)
+                }
+            };
+            SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(mutation.receiver())
+                    .max(key_child)
+                    .max(operation_child)
+                    .max(SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)
+                    .max(SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS)
+                    .max(SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)
+                    .max(REFERENCE_STRICTNESS_FLAG_LOCALS)
         }
         ExprIr::PrivateRead { target, .. } => count_expr_temp_locals(target).max(8),
         ExprIr::PrivateWrite { target, value, .. } => count_expr_temp_locals(target)
@@ -8607,7 +9051,11 @@ pub(crate) fn collect_hoisted_vars_for_init(init: &ForInitIr, names: &mut BTreeS
                 collect_hoisted_vars_statement(statement, names);
             }
         }
-        ForInitIr::Lexical { .. } | ForInitIr::LexicalBlock(_) | ForInitIr::Expression(_) => {}
+        ForInitIr::Lexical { .. }
+        | ForInitIr::LexicalBlock(_)
+        | ForInitIr::Expression(_)
+        | ForInitIr::SyncDisposable(_)
+        | ForInitIr::AsyncDisposable(_) => {}
     }
 }
 
@@ -8697,17 +9145,18 @@ pub(crate) fn collect_hoisted_vars_statement(
                 collect_hoisted_vars_statement(statement, names);
             }
         }
-        StatementIr::ForOfArray {
-            mode, name, body, ..
+        StatementIr::ForOfArray { head, body, .. }
+        | StatementIr::ForOfString { head, body, .. } => {
+            if head.mode == BindingMode::Var {
+                names.insert(head.name.clone());
+            }
+            collect_hoisted_vars_statement(body, names);
         }
-        | StatementIr::ForOfString {
-            mode, name, body, ..
-        }
-        | StatementIr::ForOfIterator {
-            mode, name, body, ..
-        } => {
-            if *mode == BindingMode::Var {
-                names.insert(name.clone());
+        StatementIr::ForOfIterator { head, body, .. } => {
+            if let ForOfIteratorHeadIr::Assignment { binding, .. } = head {
+                if binding.mode == BindingMode::Var {
+                    names.insert(binding.name.clone());
+                }
             }
             collect_hoisted_vars_statement(body, names);
         }
@@ -8755,6 +9204,12 @@ pub(crate) fn collect_hoisted_vars_statement(
             collect_hoisted_vars_block(try_block, names);
             collect_hoisted_vars_block(catch_block, names);
             collect_hoisted_vars_block(finally_block, names);
+        }
+        StatementIr::SyncDisposableScope { body, .. } => {
+            collect_hoisted_vars_block(body, names);
+        }
+        StatementIr::AsyncDisposableScope { body, .. } => {
+            collect_hoisted_vars_block(body, names);
         }
         StatementIr::Expression(TypedExpr {
             expr:

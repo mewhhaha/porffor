@@ -77,36 +77,42 @@ alternative may contain strings, while an exactly one-character alternative
 does not.
 
 Successful local validation produces a typed class-string operand; it does not
-return `UnsupportedFeature`. `ClassSetValue` retains both the need for string
-semantics and the exact `MayContainStrings` value while the union,
+return `UnsupportedFeature`. `ClassSetValue` retains both an exact finite set
+product and the separate `MayContainStrings` value while the union,
 intersection, or subtraction tail is parsed. Its exhaustive operations mirror
 ECMA-262 22.2.1.8: union uses Boolean OR, intersection uses AND, and subtraction
-uses its left operand. The parser then requires the enclosing `]`, checks range
-bounds and operators, and applies the negated-class early error. A fully valid
-outer class that still needs string-set matching produces the typed
-`RequiresClassStringSemantics` marker rather than an error.
+uses its left operand for the static witness. The parser then requires the
+enclosing `]`, checks range bounds and operators, and applies the negated-class
+early error.
 
-That marker remains in the parsed term tree through the complete Pattern pass.
+After those checks, a valid direct `\q` expression becomes a finite matcher
+atom. Unicode properties of strings and direct-`\q` expressions under `iv`
+remain distinct typed capability markers; they are not conflated with the
+finite atom or with one another. The exact finite algebra and matcher ordering
+are governed by `regexp-unicode-set-finite-string-algebra.md`.
+
+Any remaining capability marker stays in the parsed term tree through the
+complete Pattern pass.
 The parser must close every containing group, reject stray closing
 parentheses, and validate named-backreference and duplicate-name early errors.
-Parser-side matcher restrictions also query the atom subtree for this marker:
+Parser-side matcher restrictions also query the atom subtree for a marker:
 in particular, an unbounded quantifier over an otherwise nullable group cannot
 return its own capability error first. `ParsedPatternCapability` is a closed
-choice between `MatcherReady` and the earliest class-string marker. The
+choice between `MatcherReady` and the earliest remaining UnicodeSets marker. The
 lowerer's exhaustive atom match treats the marker as syntax-only and cannot
 return a matcher program for it; `RegExpProgram::compile` reports
 `UnsupportedFeature` only after the entire Pattern is globally syntax-valid.
 
 Consequently `[\q{a}` (missing `]`), `[\q{a}&&]`, `[\q{a}-b]`,
-`[a-\q{b}]`, and `[\q{a}!!]` are syntax errors rather than capability gaps.
+`[a-\q{b}]`, and `[\q{a}!!]` are syntax errors rather than matcher results.
 `[^\q{ab}]` and `[^\q{}]` are the `MayContainStrings` early error, while
-`[^\q{a}]`, `[^\q{ab}&&a]`, and `[^a--\q{ab}]` are syntactically valid and
-remain unsupported.
+`[^\q{a}]`, `[^\q{ab}&&a]`, and `[^a--\q{ab}]` are syntactically valid; the
+finite cases now lower through the exact finite-set contract.
 
 The same ordering applies beyond the class: `[\q{a}])` is a stray closing
 parenthesis, `[\q{a}](` is an unclosed group, and
 `[\q{a}]\k<missing>` names no group. Valid controls such as `[\q{a}]b` and
-`([\q{a}])` finish the global syntax pass and remain capability gaps. The
+`([\q{a}])` finish the global syntax pass and produce finite matcher atoms. The
 nullable quantified control `(?:[\q{a}]|)*` does too, while appending `)`, `(`,
 or `\k<missing>` still reaches the corresponding whole-Pattern early error.
 
@@ -135,19 +141,17 @@ The IR regressions require the dedicated syntax rule for:
 Positive witnesses preserve empty and ordinary unions, character ranges,
 homogeneous chained intersections and homogeneous chained subtractions with
 exact resulting range sets, escaped `\&` operands, raw singleton punctuators,
-valid `\0`, and syntactically legal class-string expressions that remain
-unsupported only after their enclosing class validates. A focused Wasm fixture
-exercises both statically resolved constructor arguments and computed
-runtime-table entries, with legal siblings preventing a blanket rejection from
-passing.
+valid `\0`, and syntactically legal class-string expressions that become finite
+matcher atoms only after their enclosing class validates. Capability witnesses
+for Unicode properties of strings and direct-`\q` `iv` matching remain separate.
 
 ## Nonclaims and deferred gates
 
-This seam validates but does not implement `\q` class-string matching. It does
-not implement Unicode properties of strings, arbitrary runtime pattern
-compilation, full UnicodeSets conformance, matcher opcodes, resource limits,
-UTF-16 cursor behavior, `lastIndex`, or the RegExp object protocol. It changes
-no published conformance count and does not close T19 or T26.
+This grammar seam does not itself define finite `\q` matching; that superseding
+producer contract is `regexp-unicode-set-finite-string-algebra.md`. Unicode
+properties of strings, direct-`\q` case folding under `iv`, arbitrary runtime
+pattern compilation, full UnicodeSets conformance, UTF-16 cursor behavior,
+`lastIndex`, and the RegExp object protocol remain outside this contract.
 
 Static freeze gates are `rustfmt --check` for the touched Rust files,
 `node --check` for the fixture, a focused source scan proving the raw string

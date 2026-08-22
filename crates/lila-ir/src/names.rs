@@ -261,6 +261,7 @@ pub const WEAK_SET_NAME: &str = "WeakSet";
 pub const WEAK_REF_NAME: &str = "WeakRef";
 pub const FINALIZATION_REGISTRY_NAME: &str = "FinalizationRegistry";
 pub const ASYNC_DISPOSABLE_STACK_NAME: &str = "AsyncDisposableStack";
+pub const DISPOSABLE_STACK_NAME: &str = "DisposableStack";
 pub const SET_NAME: &str = "Set";
 // The nine error intrinsic names are a closed domain owned by
 // `crate::native_error::NativeErrorKind`, which is the single spelling
@@ -284,11 +285,14 @@ pub const TYPE_ERROR_NAME: &str = NativeErrorKind::TypeError.as_str();
 pub const URI_ERROR_NAME: &str = NativeErrorKind::URIError.as_str();
 pub const REFERENCE_ERROR_NAME: &str = NativeErrorKind::ReferenceError.as_str();
 pub const BUILTIN_FUNCTION_FUNCTION_ID: &str = "$builtin.Function";
+pub const BUILTIN_FUNCTION_PROTOTYPE_FUNCTION_ID: &str = "$builtin.Function.prototype";
 pub const BUILTIN_FUNCTION_PROTOTYPE_CALL_FUNCTION_ID: &str = "$builtin.Function.prototype.call";
 pub const BUILTIN_FUNCTION_PROTOTYPE_APPLY_FUNCTION_ID: &str = "$builtin.Function.prototype.apply";
 pub const BUILTIN_FUNCTION_PROTOTYPE_BIND_FUNCTION_ID: &str = "$builtin.Function.prototype.bind";
 pub const BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.Function.prototype.toString";
+pub const BUILTIN_FUNCTION_PROTOTYPE_SYMBOL_HAS_INSTANCE_FUNCTION_ID: &str =
+    "$builtin.Function.prototype[Symbol.hasInstance]";
 pub const BUILTIN_EVAL_FUNCTION_ID: &str = "$builtin.eval";
 pub const BUILTIN_OBJECT_FUNCTION_ID: &str = "$builtin.Object";
 pub const BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID: &str = "$builtin.Object.groupBy";
@@ -1386,6 +1390,19 @@ pub const BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID: &s
     "$builtin.AsyncDisposableStack.prototype.disposeAsync.fulfilled";
 pub const BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID: &str =
     "$builtin.AsyncDisposableStack.prototype.disposeAsync.rejected";
+pub const BUILTIN_DISPOSABLE_STACK_FUNCTION_ID: &str = "$builtin.DisposableStack";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.use";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.adopt";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.defer";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.move";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.dispose";
+pub const BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID: &str =
+    "$builtin.DisposableStack.prototype.disposed.get";
 pub const BUILTIN_SET_FUNCTION_ID: &str = "$builtin.Set";
 pub const BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Set[Symbol.species].get";
 pub const BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID: &str = "$builtin.Set.prototype.add";

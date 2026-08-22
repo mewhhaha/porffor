@@ -115,6 +115,18 @@ focused compile/runtime checks remain queued behind the live current-pin
 matrix. Those checks are not a substitute for the full Promise/async Test262
 filters.
 
+Plain async functions now retain a captured lexical `for-of` iteration record
+across a body `await` rather than hoisting every iteration into one activation
+cell. The durable fixture calls the closures only after the loop, so a reused
+cell observably produces `6,6,6,6,6,6`; it additionally requires clean job-queue
+drain with no uncaught asynchronous throw. The two exact current-pin witnesses,
+`built-ins/Array/fromAsync/asyncitems-asynciterator-not-callable.js` and
+`built-ins/Array/fromAsync/asyncitems-iterator-not-callable.js`, exercise the
+newly admitted lowering shape but invoke their capture in the same iteration,
+so they do not replace the distinct-environment fixture. The integrated
+current-SHA consumer gate passes, and the two exact pinned witnesses report
+`4/4` under Wasm-AOT. The complete 95-file `Array.fromAsync` leaf was not rerun.
+
 ## Objective
 
 Implement the ECMAScript job model, complete Promise semantics, async functions and async iteration with deterministic host integration suitable for Test262 and embedders.

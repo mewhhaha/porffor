@@ -13,7 +13,8 @@ use lila_ir::{
     BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT,
     REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
     REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT,
+    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
+    REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT,
     REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
 };
 use std::sync::OnceLock;
@@ -78,6 +79,7 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot add property to non-extensible array",
     "Cannot assign inherited typed array index on receiver",
     "Cannot assign to arguments index",
+    "Cannot assign to arguments property",
     "Cannot assign to arguments.callee",
     "Cannot assign to arguments.length",
     "Cannot assign to array index",
@@ -85,6 +87,8 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot assign to array property",
     "Cannot assign to inherited accessor without setter",
     "Cannot assign to inherited read only property",
+    "Cannot assign to property",
+    "Cannot assign to super property",
     "Cannot change enumerable flag of non-configurable arguments accessor",
     "Cannot change enumerable flag of non-configurable arguments property",
     "Cannot change enumerable flag of non-configurable arguments.callee",
@@ -94,9 +98,11 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot change non-writable arguments.callee",
     "Cannot change value of non-writable arguments property",
     "Cannot define array length",
+    "Cannot define arguments index on a non-extensible object",
     "Cannot make non-configurable arguments property writable",
     "Cannot make non-configurable arguments.callee writable",
     "Cannot read properties of null or undefined",
+    "Cannot redefine array index property",
     "Cannot redefine non-configurable arguments accessor",
     "Cannot redefine non-configurable arguments property",
     "Cannot redefine non-configurable arguments.callee",
@@ -974,6 +980,21 @@ impl StringPool {
             "AsyncDisposableStack.prototype.use dispose method is not callable",
             "AsyncDisposableStack.prototype.adopt onDisposeAsync is not callable",
             "AsyncDisposableStack.prototype.defer onDisposeAsync is not callable",
+            // `%DisposableStack%`: the method keys are already interned by the
+            // async stack and Iterator surfaces above. Keep every synchronous
+            // receiver/registration error here beside the constructor error so
+            // a new emitter spelling that bypasses the pool fails during
+            // bootstrap instead of becoming a latent runtime-only path.
+            "DisposableStack",
+            "DisposableStack constructor requires new",
+            "DisposableStack method receiver is not an object",
+            "DisposableStack method receiver does not have [[DisposableState]]",
+            "DisposableStack is already disposed",
+            "DisposableStack.prototype.use value is not an object",
+            "DisposableStack.prototype.use value is not disposable",
+            "DisposableStack.prototype.use dispose method is not callable",
+            "DisposableStack.prototype.adopt onDispose is not callable",
+            "DisposableStack.prototype.defer onDispose is not callable",
             "Object.groupBy items cannot be null or undefined",
             "Object.groupBy callback must be callable",
             "Object.groupBy iterator method must be callable",
@@ -3181,6 +3202,40 @@ impl StringPool {
                     self.collect_statement(statement);
                 }
             }
+            StatementIr::SyncDisposableScope {
+                resources, body, ..
+            } => {
+                for value in [
+                    "Symbol.dispose",
+                    "using declaration resource is not an object",
+                    "using declaration resource has no [Symbol.dispose] method",
+                    "using declaration [Symbol.dispose] method is not callable",
+                ] {
+                    self.intern_string(value);
+                }
+                for resource in resources.iter() {
+                    self.collect_expr(&resource.initializer);
+                }
+                self.collect_block(body);
+            }
+            StatementIr::AsyncDisposableScope {
+                resources, body, ..
+            } => {
+                for value in [
+                    "Symbol.asyncDispose",
+                    "Symbol.dispose",
+                    "await using declaration resource is not an object",
+                    "await using declaration resource has no disposal method",
+                    "await using declaration [Symbol.dispose] method is not callable",
+                    "await using declaration [Symbol.asyncDispose] method is not callable",
+                ] {
+                    self.intern_string(value);
+                }
+                for resource in resources.iter() {
+                    self.collect_expr(resource.initializer());
+                }
+                self.collect_block(body);
+            }
             StatementIr::Block(block) => self.collect_block(block),
             StatementIr::TryCatch {
                 try_block,
@@ -3303,7 +3358,6 @@ impl StringPool {
             }
             StatementIr::ForOfArray { iterable, body, .. }
             | StatementIr::ForOfString { iterable, body, .. }
-            | StatementIr::ForOfIterator { iterable, body, .. }
             | StatementIr::ForInArray {
                 target: iterable,
                 body,
@@ -3319,6 +3373,42 @@ impl StringPool {
                 body,
                 ..
             } => {
+                self.collect_expr(iterable);
+                self.collect_statement(body);
+            }
+            StatementIr::ForOfIterator {
+                head,
+                iterable,
+                body,
+                ..
+            } => {
+                match head {
+                    ForOfIteratorHeadIr::Assignment { .. } => {}
+                    ForOfIteratorHeadIr::SyncDisposable(head) => {
+                        for value in [
+                            "Symbol.dispose",
+                            "using declaration resource is not an object",
+                            "using declaration resource has no [Symbol.dispose] method",
+                            "using declaration [Symbol.dispose] method is not callable",
+                        ] {
+                            self.intern_string(value);
+                        }
+                        self.intern_string(head.binding_name());
+                    }
+                    ForOfIteratorHeadIr::AsyncDisposable(head) => {
+                        for value in [
+                            "Symbol.asyncDispose",
+                            "Symbol.dispose",
+                            "await using declaration resource is not an object",
+                            "await using declaration resource has no disposal method",
+                            "await using declaration [Symbol.dispose] method is not callable",
+                            "await using declaration [Symbol.asyncDispose] method is not callable",
+                        ] {
+                            self.intern_string(value);
+                        }
+                        self.intern_string(head.binding_name());
+                    }
+                }
                 self.collect_expr(iterable);
                 self.collect_statement(body);
             }
@@ -3363,6 +3453,39 @@ impl StringPool {
             ForInitIr::Statements(statements) => {
                 for statement in statements {
                     self.collect_statement(statement);
+                }
+            }
+            ForInitIr::SyncDisposable(resources) => {
+                for value in [
+                    "Symbol.dispose",
+                    "using declaration resource is not an object",
+                    "using declaration resource has no [Symbol.dispose] method",
+                    "using declaration [Symbol.dispose] method is not callable",
+                ] {
+                    self.intern_string(value);
+                }
+                for resource in resources.iter() {
+                    self.intern_string(&resource.binding_name);
+                    collect_finite_string_choices(
+                        &resource.initializer,
+                        &mut self.runtime_regexp_candidate_literals,
+                    );
+                    self.collect_expr(&resource.initializer);
+                }
+            }
+            ForInitIr::AsyncDisposable(init) => {
+                for value in [
+                    "Symbol.asyncDispose",
+                    "Symbol.dispose",
+                    "await using declaration resource is not an object",
+                    "await using declaration resource has no disposal method",
+                    "await using declaration [Symbol.dispose] method is not callable",
+                    "await using declaration [Symbol.asyncDispose] method is not callable",
+                ] {
+                    self.intern_string(value);
+                }
+                for resource in init.resources().iter() {
+                    self.collect_expr(resource.initializer());
                 }
             }
         }
@@ -3452,17 +3575,15 @@ impl StringPool {
                             self.collect_expr(key);
                             self.collect_expr(value);
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function }
-                        | ObjectPropertyIr::ComputedGetter { key, function }
-                        | ObjectPropertyIr::ComputedSetter { key, function } => {
+                        ObjectPropertyIr::ComputedMethod { key, .. }
+                        | ObjectPropertyIr::ComputedGetter { key, .. }
+                        | ObjectPropertyIr::ComputedSetter { key, .. } => {
                             self.collect_expr(key);
-                            self.collect_expr(function);
                         }
-                        ObjectPropertyIr::Method { key, function }
-                        | ObjectPropertyIr::Getter { key, function }
-                        | ObjectPropertyIr::Setter { key, function } => {
+                        ObjectPropertyIr::Method { key, .. }
+                        | ObjectPropertyIr::Getter { key, .. }
+                        | ObjectPropertyIr::Setter { key, .. } => {
                             self.intern_string(key);
-                            self.collect_expr(function);
                         }
                     }
                 }
@@ -3522,18 +3643,16 @@ impl StringPool {
                 self.collect_property_key(key);
                 self.collect_expr(value);
             }
-            ExprIr::PropertyUpdate { target, key, .. } => {
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.uses_heap = true;
-                self.collect_expr(target);
-                self.collect_property_key(key);
+                self.collect_expr(update.base_and_receiver());
+                self.collect_property_key(update.referenced_name());
             }
-            ExprIr::PropertyCompoundAssign {
-                target, key, value, ..
-            } => {
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
                 self.uses_heap = true;
-                self.collect_expr(target);
-                self.collect_property_key(key);
-                self.collect_expr(value);
+                self.collect_expr(mutation.base_and_receiver());
+                self.collect_property_key(mutation.referenced_name());
+                self.collect_expr(mutation.result());
             }
             ExprIr::AssignIdentifier { name, value } => {
                 self.intern_string(name);
@@ -4000,14 +4119,32 @@ impl StringPool {
                     self.collect_expr(arg);
                 }
             }
-            ExprIr::SuperPropertyRead { key } => {
+            ExprIr::SuperPropertyRead { key, receiver } => {
                 self.uses_heap = true;
                 self.collect_property_key(key);
+                self.collect_expr(receiver);
             }
-            ExprIr::SuperPropertyWrite { key, value, .. } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                receiver,
+                value,
+                ..
+            } => {
                 self.uses_heap = true;
                 self.collect_property_key(key);
+                self.collect_expr(receiver);
                 self.collect_expr(value);
+            }
+            ExprIr::SuperPropertyMutation(mutation) => {
+                self.uses_heap = true;
+                self.collect_property_key(mutation.referenced_name());
+                self.collect_expr(mutation.receiver());
+                match mutation.operation() {
+                    SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
+                    SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                        self.collect_expr(result);
+                    }
+                }
             }
             ExprIr::ClassDefinition(class) => {
                 self.uses_heap = true;
@@ -4226,7 +4363,12 @@ impl StringPool {
         let split_count = program
             .instructions
             .iter()
-            .filter(|instruction| instruction.opcode == REGEXP_OPCODE_SPLIT)
+            .filter(|instruction| {
+                matches!(
+                    instruction.opcode,
+                    REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
+                )
+            })
             .count() as u32;
         self.pending_regexp_programs.push((
             key,
@@ -4704,6 +4846,14 @@ fn repeatable_split_count(program: &RegExpProgram) -> u32 {
                 .into_iter()
                 .flatten()
                 .collect(),
+            REGEXP_OPCODE_PROGRESS_SPLIT => [
+                valid(instruction.operand0),
+                valid(instruction.operand1 >> 1),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            REGEXP_OPCODE_PROGRESS_CHECK => valid(instruction.operand1).into_iter().collect(),
             REGEXP_OPCODE_JUMP => valid(instruction.operand0).into_iter().collect(),
             REGEXP_OPCODE_ACCEPT => Vec::new(),
             _ if pc + 1 < instructions.len() => vec![pc + 1],
@@ -4714,7 +4864,12 @@ fn repeatable_split_count(program: &RegExpProgram) -> u32 {
     instructions
         .iter()
         .enumerate()
-        .filter(|(_, instruction)| instruction.opcode == REGEXP_OPCODE_SPLIT)
+        .filter(|(_, instruction)| {
+            matches!(
+                instruction.opcode,
+                REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
+            )
+        })
         .filter(|(split_pc, _)| {
             let mut visited = vec![false; instructions.len()];
             let mut stack = successors(*split_pc);
@@ -4753,7 +4908,10 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
         if state[pc] == 1 {
             return true;
         }
-        if state[pc] == 2 || is_consuming(&instructions[pc]) {
+        if state[pc] == 2
+            || is_consuming(&instructions[pc])
+            || instructions[pc].opcode == REGEXP_OPCODE_PROGRESS_CHECK
+        {
             return false;
         }
         state[pc] = 1;
@@ -4767,6 +4925,13 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
             REGEXP_OPCODE_SPLIT => [
                 valid_target(instruction.operand0),
                 valid_target(instruction.operand1),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+            REGEXP_OPCODE_PROGRESS_SPLIT => [
+                valid_target(instruction.operand0),
+                valid_target(instruction.operand1 >> 1),
             ]
             .into_iter()
             .flatten()

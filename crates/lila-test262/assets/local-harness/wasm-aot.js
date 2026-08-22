@@ -8,7 +8,7 @@
 /// assert.js
 function __lilaAssertIsSameValue(a, b) {
   if (a === b) {
-    return true;
+    return a !== 0 || 1 / a === 1 / b;
   }
   return a !== a && b !== b;
 }
@@ -40,10 +40,7 @@ function assert(mustBeTrue, message) {
 assert._isSameValue = __lilaAssertIsSameValue;
 assert._toString = __lilaAssertToString;
 assert.sameValue = function (actual, expected, message) {
-    if (actual === expected) {
-      return;
-    }
-    if (actual !== actual && expected !== expected) {
+    if (__lilaAssertIsSameValue(actual, expected)) {
       return;
     }
 
@@ -57,11 +54,7 @@ assert.sameValue = function (actual, expected, message) {
     throw message;
   };
 assert.notSameValue = function (actual, unexpected, message) {
-    if (actual === unexpected) {
-      // SameValue matched; fall through to failure below.
-    } else if (actual !== actual && unexpected !== unexpected) {
-      // NaN is SameValue to NaN; fall through to failure below.
-    } else {
+    if (!__lilaAssertIsSameValue(actual, unexpected)) {
       return;
     }
 
@@ -239,10 +232,10 @@ function verifyProperty(obj, name, desc) {
   }
 
   if (desc.value !== undefined) {
-    if (originalDesc.value !== desc.value) {
+    if (!__lilaAssertIsSameValue(originalDesc.value, desc.value)) {
       throw "Expected descriptor value";
     }
-    if (obj[name] !== desc.value) {
+    if (!__lilaAssertIsSameValue(obj[name], desc.value)) {
       throw "Expected property value";
     }
   }

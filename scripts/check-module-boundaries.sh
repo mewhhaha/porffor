@@ -433,7 +433,7 @@ fi
 require_fixed_string_count \
   "$wasm_standard_builtins" \
   'self.emit_function_builtin(' \
-  6 \
+  8 \
   'Function builtin delegate'
 require_fixed_string_count \
   "$wasm_standard_builtins" \
@@ -1095,15 +1095,15 @@ fi
 # T11's Proxy record has one typed writer and one typed live reader. Keep the
 # raw handler-tag offset private to objects.rs (apart from its heap declaration)
 # and keep the reviewed HasProperty, Delete, GetPrototypeOf, IsExtensible,
-# OwnPropertyKeys and public descriptor consumers on the reader so no path can
-# silently reconstruct an Object tag.
+# PreventExtensions, OwnPropertyKeys and public descriptor consumers on the
+# reader so no path can silently reconstruct an Object tag.
 proxy_slot_reader='emit_load_live_proxy_slots('
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
   'pub(crate) fn emit_load_live_proxy_slots(' \
   1 \
   'typed live-Proxy-slot reader authority'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 6 'live-Proxy-slot reader definition/internal call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 7 'live-Proxy-slot reader definition/internal call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/object.rs "$proxy_slot_reader" 1 'public descriptor live-Proxy-slot reader call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'HEAP_PROXY_HANDLER_TAG_OFFSET' 2 'Proxy handler-tag writer/reader authority'
 proxy_handler_tag_files="$(grep -RFl --include='*.rs' 'HEAP_PROXY_HANDLER_TAG_OFFSET' crates/lila-aot-wasm/src | sort || true)"
@@ -1112,6 +1112,13 @@ expected_proxy_handler_tag_files="$(printf '%s\n' \
   crates/lila-aot-wasm/src/objects.rs | sort)"
 if [ "$proxy_handler_tag_files" != "$expected_proxy_handler_tag_files" ]; then
   fail 'Proxy handler-tag heap access must stay inside the typed slot authority'
+fi
+
+proxy_prevent_extensions_dispatch="$(sed -n \
+  '/pub(crate) fn emit_object_prevent_extensions(/,/pub(crate) fn emit_object_is_extensible_i32(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+if ! grep -Fq 'self.emit_load_live_proxy_slots(' <<<"$proxy_prevent_extensions_dispatch"; then
+  fail 'Proxy PreventExtensions must retain target and handler tags through the typed live-slot reader'
 fi
 
 proxy_delete_dispatch="$(sed -n \

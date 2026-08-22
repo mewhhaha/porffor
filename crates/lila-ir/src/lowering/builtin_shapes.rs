@@ -2924,6 +2924,32 @@ impl<'a> ScriptLowerer<'a> {
         let mut shape = Self::function_heap_shape(builtin.constructable());
         if let HeapShape::Object(object) = shape.as_mut() {
             match builtin {
+                StandardBuiltinId::FunctionConstructor => {
+                    // `%Function.prototype%` is itself the exact callable
+                    // intrinsic. Keeping its catalog target in the constructor
+                    // shape makes `Function.prototype()` a statically resolved
+                    // call instead of an indirect call through an Object-shaped
+                    // placeholder.
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                            StandardBuiltinId::FunctionPrototype,
+                        )),
+                    );
+                }
+                StandardBuiltinId::FunctionPrototype => {
+                    // This non-configurable symbol property is part of the exact
+                    // callable intrinsic shape. A computed read through
+                    // `Function.prototype[Symbol.hasInstance]` can therefore
+                    // retain the catalogued call target without treating symbol
+                    // and string property keys as interchangeable.
+                    object.properties.insert(
+                        WellKnownSymbol::HasInstance.description().to_string(),
+                        ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                            StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
+                        )),
+                    );
+                }
                 StandardBuiltinId::PromiseConstructor => {
                     object.properties.insert(
                         "prototype".to_string(),
@@ -3868,6 +3894,7 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::FunctionPrototypeCall
                 | StandardBuiltinId::FunctionPrototypeApply
                 | StandardBuiltinId::FunctionPrototypeBind
+                | StandardBuiltinId::FunctionPrototypeSymbolHasInstance
                 | StandardBuiltinId::FunctionPrototypeToString
                 | StandardBuiltinId::DataViewPrototypeBufferGetter
                 | StandardBuiltinId::DataViewPrototypeByteLengthGetter
@@ -4632,6 +4659,18 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Function),
                 Some(Self::standard_builtin_function_shape(builtin)),
                 Self::standard_builtin_value_info(builtin),
+            ),
+            StandardBuiltinId::FunctionPrototype => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::FunctionPrototypeCall
             | StandardBuiltinId::FunctionPrototypeApply => (
@@ -7101,10 +7140,9 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). The return shapes
-            // are deliberately `None`: the lane added no
-            // `async_disposable_stack_instance_shape()`, so the lowerer learns
-            // the kind and nothing else and every member access stays dynamic.
+            // The stack return shapes are deliberately `None`: neither family
+            // has a static instance shape, so the lowerer learns the kind and
+            // nothing else and every member access stays dynamic.
             //
             // The fourth member is `fresh_constructed_instance_info()`, NOT the
             // `ValueInfo::undefined()` the lane note proposed. This builtin is
@@ -7119,7 +7157,8 @@ impl<'a> ScriptLowerer<'a> {
             // the batch-7 `IntlDateTimeFormatConstructor` defect verbatim, whose
             // arm 20 lines below is the precedent this copies (`Object`,
             // `{Object}`, no return shape, fresh constructed instance).
-            StandardBuiltinId::AsyncDisposableStackConstructor => (
+            StandardBuiltinId::AsyncDisposableStackConstructor
+            | StandardBuiltinId::DisposableStackConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,
@@ -7127,13 +7166,17 @@ impl<'a> ScriptLowerer<'a> {
             ),
             // `use` and `adopt` both return their first argument unchanged.
             StandardBuiltinId::AsyncDisposableStackPrototypeUse
-            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => (
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::DisposableStackPrototypeUse
+            | StandardBuiltinId::DisposableStackPrototypeAdopt => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
                 None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDefer
+            | StandardBuiltinId::DisposableStackPrototypeDispose
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
             | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => (
                 ValueKind::Undefined,
@@ -7144,13 +7187,15 @@ impl<'a> ScriptLowerer<'a> {
             // `move` returns a fresh stack; `disposeAsync` always returns a
             // promise, including on every failure path.
             StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::DisposableStackPrototypeMove
             | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => (
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+            | StandardBuiltinId::DisposableStackPrototypeDisposedGetter => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
                 None,

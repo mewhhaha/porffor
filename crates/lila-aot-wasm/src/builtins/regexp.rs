@@ -10,16 +10,46 @@ use lila_ir::{
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
     REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
+    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_PROGRESS_CHECK,
+    REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
     REGEXP_OPCODE_WHITESPACE, REGEXP_RANGE_ENTRY_WIDTH,
 };
+
+const REGEXP_CHOICE_FALLBACK_MASK: i64 = u32::MAX as i64;
+const REGEXP_CHOICE_ORIGIN_MASK: i64 = 0x3fff_ffff;
+const REGEXP_CHOICE_ORIGIN_SHIFT: i64 = 32;
+const REGEXP_CHOICE_KIND_SHIFT: i64 = 62;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RegExpChoiceFrameKind {
+    Ordinary,
+    GreedyProgress,
+    LazyProgressChoice,
+    LazyProgressAttempt,
+}
+
+impl RegExpChoiceFrameKind {
+    const fn word(self) -> i64 {
+        match self {
+            Self::Ordinary => 0,
+            Self::GreedyProgress => 1,
+            Self::LazyProgressChoice => 2,
+            Self::LazyProgressAttempt => 3,
+        }
+    }
+}
+
+// Existing ordinary frames remain a raw low-word fallback PC.
+const _: () = assert!(RegExpChoiceFrameKind::Ordinary.word() == 0);
 
 impl<'a> FunctionBuilder<'a> {
     /// Compiles the fixed-width ordered-backtracking `RegExpProgram` matcher.
     ///
-    /// The flat consuming-atom grammar uses ordered `Split`/`Jump` choices for
-    /// repetition. Matching can backtrack, but the helper remains pure: it
-    /// reads program/string bytes and writes only caller-provided scratch.
+    /// The flat matcher grammar uses ordered choices for repetition. Nullable
+    /// attempts pair `ProgressSplit` with `ProgressCheck`, retaining their
+    /// authority in the same capture-owning choice frames as ordinary splits.
+    /// Matching can backtrack, but the helper remains pure: it reads
+    /// program/string bytes and writes only caller-provided scratch.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`] (seven i64 params, four i64
     /// results). Param 0 packs the program pointer in its low 32 bits and the
@@ -30,8 +60,8 @@ impl<'a> FunctionBuilder<'a> {
     /// and repeatable split count in bits
     /// 32..63, 5=exclusive
     /// static-data end,
-    /// 6=choice-frame scratch (fallback pc, byte cursor, UTF-16 cursor,
-    /// low-surrogate state). Results are found, match start, match end, and
+    /// 6=choice-frame scratch (packed kind/origin/fallback, byte cursor, UTF-16
+    /// cursor, low-surrogate state). Results are found, match start, match end, and
     /// [`RegExpMatcherStatus`] in the final slot. The helper can only write a
     /// status through `emit_regexp_match_result`, whose typed argument prevents
     /// a new exit from inventing or reusing a raw ABI word.
@@ -61,6 +91,10 @@ impl<'a> FunctionBuilder<'a> {
         let match_on_low_surrogate = self.reserve_temp_local();
         let choice_depth = self.reserve_temp_local();
         let choice_address = self.reserve_temp_local();
+        let choice_header = self.reserve_temp_local();
+        let progress_frame_depth = self.reserve_temp_local();
+        let progress_frame_address = self.reserve_temp_local();
+        let progress_frame_found = self.reserve_temp_local();
         let choice_limit = self.reserve_temp_local();
         let instruction_count = self.reserve_temp_local();
         let capture_count = self.reserve_temp_local();
@@ -2032,76 +2066,132 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalGet(capture_count));
-        function.instruction(&Instruction::I64Const(16));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(choice_depth));
-        function.instruction(&Instruction::LocalGet(frame_width));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(choice_address));
-        function.instruction(&Instruction::LocalGet(choice_address));
-        function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Store(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalGet(choice_address));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(match_byte));
-        function.instruction(&Instruction::I64Store(Self::memarg8(8)));
-        function.instruction(&Instruction::LocalGet(choice_address));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(match_utf16));
-        function.instruction(&Instruction::I64Store(Self::memarg8(16)));
-        function.instruction(&Instruction::LocalGet(choice_address));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(match_on_low_surrogate));
-        function.instruction(&Instruction::I64Store(Self::memarg8(24)));
-        // Snapshot the entire current capture vector after the frame header.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(capture_index));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(capture_index));
-        function.instruction(&Instruction::LocalGet(capture_count));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(6));
-        function.instruction(&Instruction::LocalGet(capture_index));
-        function.instruction(&Instruction::I64Const(16));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture_address));
-        for offset in [0u64, 8] {
-            function.instruction(&Instruction::LocalGet(choice_address));
-            function.instruction(&Instruction::LocalGet(capture_index));
-            function.instruction(&Instruction::I64Const(16));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I64Const((32 + offset) as i64));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::LocalGet(capture_address));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Load(Self::memarg8(offset)));
-            function.instruction(&Instruction::I64Store(Self::memarg8(0)));
-        }
-        function.instruction(&Instruction::LocalGet(capture_index));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture_index));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(choice_depth));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(choice_depth));
+        function.instruction(&Instruction::LocalSet(choice_header));
+        self.emit_regexp_push_choice_frame(
+            choice_header,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
         function.instruction(&Instruction::LocalGet(operand0));
         function.instruction(&Instruction::LocalSet(pc));
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
+
+        // A nullable optional attempt carries its pre-attempt cursor and
+        // captures in the same ordered-choice arena. The high half of the
+        // otherwise 32-bit fallback word seals the frame kind and originating
+        // split identity without widening the scratch ABI.
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_PROGRESS_SPLIT as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::LocalGet(instruction_count));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalGet(instruction_count));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(pc));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_ORIGIN_MASK));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(choice_depth));
+        function.instruction(&Instruction::LocalGet(choice_limit));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::ResourceExhausted),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(pc));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_ORIGIN_SHIFT));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(
+            RegExpChoiceFrameKind::LazyProgressChoice.word(),
+        ));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(
+            RegExpChoiceFrameKind::GreedyProgress.word(),
+        ));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_KIND_SHIFT));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(choice_header));
+        self.emit_regexp_push_choice_frame(
+            choice_header,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
+
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(pc));
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_JUMP as i64));
         function.instruction(&Instruction::I64Eq);
@@ -2123,12 +2213,144 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(pc));
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
+
+        // The check does not assume its progress frame is on top: ordered
+        // alternatives inside the atom remain newer choices and must run
+        // first if the current attempt made no progress.
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_PROGRESS_CHECK as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::LocalGet(instruction_count));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::LocalGet(instruction_count));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(progress_frame_found));
+        function.instruction(&Instruction::LocalGet(choice_depth));
+        function.instruction(&Instruction::LocalSet(progress_frame_depth));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(progress_frame_depth));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(progress_frame_depth));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalTee(progress_frame_depth));
+        function.instruction(&Instruction::LocalGet(frame_width));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalGet(capture_count));
+        function.instruction(&Instruction::I64Const(16));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalTee(progress_frame_address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_KIND_SHIFT));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(
+            RegExpChoiceFrameKind::GreedyProgress.word(),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(progress_frame_address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_KIND_SHIFT));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(
+            RegExpChoiceFrameKind::LazyProgressAttempt.word(),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(progress_frame_address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_ORIGIN_SHIFT));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_ORIGIN_MASK));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(progress_frame_found));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(progress_frame_found));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(progress_frame_address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(16)));
+        function.instruction(&Instruction::LocalGet(match_utf16));
+        function.instruction(&Instruction::I64Eq);
+        self.emit_regexp_backtrack_or_fail(
+            1,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            pc,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::LocalSet(pc));
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::LocalGet(reverse_mode));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LITERAL_ASCII as i64));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_LITERAL_CODE_POINT as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_UNICODE_PROPERTY as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_DOT as i64));
         function.instruction(&Instruction::I64Eq);
@@ -2283,10 +2505,81 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LITERAL_ASCII as i64));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_LITERAL_CODE_POINT as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(codepoint));
         function.instruction(&Instruction::LocalGet(operand0));
         function.instruction(&Instruction::I64Ne);
+        self.emit_regexp_backtrack_or_fail(
+            2,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            pc,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(match_utf16));
+        function.instruction(&Instruction::LocalGet(utf16_advance));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(match_utf16));
+        function.instruction(&Instruction::LocalGet(pc));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(pc));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_UNICODE_PROPERTY as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Reverse matching uses the same canonical range slice and membership
+        // test as forward matching. Only cursor movement differs.
+        function.instruction(&Instruction::LocalGet(range_base));
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(REGEXP_RANGE_ENTRY_WIDTH as i64));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(5));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
+        self.emit_regexp_unicode_property_mismatch(
+            range_base,
+            operand0,
+            operand1,
+            codepoint,
+            range_count,
+            range_low,
+            range_high,
+            range_middle,
+            &mut function,
+        );
         self.emit_regexp_backtrack_or_fail(
             2,
             choice_depth,
@@ -2667,59 +2960,17 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        // Binary search the sorted, disjoint range slice
-        // `[operand0, operand0 + operand1 >> 1)` for `codepoint`.
-        function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(range_count));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(range_low));
-        function.instruction(&Instruction::LocalGet(range_count));
-        function.instruction(&Instruction::LocalSet(range_high));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(range_low));
-        function.instruction(&Instruction::LocalGet(range_high));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(range_low));
-        function.instruction(&Instruction::LocalGet(range_high));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(range_middle));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        self.emit_regexp_range_bound_load(range_base, operand0, range_middle, 4, &mut function);
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(range_middle));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(range_low));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(range_middle));
-        function.instruction(&Instruction::LocalSet(range_high));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(range_low));
-        function.instruction(&Instruction::LocalGet(range_count));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        self.emit_regexp_range_bound_load(range_base, operand0, range_low, 0, &mut function);
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Xor);
-        function.instruction(&Instruction::I64Eqz);
+        self.emit_regexp_unicode_property_mismatch(
+            range_base,
+            operand0,
+            operand1,
+            codepoint,
+            range_count,
+            range_low,
+            range_high,
+            range_middle,
+            &mut function,
+        );
         self.emit_regexp_backtrack_or_fail(
             1,
             choice_depth,
@@ -3156,6 +3407,82 @@ impl<'a> FunctionBuilder<'a> {
         Ok(self.finish_function(function))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn emit_regexp_push_choice_frame(
+        &self,
+        header: u32,
+        depth: u32,
+        address: u32,
+        byte: u32,
+        utf16: u32,
+        on_low_surrogate: u32,
+        capture_count: u32,
+        frame_width: u32,
+        capture_index: u32,
+        capture_address: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalGet(capture_count));
+        function.instruction(&Instruction::I64Const(16));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(depth));
+        function.instruction(&Instruction::LocalGet(frame_width));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(address));
+        for (offset, local) in [(0, header), (8, byte), (16, utf16), (24, on_low_surrogate)] {
+            function.instruction(&Instruction::LocalGet(address));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::I64Store(Self::memarg8(offset)));
+        }
+
+        // Every ordered choice owns the full capture state. A progress check
+        // can consequently use ordinary backtracking to retry newer atom
+        // alternatives and eventually restore the pre-attempt captures.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(capture_index));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(capture_index));
+        function.instruction(&Instruction::LocalGet(capture_count));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalGet(capture_index));
+        function.instruction(&Instruction::I64Const(16));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(capture_address));
+        for offset in [0u64, 8] {
+            function.instruction(&Instruction::LocalGet(address));
+            function.instruction(&Instruction::LocalGet(capture_index));
+            function.instruction(&Instruction::I64Const(16));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::I64Const((32 + offset) as i64));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::LocalGet(capture_address));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I64Load(Self::memarg8(offset)));
+            function.instruction(&Instruction::I64Store(Self::memarg8(0)));
+        }
+        function.instruction(&Instruction::LocalGet(capture_index));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(capture_index));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(depth));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(depth));
+    }
+
     /// On an atom failure, restore the latest ordered fallback. If none exists,
     /// branch out of the instruction loop to advance the unanchored candidate.
     ///
@@ -3181,10 +3508,12 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(depth));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(3 + caller_block_depth));
+        function.instruction(&Instruction::Br(5 + caller_block_depth));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(depth));
         function.instruction(&Instruction::I64Const(1));
@@ -3199,9 +3528,57 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(address));
+
+        // A lazy progress choice becomes the active authority only when its
+        // attempt fallback is selected. Keep it in the arena while the atom
+        // runs. If that attempt later fails or remains empty, discard the
+        // authority and continue to the next older ordered choice.
         function.instruction(&Instruction::LocalGet(address));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_KIND_SHIFT));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(
+            RegExpChoiceFrameKind::LazyProgressAttempt.word(),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_KIND_SHIFT));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(
+            RegExpChoiceFrameKind::LazyProgressChoice.word(),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Const(0x3fff_ffff_ffff_ffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(
+            ((RegExpChoiceFrameKind::LazyProgressAttempt.word() as u64) << 62) as i64,
+        ));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Store(Self::memarg8(0)));
+        function.instruction(&Instruction::LocalGet(depth));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(depth));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(address));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Const(REGEXP_CHOICE_FALLBACK_MASK));
+        function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::LocalSet(pc));
         function.instruction(&Instruction::LocalGet(address));
         function.instruction(&Instruction::I32WrapI64);
@@ -3250,6 +3627,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(1 + caller_block_depth));
         function.instruction(&Instruction::End);
     }
@@ -3265,6 +3645,87 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I64Load(Self::memarg8(delta)));
         function.instruction(&Instruction::LocalSet(output_local));
+    }
+
+    /// Pushes whether `codepoint_local` fails the canonical range-set matcher
+    /// encoded by `first_entry_local` and `packed_count_local`.
+    fn emit_regexp_unicode_property_mismatch(
+        &self,
+        range_base_local: u32,
+        first_entry_local: u32,
+        packed_count_local: u32,
+        codepoint_local: u32,
+        range_count_local: u32,
+        range_low_local: u32,
+        range_high_local: u32,
+        range_middle_local: u32,
+        function: &mut Function,
+    ) {
+        // Binary search the sorted, disjoint range slice for the first range
+        // whose inclusive end is not below the input code point.
+        function.instruction(&Instruction::LocalGet(packed_count_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(range_count_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_count_local));
+        function.instruction(&Instruction::LocalSet(range_high_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_high_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_high_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(range_middle_local));
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        self.emit_regexp_range_bound_load(
+            range_base_local,
+            first_entry_local,
+            range_middle_local,
+            4,
+            function,
+        );
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(range_middle_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(range_low_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(range_middle_local));
+        function.instruction(&Instruction::LocalSet(range_high_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(range_low_local));
+        function.instruction(&Instruction::LocalGet(range_count_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        self.emit_regexp_range_bound_load(
+            range_base_local,
+            first_entry_local,
+            range_low_local,
+            0,
+            function,
+        );
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalGet(packed_count_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Xor);
+        function.instruction(&Instruction::I64Eqz);
     }
 
     /// Pushes the inclusive `start` (`field` 0) or `end` (`field` 4) bound of

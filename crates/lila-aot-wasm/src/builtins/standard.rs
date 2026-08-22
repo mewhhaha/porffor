@@ -7714,6 +7714,27 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::AsyncDisposableStackConstructor => {
                 self.emit_async_disposable_stack_constructor(function)?;
             }
+            StandardBuiltinId::DisposableStackConstructor => {
+                self.emit_disposable_stack_constructor(function)?;
+            }
+            StandardBuiltinId::DisposableStackPrototypeUse => {
+                self.emit_disposable_stack_use(function)?;
+            }
+            StandardBuiltinId::DisposableStackPrototypeAdopt => {
+                self.emit_disposable_stack_adopt(function)?;
+            }
+            StandardBuiltinId::DisposableStackPrototypeDefer => {
+                self.emit_disposable_stack_defer(function)?;
+            }
+            StandardBuiltinId::DisposableStackPrototypeMove => {
+                self.emit_disposable_stack_move(function)?;
+            }
+            StandardBuiltinId::DisposableStackPrototypeDispose => {
+                self.emit_disposable_stack_dispose(function)?;
+            }
+            StandardBuiltinId::DisposableStackPrototypeDisposedGetter => {
+                self.emit_disposable_stack_disposed_getter(function)?;
+            }
             StandardBuiltinId::AsyncDisposableStackPrototypeUse => {
                 self.emit_async_disposable_stack_use(function)?;
             }
@@ -7985,6 +8006,12 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::FunctionConstructor => {
                 self.emit_function_builtin(FunctionBuiltin::Constructor, function)?
+            }
+            StandardBuiltinId::FunctionPrototype => {
+                self.emit_function_builtin(FunctionBuiltin::Prototype, function)?
+            }
+            StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
+                self.emit_function_builtin(FunctionBuiltin::PrototypeSymbolHasInstance, function)?
             }
             StandardBuiltinId::FunctionPrototypeCall => {
                 self.emit_function_builtin(FunctionBuiltin::PrototypeCall, function)?

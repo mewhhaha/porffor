@@ -67,6 +67,11 @@ while IFS= read -r -d '' path; do
     docs/rust-rewrite/lila-identity-migration.md) continue ;;
     scripts/check-lila-identity.sh) continue ;;
     scripts/check-no-legacy-js.sh) continue ;;
+    # The status upgrader must recognize the retired generated-block spelling,
+    # and its regression suite must construct that historical input. These are
+    # migration readers/tests, not product or publication identities.
+    scripts/check-readme-status-artifacts.sh) continue ;;
+    scripts/tests/check-readme-status-artifacts.sh) continue ;;
     tasks/28-retire-legacy-js.md|tasks/29-lila-identifier-migration.md) continue ;;
   esac
 

@@ -98,6 +98,7 @@ pub use dynamic_source::{
 };
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use function_protocol::FunctionProtocolIr;
+pub(crate) use function_protocol::LexicalSuperOwnerRole;
 pub use ir::*;
 pub(crate) use ir::{read_heap_shape_property, summarize_block};
 /// The iterator-protocol obligations of 7.4 and the witness a for-of
@@ -148,7 +149,8 @@ pub use regexp::{
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
     REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
+    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_PROGRESS_CHECK,
+    REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
     REGEXP_OPCODE_WHITESPACE, REGEXP_RANGE_ENTRY_WIDTH,
 };
 pub use task::{ParseTaskIdError, TaskId};
@@ -266,6 +268,12 @@ mod tests {
                 StatementIr::LexicalBlock(statements)
                 | StatementIr::ParameterInitialization { statements, .. } => {
                     for statement in statements {
+                        collect(statement, copies);
+                    }
+                }
+                StatementIr::SyncDisposableScope { body, .. }
+                | StatementIr::AsyncDisposableScope { body, .. } => {
+                    for statement in &body.statements {
                         collect(statement, copies);
                     }
                 }
@@ -417,6 +425,20 @@ mod tests {
                                     collect(statement, names);
                                 }
                             }
+                            ForInitIr::SyncDisposable(resources) => {
+                                names.extend(
+                                    resources
+                                        .iter()
+                                        .map(|resource| resource.binding_name.clone()),
+                                );
+                            }
+                            ForInitIr::AsyncDisposable(init) => {
+                                names.extend(
+                                    init.resources()
+                                        .iter()
+                                        .map(|resource| resource.binding_name().to_string()),
+                                );
+                            }
                         }
                     }
                     collect(body, names);
@@ -446,6 +468,20 @@ mod tests {
                                 for statement in statements {
                                     collect(statement, names);
                                 }
+                            }
+                            ForInitIr::SyncDisposable(resources) => {
+                                names.extend(
+                                    resources
+                                        .iter()
+                                        .map(|resource| resource.binding_name.clone()),
+                                );
+                            }
+                            ForInitIr::AsyncDisposable(init) => {
+                                names.extend(
+                                    init.resources()
+                                        .iter()
+                                        .map(|resource| resource.binding_name().to_string()),
+                                );
                             }
                         }
                     }
@@ -477,10 +513,45 @@ mod tests {
                         collect(statement, names);
                     }
                 }
-                StatementIr::ForOfArray { name, body, .. }
-                | StatementIr::ForOfString { name, body, .. }
-                | StatementIr::ForOfIterator { name, body, .. }
-                | StatementIr::ForInArray { name, body, .. }
+                StatementIr::SyncDisposableScope {
+                    resources, body, ..
+                } => {
+                    names.extend(
+                        resources
+                            .iter()
+                            .map(|resource| resource.binding_name.clone()),
+                    );
+                    for statement in &body.statements {
+                        collect(statement, names);
+                    }
+                }
+                StatementIr::AsyncDisposableScope {
+                    resources, body, ..
+                } => {
+                    names.extend(
+                        resources
+                            .iter()
+                            .map(|resource| resource.binding_name().to_string()),
+                    );
+                    for statement in &body.statements {
+                        collect(statement, names);
+                    }
+                }
+                StatementIr::ForOfArray { head, body, .. }
+                | StatementIr::ForOfString { head, body, .. } => {
+                    names.insert(head.name.clone());
+                    collect(body, names);
+                }
+                StatementIr::ForOfIterator { head, body, .. } => {
+                    let name = match head {
+                        ForOfIteratorHeadIr::Assignment { binding, .. } => &binding.name,
+                        ForOfIteratorHeadIr::SyncDisposable(head) => head.binding_name(),
+                        ForOfIteratorHeadIr::AsyncDisposable(head) => head.binding_name(),
+                    };
+                    names.insert(name.to_string());
+                    collect(body, names);
+                }
+                StatementIr::ForInArray { name, body, .. }
                 | StatementIr::ForInString { name, body, .. }
                 | StatementIr::ForInObject { name, body, .. } => {
                     names.insert(name.clone());
@@ -621,6 +692,10 @@ mod tests {
                 | StatementIr::Labelled {
                     statement: body, ..
                 } => statement_owns_binding(body, name, slot),
+                StatementIr::SyncDisposableScope { body, .. }
+                | StatementIr::AsyncDisposableScope { body, .. } => {
+                    block_environment_owns_binding(body, name, slot)
+                }
                 StatementIr::For {
                     body,
                     lexical_environment,
@@ -1580,6 +1655,270 @@ mod tests {
             indirect_call_body(expression)
                 .is_some_and(|call| call.possible_kinds == KindSet::all_runtime_tags())
         }));
+    }
+
+    #[test]
+    fn non_generic_primitive_method_calls_retain_acquired_callee_identity() {
+        struct MethodCase {
+            owner: &'static str,
+            name: &'static str,
+            builtin: StandardBuiltinId,
+            valid_receiver: &'static str,
+            expected_kind: ValueKind,
+        }
+
+        let methods = [
+            MethodCase {
+                owner: "Boolean",
+                name: "toString",
+                builtin: StandardBuiltinId::BooleanPrototypeToString,
+                valid_receiver: "new Boolean()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Boolean",
+                name: "valueOf",
+                builtin: StandardBuiltinId::BooleanPrototypeValueOf,
+                valid_receiver: "new Boolean()",
+                expected_kind: ValueKind::Boolean,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toExponential",
+                builtin: StandardBuiltinId::NumberPrototypeToExponential,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toFixed",
+                builtin: StandardBuiltinId::NumberPrototypeToFixed,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toLocaleString",
+                builtin: StandardBuiltinId::NumberPrototypeToLocaleString,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toPrecision",
+                builtin: StandardBuiltinId::NumberPrototypeToPrecision,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "toString",
+                builtin: StandardBuiltinId::NumberPrototypeToString,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "Number",
+                name: "valueOf",
+                builtin: StandardBuiltinId::NumberPrototypeValueOf,
+                valid_receiver: "new Number()",
+                expected_kind: ValueKind::Number,
+            },
+            MethodCase {
+                owner: "BigInt",
+                name: "toString",
+                builtin: StandardBuiltinId::BigIntPrototypeToString,
+                valid_receiver: "Object(1n)",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "BigInt",
+                name: "toLocaleString",
+                builtin: StandardBuiltinId::BigIntPrototypeToLocaleString,
+                valid_receiver: "Object(1n)",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "BigInt",
+                name: "valueOf",
+                builtin: StandardBuiltinId::BigIntPrototypeValueOf,
+                valid_receiver: "Object(1n)",
+                expected_kind: ValueKind::BigInt,
+            },
+            MethodCase {
+                owner: "String",
+                name: "toString",
+                builtin: StandardBuiltinId::StringPrototypeToString,
+                valid_receiver: "new String()",
+                expected_kind: ValueKind::String,
+            },
+            MethodCase {
+                owner: "String",
+                name: "valueOf",
+                builtin: StandardBuiltinId::StringPrototypeValueOf,
+                valid_receiver: "new String()",
+                expected_kind: ValueKind::String,
+            },
+        ];
+        let mut source = String::new();
+        let mut expected_calls = Vec::new();
+        for method in methods {
+            let mut calls = vec![
+                (method.valid_receiver, "transferred"),
+                ("new Object()", method.name),
+                ("new Object()", "transferred"),
+            ];
+            if method.owner == "Number" {
+                calls.push(("new Boolean()", method.name));
+            }
+            for (receiver, destination) in calls {
+                let index = expected_calls.len() + 1;
+                source.push_str(&format!(
+                    "var value{index} = {receiver}; value{index}.{destination} = {}.prototype.{}; value{index}.{destination}();",
+                    method.owner, method.name
+                ));
+                expected_calls.push((method.builtin, destination, method.expected_kind));
+            }
+        }
+        let program = lower_script(&source);
+        assert!(
+            program.is_wasm_supported(),
+            "expected supported transferred primitive calls: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let calls = script
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                StatementIr::Expression(expression)
+                    if matches!(
+                        expression.expr,
+                        ExprIr::MaterializeBinding { ref body, .. }
+                            if matches!(body.expr, ExprIr::CallIndirect { .. })
+                    ) =>
+                {
+                    Some(expression)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), expected_calls.len());
+        for (expression, (expected_builtin, expected_key, expected_kind)) in
+            calls.into_iter().zip(expected_calls)
+        {
+            assert_eq!(expression.kind, expected_kind);
+            let ExprIr::MaterializeBinding {
+                name, body: call, ..
+            } = &expression.expr
+            else {
+                unreachable!("the call collection accepts only materialized calls");
+            };
+            let ExprIr::CallIndirect {
+                callee,
+                this_arg: Some(this_arg),
+                ..
+            } = &call.expr
+            else {
+                panic!("expected callee and this argument: {call:?}");
+            };
+            assert_eq!(call.kind, expected_kind);
+            assert!(matches!(
+                this_arg.expr,
+                ExprIr::Identifier(ref this_name) if this_name == name
+            ));
+            assert_eq!(callee.function_targets.len(), 1);
+            assert!(callee
+                .function_targets
+                .contains(&expected_builtin.function_id()));
+            assert!(
+                match &callee.expr {
+                    ExprIr::PropertyRead { target, key } => matches!(
+                        (&target.expr, key),
+                        (
+                            ExprIr::Identifier(target_name),
+                            PropertyKeyIr::StaticString(key)
+                        ) if target_name == name && key.as_str() == expected_key
+                    ),
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::GetV,
+                        operands,
+                    } =>
+                        operands.len() == 2
+                            && matches!(operands[0].expr, ExprIr::Identifier(ref target_name) if target_name == name)
+                            && matches!(operands[1].expr, ExprIr::String(ref key) if key.as_str() == expected_key),
+                    _ => false,
+                },
+                "expected retained property read: {callee:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn boolean_method_fold_and_shape_are_invalidated_through_binding_aliases() {
+        let program = lower_script(
+            "var b = new Boolean(); var alias = b; alias.toString = Number.prototype.toString; b.toString();",
+        );
+        assert!(
+            program.is_wasm_supported(),
+            "expected supported aliased Boolean method call: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expression) =
+            script.body.statements.last().expect("call expression")
+        else {
+            panic!("expected final call expression");
+        };
+        let ExprIr::MaterializeBinding {
+            name,
+            value,
+            body: call,
+        } = &expression.expr
+        else {
+            panic!("expected acquired-callee receiver materialization: {expression:?}");
+        };
+        assert!(
+            matches!(
+                value.expr,
+                ExprIr::Identifier(ref value_name)
+                    | ExprIr::GlobalPropertyRead { name: ref value_name }
+                    if value_name == "b"
+            ),
+            "expected materialized source receiver b: {value:?}"
+        );
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(this_arg),
+            ..
+        } = &call.expr
+        else {
+            panic!("expected acquired-callee indirect call: {call:?}");
+        };
+        assert!(callee.function_targets.is_empty());
+        assert!(matches!(
+            this_arg.expr,
+            ExprIr::Identifier(ref this_name) if this_name == name
+        ));
+        assert!(
+            match &callee.expr {
+                ExprIr::PropertyRead { target, key } => {
+                    matches!(target.expr, ExprIr::Identifier(ref target_name) if target_name == name)
+                        && matches!(key, PropertyKeyIr::StaticString(key) if key == "toString")
+                }
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::GetV,
+                    operands,
+                } => {
+                    operands.len() == 2
+                        && matches!(operands[0].expr, ExprIr::Identifier(ref target_name) if target_name == name)
+                        && matches!(operands[1].expr, ExprIr::String(ref key) if key == "toString")
+                }
+                _ => false,
+            },
+            "expected retained runtime property read: {callee:?}"
+        );
     }
 
     #[test]
@@ -4077,6 +4416,7 @@ mod tests {
             callee.expr,
             ExprIr::SuperPropertyRead {
                 key: PropertyKeyIr::StaticString(ref key),
+                ..
             } if key == "increment"
         ));
         assert!(matches!(this_arg.expr, ExprIr::This));
@@ -4117,6 +4457,59 @@ mod tests {
                 .any(|binding| binding.name == name));
         }
         assert!(arrow.captures_lexical_this);
+    }
+
+    #[test]
+    fn object_method_arrow_super_captures_paired_home_object_authority() {
+        let source = r#"
+            const object = {
+                parameter(value = (() => super.seed)()) {},
+                body() { return () => super.seed; },
+                nested() { return () => () => super.seed; }
+            };
+        "#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script ir should exist");
+        let methods = script
+            .functions
+            .iter()
+            .filter(|function| function.protocol.is_object_literal_method())
+            .collect::<Vec<_>>();
+        assert_eq!(methods.len(), 3);
+        for method in methods {
+            for name in [LEXICAL_THIS_NAME, LEXICAL_HOME_OBJECT_NAME] {
+                assert!(method
+                    .owned_env_bindings
+                    .iter()
+                    .any(|binding| binding.name == name));
+            }
+        }
+
+        let arrows = script
+            .functions
+            .iter()
+            .filter(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .collect::<Vec<_>>();
+        assert_eq!(arrows.len(), 4);
+        let lexical_super_arrows = arrows
+            .into_iter()
+            .filter(|function| function.captures_lexical_this)
+            .collect::<Vec<_>>();
+        assert!(lexical_super_arrows.len() >= 3);
+        for arrow in lexical_super_arrows {
+            let captured = arrow
+                .captured_bindings
+                .iter()
+                .map(|binding| binding.source_name.as_str())
+                .collect::<BTreeSet<_>>();
+            assert!(captured.contains(LEXICAL_THIS_NAME));
+            assert!(captured.contains(LEXICAL_HOME_OBJECT_NAME));
+        }
     }
 
     #[test]
@@ -5983,8 +6376,8 @@ target[Symbol.iterator];"#,
             .expect("async function should be registered");
 
         assert_eq!(
-            function.protocol.execution_kind(),
-            FunctionExecutionKind::Async
+            function.protocol,
+            FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Async)
         );
         assert!(!function.protocol.is_constructable());
         assert!(function.body.statements.iter().any(|statement| {
@@ -6958,6 +7351,7 @@ target[Symbol.iterator];"#,
             init: Some(ForInitIr::LexicalBlock(head)),
             test: Some(_),
             update: Some(_),
+            iteration_environment,
             before_suspension,
             ..
         }) = function
@@ -6989,6 +7383,48 @@ target[Symbol.iterator];"#,
             before_suspension.first(),
             Some(StatementIr::Lexical { .. })
         ));
+        assert_eq!(
+            iteration_environment,
+            &ResumableLoopIterationEnvironmentIr::StorageOnly
+        );
+    }
+
+    #[test]
+    fn plain_async_for_of_captured_binding_carries_iteration_environment() {
+        let program = lower_script(
+            "(async function(){ const out = []; for (const v of [1, 2]) { out.push(() => v); await 0; } })();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| {
+                function.protocol.execution_kind() == FunctionExecutionKind::Async
+                    && function
+                        .body
+                        .statements
+                        .iter()
+                        .any(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
+            })
+            .expect("async function expression should own the resumable loop");
+        let StatementIr::GeneratorLoop {
+            iteration_environment:
+                ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment),
+            ..
+        } = function
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
+            .expect("captured async for-of should lower to a resumable loop")
+        else {
+            panic!("captured async for-of must require a fresh iteration environment");
+        };
+        assert_eq!(environment.bindings.len(), 1);
+        assert!(environment.bindings[0].name.ends_with(".v"));
     }
 
     #[test]
@@ -6998,8 +7434,8 @@ target[Symbol.iterator];"#,
         // test is the map of what is deliberately still out, so a case leaves it
         // only by being implemented, never to make room.
         //
-        // The last two are not that: they never miscompiled, they are refused.
-        // What batch 7 changed is only the *reason* each is given — see
+        // The last one is not that: it never miscompiled, it is refused. What
+        // batch 7 changed is only the *reason* it is given — see
         // `AsyncForOfArrayWalkForm` in `lowering_helpers.rs`.
         for (source, message) in [
             (
@@ -7032,24 +7468,6 @@ target[Symbol.iterator];"#,
             (
                 "(async function(){ for (const c of \"ab\") { await 0; } })();",
                 "async for-of with a body await requires an array iterable",
-            ),
-            // The premise that message used to hide, and the reason batch 7
-            // split it. Array literal, plain `const v` binding — both premises
-            // the old string named are satisfied — and the arrow captures `v`,
-            // so 14.7.5.7 needs a fresh environment record per iteration and
-            // `StatementIr::GeneratorLoop` has nowhere to put one. This is the
-            // shape of `built-ins/Array/fromAsync/asyncitems-asynciterator-not-callable.js`
-            // and its `@@iterator` sibling, the only two failures in that
-            // 95-case node on the batch-7 baseline sweep.
-            //
-            // It is still REJECTED, deliberately: the fix is a backend change
-            // (persist the environment pointer across the suspension), not a
-            // lowering one, and hoisting the binding into a single activation
-            // slot to make these two tests pass would give every closure the
-            // same cell. What changed is only that the reason is now true.
-            (
-                "(async function(){ const out = []; for (const v of [1, 2]) { out.push(() => v); await 0; } })();",
-                "a closure in the body captures it",
             ),
         ] {
             let program = lower_script(source);
@@ -7423,7 +7841,11 @@ target[Symbol.iterator];"#,
             ..
         }, StatementIr::ForOfIterator {
             body,
-            async_plan: Some(async_plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(async_plan),
+                    ..
+                },
             ..
         }, StatementIr::AsyncAwait {
             suspend_state: 6,
@@ -7476,7 +7898,11 @@ target[Symbol.iterator];"#,
             .expect("async generator declaration should be collected");
 
         let [StatementIr::ForOfIterator {
-            async_plan: Some(async_plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(async_plan),
+                    ..
+                },
             ..
         }] = function.body.statements.as_slice()
         else {
@@ -7816,11 +8242,94 @@ target[Symbol.iterator];"#,
             property,
             ObjectPropertyIr::Method {
                 key,
-                function: TypedExpr {
-                    expr: ExprIr::FunctionValue(function_id),
-                    ..
-                },
-            } if key == "method" && function_id == &function.id
+                function: object_method,
+            } if key == "method" && object_method.function_id() == &function.id
+        )));
+    }
+
+    #[test]
+    fn object_literal_home_object_is_carried_by_method_protocol_and_super_references() {
+        let program = lower_script(
+            r#"
+                const key = "computed";
+                const holder = {
+                    method(value = super.seed) { return super.seed; },
+                    get read() { return super.seed; },
+                    set write(value) { super.seed = value; },
+                    [key]() { return super.seed; }
+                };
+            "#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[1] else {
+            panic!("expected object binding");
+        };
+        let ExprIr::ObjectLiteral(properties) = &init.expr else {
+            panic!("expected object literal");
+        };
+
+        let mut method_id = None;
+        let mut setter_id = None;
+        let mut protocols = Vec::new();
+        for property in properties {
+            let function = match property {
+                ObjectPropertyIr::Method { key, function } if key == "method" => {
+                    method_id = Some(function.function_id().clone());
+                    function
+                }
+                ObjectPropertyIr::Getter { function, .. } => function,
+                ObjectPropertyIr::Setter { function, .. } => {
+                    setter_id = Some(function.function_id().clone());
+                    function
+                }
+                ObjectPropertyIr::ComputedMethod { function, .. } => function,
+                _ => continue,
+            };
+            protocols.push(function.protocol());
+            let lowered = script
+                .functions
+                .iter()
+                .find(|candidate| &candidate.id == function.function_id())
+                .expect("method carrier must name a lowered function");
+            assert_eq!(lowered.protocol, function.protocol());
+        }
+        assert_eq!(
+            protocols,
+            [
+                FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Ordinary),
+                FunctionProtocolIr::ObjectGetter,
+                FunctionProtocolIr::ObjectSetter,
+                FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Ordinary),
+            ]
+        );
+
+        let method = script
+            .functions
+            .iter()
+            .find(|function| Some(&function.id) == method_id.as_ref())
+            .expect("ordinary method function");
+        let default_init = method.params[0]
+            .default_init
+            .as_ref()
+            .expect("method default initializer");
+        assert!(matches!(
+            &default_init.expr,
+            ExprIr::SuperPropertyRead { receiver, .. }
+                if matches!(&receiver.expr, ExprIr::This)
+        ));
+
+        let setter = script
+            .functions
+            .iter()
+            .find(|function| Some(&function.id) == setter_id.as_ref())
+            .expect("setter function");
+        assert!(setter.body.statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::SuperPropertyWrite { receiver, .. },
+                ..
+            }) if matches!(&receiver.expr, ExprIr::This)
         )));
     }
 
@@ -8191,7 +8700,11 @@ target[Symbol.iterator];"#,
             })
             .expect("async function should be registered");
         let StatementIr::ForOfIterator {
-            async_plan: Some(plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(plan),
+                    ..
+                },
             ..
         } = &function.body.statements[1]
         else {
@@ -8239,7 +8752,11 @@ target[Symbol.iterator];"#,
             })
             .expect("async function should be registered");
         let StatementIr::ForOfIterator {
-            async_plan: Some(plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(plan),
+                    ..
+                },
             ..
         } = &function.body.statements[0]
         else {
@@ -8295,7 +8812,11 @@ target[Symbol.iterator];"#,
             })
             .expect("async function should be registered");
         let StatementIr::ForOfIterator {
-            async_plan: Some(plan),
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: Some(plan),
+                    ..
+                },
             ..
         } = &function.body.statements[0]
         else {
@@ -8970,16 +9491,14 @@ target[Symbol.iterator];"#,
                         ObjectPropertyIr::ComputedData { key, value } => {
                             has_reference_error_throw(key) || has_reference_error_throw(value)
                         }
-                        ObjectPropertyIr::ComputedMethod { key, function }
-                        | ObjectPropertyIr::ComputedGetter { key, function }
-                        | ObjectPropertyIr::ComputedSetter { key, function } => {
-                            has_reference_error_throw(key) || has_reference_error_throw(function)
+                        ObjectPropertyIr::ComputedMethod { key, .. }
+                        | ObjectPropertyIr::ComputedGetter { key, .. }
+                        | ObjectPropertyIr::ComputedSetter { key, .. } => {
+                            has_reference_error_throw(key)
                         }
-                        ObjectPropertyIr::Method { function, .. }
-                        | ObjectPropertyIr::Getter { function, .. }
-                        | ObjectPropertyIr::Setter { function, .. } => {
-                            has_reference_error_throw(function)
-                        }
+                        ObjectPropertyIr::Method { .. }
+                        | ObjectPropertyIr::Getter { .. }
+                        | ObjectPropertyIr::Setter { .. } => false,
                     })
                 }
                 ExprIr::TypeOf { expr } => has_reference_error_throw(expr),
@@ -11744,6 +12263,7 @@ target[Symbol.iterator];"#,
             &target.expr,
             ExprIr::SuperPropertyRead {
                 key: PropertyKeyIr::StaticString(key),
+                ..
             } if key == "method"
         ));
         assert!(matches!(
@@ -12610,5 +13130,1167 @@ target[Symbol.iterator];"#,
             vec![Some("a".to_string()), Some("b".to_string())]
         );
         assert_eq!(template.raw, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn synchronous_using_declarators_are_one_non_empty_scope_resource_list() {
+        let program =
+            lower_script("function owner() { using first = null, second = undefined; return 1; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::SyncDisposableScope {
+            execution,
+            resources,
+            body,
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("using declaration must own the function-body suffix");
+        };
+
+        assert!(matches!(
+            execution,
+            SyncDisposableScopeExecutionIr::Immediate
+        ));
+        assert_eq!(resources.len(), 2);
+        assert!(!resources.is_empty());
+        assert_eq!(
+            resources
+                .iter()
+                .map(|resource| resource.binding_name.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert!(matches!(
+            resources
+                .iter()
+                .next()
+                .map(|resource| &resource.initializer.expr),
+            Some(ExprIr::Null)
+        ));
+        assert_eq!(
+            resources
+                .iter()
+                .nth(1)
+                .map(|resource| resource.initializer.kind),
+            Some(ValueKind::Undefined)
+        );
+        assert!(matches!(
+            body.statements.as_slice(),
+            [StatementIr::Return(_)]
+        ));
+        assert!(owner
+            .body
+            .statements
+            .iter()
+            .all(|statement| !matches!(statement, StatementIr::TryFinally { .. })));
+    }
+
+    #[test]
+    fn synchronous_using_nests_only_the_reached_statement_list_suffix() {
+        let program = lower_script(
+            "function owner() { before(); using a = null; middle(); using b = null; after(); }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::Expression(_), StatementIr::SyncDisposableScope {
+            execution: outer_execution,
+            resources: outer,
+            body: outer_body,
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("statements before using must remain outside its scope");
+        };
+        assert!(matches!(
+            outer_execution,
+            SyncDisposableScopeExecutionIr::Immediate
+        ));
+        assert_eq!(
+            outer
+                .iter()
+                .next()
+                .map(|resource| resource.binding_name.as_str()),
+            Some("a")
+        );
+        let [StatementIr::Expression(_), StatementIr::SyncDisposableScope {
+            execution: inner_execution,
+            resources: inner,
+            body: inner_body,
+        }] = outer_body.statements.as_slice()
+        else {
+            panic!("a later using declaration must own only its remaining suffix");
+        };
+        assert!(matches!(
+            inner_execution,
+            SyncDisposableScopeExecutionIr::Immediate
+        ));
+        assert_eq!(
+            inner
+                .iter()
+                .next()
+                .map(|resource| resource.binding_name.as_str()),
+            Some("b")
+        );
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [StatementIr::Expression(_)]
+        ));
+    }
+
+    #[test]
+    fn plain_generator_synchronous_using_scope_owns_activation_capability() {
+        let program = lower_script(
+            "function * owner() { using outer = null; yield 1; { using inner = undefined; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain generator should be lowered");
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::PlainGenerator(outer_capability),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("generator using must own its remaining body suffix");
+        };
+        let [StatementIr::GeneratorYield { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("yield must remain inside the live outer resource scope");
+        };
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::PlainGenerator(inner_capability),
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested generator using must own a distinct capability");
+        };
+
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "plain-generator capability must have exactly one activation slot"
+            );
+        }
+        assert!(owner.generator_plan.is_some());
+    }
+
+    #[test]
+    fn plain_async_function_synchronous_using_scope_owns_activation_capability() {
+        let program = lower_script(
+            "async function owner() {
+                 using outer = null;
+                 await 1;
+                 { using inner = undefined; await 2; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain async function should be lowered");
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncFunction(outer_capability),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("async-function using must own its remaining body suffix");
+        };
+        let [StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("await and nested block must remain inside the live outer resource scope");
+        };
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncFunction(inner_capability),
+            body: inner_body,
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested async-function using must own a distinct capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [StatementIr::AsyncAwait { .. }]
+        ));
+
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "async-function capability must have exactly one activation slot"
+            );
+        }
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::Async
+        );
+        assert!(owner.resumable_plan.is_none());
+
+        let ordinary = lower_script("function immediate() { using value = null; }");
+        let immediate = ordinary
+            .script
+            .as_ref()
+            .expect("ordinary script IR should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "immediate")
+            .expect("ordinary function should be lowered");
+        assert!(matches!(
+            immediate.body.statements.as_slice(),
+            [StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::Immediate,
+                ..
+            }]
+        ));
+
+        let generator = lower_script("function * generator() { using value = null; yield 1; }");
+        let generator = generator
+            .script
+            .as_ref()
+            .expect("generator script IR should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "generator")
+            .expect("plain generator should be lowered");
+        assert!(matches!(
+            generator.body.statements.as_slice(),
+            [StatementIr::SyncDisposableScope {
+                execution: SyncDisposableScopeExecutionIr::PlainGenerator(_),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn plain_async_function_await_using_owns_closed_finalizer_states() {
+        let program = lower_script(
+            "async function owner() {
+                 await using outer = null;
+                 await 1;
+                 { await using inner = undefined; await 2; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain async function should be lowered");
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncFunction(outer_capability),
+            resources: outer_resources,
+            body: outer_body,
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("await using must own its remaining body suffix");
+        };
+        let [StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("source Await and nested block must remain inside the outer scope");
+        };
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncFunction(inner_capability),
+            resources: inner_resources,
+            body: inner_body,
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested await using must own a distinct capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [StatementIr::AsyncAwait { .. }]
+        ));
+
+        assert_eq!(outer_resources.len(), 1);
+        assert!(!outer_resources.is_empty());
+        assert_eq!(inner_resources.len(), 1);
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert!(capability
+                .binding_name()
+                .starts_with("$async.function.async.dispose.capability."));
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "each async-dispose capability must own one activation slot"
+            );
+            let finalizer = capability.finalizer();
+            assert!(finalizer.entry_state() < finalizer.dispose_state());
+            assert!(finalizer.dispose_state() < finalizer.resume_state());
+            assert!(finalizer.resume_state() < finalizer.exit_state());
+        }
+        assert!(
+            inner_capability.finalizer().exit_state()
+                < outer_capability.finalizer().dispose_state(),
+            "the nested finalizer must complete before the outer finalizer starts"
+        );
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::Async
+        );
+
+        let unsupported = lower_script(
+            "async function owner() {
+                 await using resource = await Promise.resolve(null);
+             }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("suspension inside an await using initializer")));
+    }
+
+    #[test]
+    fn async_generator_await_using_owns_distinct_closed_finalizer_states() {
+        let program = lower_script(
+            "async function * owner() {
+                 await using outer = null;
+                 yield 1;
+                 await 2;
+                 { await using inner = undefined; yield 3; await 4; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("async generator should be lowered");
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(outer_capability),
+            resources: outer_resources,
+            body: outer_body,
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("async-generator await using must own its remaining body suffix");
+        };
+        let [StatementIr::GeneratorYield { .. }, StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("yield, await, and nested block must remain inside the live outer scope");
+        };
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(inner_capability),
+            resources: inner_resources,
+            body: inner_body,
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested await using must own a distinct async-generator capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [
+                StatementIr::GeneratorYield { .. },
+                StatementIr::AsyncAwait { .. }
+            ]
+        ));
+
+        assert_eq!(outer_resources.len(), 1);
+        assert_eq!(inner_resources.len(), 1);
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert!(capability
+                .binding_name()
+                .starts_with("$async.generator.await.dispose.capability."));
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "each async-generator async-dispose capability must own one activation slot"
+            );
+            let finalizer = capability.finalizer();
+            assert!(finalizer.entry_state() < finalizer.dispose_state());
+            assert!(finalizer.dispose_state() < finalizer.resume_state());
+            assert!(finalizer.resume_state() < finalizer.exit_state());
+        }
+        assert!(
+            inner_capability.finalizer().exit_state()
+                < outer_capability.finalizer().dispose_state(),
+            "the nested finalizer must complete before the outer finalizer starts"
+        );
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::AsyncGenerator
+        );
+        assert!(owner.resumable_plan.is_some());
+
+        let unsupported = lower_script(
+            "async function * owner() {
+                 await using resource = await Promise.resolve(null);
+             }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("suspension inside an await using initializer")));
+    }
+
+    #[test]
+    fn async_generator_await_using_reserves_nested_finalizer_before_following_yield() {
+        let program = lower_script(
+            "async function * owner() {
+                 await using outer = null;
+                 yield 0;
+                 { await using inner = undefined; }
+                 yield 1;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let owner = program
+            .script
+            .as_ref()
+            .expect("script IR should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("async generator should be lowered");
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(outer),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("outer await using must own the function-body suffix");
+        };
+        let [StatementIr::GeneratorYield {
+            suspend_state: 0,
+            resume_state: 1,
+            ..
+        }, StatementIr::Block(inner_block), StatementIr::GeneratorYield {
+            suspend_state: 4,
+            resume_state: 5,
+            ..
+        }] = outer_body.statements.as_slice()
+        else {
+            panic!("the following yield must resume after the nested finalizer states");
+        };
+        let [StatementIr::AsyncDisposableScope {
+            execution: AsyncDisposableScopeExecutionIr::AsyncGenerator(inner),
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested block must retain its async-dispose capability");
+        };
+
+        assert_eq!(inner.finalizer().entry_state(), 1);
+        assert_eq!(inner.finalizer().dispose_state(), 2);
+        assert_eq!(inner.finalizer().resume_state(), 3);
+        assert_eq!(inner.finalizer().exit_state(), 4);
+        assert_eq!(outer.finalizer().entry_state(), 0);
+        assert_eq!(outer.finalizer().dispose_state(), 6);
+        assert_eq!(outer.finalizer().resume_state(), 7);
+        assert_eq!(outer.finalizer().exit_state(), 8);
+
+        let plan = owner
+            .resumable_plan
+            .as_ref()
+            .expect("async generator must retain its unified resumable plan");
+        assert_eq!(plan.state_count, 9);
+        assert_eq!(
+            plan.suspension_points,
+            vec![
+                ResumableSuspensionPointIr {
+                    kind: ResumableSuspensionKindIr::Yield,
+                    suspend_state: 0,
+                    resume_state: 1,
+                },
+                ResumableSuspensionPointIr {
+                    kind: ResumableSuspensionKindIr::Yield,
+                    suspend_state: 4,
+                    resume_state: 5,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn await_using_initializer_capture_hops_include_materialized_tdz_environment() {
+        let program = lower_script(
+            "async function probe(trace, invalid) {
+                 try {
+                     await using registered = {
+                         get [Symbol.asyncDispose]() {
+                             try { registered; } catch (error) {}
+                             return async () => trace.push('dispose');
+                         }
+                     };
+                     await using rejected = invalid;
+                 } catch (error) {}
+             }
+             async function sibling(trace) {
+                 await 0;
+                 return trace;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "probe")
+            .expect("plain async owner should be lowered");
+        let getter = script
+            .functions
+            .iter()
+            .find(|function| function.protocol == FunctionProtocolIr::ObjectGetter)
+            .expect("async disposer getter should be lowered");
+        let disposer = script
+            .functions
+            .iter()
+            .find(|function| function.protocol == FunctionProtocolIr::AsyncArrow)
+            .expect("nested async disposer should be lowered");
+        let registered = getter
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "registered")
+            .expect("getter should capture the uninitialized resource binding");
+        let trace = disposer
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "trace")
+            .expect("nested disposer should capture the owner parameter");
+
+        assert!(getter.owned_env_bindings.is_empty(), "{getter:#?}");
+        assert_eq!(registered.hops, 0);
+        assert_eq!(trace.hops, 1);
+        assert_eq!(registered.slot, trace.slot);
+        assert!(owner
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == "trace" && binding.slot == trace.slot));
+        assert!(
+            !owner
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == registered.name),
+            "the captured resource cell belongs only to the try-block environment"
+        );
+        let [StatementIr::TryCatch { try_block, .. }] = owner.body.statements.as_slice() else {
+            panic!("owner should retain its try statement");
+        };
+        assert!(try_block
+            .lexical_environment
+            .as_ref()
+            .is_some_and(|environment| {
+                environment.bindings.iter().any(|binding| {
+                    binding.name == registered.name && binding.slot == registered.slot
+                })
+            }));
+    }
+
+    #[test]
+    fn async_generator_synchronous_using_scope_owns_activation_capability() {
+        let program = lower_script(
+            "async function * owner() {
+                 using outer = null;
+                 yield 1;
+                 await 2;
+                 { using inner = undefined; yield 3; await 4; }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("async generator should be lowered");
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncGenerator(outer_capability),
+            body: outer_body,
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("async-generator using must own its remaining body suffix");
+        };
+        let [StatementIr::GeneratorYield { .. }, StatementIr::AsyncAwait { .. }, StatementIr::Block(inner_block)] =
+            outer_body.statements.as_slice()
+        else {
+            panic!("yield, await, and nested block must remain inside the live outer scope");
+        };
+        let [StatementIr::SyncDisposableScope {
+            execution: SyncDisposableScopeExecutionIr::AsyncGenerator(inner_capability),
+            body: inner_body,
+            ..
+        }] = inner_block.statements.as_slice()
+        else {
+            panic!("nested async-generator using must own a distinct capability");
+        };
+        assert!(matches!(
+            inner_body.statements.as_slice(),
+            [
+                StatementIr::GeneratorYield { .. },
+                StatementIr::AsyncAwait { .. }
+            ]
+        ));
+
+        assert_ne!(
+            outer_capability.binding_name(),
+            inner_capability.binding_name()
+        );
+        for capability in [outer_capability, inner_capability] {
+            assert!(capability
+                .binding_name()
+                .starts_with("$async.generator.dispose.capability."));
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == capability.binding_name())
+                    .count(),
+                1,
+                "async-generator capability must have exactly one activation slot"
+            );
+        }
+        assert_eq!(
+            owner.protocol.execution_kind(),
+            FunctionExecutionKind::AsyncGenerator
+        );
+        assert!(owner.resumable_plan.is_some());
+
+        let unsupported = lower_script(
+            "async function * owner() { using resource = await Promise.resolve(null); }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("suspension inside an async-generator using initializer")
+        }));
+    }
+
+    #[test]
+    fn synchronous_using_entry_is_the_only_runtime_binding_initializer() {
+        fn contains_lexical(statement: &StatementIr, name: &str) -> bool {
+            match statement {
+                StatementIr::Lexical {
+                    name: binding_name, ..
+                } => binding_name == name,
+                StatementIr::LexicalBlock(statements)
+                | StatementIr::ParameterInitialization { statements, .. } => statements
+                    .iter()
+                    .any(|statement| contains_lexical(statement, name)),
+                StatementIr::SyncDisposableScope { body, .. }
+                | StatementIr::AsyncDisposableScope { body, .. }
+                | StatementIr::Block(body) => body
+                    .statements
+                    .iter()
+                    .any(|statement| contains_lexical(statement, name)),
+                _ => false,
+            }
+        }
+
+        let program = lower_script("function owner() { { using resource = null; resource; } }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let StatementIr::Block(block) = &owner.body.statements[0] else {
+            panic!("inner source block should remain explicit");
+        };
+        let StatementIr::SyncDisposableScope { resources, .. } = &block.statements[0] else {
+            panic!("inner using should lower to a dedicated scope");
+        };
+        let binding_name = &resources
+            .iter()
+            .next()
+            .expect("resource list is statically non-empty")
+            .binding_name;
+        assert!(!contains_lexical(&owner.body.statements[0], binding_name));
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_owns_one_non_empty_initializer_capability() {
+        let program = lower_script(
+            "function owner() { for (using first = null, second = undefined; false;) {} }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::For {
+            init: Some(ForInitIr::SyncDisposable(resources)),
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("classic using head must remain a direct For with a disposable initializer");
+        };
+
+        assert_eq!(resources.len(), 2);
+        assert!(!resources.is_empty());
+        let names = resources
+            .iter()
+            .map(|resource| resource.binding_name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names[0].ends_with("first"), "{names:?}");
+        assert!(names[1].ends_with("second"), "{names:?}");
+        assert!(matches!(
+            resources
+                .iter()
+                .next()
+                .map(|resource| &resource.initializer.expr),
+            Some(ExprIr::Null)
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_remains_the_direct_label_target() {
+        let program = lower_script(
+            "function owner() { outer: for (using resource = null; false;) { continue outer; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::Labelled { labels, statement }] = owner.body.statements.as_slice() else {
+            panic!("source label should remain explicit");
+        };
+        assert_eq!(
+            labels.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["outer"]
+        );
+        assert!(matches!(
+            statement.as_ref(),
+            StatementIr::For {
+                init: Some(ForInitIr::SyncDisposable(_)),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_retains_captured_head_environment() {
+        let program = lower_script(
+            "function owner() { for (using resource = null; false;) { (() => resource); } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::For {
+            init: Some(ForInitIr::SyncDisposable(resources)),
+            lexical_environment: Some(environment),
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("captured using head must retain its For lexical environment");
+        };
+        let resource_name = &resources
+            .iter()
+            .next()
+            .expect("resource list is statically non-empty")
+            .binding_name;
+        assert!(environment
+            .bindings
+            .iter()
+            .any(|binding| &binding.name == resource_name));
+        assert!(environment.per_iteration_slots.is_empty());
+    }
+
+    #[test]
+    fn synchronous_using_classic_for_initializer_observes_its_own_tdz() {
+        let program =
+            lower_script("function owner() { for (using resource = resource; false;) {} }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::For {
+            init: Some(ForInitIr::SyncDisposable(resources)),
+            ..
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("classic using head must own its resource initializer");
+        };
+        assert!(matches!(
+            resources
+                .iter()
+                .next()
+                .map(|resource| &resource.initializer.expr),
+            Some(ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn plain_async_classic_for_await_using_owns_closed_initializer_capability() {
+        let program = lower_script(
+            "async function owner() { outer: for (await using first = null, second = undefined; false; first) { (() => first); continue outer; } }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("owner should be lowered");
+        let [StatementIr::Labelled { labels, statement }] = owner.body.statements.as_slice() else {
+            panic!("source label should remain explicit");
+        };
+        assert_eq!(
+            labels.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["outer"]
+        );
+        let StatementIr::For {
+            init: Some(ForInitIr::AsyncDisposable(init)),
+            update: Some(update),
+            lexical_environment: Some(environment),
+            ..
+        } = statement.as_ref()
+        else {
+            panic!("await using head must remain a direct classic For initializer");
+        };
+
+        assert_eq!(init.resources().len(), 2);
+        assert!(!init.resources().is_empty());
+        let names = init
+            .resources()
+            .iter()
+            .map(AsyncDisposableResourceIr::binding_name)
+            .collect::<Vec<_>>();
+        assert!(names[0].ends_with("first"), "{names:?}");
+        assert!(names[1].ends_with("second"), "{names:?}");
+        assert!(environment
+            .bindings
+            .iter()
+            .any(|binding| binding.name == names[0]));
+        assert!(environment.per_iteration_slots.is_empty());
+        assert_eq!(
+            update.kind,
+            ValueKind::Null,
+            "resource metadata must leave TDZ before test/update/body lowering"
+        );
+
+        let capability = init.capability();
+        assert!(capability
+            .binding_name()
+            .starts_with("$async.function.for.await.dispose.capability."));
+        assert_eq!(
+            owner
+                .owned_env_bindings
+                .iter()
+                .filter(|binding| binding.name == capability.binding_name())
+                .count(),
+            1,
+            "classic-for capability must own exactly one activation slot"
+        );
+        let finalizer = capability.finalizer();
+        assert!(finalizer.entry_state() < finalizer.dispose_state());
+        assert!(finalizer.dispose_state() < finalizer.resume_state());
+        assert!(finalizer.resume_state() < finalizer.exit_state());
+
+        let unsupported = lower_script(
+            "async function owner() { for (await using resource = null; false;) { await 0; } }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("suspension inside an await using classic-for loop")));
+    }
+
+    #[test]
+    fn plain_async_for_of_await_using_owns_repeating_iteration_capability() {
+        let program = lower_script(
+            "async function owner() {
+                 for (await using resource of [resource]) {
+                     (() => resource);
+                     resource = null;
+                 }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .expect("plain async owner should be lowered");
+        let [StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::AsyncDisposable(head),
+            iterable,
+            body,
+            lexical_environment: Some(environment),
+        }] = owner.body.statements.as_slice()
+        else {
+            panic!("await using must force the generic iterator head");
+        };
+
+        assert!(head.binding_name().starts_with("$forof.lex."));
+        assert!(head.binding_name().ends_with(".resource"));
+        assert!(environment
+            .tdz_binding_names
+            .iter()
+            .any(|name| name == "$tdz.resource"));
+        assert!(matches!(
+            &iterable.expr,
+            ExprIr::ArrayLiteral(elements)
+                if matches!(
+                    elements.as_slice(),
+                    [TypedExpr {
+                        expr: ExprIr::RuntimeThrow {
+                            name: NativeErrorKind::ReferenceError,
+                            ..
+                        },
+                        ..
+                    }]
+                )
+        ));
+
+        let iteration_binding = environment
+            .iteration_environment
+            .as_ref()
+            .and_then(|environment| {
+                environment
+                    .bindings
+                    .iter()
+                    .find(|binding| binding.name == head.binding_name())
+            })
+            .expect("captured resource must own fresh iteration storage");
+        let capture = script
+            .functions
+            .iter()
+            .flat_map(|function| &function.captured_bindings)
+            .find(|binding| binding.source_name == "resource")
+            .expect("body arrow must capture the resource iteration binding");
+        assert_eq!(capture.name, iteration_binding.name);
+        assert_eq!(capture.slot, iteration_binding.slot);
+        assert_eq!(capture.mode, BindingMode::Const);
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. })
+                if statements.iter().any(|statement| matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::Comma {
+                            lhs,
+                            rhs,
+                        },
+                        ..
+                    }) if matches!(lhs.expr, ExprIr::Null)
+                        && matches!(
+                            rhs.expr,
+                            ExprIr::RuntimeThrow {
+                                name: NativeErrorKind::TypeError,
+                                ref message,
+                            } if *message == "assignment to immutable binding"
+                        )
+                ))
+        ));
+
+        let capability = head.capability();
+        assert!(capability
+            .binding_name()
+            .starts_with("$async.function.forof.await.dispose.capability."));
+        let record = head.record();
+        let owned_names = [
+            capability.binding_name(),
+            record.iterator().as_str(),
+            record.next_method().as_str(),
+            record.done().as_str(),
+        ];
+        assert_eq!(
+            owned_names.iter().copied().collect::<BTreeSet<_>>().len(),
+            4
+        );
+        for name in owned_names {
+            assert_eq!(
+                owner
+                    .owned_env_bindings
+                    .iter()
+                    .filter(|binding| binding.name == name)
+                    .count(),
+                1,
+                "every activation-backed role must own exactly one slot"
+            );
+        }
+        let finalizer = capability.finalizer();
+        assert!(finalizer.entry_state() < finalizer.dispose_state());
+        assert!(finalizer.dispose_state() < finalizer.resume_state());
+        assert!(finalizer.resume_state() < finalizer.exit_state());
+
+        let unsupported = lower_script(
+            "async function owner(values) {
+                 for (await using resource of values) { await 0; }
+             }",
+        );
+        assert!(!unsupported.is_wasm_supported());
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("source suspension in await using for-of loop")));
+    }
+
+    #[test]
+    fn synchronous_using_for_of_is_a_closed_generic_iterator_head() {
+        let program = lower_script("for (using resource of [null]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let [StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::SyncDisposable(head),
+            ..
+        }] = script.body.statements.as_slice()
+        else {
+            panic!(
+                "a using head must force generic synchronous iteration: {:?}",
+                script.body.statements
+            );
+        };
+        assert!(head.binding_name().starts_with("$forof.lex."));
+        assert!(head.binding_name().ends_with(".resource"));
+    }
+
+    #[test]
+    fn synchronous_using_for_of_iterable_observes_its_own_tdz() {
+        let program = lower_script("let resource = null; for (using resource of [resource]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfIterator { iterable, .. } = &script.body.statements[1] else {
+            panic!("using head must lower to generic iterator IR");
+        };
+        let ExprIr::ArrayLiteral(elements) = &iterable.expr else {
+            panic!("expected the source array iterable to stay explicit");
+        };
+        assert!(matches!(
+            elements.as_slice(),
+            [TypedExpr {
+                expr: ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    ..
+                },
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn synchronous_using_for_of_retains_fresh_captured_iteration_storage() {
+        let program = lower_script(
+            "let callbacks = []; for (using resource of [null, null]) { callbacks.push(() => resource); }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfIterator {
+            head: ForOfIteratorHeadIr::SyncDisposable(head),
+            lexical_environment: Some(environment),
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("captured using head must retain its iteration environment");
+        };
+        assert!(environment
+            .tdz_binding_names
+            .iter()
+            .any(|name| name == "$tdz.resource"));
+        let iteration_binding = environment
+            .iteration_environment
+            .as_ref()
+            .and_then(|environment| {
+                environment
+                    .bindings
+                    .iter()
+                    .find(|binding| binding.name == head.binding_name())
+            })
+            .expect("using head must own fresh captured iteration storage");
+        let capture = script
+            .functions
+            .iter()
+            .flat_map(|function| &function.captured_bindings)
+            .find(|binding| binding.source_name == "resource")
+            .expect("body arrow must capture the using iteration binding");
+        assert_eq!(capture.name, iteration_binding.name);
+        assert_eq!(capture.slot, iteration_binding.slot);
+        assert_eq!(capture.mode, BindingMode::Const);
+    }
+
+    #[test]
+    fn pattern_looking_using_for_of_head_is_ordinary_element_assignment() {
+        let program = lower_script("for (using [resource] of [[null]]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let [StatementIr::ForOfArray { head, body, .. }] = script.body.statements.as_slice() else {
+            panic!(
+                "using[resource] is an element-access assignment head: {:?}",
+                script.body.statements
+            );
+        };
+        assert_eq!(head.mode, BindingMode::Let);
+        assert!(head.name.starts_with("$forof.access."));
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. })
+                if matches!(
+                    statements.first(),
+                    Some(StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::PropertyWrite { .. },
+                        ..
+                    }))
+                )
+        ));
     }
 }

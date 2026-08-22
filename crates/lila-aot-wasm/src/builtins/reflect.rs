@@ -1,7 +1,8 @@
 use super::super::*;
 use crate::objects::{
-    PropertyKeyLocals, ProxyHandlerLocals, ProxySetValueLocals, ProxySlotLocals, ProxyTargetLocals,
-    TaggedLocals,
+    ObjectPreventExtensionsRequest, PreventExtensionsResultLocal,
+    PreventExtensionsTraversalTargetLocals, PropertyKeyLocals, ProxyHandlerLocals,
+    ProxySetValueLocals, ProxySlotLocals, ProxyTargetLocals, TaggedLocals,
 };
 
 impl<'a> FunctionBuilder<'a> {
@@ -2088,10 +2089,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_object_prevent_extensions_i32(
-            target_payload_local,
-            target_tag_local,
-            self.result_local,
+        self.emit_object_prevent_extensions(
+            ObjectPreventExtensionsRequest::new(
+                PreventExtensionsTraversalTargetLocals::new(target_payload_local, target_tag_local),
+                PreventExtensionsResultLocal::new(self.result_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));

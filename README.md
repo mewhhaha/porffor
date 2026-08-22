@@ -84,6 +84,11 @@ What is already in place:
   arrays, promises/async execution, generators/iterators, binary data,
   collections, strings, RegExp, numbers/BigInt/JSON, Date/Temporal and host
   builtins.
+- `%DisposableStack%` has a real constructor, distinct synchronous brand and
+  the complete typed `use`/`adopt`/`defer`/`move`/`dispose`/`disposed`
+  lifecycle, including exact `Symbol.dispose` identity, LIFO disposal and
+  `SuppressedError` folding; the focused current-SHA Wasm-AOT checkpoint is
+  green, while the complete 76-file lifecycle sweep remains pending.
 
 The largest remaining closure work is:
 
@@ -94,7 +99,8 @@ The largest remaining closure work is:
   semantic debt;
 - implement executable GC and real weak reachability, plus complete
   arbitrary-precision BigInt operations;
-- remove the parser/lowering reparse boundary;
+- finish parser grammar and structured early-error closure while preserving the
+  landed parse-once boundary;
 - finish modules/linking, broad RegExp grammar, complete Intl, general suspended
   async/generator control flow and remaining cross-realm/exotic-object edges;
 - build the planned differential generation, reduction, replay and sustained
@@ -356,13 +362,579 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/lila-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Every focused Test262 count below predates the execution-identity cutover and
-is historical physical/path evidence, not a current execution numerator or
-denominator. Unflagged files now contribute separate sloppy and strict
-executions, so each focused count must be rediscovered and rerun before it can
-be reported as current execution-aware evidence.
+Focused Test262 counts below that predate the execution-identity cutover are
+historical physical/path evidence, not current execution numerators or
+denominators. Unflagged files now contribute separate sloppy and strict
+executions, so only entries that explicitly report execution variants from a
+post-cutover rerun are current focused evidence.
 
-Recent focused progress through `2026-07-27`:
+Recent focused progress through `2026-08-21`:
+
+- A bounded RegExp batch now implements finite UnicodeSets `\q{…}` class-string
+  algebra. At clean pre-batch commit `f580b424d`, one union, one intersection
+  and one subtraction representative each reported `0/2` sloppy/strict
+  Wasm-AOT executions: `string-literal-union-string-literal.js`,
+  `string-literal-intersection-string-literal.js`, and
+  `string-literal-difference-string-literal.js`. All six measured executions
+  were `Runtime/NotImplemented` with `RegExp.prototype.exec unsupported
+  pattern`. The compiler now retains a canonical range-and-string set through
+  union, intersection and subtraction, emits longest strings before the
+  singleton class and empty member, and uses the same exhaustive forward/reverse
+  lowering. Central verification passed
+  workspace/all-target checking, `cargo xc`, the focused IR invariant `1/1`,
+  the bounded structure witness `7/7`, the source-free Wasm lifecycle fixture
+  `1/1`, and the exact unmasked 27-file/54-execution Test262 cohort `54/54`
+  with zero parser, early-error, lowering, runtime, Wasm-backend, harness,
+  unsupported, crash or bug outcomes. The runtime fixture exposed and closed a
+  reverse-lookbehind gap by sharing the canonical Unicode range-membership
+  emitter in both matcher directions. The six adjacent generated files that
+  require Unicode properties of strings and direct class-string `/iv` folding
+  remain explicit typed capability boundaries. This records no broader
+  UnicodeSets or RegExp completion claim.
+- A bounded matcher batch now implements RepeatMatcher's nullable
+  unbounded-quantifier progress rule. At clean pre-batch commit `44247b836b`,
+  exact unflagged Test262 file `built-ins/RegExp/nullable-quantifier.js`
+  reported `0/2` sloppy/strict Wasm-AOT executions. Both were
+  `Runtime/NotImplemented` with `RegExp.prototype.exec unsupported pattern`,
+  and the path has no exact rewrite, materializer or known-failure entry. The
+  durable CLI oracle covers the exact `(a?b??)*` result, rejection of only
+  a zero-progress optional iteration while suffix backtracking remains live,
+  greedy/lazy and required-minimum behavior, bounded and captured controls,
+  nested nullable loops, reverse lookbehind compilation and global empty-match
+  advancement. Central verification passed workspace/all-target `cargo check`
+  and `cargo xc`; the focused IR test passed `1/1` in `8.37s`, the bounded
+  structure executable passed `5/5` in `22.36s`, the new lifecycle fixture
+  passed `1/1` in `22.83s`, and the retained quantifier fixture passed `1/1` in
+  `27.19s`. The exact Test262 file now passes `2/2` with zero unsupported,
+  crash or bug verdicts. This is focused evidence only: no broader RegExp or
+  full-suite claim is made. Class strings, properties of strings, runtime
+  pattern compilation and the complete RegExp/String trees remain separate T19
+  work.
+- Non-resumable object-literal methods, getters and setters now carry their
+  exact function identity and object-method protocol in a dedicated IR value;
+  a generic function expression cannot enter any of the six method/accessor
+  property rows. The AOT lifecycle pairs that carrier with the already
+  allocated literal, installs the literal as `[[HomeObject]]` before defining
+  the property, and keeps the invocation `this` distinct from the super base
+  for reads and writes. The durable CLI oracle covers named and computed
+  methods/accessors, a super read in a parameter initializer before the body,
+  source-order computed keys around a static key, detached calls with an alien
+  receiver, later literal-prototype replacement, and nonconstructability. At
+  clean pre-batch commit `304e4bbad3`, the five exact Test262 files
+  `language/expressions/object/method.js`,
+  `language/expressions/object/method-definition/name-super-prop-body.js`,
+  `language/expressions/object/method-definition/name-super-prop-param.js`,
+  `language/expressions/object/getter-super-prop.js`, and
+  `language/expressions/object/setter-super-prop.js` reported `0/10` sloppy and
+  strict Script executions; every execution was `Runtime/NotImplemented` with
+  ``unsupported in lila wasm-aot first slice: object literal method``. The
+  shared workspace/all-target check and `cargo xc` are green; the focused
+  IR invariant is `1/1`, the bounded structure executable is `5/5`, and the
+  Wasm CLI fixture is `1/1` in 19.75s. The exact five-file cohort is now
+  `10/10`, with zero unsupported, crash or bug outcomes.
+  The adjacent lexical-arrow lifecycle is now verified against a closed
+  owner-role analysis: an arrow can inherit invocation `this` and
+  `[[HomeObject]]` only through an enclosing object/class method capability,
+  while an intervening ordinary function remains a lexical boundary. At clean
+  pre-batch commit `039253d27`, exact Test262 files
+  `language/expressions/super/prop-dot-obj-val-from-arrow.js` and
+  `language/expressions/super/prop-expr-obj-val-from-arrow.js` reported `0/4`
+  sloppy and strict Script executions, all with the same object-literal-method
+  Runtime/NotImplemented diagnostic. The workspace/all-target check is green;
+  the focused IR invariant is `1/1`, the bounded structure executable is
+  `4/4`, and the Wasm CLI fixture is `1/1` in 19.37s. Both exact files now pass
+  `4/4`, with zero unsupported, crash or bug outcomes. The durable fixture
+  covers named and computed reads, parameter-created and multiply nested
+  arrows, detached alien receivers, and later prototype replacement. As
+  controls, `language/expressions/object/concise-generator.js` remains `2/2`,
+  the two
+  `generator-super-prop-{body,param}.js` files were `4/4`, and the two
+  `async-super-call-{body,param}.js` files were `4/4`. Those controls do not
+  prove complete suspension-safe object-method transport. Async-generator
+  object methods and the complete object-expression subtree remain separate
+  gates. The lexical-arrow boundary and nonclaims are recorded in
+  `docs/rust-rewrite/contracts/object-method-arrow-super.md`.
+- Numeric update and eager arithmetic/bitwise compound assignment through a
+  non-resumable `super` property now use a fused Reference lifecycle. The IR
+  owns receiver, raw key, strictness and one closed mutation operation; the AOT
+  lifecycle
+  retains the evaluated super base through the sole `ToPropertyKey`, GetValue,
+  arithmetic and PutValue transitions. The fixture makes prototype mutation
+  during key coercion observable with the exact traces
+  `key,getA,rhs,setA:3:true` and `key,getA,setA:2:true`, including a detached
+  alien receiver, and also covers every prefix/postfix increment/decrement
+  form for Number and BigInt, strict failed Set, and uninitialized-`this`
+  ordering. At the near-HEAD pre-batch `b0d1d1300` boundary, the four exact
+  `language/expressions/super/prop-expr-{getsuperbase-before-topropertykey,uninitialized-this}-putvalue-{increment,compound-assign}.js`
+  files reported `2/8`: both increment files were `0/4`
+  Runtime/NotImplemented, the uninitialized-`this` compound file was `0/2`
+  Runtime/Bug, and the GetSuperBase compound guard remained `2/2`. The
+  available binary preceded that commit by four minutes, so this is explicitly
+  near-HEAD evidence. Post-batch verification is green: workspace check and
+  `cargo xc`; the focused IR invariant `1/1`; the bounded structure executable
+  `5/5`; the compiled Wasm fixture `1/1` in `10.82s`; the exact cohort `8/8`;
+  and the two adjacent `uninitialized-this` and
+  `getsuperbase-before-topropertykey` filters `8/8` each, all with zero
+  unsupported, crash or bug outcomes. Logical super assignment, private
+  mutation, suspension and the broader super-expression matrix remain
+  unclaimed. The boundary and exclusions are recorded in
+  `docs/rust-rewrite/contracts/super-property-reference-mutation.md`.
+- Computed ordinary-property eager arithmetic and bitwise compound assignment
+  now uses one fused Reference lifecycle. The private producer
+  plan owns the evaluated base/receiver, raw key and `[[Strict]]`; its consuming
+  operation mints the old-value read and one of the twelve closed eager
+  operations. The durable CLI oracle covers all twelve operators (including
+  the local `**=` boundary), base and raw-key abrupt completion, nullish-base
+  rejection before `ToPropertyKey`, one canonical key across `[[Get]]`, RHS
+  and `[[Set]]`, Proxy/accessor receiver identity, RHS mutation of the raw key,
+  strict false-Set rejection and result publication only after PutValue. At
+  clean pre-batch commit `ae1bd994b`, a fresh raw run of the complete legacy
+  `language/expressions/compound-assignment/S11.13.2_A7.1..11_T1..4.js`
+  matrix measured `22/88`: all 22 T3 control executions passed, while all 66
+  T1, T2 and T4 executions were `Runtime/Bug`. No rewrite, matrix mask or
+  known-failure entry owns those results. Post-batch verification is green:
+  workspace/all-target check and `cargo xc`; the focused IR invariant `1/1`;
+  the bounded structure executable `7/7`; retained Super, `with`, and global
+  compound-assignment structures `5/5`, `5/5`, and `4/4`; the compiled Wasm
+  lifecycle fixture `1/1` in `75.42s`; and the exact raw matrix `88/88`, with
+  zero unsupported, not-implemented, crash, or bug outcomes. This focused
+  batch does not change plain,
+  logical or numeric property assignment, `super`, private, identifier,
+  global/Object Environment, `with`, or suspending property References.
+- Computed ordinary-property prefix/postfix `++` and `--` now use the adjacent
+  fused numeric-update Reference lifecycle. The same
+  non-copyable producer plan consumes one evaluated base/receiver, raw key and
+  captured `[[Strict]]` into closed increment/decrement and prefix/postfix
+  domains. The durable CLI oracle covers all eight Number/BigInt combinations,
+  old-versus-new result selection, base/raw-key/`ToPropertyKey`/`ToNumeric`
+  abrupt paths, one canonical key and receiver across get/set, mutation of the
+  raw key during coercion, strict false-Set rejection, sloppy false-Set
+  behavior, and publication only after PutValue. At pre-batch head
+  `0f004c0c6`, the four raw A6 T1 files (eight sloppy/strict executions) were
+  freshly `0/8`, all `Runtime/Bug`: a throwing key coercion incorrectly won
+  over the required nullish-base `TypeError`. No runner rewrite, matrix mask or
+  known-failure entry owns them. Post-batch verification is green:
+  workspace/all-target check; the focused IR invariant `1/1`; the new and
+  retained eager-compound structure executables `7/7` each; the compiled Wasm
+  lifecycle fixture `1/1` in `60.43s`; and the exact raw cohort `8/8`, with
+  zero unsupported, not-implemented, crash, or bug outcomes.
+  Eager/logical/plain assignment, `super`, private,
+  identifier/global/Object Environment, `with`, optional-chain and suspended
+  References remain outside this focused batch.
+- Direct identifier calls selected through `with` now have a verified,
+  Reference-preserving lowering seam. A private non-copyable
+  `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty
+  Object Environment chain and can produce a selected indirect call only with
+  the same binding object as both GetBindingValue source and explicit `this`;
+  its complete ordinary fallback retains undefined-this semantics. The
+  lowerer intercepts this form before name-specific builtin folds, locates the
+  fallback before observable HasBinding, and clears mutable fallback value and
+  function-target facts before lowering arguments. The durable CLI oracle
+  covers the exact selected receiver, getter deletion with the retained base,
+  `HasProperty`/unscopables/Get/call order, arguments after callee evaluation,
+  nested-unscopables selection, strict and sloppy fallback `this`, selected
+  builtin shadowing, an empty-with builtin fallback, and a declining Proxy
+  `has` trap that replaces the fallback function. Package checks and `cargo xc`
+  pass; the focused IR filter is `2/2`, the bounded structure executable is
+  `4/4`, and the exact CLI fixture is `1/1` in 23.19 seconds. The broader CLI
+  `environment` slice is `13/13` in 315.07 seconds. One test-only hardcoded-key
+  expectation was corrected during the focused IR rerun. The exact no-strict
+  Test262 file `language/expressions/call/with-base-obj.js` now passes `1/1`
+  with zero unsupported, crash or bug outcomes. These focused results do not
+  claim the complete call/with subtree or pinned matrix is green.
+- Object Environment identifier `&&=`, `||=` and `??=` now have a verified
+  Reference lifecycle for both global and `with` resolution. The existing
+  closed logical-op enum feeds one private binding-object operation whose
+  PutValue is structurally inside only the taken short-circuit branch; distinct
+  consuming with/global plans own selection, strictness and the same binding
+  object across GetValue and SetMutableBinding. A non-copyable pre-RHS Reference
+  carrier snapshots any proven-global value metadata before lowering the RHS,
+  preventing an untaken RHS write from changing the old value's emitted tag.
+  The durable CLI oracle covers all three modes, initial global misses before
+  RHS, dynamic global short circuits and taken writes, strict getter deletion,
+  sloppy recreation, selected/declarative/nested-unscopables `with` paths, and
+  an observable `huhgdrhs` selection/Get/RHS/Put trace. Package checks for
+  `lila-ir`, `lila-aot-wasm` and `lila-cli`, plus `cargo xc`, pass; the two
+  focused IR lifecycle tests are `2/2`, four final source-bounded structure
+  executables are `4/4`, and the exact Wasm fixture is `1/1` in 87.88 seconds.
+  The broader focused environment test selection is `12/12` in 270.93 seconds.
+  The three selected strict unresolved-lhs Test262 files now pass `3/3`, and
+  the six adjacent unresolved-RHS physical files pass all `12/12` sloppy and
+  strict executions. One stale derive marker was corrected during the final
+  structural rerun; product code was unchanged. No vendored logical-assignment
+  file contains `with`, so that behavior remains fixture evidence rather than
+  part of the exact Test262 counts. These focused results do not claim the
+  complete language subtree or pinned matrix is green.
+- Global Object Environment identifier `++` and `--` now use a verified
+  Reference lifecycle beside the retained `with` lifecycle. One private
+  fixed-role numeric carrier feeds the shared Object Environment
+  GetBindingValue/ToNumeric/SetMutableBinding operation, while a distinct
+  non-copyable global plan performs the initial plain `HasProperty` without an
+  unscopables query. The durable CLI oracle covers all four prefix/postfix
+  forms, Number and BigInt results, an initially missing binding throwing from
+  GetValue before ToNumeric, strict getter deletion without recreation, sloppy
+  getter deletion with recreation, and an observable
+  HasBinding/GetBindingValue/SetMutableBinding trace. Its bounded source witness
+  owns the four exact global Test262 files, the four already-green bare-suffix
+  `with` controls, and the eleven already-green global eager-compound files as
+  regression gates. At pre-batch commit `f6b6af6a`, the exact global
+  prefix-increment witness reported `0/1` as `Runtime/NotImplemented` with
+  ``unsupported in lila wasm-aot first slice: unbound identifier `x```; the
+  adjacent plain-assignment witness reported `1/1`. The other three selected
+  numeric files are source-proven to have reached the same refusal but were not
+  separately measured pre-batch. The affected `lila-ir`, `lila-aot-wasm` and
+  `lila-cli` package checks and `cargo xc` are green; the focused IR test is
+  `1/1`, four source-bounded structure executables total `17/17`, and the Wasm
+  lifecycle fixture is `1/1` in 45.02 seconds. The exact selected global
+  numeric cohort now passes `4/4`, its bare-suffix `with` controls remain `4/4`,
+  and the modern eager-compound prefix remains `22/22` with zero unsupported,
+  crash or bug outcomes. These are focused current-batch results, not a full
+  language-subtree or pinned-matrix publication.
+- Global Object Environment eager compound assignment now has a verified
+  Reference lifecycle beside the retained `with` lifecycle. A distinct
+  non-copyable plan performs the global Object Record's initial plain
+  `HasProperty`, then consumes the same sealed old-value/result/write carrier
+  through independent GetBindingValue and SetMutableBinding rechecks; the
+  global path cannot carry `Symbol.unscopables`. The durable CLI oracle covers
+  all eleven directly evidenced operators, an initially absent binding
+  throwing before RHS evaluation, strict accessor deletion without recreation,
+  sloppy accessor deletion with recreation, inherited selection and result
+  publication only after PutValue succeeds. At pre-batch commit `450f67050`,
+  the exact modern filename prefix reported `11/22`: all eleven already-green
+  `with` siblings passed, while the eleven selected global siblings were
+  `Runtime/NotImplemented` with the diagnostic ``unsupported in lila wasm-aot
+  first slice: unbound identifier `x```.
+  The affected-package compile is green; the IR lifecycle test is `1/1`, the
+  new source-bounded suite is `4/4`, the retained compound/numeric suites are
+  `5/5` and `4/4`, and the Wasm lifecycle fixture is `1/1`. All eleven selected
+  Test262 executions now pass `11/11`; the adjacent modern prefix is `22/22`,
+  retaining every `with` sibling with zero unsupported, crash or bug outcomes.
+  `**=` is covered by the closed Rust operation but has no twelfth direct
+  Test262 witness, and neither the full language subtree nor the pinned matrix
+  is claimed.
+- Eager identifier compound assignments inside `with` now use one sealed,
+  consuming Object Environment Reference lifecycle. The lowerer
+  exhaustively separates the six arithmetic and six bitwise operators from
+  short-circuiting logical assignment, while an opaque fixed-role carrier
+  orders GetBindingValue, RHS/application, same-base SetMutableBinding and the
+  returned value without adding a parallel backend operation. The durable CLI
+  oracle covers all twelve operators, selected-object identity across getter
+  deletion and RHS effects, strict post-Get deletion, function/global/outer
+  fallbacks, and run-time fallback mutation, deletion and creation. A bounded
+  source witness pins the exact current-source Test262 inventory of 44
+  `noStrict` files (44 executions): 33 historical function/global/nested-object
+  cases and 11 strict nested-function SetMutableBinding rechecks. `**=` has the
+  same closed local invariant coverage but no forty-fifth direct vendored
+  witness. The IR domain test is `1/1`, the source-bounded suite is `5/5`, the
+  retained numeric-reference suite remains `4/4`, the Wasm lifecycle fixture is
+  `1/1`, and the exact current-source Test262 cohort is `44/44`. The adjacent
+  global Object Environment follow-up remains separate from this focused
+  `with` claim.
+- Identifier `++` and `--` inside `with` now consume the same non-empty,
+  non-copyable Object Environment Reference plan as direct reads and writes.
+  Each selected branch fixes one binding object across GetBindingValue's second
+  `HasProperty`, ToNumeric and the delta, then SetMutableBinding's post-Get
+  `HasProperty`; strict nested-function References throw before Set when a
+  getter deleted the property, while sloppy References recreate it without
+  falling through to an outer binding. A mutating `@@unscopables` getter also
+  forces a pre-located Number fallback to become BigInt before the object record
+  declines it, pinning a Dynamic fallback update and all-runtime-tags metadata.
+  Proxy `has` traps also prove both sides of the run-time global fallback
+  boundary: deleting a previously proven global must throw rather than recreate
+  it, while creating a previously unresolved global must admit the update. A
+  durable CLI oracle and bounded source witness cover all four prefix/postfix
+  forms, their returned values and the exact current-pin inventory of 16
+  `noStrict` files (16 executions). At pre-batch commit
+  `156aeb38b28378e04bb852f8d00679f47b401d34`,
+  `prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js`
+  and
+  `postfix-decrement/operator-x-postfix-decrement-calls-putvalue-lhs-newvalue-.js`
+  each reported `0/1` as `Runtime/NotImplemented` with the exact diagnostic
+  ``unsupported in lila wasm-aot first slice: unbound identifier `x```.
+  The integrated IR invariant is `1/1`, the source-bounded contract suite is
+  `4/4`, the Wasm lifecycle fixture is `1/1`, and the exact current-source
+  Test262 cohort is now `16/16`; these are focused results, not a full-suite
+  status publication.
+- Primitive String computed-property reads now preserve every non-index key for
+  the ordinary `ToPropertyKey` and `%String.prototype%` path, while canonical
+  indices use UTF-16 own-property lookup and out-of-bounds indices fall through
+  to the prototype. The formerly unsupported non-index witnesses are `2/2`
+  execution variants each, and the adjacent pinned `15.5.5.5.2` family is
+  `28/28` under Wasm-AOT. This is focused evidence, not String-tree closure.
+- Class elements now report specific early `SyntaxError` codes for non-static
+  async methods, getters and setters named `constructor`, and for every private
+  `#constructor` form. The adjacent expression and statement early-error
+  subtrees are each `444/444` under Wasm-AOT; this is bounded parser evidence,
+  not full language or aggregate closure.
+- Non-resumable synchronous `using` declarations that are direct children of
+  ordinary blocks or function bodies now lower to the dedicated, statically
+  non-empty `StatementIr::SyncDisposableScope` capability instead of generic
+  `TryFinally`. The Wasm consumer acquires each `@@dispose` method before
+  initializing its lexical binding, captures every outgoing completion, walks
+  registered resources in reverse, continues after disposer throws, folds
+  nested `SuppressedError` values and restores the final completion exactly
+  once. A bounded source witness and CLI consumer cover TDZ method
+  acquisition, nullish skipping, LIFO, initializer/return/body abrupt paths and
+  suppression descriptors. The integrated current-SHA checkpoint is green:
+  `cargo xc`, 3/3 focused IR tests, 4/4 structure tests and the end-to-end CLI
+  consumer pass. The exact 18-file non-dynamic lifecycle cohort is 36/36 under
+  Wasm-AOT. This is focused evidence, not a claim about the complete 78-file
+  `language/statements/using` directory or the full pinned aggregate.
+- Plain synchronous generators now carry statement-list `using` scopes through
+  the required `SyncDisposableScopeExecutionIr::{Immediate, PlainGenerator}`
+  owner domain. Analysis exhaustively names ordinary, generator, async-function
+  and async-generator owners; only the generator route can mint the private
+  `PlainGeneratorSyncDisposableCapabilityIr` through the suspension-owned
+  binding allocator. The Wasm backend publishes that activation-backed
+  capability when execution first reaches the declaration, retains it across
+  every `yield`, and consumes a non-`Copy` storage witness into a detached
+  capability only when the scope completes. The detached path marks the record
+  disposed, clears its live entries, materializes the registered resources and
+  reuses the existing LIFO completion fold before publishing normal, external
+  `return()` or external `throw()` results. The durable generator fixture also
+  covers acquisition failure, nested capabilities, disposer errors,
+  `SuppressedError` ordering and exactly-once disposal. At pre-batch source
+  commit `904da7b355811ad399ff284bf0ddeac47d2cc9c2`, the exact unflagged
+  `language/statements/using/initializer-disposed-at-end-of-generatorbody.js`
+  witness reported `0/2` Wasm-AOT executions, both
+  `Runtime/NotImplemented` with the diagnostic `using declaration in a
+  generator or async function`. The integrated current-SHA checkpoint is green:
+  the workspace/all-target check and `cargo xc` pass after correcting one stale
+  exhaustive lowering match, the focused IR invariant is `1/1`, the bounded
+  structure suite is `6/6`, and the generator CLI fixture is `1/1` in 55.90
+  seconds. The fixture retains a nested non-yielding scope; only the unsupported
+  nested-yield shape was removed before the passing run. The exact Test262
+  witness is now
+  `2/2` with zero unsupported, crash or bug results, and the retained ordinary
+  synchronous-using fixture remains `1/1` in 42.05 seconds. This focused batch
+  does not claim async functions or generators, `await using`, resource-bearing
+  classic-`for`/`for-of` heads beyond their separate batches, modules, dynamic
+  source, the complete 78-file `language/statements/using` directory or the full
+  pinned aggregate.
+- The adjacent plain-async-function batch implements the required
+  `SyncDisposableScopeExecutionIr::AsyncFunction` owner and its private
+  `AsyncFunctionSyncDisposableCapabilityIr`, minted only through the
+  suspension-owned binding allocator. The AOT backend exhaustively converts
+  the distinct generator/async IR proofs into one non-`Copy`
+  `ActivationSyncDisposeOwner`, which selects the owning execution kind,
+  resume-state offset, resumable body compiler and terminal completion
+  dispatcher. For a plain async function that means
+  `HEAP_ASYNC_RESUME_STATE_OFFSET`, retention through `AsyncAwait`, and the
+  `DispatchAsyncFunction` path only after the capability has been detached, its
+  entries disposed in reverse and the folded completion restored. A durable
+  CLI oracle covers no acquisition before call, retention at the first await,
+  normal and explicit-return completion, source throw, rejected-await
+  resumption, acquisition failure, nested non-await scopes, LIFO suppression
+  and exactly-once disposal. At pre-batch source commit
+  `1f27bc71f678d5b27e08d2719c660b9777021af4`, both executions of the exact
+  async-flagged source file
+  `language/statements/using/initializer-disposed-at-end-of-asyncfunctionbody.js`
+  reported `Runtime/NotImplemented` with the diagnostic `using declaration in
+  an async function or async generator`. The shared workspace/all-target check
+  and `cargo xc` are green; the focused IR invariant is `1/1`; the async and
+  retained generator structure executables are `7/7` and `6/6`; the async CLI
+  lifecycle oracle is `1/1` in 15.21 seconds; and the retained generator oracle
+  remains `1/1` in 55.21 seconds. The exact async Test262 witness is now `2/2`
+  with zero unsupported, crash or bug results. Async generators, `await using`,
+  `await` inside a `using` initializer, resource-bearing loop heads, modules,
+  dynamic source, the complete 78-file `language/statements/using` directory
+  and the full pinned aggregate remain explicit nonclaims.
+- The adjacent async-generator synchronous-`using` batch is verified around the
+  fourth required execution owner,
+  `SyncDisposableScopeExecutionIr::AsyncGenerator`, and its private
+  `AsyncGeneratorSyncDisposableCapabilityIr`. The closed
+  `ActivationSyncDisposeOwner` maps that proof to
+  `FunctionExecutionKind::AsyncGenerator`,
+  `HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET`, the existing async body compiler
+  and `DispatchAsyncGenerator`; generator-only and async-function-only offsets
+  cannot be selected without changing an exhaustive match. The shared
+  activation-backed capability is initialized only when a request first
+  reaches the declaration, retained through both `yield` and `await`, then
+  detached and disposed before the current request completes or later requests
+  drain. A durable CLI oracle covers pre-start/yield/await retention, normal
+  completion, external `return()` and `throw()`, rejected-await resumption,
+  acquisition failure, a nested non-suspending scope, LIFO suppression,
+  exactly-once disposal, queued requests and a request synchronously enqueued
+  by a disposer. The reentrant oracle records both promise reactions after
+  disposal and the queued reaction before the current-request reaction, as
+  observed from the host/spec request-drain order. At pre-batch source commit
+  `a5606a73cbbb2a8ffd81c0c2e2dee945bb2b9a4b`, both executions of the exact
+  async-flagged file
+  `language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js`
+  reported `Runtime/NotImplemented` with the exact diagnostic `unsupported in
+  lila wasm-aot first slice: using declaration in an async generator`. The
+  shared workspace/all-target check and `cargo xc` are green; the focused IR
+  invariant is `1/1`; the async-generator, retained async-function and retained
+  generator structure executables are `7/7`, `7/7` and `6/6`; and their CLI
+  lifecycle oracles are `1/1` in 16.81, 13.09 and 53.84 seconds respectively.
+  The exact async-generator Test262 witness is now `2/2` with zero unsupported,
+  crash or bug results. Central verification also fixed the dispatcher
+  preflight and suspension scanner to recurse through the typed async-generator
+  scope.
+  `await using`, async disposers, suspension inside a resource initializer,
+  resource loop heads, modules, dynamic source, nonlinear async-generator
+  forms, the complete `using` tree and the full pinned aggregate remain
+  explicit nonclaims.
+- The adjacent plain-async-function `await using` batch is implemented as a
+  distinct `StatementIr::AsyncDisposableScope`, not a flag on synchronous
+  `using`. Its private non-empty resource list and activation-owned capability
+  carry a four-state finalizer plan whose strictly ordered entry, dispose,
+  resume and exit states cannot overlap source `await` states. Acquisition
+  observes `@@asyncDispose` first, uses the spec wrapper only for the
+  `@@dispose` fallback, registers before binding initialization and retains the
+  capability across every disposal Await. The backend's closed Empty, async
+  method and sync-fallback entry kinds keep the fallback's ignored normal
+  return separate from a direct async method result. A durable CLI oracle covers
+  both lookup routes, receiver identity, TDZ/acquisition ordering, an empty
+  resource's required Await versus an unreachable declaration, strictly
+  sequential reverse awaits, normal/return/throw/rejection completion, nested
+  LIFO, `SuppressedError` order and exactly-once disposal. At pre-batch source
+  commit `7a89e27ec79fe6210fff04a58b6bb3eace535e09`, the exact
+  `initializer-Symbol.{asyncDispose,dispose}-called-at-end-of-asyncfunctionbody.js`
+  files reported `0/4`: all four sloppy/strict Script executions were
+  `Runtime/NotImplemented` with the exact diagnostic `unsupported in lila
+  wasm-aot first slice: await using declaration`. Central verification is now
+  green for `cargo check --workspace --all-targets`, `cargo xc`, the focused
+  `lila-ir` `await_using` tests (`2/2`, including capture ownership), the
+  bounded IR/AOT structure executable (`6/6`), the complete CLI lifecycle
+  fixture (`1/1` in 13.10 seconds), and the retained synchronous-using CLI
+  family filter (`6/6` in 58.29 seconds). The two exact Test262 paths are now
+  `4/4` with zero unsupported, crash or bug results. The other 47 positive
+  plain-async statement-list files are an explicit regression inventory, not a
+  broad `49/49` claim. Async generators, resource loop heads, modules, dynamic
+  source, suspension inside an initializer, nonlinear async control flow, the
+  complete `await using` directory and the full pinned aggregate remain outside
+  this batch.
+- The adjacent async-generator `await using` path is now verified against a
+  distinct `AsyncDisposableScopeExecutionIr::AsyncGenerator` capability. The
+  durable CLI oracle keeps that activation-owned capability live across both
+  `yield` and body `await`, then covers normal completion, external return and
+  throw, awaited rejection, direct `@@asyncDispose`, the ignored-return
+  `@@dispose` fallback, later acquisition failure, nested LIFO,
+  `SuppressedError`, exactly-once disposal, queued requests and synchronous
+  reentrancy from an async disposer. Unlike synchronous disposal, its awaited
+  disposer records the current-request reaction before the queued reaction,
+  with both reactions after disposal. At source commit `5ad393f3d0`, the exact
+  `initializer-Symbol.{asyncDispose,dispose}-called-at-end-of-asyncgeneratorbody.js`
+  files reported `0/4`: all four sloppy/strict Script executions were
+  `Runtime/NotImplemented` with `unsupported in lila wasm-aot first slice: await
+  using declaration in an async generator`, and neither path had a rewrite,
+  mask or known-failure entry. Central verification is green for `cargo check
+  --workspace --all-targets`, `cargo xc`, the focused `lila-ir`
+  `async_generator_await_using` tests (`2/2` in 12.34s, including the exact
+  state-collision invariant), the new bounded structure executable (`5/5`),
+  and the retained plain-async structure executable (`6/6`). The async-generator
+  lifecycle fixture passes `1/1` in 23.63s; the retained plain-async await-using
+  and synchronous async-generator using fixtures pass `1/1` in 11.96s and
+  `1/1` in 16.56s. Both exact files now pass `2/2`, for `4/4` total with zero
+  unsupported, crash or bug outcomes. The state-collision repair reserves the
+  three implicit finalizer states before the following suspension and makes
+  AOT assert that each resumable statement entry continues the preceding exit.
+  Classic-`for` and `for-of` resource heads, modules, dynamic source, binding
+  patterns, suspension inside a resource initializer, nonlinear async-generator
+  forms, the complete `await using` directory and the full pinned aggregate
+  remain explicit nonclaims.
+- The adjacent plain-async classic-`for` `await using` batch uses the closed
+  `ForInitIr::AsyncDisposable(AsyncDisposableForInitIr)` capability. The direct
+  `StatementIr::For` remains the label target, while its nonempty resource list
+  and activation-owned finalizer span initializer acquisition, test, every body
+  and update, and terminal completion. The source-free CLI oracle contains no
+  explicit Await or Yield expression beyond the `await using` declaration and
+  covers async-first lookup, sync fallback, body-before-disposal, normal exit,
+  local break/continue, labelled control targeting the resource loop, return,
+  throw, abrupt test and update,
+  later acquisition failure, LIFO `SuppressedError`, loop-environment capture
+  and exactly-once disposal. At clean pre-batch commit `bca90f2ff9`, the exact
+  `initializer-Symbol.{asyncDispose,dispose}-{called-at-end-of-forstatement,called-if-subsequent-initializer-throws-in-forstatement-head}.js`
+  cohort reports `0/8`: every sloppy/strict Script execution is
+  `Runtime/NotImplemented` with `unsupported in lila wasm-aot first slice: await
+  using declaration`, and none has a rewrite or known-failure mask. Central
+  verification is green for `cargo check --workspace --all-targets`, `cargo
+  xc`, the focused IR test (`1/1` in 12.11s), and the structure executable
+  (`5/5`). The new CLI fixture passes `1/1` in 22.81s; retained plain-async and
+  async-generator await-using fixtures pass `1/1` in 12.00s and 22.60s, and the
+  retained synchronous classic-for fixture passes `1/1` in 30.22s. The four
+  exact files now each pass `2/2`, for `8/8` total with zero unsupported, crash
+  or bug outcomes. Runtime verification caught an over-broad generic Labelled
+  state scan; the repair forwards resumable state only through a transparent
+  label chain ending directly in an async-disposable For. Async generators,
+  ordinary and generator owners, modules, dynamic source, binding patterns,
+  `for-of` and `for-await-of`, source suspension in any loop region, the
+  complete `await using` directory, outer labelled-block or enclosing-loop
+  control, repeated or nonlinear re-entry of the same resource-loop node, and
+  the full pinned aggregate remain explicit nonclaims.
+- The plain-async resource-loop batch now supports synchronous `for-of` with
+  an `await using` head. Its source-free CLI oracle keeps the
+  generic iterator protocol observable and covers async-first lookup, the
+  ignored-return synchronous fallback, fresh captured bindings, head TDZ and
+  immutability, disposal before the next iterator step, local continue without
+  close, disposal before break/return/throw/IteratorClose, later-iteration
+  acquisition failure, the outer head binding surviving a nested implicit
+  finalizer, nested LIFO `SuppressedError` folding and exactly-once disposal.
+  At clean pre-batch commit `009219b28`, the two per-iteration
+  `Symbol.{asyncDispose,dispose}` protocol files, the for-head TDZ file, the
+  immutable-assignment file and the `for (await using of of ...)` grammar file
+  report `0/10`. Every sloppy/strict Script execution is
+  `Runtime/NotImplemented` with the exact diagnostic `unsupported in lila
+  wasm-aot first slice: await using declaration in for-of`; none has an exact
+  Wasm-AOT rewrite or known-failure entry. Central verification is green for
+  `cargo check --workspace --all-targets`, `cargo xc`, the focused IR test
+  (`1/1` in 12.17s), and the bounded structure executable (`5/5`). The new CLI
+  lifecycle fixture passes `1/1` both in a cached central rerun (`0.23s`) and
+  an uncached focused run (`14.25s`); the retained async await-using fixtures
+  pass `4/4` in 37.83s, and the retained synchronous using-for-of fixture
+  passes `1/1` in 48.82s. Each of the five exact raw Test262 files now passes
+  `2/2`, for `10/10` total with zero unsupported, crash or bug outcomes. This
+  is focused evidence only: the Module-only fresh-binding witness,
+  `for-await-of`, async generators, binding patterns, dynamic source, the
+  complete `await using` directory and the full pinned aggregate remain
+  explicit nonclaims.
+- The adjacent classic-`for` extension gives a synchronous
+  `using` head the closed, statically non-empty
+  `ForInitIr::SyncDisposable(SyncDisposableResourcesIr)` capability while
+  retaining the direct `StatementIr::For` node needed by labelled break and
+  continue. Every head binding enters TDZ before acquisition; when a captured
+  binding materializes a for-head environment, it encloses acquisition, test,
+  body, update and eventual disposal. Continue retains the capability, while
+  normal or abrupt loop exit consumes it through the existing LIFO completion
+  fold.
+  A focused CLI oracle covers labelled continue/break, nullish acquisition,
+  outer/inner binding isolation, a later binding's observable TDZ during the
+  first resource GetMethod, false-test LIFO, later initializer failure and
+  suppression, and immutable-binding update failure. The exact adjacent
+  vendored inventory is five files: three adjacent grammar/binding witnesses
+  plus two focused disposal-lifecycle witnesses. The integrated current-SHA
+  checkpoint is green: `cargo xc`, 4/4 focused IR tests, 5/5 structure tests
+  and the end-to-end CLI consumer pass. Those five files report 10/10
+  sloppy/strict Wasm-AOT executions. This remains focused evidence, not a claim
+  about the complete 78-file `language/statements/using` directory or the full
+  pinned aggregate.
+- Synchronous `using` in `for-of` heads keeps resource heads on the generic
+  iterator protocol. Array and String index-walk nodes accept
+  only `ForOfAssignmentIr`, while `ForOfIteratorHeadIr` exhaustively separates
+  ordinary assignment from a private, one-binding `SyncDisposable` capability
+  that cannot carry an async plan. The intended per-iteration lifecycle creates
+  a fresh immutable binding, disposes before the next iterator step, keeps a
+  local continue inside the loop without closing, and disposes break, return,
+  throw, disposer failure or acquisition failure before IteratorClose. The
+  durable CLI oracle uses only custom iterator objects and covers those orderings,
+  head TDZ and captured-binding freshness. The exact current-pin failure cohort
+  is three unflagged files and six sloppy/strict executions:
+  `head-using-bound-names-fordecl-tdz.js`,
+  `head-using-fresh-binding-per-iteration.js`, and
+  `using-invalid-assignment-statement-body-for-of.js`. At pre-batch commit
+  `681ca415ba1e74c220fa8a5982cba1e7adedc151`, focused inspection rejected all
+  six at the Wasm-AOT `for-of initializer` boundary. The integrated current-SHA
+  checkpoint is green: `cargo xc`, 3/3 focused IR tests, 5/5 bounded structure
+  tests and the end-to-end CLI lifecycle oracle pass; the three files now report
+  6/6 Wasm-AOT executions with every failure bucket at zero. This is focused
+  evidence, not a claim about the complete `language/statements/using`
+  directory or the full pinned aggregate. Resource heads are
+  BindingIdentifier-only; pattern-looking source such as `using[resource]` is
+  ordinary element-access assignment grammar, not a resource binding pattern.
+  `await using`, `for-await-of`,
+  resumable owners, modules, `for-in` and dynamic source remain outside this
+  batch.
 
 - Promise construction now runs executors synchronously through the real
   Wasm-AOT call path, creates branded pending promise records, supplies distinct
@@ -489,6 +1061,12 @@ Recent focused progress through `2026-07-27`:
   immediately and linear function bodies resume through the Promise job queue
   after plain `await` statements, identifier assignments, and `return await`;
   rejection resumes as a throw and lexical bindings survive suspension.
+  Array-specialized `for...of` loops with one body `await` now preserve a
+  captured lexical head in a fresh environment for every iteration. The
+  current-SHA consumer oracle retains six closures and calls them after the
+  loop, while the two exact `Array.fromAsync/asyncitems-*-not-callable.js`
+  witnesses report `4/4`; this is focused evidence, not a refreshed complete
+  `Array.fromAsync` publication.
   Named and anonymous async function expressions use the same real activation
   path and are non-constructable; the pinned `expression-returns-promise.js`,
   `name.js`, and `syntax-expression-is-PrimaryExpression.js` roots report
@@ -1087,7 +1665,13 @@ Recent focused progress through `2026-07-27`:
   `delete super[key]` use a fused Reference plan which checks current `this`,
   evaluates the raw computed value without
   `ToPropertyKey`, and then throws `ReferenceError` without invoking property
-  deletion; object-literal-method home-object lowering remains explicit debt.
+  deletion. Non-resumable object-literal methods and accessors now use a
+  separate typed HomeObject lifecycle, verified by the focused Wasm fixture and
+  exact `10/10` cohort. Direct generator and async object-method controls are
+  green, but complete suspension-safe and async-generator transport remain
+  explicit debt. Object-method lexical-arrow transport has a separate
+  dry-written closed owner-role boundary; its runtime verification remains
+  deferred.
   The four focused real Test262 arrow files
   `lexical-supercall-from-immediately-invoked-arrow.js`,
   `lexical-super-call-from-within-constructor.js`,
@@ -2284,6 +2868,32 @@ Recent focused progress through `2026-07-27`:
   `proto-from-ctor-realm-sab.js`, which execute zero-argument cross-realm
   `new other.Function()` dynamic source generation. Refresh this cohort with
   `./target/release/lila --jobs 1 test262 run --matrix-node built-ins/DataView --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-direct-current-pin-authoritative-20260722`.
+- The callable `%Function.prototype%` realm lane is implemented and focused-
+  verified. One non-constructable catalog identity supplies the
+  zero-return call body, exact empty `name`, zero `length` and native source;
+  entry and created realms materialize fresh Function-tagged values whose
+  internal prototypes are their own Object prototypes. The Function constructor
+  publishes that exact identity with non-writable, non-enumerable,
+  non-configurable attributes. The existing two-created-realm CLI fixture now
+  also covers call results, tags, source text, non-constructability, own
+  descriptors and distinct identities, while a bounded source witness guards
+  rooting and both realm materialization routes. `cargo xc`, all eight bounded
+  source invariants, both realm-materialization unit tests and the CLI consumer
+  are green. The five selected current-pin Test262 files pass 10/10 strict and
+  sloppy executions, and the adjacent non-constructability case passes 2/2.
+  This remains focused evidence; no new aggregate pass count is claimed.
+- `%Function.prototype%[@@hasInstance]` is now represented by one catalogued,
+  non-constructable builtin identity and installed as a non-writable,
+  non-enumerable, non-configurable well-known-symbol property in the entry
+  realm and each created realm. The shared typed backend request keeps
+  `InstanceofOperator` dispatch distinct from `OrdinaryHasInstance`, including
+  bound-target redispatch, observable `prototype` access and Proxy
+  `[[GetPrototypeOf]]` traversal. A bounded source witness and CLI consumer
+  cover realm-local descriptors plus ordinary, bound, poisoned-prototype and
+  abrupt Proxy behavior. `cargo xc`, the five structure checks and the CLI
+  consumer are green. The complete eleven-file intrinsic leaf passes 22/22
+  strict and sloppy Wasm-AOT executions; the adjacent four-file operator-hook
+  prefix passes 8/8. These are focused checkpoints, not a new aggregate count.
 - Generic function-to-string conversion in Wasm-AOT now reads the stored
   function/native source payload, so `"" + fn` agrees with
   `Function.prototype.toString.call(fn)` for builtin constructors, builtin
@@ -2843,23 +3453,43 @@ Recent focused progress through `2026-07-27`:
   `12/12` passing as of `2026-06-05` under `--execution-backend wasm` with the
   `60000` ms timeout (`0` unsupported, `0` runtime failures) with
   `./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm --timeout-ms 60000 --threads 4`.
-- Proxy `[[PreventExtensions]]` now routes `Object.preventExtensions` and
-  `Reflect.preventExtensions` through a shared proxy-aware internal method. The
-  Wasm-AOT path calls `preventExtensions` traps with the handler as `this` and
-  target as the sole argument, applies `ToBoolean` to trap results, returns
-  `false` through `Reflect.preventExtensions`, throws catchable TypeErrors for
-  `Object.preventExtensions` false results, enforces the true-result target
-  invariant, and forwards missing, `undefined`, or `null` traps through nested
-  proxy targets. Revoked proxies, non-callable traps, and abrupt traps are
-  catchable across the standard-builtin call boundary. The remaining
-  module-namespace-shaped nested fallback case
-  `trap-is-undefined-target-is-proxy.js` now uses a focused Wasm-AOT
-  materialization that preserves the real `Reflect.preventExtensions` Proxy
-  path over a non-extensible namespace-shaped target. The full real Test262
-  `built-ins/Proxy/preventExtensions` leaf now reports `12/12` passing as of
-  `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
-  (`0` unsupported, `0` runtime failures) with
-  `./target/debug/lila test262 run built-ins/Proxy/preventExtensions --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- Proxy `[[PreventExtensions]]` now uses one typed, consuming request and an
+  outlined recursive runtime helper instead of a fixed Rust emission depth. The
+  distinct traversal and Boolean-result roles prevent positional-local
+  swaps, while pending and normal trap-result types force abrupt routing before
+  `ToBoolean` or the target extensibility invariant. Missing, `undefined`, and
+  `null` traps can therefore re-enter the complete operation without a nesting
+  limit; handler tags remain intact for `GetMethod`, exact trap `this`, and
+  Function, Array, arguments, or Proxy handlers. The focused source-free CLI
+  oracle now also covers more than four nested fallbacks, callable-Proxy traps,
+  abrupt lookup/call identity, revocation, and the Object-versus-Reflect false
+  result boundary. The sole exact-path rewrite for the original Module witness
+  `built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js` has
+  been removed, so its self-imported module-namespace source is no longer
+  replaced by an ordinary object. Verification on `2026-08-21` is green for
+  the exact raw Module execution (`1/1`), the complete current leaf of 12
+  physical files / 23 executions (`23/23`), the typed structure witness
+  (`3/3`), and the expanded source-free Wasm fixture (`1/1`, 55.92 s). The
+  adjacent recursive `built-ins/Proxy/isExtensible` and
+  `built-ins/Reflect/preventExtensions` leaves are also green at `24/24` and
+  `20/20`. At clean pre-batch commit `22ab459107`, the broader
+  `built-ins/Object/preventExtensions` regression was `77/78`; its one failing
+  execution was the strict-script half of `15.2.3.10-3-4.js`, where the
+  expected array-index PutValue `TypeError` escaped a catch inside the same
+  non-main user function. Fresh runtime errors now use one canonical route
+  through `emit_propagate_current_throw`, and the retained fixture covers that
+  exact internal-catch topology plus nested inner/outer finalizers which must
+  both run before the unchanged TypeError reaches the outer catch. Verification
+  on `2026-08-21` is green for the workspace/all-target and `cargo xc` checks,
+  the bounded structure witness (`3/3`), the expanded Wasm fixture (`1/1`,
+  21.08 s), the exact file (`2/2`), and the complete
+  `built-ins/Object/preventExtensions` leaf (`78/78`, zero unsupported,
+  crashes, timeouts, or runtime failures).
+  This route does not claim resumable throw transport, every throw/catch site,
+  or object-literal method `[[HomeObject]]`.
+  Focused Object freeze, primitive-integrity and TypedArray prevention fixtures
+  remain green at `1/1` each. The older `12/12` path-counted result used the
+  rewrite and remains materialized evidence rather than source-level proof.
 - Proxy `[[DefineOwnProperty]]` has focused Reflect/Object progress in
   Wasm-AOT. `Reflect.defineProperty` is now installed on the Reflect object,
   returns Boolean results, and preserves the spec difference where a false

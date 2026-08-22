@@ -2,6 +2,117 @@ use super::*;
 use crate::operations::NumericBinaryOperator;
 use lila_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
 
+#[derive(Debug)]
+#[must_use = "a raw ordinary Property Reference must be consumed by GetValue"]
+struct EvaluatedRawOrdinaryPropertyReferenceLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    referenced_name_payload: u32,
+    referenced_name_tag: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "a read ordinary Property Reference must be advanced to its applied result"]
+struct ReadOrdinaryPropertyReferenceLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+    old_value_payload: u32,
+    old_value_tag: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "a numeric ordinary Property Reference must be advanced to its new value"]
+struct ReadOrdinaryPropertyNumericUpdateLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+    old_value_payload: u32,
+    old_value_tag: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "a ready ordinary Property Reference must be consumed by PutValue"]
+struct ReadyToWriteOrdinaryPropertyReferenceLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+    old_value_payload: u32,
+    old_value_tag: u32,
+    result_payload: u32,
+    result_tag: u32,
+    set_result: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "a ready numeric ordinary Property Reference must be consumed by PutValue"]
+struct ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+    old_value_payload: u32,
+    old_value_tag: u32,
+    new_value_payload: u32,
+    new_value_tag: u32,
+    set_result: u32,
+}
+
+/// The sealed input required by the shared ordinary Reference evaluator.
+///
+/// Both fused IR carriers own the same base/raw-key pair. Keeping this trait
+/// private makes that pair the only reusable part of their otherwise distinct
+/// compound-assignment and numeric-update lifecycles.
+trait OrdinaryPropertyReferenceSource {
+    fn base_and_receiver(&self) -> &TypedExpr;
+    fn referenced_name(&self) -> &PropertyKeyIr;
+}
+
+impl OrdinaryPropertyReferenceSource for OrdinaryPropertyEagerCompoundAssignmentIr {
+    fn base_and_receiver(&self) -> &TypedExpr {
+        self.base_and_receiver()
+    }
+
+    fn referenced_name(&self) -> &PropertyKeyIr {
+        self.referenced_name()
+    }
+}
+
+impl OrdinaryPropertyReferenceSource for OrdinaryPropertyNumericUpdateIr {
+    fn base_and_receiver(&self) -> &TypedExpr {
+        self.base_and_receiver()
+    }
+
+    fn referenced_name(&self) -> &PropertyKeyIr {
+        self.referenced_name()
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "a raw Super Property Reference must be consumed by GetValue"]
+struct EvaluatedRawSuperPropertyReferenceLocals {
+    base_payload: u32,
+    base_tag: u32,
+    receiver_payload: u32,
+    receiver_tag: u32,
+    referenced_name_payload: u32,
+    referenced_name_tag: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "a coerced Super Property Reference must be consumed by PutValue"]
+struct CoercedSuperPropertyReferenceLocals {
+    base_payload: u32,
+    base_tag: u32,
+    receiver_payload: u32,
+    receiver_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+}
+
 impl<'a> FunctionBuilder<'a> {
     /// Runs `body` with the object-write failure guards reading *this
     /// Reference's* `[[Strict]]` instead of the ambient strictness of the
@@ -88,11 +199,9 @@ impl<'a> FunctionBuilder<'a> {
         })
     }
 
-    /// Evaluate a super property's key expression without applying
-    /// ToPropertyKey yet. SuperProperty evaluation needs this raw value before
-    /// GetSuperBase/null checking; coercion is deliberately emitted by the
-    /// caller only after that check.
-    fn compile_super_property_key_expression_to_locals(
+    /// Evaluate a property's referenced-name expression without applying
+    /// ToPropertyKey. The consuming Reference transition owns that coercion.
+    fn compile_raw_property_key_expression_to_locals(
         &mut self,
         key: &PropertyKeyIr,
         payload_local: u32,
@@ -116,11 +225,841 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(tag_local));
             }
             PropertyKeyIr::ArrayLength => {
-                return Err(EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: object key kind",
-                ));
+                function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
             }
         }
+        Ok(())
+    }
+
+    fn compile_super_property_read_to_locals(
+        &mut self,
+        key: &PropertyKeyIr,
+        receiver: &TypedExpr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let super_base_local = self.reserve_temp_local();
+        let super_base_tag_local = self.reserve_temp_local();
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
+
+        self.compile_expr_to_locals(
+            receiver,
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        self.compile_raw_property_key_expression_to_locals(
+            key,
+            key_local,
+            key_tag_local,
+            function,
+        )?;
+        self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
+        self.emit_throw_if_null_super_base(super_base_local, super_base_tag_local, function)?;
+        self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
+        self.emit_object_read_with_key_tag(
+            super_base_local,
+            super_base_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            Some(key_tag_local),
+            payload_local,
+            tag_local,
+            function,
+        )?;
+
+        self.release_temp_local(key_tag_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        self.release_temp_local(super_base_tag_local);
+        self.release_temp_local(super_base_local);
+        Ok(())
+    }
+
+    fn compile_super_property_write_to_locals(
+        &mut self,
+        key: &PropertyKeyIr,
+        receiver: &TypedExpr,
+        value: &TypedExpr,
+        strictness: Strictness,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let super_base_local = self.reserve_temp_local();
+        let super_base_tag_local = self.reserve_temp_local();
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
+        let set_result_local = self.reserve_temp_local();
+
+        self.compile_expr_to_locals(
+            receiver,
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        self.compile_raw_property_key_expression_to_locals(
+            key,
+            key_local,
+            key_tag_local,
+            function,
+        )?;
+        self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
+        self.emit_throw_if_null_super_base(super_base_local, super_base_tag_local, function)?;
+        self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
+        self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
+        self.emit_ordinary_set_result_via_helper(
+            super_base_local,
+            super_base_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            key_tag_local,
+            payload_local,
+            tag_local,
+            set_result_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(set_result_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.with_reference_strictness(strictness, function, |emitter, function| {
+            emitter.emit_object_write_set_failure_else("Cannot assign to super property", function)
+        })?;
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(set_result_local);
+        self.release_temp_local(key_tag_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        self.release_temp_local(super_base_tag_local);
+        self.release_temp_local(super_base_local);
+        Ok(())
+    }
+
+    fn evaluate_raw_ordinary_property_reference(
+        &mut self,
+        mutation: &impl OrdinaryPropertyReferenceSource,
+        function: &mut Function,
+    ) -> Result<EvaluatedRawOrdinaryPropertyReferenceLocals, EmitError> {
+        let base_and_receiver_payload = self.reserve_temp_local();
+        let base_and_receiver_tag = self.reserve_temp_local();
+        let referenced_name_payload = self.reserve_temp_local();
+        let referenced_name_tag = self.reserve_temp_local();
+
+        self.compile_expr_to_locals(
+            mutation.base_and_receiver(),
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            function,
+        )?;
+        self.compile_raw_property_key_expression_to_locals(
+            mutation.referenced_name(),
+            referenced_name_payload,
+            referenced_name_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            referenced_name_payload,
+            referenced_name_tag,
+            function,
+        )?;
+
+        Ok(EvaluatedRawOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            referenced_name_payload,
+            referenced_name_tag,
+        })
+    }
+
+    fn emit_get_value_from_raw_ordinary_property_reference(
+        &mut self,
+        reference: EvaluatedRawOrdinaryPropertyReferenceLocals,
+        old_value_payload: u32,
+        old_value_tag: u32,
+        function: &mut Function,
+    ) -> Result<ReadOrdinaryPropertyReferenceLocals, EmitError> {
+        let EvaluatedRawOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            referenced_name_payload: property_key_payload,
+            referenced_name_tag: property_key_tag,
+        } = reference;
+
+        // GetValue first applies ToObject to the Reference base. For the only
+        // abrupt inputs, null and undefined, this check must run after the raw
+        // key expression but before its observable ToPropertyKey coercion.
+        self.compile_nullish_tagged_i32(base_and_receiver_tag, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot read properties of null or undefined",
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            property_key_payload,
+            property_key_tag,
+            function,
+        )?;
+        self.emit_object_read_with_key_tag(
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            Some(property_key_tag),
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+
+        Ok(ReadOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        })
+    }
+
+    fn emit_result_from_read_ordinary_property_reference(
+        &mut self,
+        reference: ReadOrdinaryPropertyReferenceLocals,
+        mutation: &OrdinaryPropertyEagerCompoundAssignmentIr,
+        function: &mut Function,
+    ) -> Result<ReadyToWriteOrdinaryPropertyReferenceLocals, EmitError> {
+        let ReadOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        } = reference;
+        let result_payload = self.reserve_temp_local();
+        let result_tag = self.reserve_temp_local();
+        let set_result = self.reserve_temp_local();
+
+        self.push_scope();
+        self.binding_scopes
+            .last_mut()
+            .expect("binding scope stack must exist")
+            .insert(
+                mutation.old_value_binding().to_string(),
+                BindingStorage::Dynamic {
+                    tag_local: old_value_tag,
+                    payload_local: old_value_payload,
+                },
+            );
+        let compile_result =
+            self.compile_expr_to_locals(mutation.result(), result_payload, result_tag, function);
+        self.pop_scope();
+        compile_result?;
+        self.emit_propagate_throw_from_locals_if_needed(result_payload, result_tag, function)?;
+
+        Ok(ReadyToWriteOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+            result_payload,
+            result_tag,
+            set_result,
+        })
+    }
+
+    fn emit_put_value_from_ready_ordinary_property_reference(
+        &mut self,
+        reference: ReadyToWriteOrdinaryPropertyReferenceLocals,
+        strictness: Strictness,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ReadyToWriteOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+            result_payload,
+            result_tag,
+            set_result,
+        } = reference;
+
+        self.emit_ordinary_set_result_via_helper(
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            result_payload,
+            result_tag,
+            set_result,
+            function,
+        )?;
+        if strictness.throws_on_failed_set() {
+            function.instruction(&Instruction::LocalGet(set_result));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error_to_active_handler(
+                TYPE_ERROR_NAME,
+                "Cannot assign to property",
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+        }
+
+        function.instruction(&Instruction::LocalGet(result_payload));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(result_tag));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
+        self.release_temp_local(set_result);
+        self.release_temp_local(result_tag);
+        self.release_temp_local(result_payload);
+        self.release_temp_local(property_key_tag);
+        self.release_temp_local(property_key_payload);
+        self.release_temp_local(base_and_receiver_tag);
+        self.release_temp_local(base_and_receiver_payload);
+        self.release_temp_local(old_value_tag);
+        self.release_temp_local(old_value_payload);
+        Ok(())
+    }
+
+    fn compile_ordinary_property_eager_compound_assignment_to_locals(
+        &mut self,
+        mutation: &OrdinaryPropertyEagerCompoundAssignmentIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // These locals precede the Reference carrier so the consuming PutValue
+        // transition can release every persistent local in strict LIFO order.
+        let old_value_payload = self.reserve_temp_local();
+        let old_value_tag = self.reserve_temp_local();
+        let raw_reference = self.evaluate_raw_ordinary_property_reference(mutation, function)?;
+        let read_reference = self.emit_get_value_from_raw_ordinary_property_reference(
+            raw_reference,
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+        let ready_reference = self.emit_result_from_read_ordinary_property_reference(
+            read_reference,
+            mutation,
+            function,
+        )?;
+        self.emit_put_value_from_ready_ordinary_property_reference(
+            ready_reference,
+            mutation.strictness(),
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    fn emit_get_numeric_value_from_raw_ordinary_property_reference(
+        &mut self,
+        reference: EvaluatedRawOrdinaryPropertyReferenceLocals,
+        old_value_payload: u32,
+        old_value_tag: u32,
+        value_kind: ValueKind,
+        function: &mut Function,
+    ) -> Result<ReadOrdinaryPropertyNumericUpdateLocals, EmitError> {
+        let reference = self.emit_get_value_from_raw_ordinary_property_reference(
+            reference,
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+        let ReadOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        } = reference;
+        match value_kind {
+            ValueKind::Dynamic => {
+                self.emit_value_to_numeric_locals(old_value_payload, old_value_tag, function)?
+            }
+            ValueKind::Number => {
+                self.emit_value_to_number_payload(old_value_tag, old_value_payload, function)?;
+                function.instruction(&Instruction::LocalSet(old_value_payload));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(old_value_tag));
+                self.emit_return_current_completion_if_throw(function);
+            }
+            ValueKind::BigInt => {}
+            ValueKind::Undefined
+            | ValueKind::Null
+            | ValueKind::Boolean
+            | ValueKind::String
+            | ValueKind::Symbol
+            | ValueKind::Object
+            | ValueKind::Array
+            | ValueKind::Function
+            | ValueKind::Arguments => {
+                unreachable!("ordinary property numeric update requires Number, BigInt, or Dynamic")
+            }
+        }
+
+        Ok(ReadOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        })
+    }
+
+    fn emit_numeric_update_from_read_ordinary_property_reference(
+        &mut self,
+        reference: ReadOrdinaryPropertyNumericUpdateLocals,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        function: &mut Function,
+    ) -> Result<ReadyToWriteOrdinaryPropertyNumericUpdateLocals, EmitError> {
+        let ReadOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+        } = reference;
+        let new_value_payload = self.reserve_temp_local();
+        let new_value_tag = self.reserve_temp_local();
+        let set_result = self.reserve_temp_local();
+
+        match update.op() {
+            NumericUpdateOp::Increment => self.emit_update_delta_from_locals(
+                NumericUpdateOp::Increment,
+                update.value_kind(),
+                old_value_payload,
+                old_value_tag,
+                function,
+            ),
+            NumericUpdateOp::Decrement => self.emit_update_delta_from_locals(
+                NumericUpdateOp::Decrement,
+                update.value_kind(),
+                old_value_payload,
+                old_value_tag,
+                function,
+            ),
+        }
+        function.instruction(&Instruction::LocalSet(new_value_payload));
+        function.instruction(&Instruction::LocalGet(old_value_tag));
+        function.instruction(&Instruction::LocalSet(new_value_tag));
+
+        Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+            new_value_payload,
+            new_value_tag,
+            set_result,
+        })
+    }
+
+    fn emit_put_value_from_ready_ordinary_property_numeric_update(
+        &mut self,
+        reference: ReadyToWriteOrdinaryPropertyNumericUpdateLocals,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            old_value_payload,
+            old_value_tag,
+            new_value_payload,
+            new_value_tag,
+            set_result,
+        } = reference;
+
+        self.emit_ordinary_set_result_via_helper(
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            new_value_payload,
+            new_value_tag,
+            set_result,
+            function,
+        )?;
+        if update.strictness().throws_on_failed_set() {
+            function.instruction(&Instruction::LocalGet(set_result));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error_to_active_handler(
+                TYPE_ERROR_NAME,
+                "Cannot assign to property",
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+        }
+
+        let (published_payload, published_tag) = match update.return_mode() {
+            UpdateReturnMode::Prefix => (new_value_payload, new_value_tag),
+            UpdateReturnMode::Postfix => (old_value_payload, old_value_tag),
+        };
+        function.instruction(&Instruction::LocalGet(published_payload));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(published_tag));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
+        self.release_temp_local(set_result);
+        self.release_temp_local(new_value_tag);
+        self.release_temp_local(new_value_payload);
+        self.release_temp_local(property_key_tag);
+        self.release_temp_local(property_key_payload);
+        self.release_temp_local(base_and_receiver_tag);
+        self.release_temp_local(base_and_receiver_payload);
+        self.release_temp_local(old_value_tag);
+        self.release_temp_local(old_value_payload);
+        Ok(())
+    }
+
+    fn compile_ordinary_property_numeric_update_to_locals(
+        &mut self,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let old_value_payload = self.reserve_temp_local();
+        let old_value_tag = self.reserve_temp_local();
+        let raw_reference = self.evaluate_raw_ordinary_property_reference(update, function)?;
+        let read_reference = self.emit_get_numeric_value_from_raw_ordinary_property_reference(
+            raw_reference,
+            old_value_payload,
+            old_value_tag,
+            update.value_kind(),
+            function,
+        )?;
+        let ready_reference = self.emit_numeric_update_from_read_ordinary_property_reference(
+            read_reference,
+            update,
+            function,
+        )?;
+        self.emit_put_value_from_ready_ordinary_property_numeric_update(
+            ready_reference,
+            update,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    fn evaluate_raw_super_property_reference(
+        &mut self,
+        receiver: &TypedExpr,
+        referenced_name: &PropertyKeyIr,
+        function: &mut Function,
+    ) -> Result<EvaluatedRawSuperPropertyReferenceLocals, EmitError> {
+        let base_payload = self.reserve_temp_local();
+        let base_tag = self.reserve_temp_local();
+        let receiver_payload = self.reserve_temp_local();
+        let receiver_tag = self.reserve_temp_local();
+        let referenced_name_payload = self.reserve_temp_local();
+        let referenced_name_tag = self.reserve_temp_local();
+
+        self.compile_expr_to_locals(receiver, receiver_payload, receiver_tag, function)?;
+        self.compile_raw_property_key_expression_to_locals(
+            referenced_name,
+            referenced_name_payload,
+            referenced_name_tag,
+            function,
+        )?;
+        self.emit_load_super_base(base_payload, base_tag, function)?;
+        self.emit_throw_if_null_super_base(base_payload, base_tag, function)?;
+
+        Ok(EvaluatedRawSuperPropertyReferenceLocals {
+            base_payload,
+            base_tag,
+            receiver_payload,
+            receiver_tag,
+            referenced_name_payload,
+            referenced_name_tag,
+        })
+    }
+
+    fn emit_get_value_from_raw_super_property_reference(
+        &mut self,
+        reference: EvaluatedRawSuperPropertyReferenceLocals,
+        value_payload: u32,
+        value_tag: u32,
+        function: &mut Function,
+    ) -> Result<CoercedSuperPropertyReferenceLocals, EmitError> {
+        let EvaluatedRawSuperPropertyReferenceLocals {
+            base_payload,
+            base_tag,
+            receiver_payload,
+            receiver_tag,
+            referenced_name_payload: property_key_payload,
+            referenced_name_tag: property_key_tag,
+        } = reference;
+
+        self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
+        self.emit_object_read_with_key_tag(
+            base_payload,
+            base_tag,
+            receiver_payload,
+            receiver_tag,
+            property_key_payload,
+            Some(property_key_tag),
+            value_payload,
+            value_tag,
+            function,
+        )?;
+
+        Ok(CoercedSuperPropertyReferenceLocals {
+            base_payload,
+            base_tag,
+            receiver_payload,
+            receiver_tag,
+            property_key_payload,
+            property_key_tag,
+        })
+    }
+
+    fn emit_put_value_from_coerced_super_property_reference(
+        &mut self,
+        reference: CoercedSuperPropertyReferenceLocals,
+        value_payload: u32,
+        value_tag: u32,
+        set_result: u32,
+        strictness: Strictness,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let CoercedSuperPropertyReferenceLocals {
+            base_payload,
+            base_tag,
+            receiver_payload,
+            receiver_tag,
+            property_key_payload,
+            property_key_tag,
+        } = reference;
+
+        self.emit_ordinary_set_result_via_helper(
+            base_payload,
+            base_tag,
+            receiver_payload,
+            receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            value_payload,
+            value_tag,
+            set_result,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(set_result));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.with_reference_strictness(strictness, function, |emitter, function| {
+            emitter.emit_object_write_set_failure_else("Cannot assign to super property", function)
+        })?;
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(property_key_tag);
+        self.release_temp_local(property_key_payload);
+        self.release_temp_local(receiver_tag);
+        self.release_temp_local(receiver_payload);
+        self.release_temp_local(base_tag);
+        self.release_temp_local(base_payload);
+        Ok(())
+    }
+
+    fn compile_super_property_mutation_to_locals(
+        &mut self,
+        mutation: &SuperPropertyMutationIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // These result locals sit below the reference carrier so PutValue can
+        // consume and release the carrier while retaining both numeric values
+        // until a successful Set selects the prefix/postfix result.
+        let old_value_payload = self.reserve_temp_local();
+        let old_value_tag = self.reserve_temp_local();
+        let new_value_payload = self.reserve_temp_local();
+        let new_value_tag = self.reserve_temp_local();
+        let set_result = self.reserve_temp_local();
+
+        let raw_reference = self.evaluate_raw_super_property_reference(
+            mutation.receiver(),
+            mutation.referenced_name(),
+            function,
+        )?;
+        let coerced_reference = self.emit_get_value_from_raw_super_property_reference(
+            raw_reference,
+            old_value_payload,
+            old_value_tag,
+            function,
+        )?;
+
+        match mutation.operation() {
+            SuperPropertyMutationOperationIr::NumericUpdate {
+                op,
+                return_mode,
+                value_kind,
+            } => {
+                match value_kind {
+                    ValueKind::Dynamic => self.emit_value_to_numeric_locals(
+                        old_value_payload,
+                        old_value_tag,
+                        function,
+                    )?,
+                    ValueKind::Number => {
+                        self.emit_value_to_number_payload(
+                            old_value_tag,
+                            old_value_payload,
+                            function,
+                        )?;
+                        function.instruction(&Instruction::LocalSet(old_value_payload));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(old_value_tag));
+                        self.emit_return_current_completion_if_throw(function);
+                    }
+                    ValueKind::BigInt => {}
+                    ValueKind::Undefined
+                    | ValueKind::Null
+                    | ValueKind::Boolean
+                    | ValueKind::String
+                    | ValueKind::Symbol
+                    | ValueKind::Object
+                    | ValueKind::Array
+                    | ValueKind::Function
+                    | ValueKind::Arguments => {
+                        unreachable!("numeric Super update requires Number, BigInt, or Dynamic")
+                    }
+                }
+                self.emit_update_delta_from_locals(
+                    *op,
+                    *value_kind,
+                    old_value_payload,
+                    old_value_tag,
+                    function,
+                );
+                function.instruction(&Instruction::LocalSet(new_value_payload));
+                function.instruction(&Instruction::LocalGet(old_value_tag));
+                function.instruction(&Instruction::LocalSet(new_value_tag));
+
+                self.emit_put_value_from_coerced_super_property_reference(
+                    coerced_reference,
+                    new_value_payload,
+                    new_value_tag,
+                    set_result,
+                    mutation.strictness(),
+                    function,
+                )?;
+
+                let (result_payload, result_tag) = match return_mode {
+                    UpdateReturnMode::Prefix => (new_value_payload, new_value_tag),
+                    UpdateReturnMode::Postfix => (old_value_payload, old_value_tag),
+                };
+                function.instruction(&Instruction::LocalGet(result_payload));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::LocalGet(result_tag));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            SuperPropertyMutationOperationIr::EagerCompound {
+                old_value_binding,
+                result,
+            } => {
+                self.push_scope();
+                self.binding_scopes
+                    .last_mut()
+                    .expect("binding scope stack must exist")
+                    .insert(
+                        old_value_binding.clone(),
+                        BindingStorage::Dynamic {
+                            tag_local: old_value_tag,
+                            payload_local: old_value_payload,
+                        },
+                    );
+                let compile_result =
+                    self.compile_expr_to_locals(result, new_value_payload, new_value_tag, function);
+                self.pop_scope();
+                compile_result?;
+
+                self.emit_put_value_from_coerced_super_property_reference(
+                    coerced_reference,
+                    new_value_payload,
+                    new_value_tag,
+                    set_result,
+                    mutation.strictness(),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(new_value_payload));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::LocalGet(new_value_tag));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+        }
+
+        self.release_temp_local(set_result);
+        self.release_temp_local(new_value_tag);
+        self.release_temp_local(new_value_payload);
+        self.release_temp_local(old_value_tag);
+        self.release_temp_local(old_value_payload);
         Ok(())
     }
 
@@ -421,50 +1360,26 @@ impl<'a> FunctionBuilder<'a> {
                     emitter.compile_property_write_payload(target, key, value, function)
                 })?;
             }
-            ExprIr::PropertyUpdate {
-                target,
-                key,
-                op,
-                return_mode,
-                value_kind,
-                strictness,
-            } => {
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 let scratch_local = self.scratch_local;
                 let result_tag_local = self.result_tag_local;
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.compile_property_update_to_locals(
-                        target,
-                        key,
-                        *op,
-                        *return_mode,
-                        *value_kind,
-                        scratch_local,
-                        result_tag_local,
-                        function,
-                    )
-                })?;
+                self.compile_ordinary_property_numeric_update_to_locals(
+                    update,
+                    scratch_local,
+                    result_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
-            ExprIr::PropertyCompoundAssign {
-                target,
-                key,
-                op,
-                value,
-                strictness,
-            } => {
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
                 let scratch_local = self.scratch_local;
                 let result_tag_local = self.result_tag_local;
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.compile_property_compound_assign_to_locals(
-                        target,
-                        key,
-                        *op,
-                        value,
-                        scratch_local,
-                        result_tag_local,
-                        function,
-                    )
-                })?;
+                self.compile_ordinary_property_eager_compound_assignment_to_locals(
+                    mutation,
+                    scratch_local,
+                    result_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::UpdateIdentifier {
@@ -677,21 +1592,21 @@ impl<'a> FunctionBuilder<'a> {
                             tag_local,
                             function,
                         );
-                        function.instruction(&Instruction::LocalSet(self.scratch_local));
-                        if *value_kind == ValueKind::Dynamic {
-                            function.instruction(&Instruction::LocalGet(tag_local));
-                        } else {
+                        function.instruction(&Instruction::LocalSet(value_local));
+                        if *value_kind != ValueKind::Dynamic {
                             function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                            function.instruction(&Instruction::LocalSet(tag_local));
                         }
-                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         self.emit_reference_global_property_write(
                             name,
-                            self.scratch_local,
-                            self.result_tag_local,
+                            value_local,
+                            tag_local,
                             *strictness,
                             function,
                         )?;
-                        function.instruction(&Instruction::LocalGet(self.scratch_local));
+                        function.instruction(&Instruction::LocalGet(tag_local));
+                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                        function.instruction(&Instruction::LocalGet(value_local));
                     }
                     UpdateReturnMode::Postfix => {
                         let old_value_local = self.reserve_temp_local();
@@ -820,14 +1735,20 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                     function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
+                // The checked strict write performs a HasProperty operation
+                // before Set and may use `scratch_local` internally. Move the
+                // completed RHS into the now-dead old-value local so the
+                // Reference payload cannot be clobbered before consumption.
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::LocalSet(temp_local));
                 self.emit_reference_global_property_write(
                     name,
-                    self.scratch_local,
+                    temp_local,
                     rhs_tag_local,
                     *strictness,
                     function,
                 )?;
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::LocalGet(temp_local));
                 self.release_temp_local(rhs_tag_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(temp_local);
@@ -1307,6 +2228,11 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
                 self.compile_expr_payload(rhs, function)?;
             }
             ExprIr::MaterializeBinding { name, value, body } => {
@@ -1488,112 +2414,40 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(ctor_tag_local);
                 self.release_temp_local(ctor_payload_local);
             }
-            ExprIr::SuperPropertyRead { key } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                let activation_receiver = self.lexical_derived_activation.is_some();
-                let lexical_arrow_receiver = self.function_flavor == FunctionFlavor::Arrow
-                    && self.lookup_binding(LEXICAL_HOME_OBJECT_NAME).is_some();
-                let (this_payload_local, this_tag_local) = if activation_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.emit_get_derived_this_to_locals(
-                        this_payload_local,
-                        this_tag_local,
-                        function,
-                    )?;
-                    (this_payload_local, this_tag_local)
-                } else if lexical_arrow_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.compile_this_to_locals(this_payload_local, this_tag_local, function)?;
-                    (this_payload_local, this_tag_local)
-                } else {
-                    let Some(this_payload_local) = self.this_payload_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    let Some(this_tag_local) = self.this_tag_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    (this_payload_local, this_tag_local)
-                };
-                let key_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                // Evaluate the raw key (including its side effects) before
-                // GetSuperBase; ToPropertyKey is intentionally deferred.
-                self.compile_super_property_key_expression_to_locals(
+            ExprIr::SuperPropertyRead { key, receiver } => {
+                self.compile_super_property_read_to_locals(
                     key,
-                    key_local,
-                    key_tag_local,
-                    function,
-                )?;
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
-                    function,
-                )?;
-                self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
-                self.emit_object_read_with_key_tag(
-                    super_base_local,
-                    super_base_tag_local,
-                    this_payload_local,
-                    this_tag_local,
-                    key_local,
-                    Some(key_tag_local),
+                    receiver,
                     self.scratch_local,
                     self.result_tag_local,
                     function,
                 )?;
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_local);
-                if activation_receiver || lexical_arrow_receiver {
-                    self.release_temp_local(this_tag_local);
-                    self.release_temp_local(this_payload_local);
-                }
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::SuperPropertyWrite {
                 key,
+                receiver,
                 value,
                 strictness,
             } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
-                    function,
-                )?;
-                let key_local = self.compile_object_key_to_local(key, function)?;
-                self.compile_expr_to_locals(
+                self.compile_super_property_write_to_locals(
+                    key,
+                    receiver,
                     value,
+                    *strictness,
                     self.scratch_local,
                     self.result_tag_local,
                     function,
                 )?;
-                let scratch_local = self.scratch_local;
-                let result_tag_local = self.result_tag_local;
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.emit_object_write(
-                        super_base_local,
-                        super_base_tag_local,
-                        key_local,
-                        scratch_local,
-                        result_tag_local,
-                        function,
-                    )
-                })?;
-                self.release_temp_local(key_local);
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::SuperPropertyMutation(mutation) => {
+                self.compile_super_property_mutation_to_locals(
+                    mutation,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::PrivateRead {
@@ -2949,46 +3803,20 @@ impl<'a> FunctionBuilder<'a> {
                     )
                 })?;
             }
-            ExprIr::PropertyUpdate {
-                target,
-                key,
-                op,
-                return_mode,
-                value_kind,
-                strictness,
-            } => {
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.compile_property_update_to_locals(
-                        target,
-                        key,
-                        *op,
-                        *return_mode,
-                        *value_kind,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )
-                })?;
-            }
-            ExprIr::PropertyCompoundAssign {
-                target,
-                key,
-                op,
-                value,
-                strictness,
-            } => {
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.compile_property_compound_assign_to_locals(
-                        target,
-                        key,
-                        *op,
-                        value,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )
-                })?;
-            }
+            ExprIr::OrdinaryPropertyNumericUpdate(update) => self
+                .compile_ordinary_property_numeric_update_to_locals(
+                    update,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?,
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => self
+                .compile_ordinary_property_eager_compound_assignment_to_locals(
+                    mutation,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?,
             ExprIr::SuperConstruct { args } => {
                 let ctor_payload_local = self.reserve_temp_local();
                 let ctor_tag_local = self.reserve_temp_local();
@@ -3020,105 +3848,35 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(ctor_tag_local);
                 self.release_temp_local(ctor_payload_local);
             }
-            ExprIr::SuperPropertyRead { key } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                let activation_receiver = self.lexical_derived_activation.is_some();
-                let lexical_arrow_receiver = self.function_flavor == FunctionFlavor::Arrow
-                    && self.lookup_binding(LEXICAL_HOME_OBJECT_NAME).is_some();
-                let (this_payload_local, this_tag_local) = if activation_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.emit_get_derived_this_to_locals(
-                        this_payload_local,
-                        this_tag_local,
-                        function,
-                    )?;
-                    (this_payload_local, this_tag_local)
-                } else if lexical_arrow_receiver {
-                    let this_payload_local = self.reserve_temp_local();
-                    let this_tag_local = self.reserve_temp_local();
-                    self.compile_this_to_locals(this_payload_local, this_tag_local, function)?;
-                    (this_payload_local, this_tag_local)
-                } else {
-                    let Some(this_payload_local) = self.this_payload_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    let Some(this_tag_local) = self.this_tag_local else {
-                        return Err(EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: super outside class method",
-                        ));
-                    };
-                    (this_payload_local, this_tag_local)
-                };
-                let key_local = self.reserve_temp_local();
-                let key_tag_local = self.reserve_temp_local();
-                // Evaluate the raw key (including its side effects) before
-                // GetSuperBase; ToPropertyKey is intentionally deferred.
-                self.compile_super_property_key_expression_to_locals(
+            ExprIr::SuperPropertyRead { key, receiver } => self
+                .compile_super_property_read_to_locals(
                     key,
-                    key_local,
-                    key_tag_local,
-                    function,
-                )?;
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
-                    function,
-                )?;
-                self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
-                self.emit_object_read_with_key_tag(
-                    super_base_local,
-                    super_base_tag_local,
-                    this_payload_local,
-                    this_tag_local,
-                    key_local,
-                    Some(key_tag_local),
+                    receiver,
                     payload_local,
                     tag_local,
                     function,
-                )?;
-                self.release_temp_local(key_tag_local);
-                self.release_temp_local(key_local);
-                if activation_receiver || lexical_arrow_receiver {
-                    self.release_temp_local(this_tag_local);
-                    self.release_temp_local(this_payload_local);
-                }
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
-            }
+                )?,
             ExprIr::SuperPropertyWrite {
                 key,
+                receiver,
                 value,
                 strictness,
-            } => {
-                let super_base_local = self.reserve_temp_local();
-                let super_base_tag_local = self.reserve_temp_local();
-                self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
-                self.emit_throw_if_null_super_base(
-                    super_base_local,
-                    super_base_tag_local,
+            } => self.compile_super_property_write_to_locals(
+                key,
+                receiver,
+                value,
+                *strictness,
+                payload_local,
+                tag_local,
+                function,
+            )?,
+            ExprIr::SuperPropertyMutation(mutation) => self
+                .compile_super_property_mutation_to_locals(
+                    mutation,
+                    payload_local,
+                    tag_local,
                     function,
-                )?;
-                let key_local = self.compile_object_key_to_local(key, function)?;
-                self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
-                self.with_reference_strictness(*strictness, function, |emitter, function| {
-                    emitter.emit_object_write(
-                        super_base_local,
-                        super_base_tag_local,
-                        key_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )
-                })?;
-                self.release_temp_local(key_local);
-                self.release_temp_local(super_base_tag_local);
-                self.release_temp_local(super_base_local);
-            }
+                )?,
             ExprIr::LogicalShortCircuit { op, lhs, rhs } => {
                 self.compile_expr_to_locals(lhs, payload_local, tag_local, function)?;
                 match op {
@@ -3164,6 +3922,11 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::Comma { lhs, rhs } => {
                 self.compile_expr_to_locals(
                     lhs,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
                     self.scratch_local,
                     self.result_tag_local,
                     function,

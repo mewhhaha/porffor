@@ -201,12 +201,13 @@ fn inspect_reports_phase_twenty_five_builtin_ir_shape() {
     // builtin, i.e. it is a function of the GLOBAL ENVIRONMENT and not of this
     // fixture's text. So every batch that adds an intrinsic root moves it and
     // this assertion goes red without anything in the fixture changing.
-    // Batch 8: 51 -> 52, the +1 being `AsyncDisposableStack`. Recount with
+    // Batch 8: 51 -> 52 for `AsyncDisposableStack`; the constructor-only
+    // `%DisposableStack%` shell then moves 52 -> 53. Recount with
     // `lila inspect crates/lila-cli/tests/fixtures/wasm_builtin_globals.js`
     // rather than guessing the delta; do not weaken this to a prefix match,
     // because the exact number is the only thing that makes an accidental
     // global-environment change visible at rung 1b.
-    assert!(stdout.contains("builtin_globals=52"), "{stdout}");
+    assert!(stdout.contains("builtin_globals=53"), "{stdout}");
     assert!(stdout.contains("builtin_ctor_calls="));
     assert!(stdout.contains("builtin_static_calls="));
     assert!(stdout.contains("error_builtin_calls="));
@@ -548,6 +549,69 @@ fn run_wasm_backend_succeeds_for_lexical_super_home_object_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_object_literal_home_object_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_object_literal_home_object.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_object_method_arrow_super_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_object_method_arrow_super.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_super_property_reference_mutation_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_super_property_reference_mutation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_delete_super_reference_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -596,6 +660,138 @@ fn run_wasm_backend_succeeds_for_with_object_environment_getvalue_fixture() {
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_with_object_environment_getvalue.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_with_environment_identifier_call_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_with_environment_identifier_call.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_with_environment_numeric_update_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_with_environment_numeric_update.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_global_object_environment_numeric_update_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_global_object_environment_numeric_update.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_object_environment_logical_assignment_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_object_environment_logical_assignment.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_with_environment_compound_assignment_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_with_environment_compound_assignment.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_global_object_environment_compound_assignment_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_global_object_environment_compound_assignment.js",
+        ))
         .output()
         .expect("run command should run");
 

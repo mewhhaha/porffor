@@ -13,6 +13,18 @@ enum ProxyCallThrowRouting {
     LeaveInCompletion,
 }
 
+/// The complete run-time ParameterMap fact for one Arguments index.
+///
+/// Mapping presence and the environment slot are captured from the same
+/// pre-mutation descriptor word. This value is deliberately non-`Copy`: a
+/// descriptor update may borrow it for the post-define ParameterMap update and
+/// mapping restore, then must explicitly release its two temporary locals.
+#[must_use = "an Arguments index mapping must survive until the indexed operation finishes"]
+pub(crate) struct ArgumentsIndexMappingLocals {
+    mapped: u32,
+    slot: u32,
+}
+
 impl ProxyCallThrowRouting {
     const fn returns_current_function(self) -> bool {
         match self {
@@ -29,8 +41,8 @@ impl ProxyCallThrowRouting {
 #[derive(Clone, Copy)]
 pub(crate) struct RealmRecordLocal(u32);
 
-/// Storage reserved for a created realm's `%Function.prototype%` identity
-/// before its Object representation has been initialized.
+/// Storage reserved for a created realm's callable `%Function.prototype%`
+/// identity before its function representation has been initialized.
 ///
 /// The raw local is private and this state is not `Copy`. Realm bootstrap must
 /// consume it together with the matching realm record and Object prototype to
@@ -44,15 +56,13 @@ pub(crate) struct ReservedRealmFunctionPrototypeLocal(u32);
 /// The context is deliberately non-`Copy` and its fields are private. This
 /// prevents a call site from attaching one realm as `[[Realm]]` while leaving
 /// the allocator's entry-realm `%Function.prototype%` in `[[Prototype]]` or
-/// pairing the realm with an arbitrary scratch local. The current partial
-/// `%Function.prototype%` has Object representation; keeping that tag here
-/// makes the representation choice explicit at the same choke point that will
-/// eventually change when the intrinsic becomes callable.
+/// pairing the realm with an arbitrary scratch local. The context can only be
+/// constructed by materializing the catalogued callable intrinsic, so callers
+/// cannot supply a payload with a different value kind.
 #[must_use]
 pub(crate) struct RealmFunctionMaterializationContext {
     realm: RealmRecordLocal,
     function_prototype_local: u32,
-    function_prototype_kind: ValueKind,
 }
 
 /// Storage reserved for a created realm's `%Array.prototype%`, before an
@@ -463,6 +473,7 @@ mod realm_function_materialization_tests {
             "emit_store_function_defining_realm",
             "HEAP_PROTOTYPE_OFFSET",
             "HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET",
+            "ValueKind::Function.tag() as u64",
         ] {
             assert!(
                 materializer.contains(field),
@@ -479,8 +490,22 @@ mod realm_function_materialization_tests {
             .expect("Array lifecycle must follow Function prototype lifecycle")
             .0;
         assert!(
-            function_prototype_lifecycle.contains("function_prototype_kind: ValueKind::Object"),
-            "current created-realm Function prototype representation must remain explicit"
+            function_prototype_lifecycle
+                .contains("StandardBuiltinId::FunctionPrototype.function_id()"),
+            "created realms must materialize the catalogued callable Function prototype"
+        );
+        assert!(
+            function_prototype_lifecycle
+                .contains("self.emit_function_value_payload(&prototype_meta, function)?"),
+            "created realms must allocate Function.prototype through the function-object path"
+        );
+        assert!(
+            function_prototype_lifecycle.contains("ValueKind::Function.tag() as i64"),
+            "the created-realm Function constructor must publish its prototype as a Function"
+        );
+        assert!(
+            !context_attributes.contains("function_prototype_kind"),
+            "a callable Function prototype context must not accept an arbitrary value kind"
         );
 
         let mut remaining = host;
@@ -498,7 +523,7 @@ mod realm_function_materialization_tests {
             remaining = after_call;
         }
         assert_eq!(
-            direct_sites, 82,
+            direct_sites, 83,
             "created-realm bootstrap site count drifted"
         );
 
@@ -1455,7 +1480,7 @@ pub(crate) fn emit_function_object_alloc_helper_function(
         &mut function,
         OBJECT_LOCAL,
         HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-        ValueKind::Object.tag() as i64,
+        ValueKind::Function.tag() as i64,
     );
     helper_store_i64_local_at_offset(
         &mut function,
@@ -1918,7 +1943,7 @@ impl<'a> FunctionBuilder<'a> {
         // Constructors are allocated before their `.prototype` exists.  Now
         // that the exact instance home object has been created, complete the
         // immutable class-function context used by direct constructor `super`.
-        self.store_class_function_home_object(
+        self.store_function_home_object(
             constructor_local,
             prototype_payload_local,
             ValueKind::Object,
@@ -2738,7 +2763,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             object_local,
             HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Object.tag() as u64,
+            ValueKind::Function.tag() as u64,
             function,
         );
         self.store_i64_const_at_offset(
@@ -3257,6 +3282,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::WeakRefConstructor,
             StandardBuiltinId::FinalizationRegistryConstructor,
             StandardBuiltinId::AsyncDisposableStackConstructor,
+            StandardBuiltinId::DisposableStackConstructor,
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
             StandardBuiltinId::IteratorConstructor,
@@ -4165,6 +4191,12 @@ impl<'a> FunctionBuilder<'a> {
                 self.scratch_local,
                 function,
             );
+            self.store_i64_const_at_offset(
+                object_local,
+                HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+                ValueKind::Object.tag() as u64,
+                function,
+            );
         }
 
         let instance_prototype_global_index =
@@ -4334,7 +4366,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             function_object_local,
             HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            context.function_prototype_kind.tag() as u64,
+            ValueKind::Function.tag() as u64,
             function,
         );
         Ok(())
@@ -4355,15 +4387,33 @@ impl<'a> FunctionBuilder<'a> {
         object_prototype_local: u32,
         function: &mut Function,
     ) -> Result<RealmFunctionMaterializationContext, EmitError> {
-        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
+        let prototype_meta = self
+            .functions
+            .get(&StandardBuiltinId::FunctionPrototype.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Function.prototype`",
+                )
+            })?;
+        self.emit_function_value_payload(&prototype_meta, function)?;
         function.instruction(&Instruction::LocalSet(reserved.0));
-        self.emit_object_define_number_data_from_f64_const_with_flags(
-            reserved.0, "length", 0.0, false, false, true, function,
-        )?;
+        self.emit_store_function_defining_realm(reserved.0, realm.index(), function);
+        self.store_i64_local_at_offset(
+            reserved.0,
+            HEAP_PROTOTYPE_OFFSET,
+            object_prototype_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            reserved.0,
+            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
+            function,
+        );
         Ok(RealmFunctionMaterializationContext {
             realm,
             function_prototype_local: reserved.0,
-            function_prototype_kind: ValueKind::Object,
         })
     }
 
@@ -4384,18 +4434,86 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    /// Define a well-known-symbol property on the exact callable
+    /// `%Function.prototype%` carried by a created-realm context.
+    ///
+    /// Taking the closed symbol domain prevents a string-key spelling from
+    /// silently installing an unrelated property on the intrinsic.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_define_realm_function_prototype_symbol_data_with_flags(
+        &mut self,
+        context: &RealmFunctionMaterializationContext,
+        symbol: lila_ir::WellKnownSymbol,
+        payload_local: u32,
+        tag_local: u32,
+        writable: bool,
+        enumerable: bool,
+        configurable: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload(symbol.description()),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_define_data_with_configurable(
+            context.function_prototype_local,
+            key_local,
+            payload_local,
+            tag_local,
+            writable,
+            enumerable,
+            configurable,
+            function,
+        )?;
+        self.release_temp_local(key_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_bind_realm_function_constructor_prototype(
         &mut self,
         context: &RealmFunctionMaterializationContext,
         constructor_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_set_function_prototype_data(
+        let tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.store_i64_local_at_offset(
             constructor_local,
+            HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+            tag_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            constructor_local,
+            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
             context.function_prototype_local,
+            function,
+        );
+        self.emit_object_define_local_data_with_flags(
+            constructor_local,
+            "prototype",
+            context.function_prototype_local,
+            tag_local,
+            false,
+            false,
+            false,
+            function,
+        )?;
+        self.emit_object_define_local_data_with_flags(
+            context.function_prototype_local,
+            "constructor",
+            constructor_local,
+            tag_local,
+            true,
+            false,
             true,
             function,
-        )
+        )?;
+        self.release_temp_local(tag_local);
+        Ok(())
     }
 
     pub(crate) fn release_realm_function_materialization_context(
@@ -4655,7 +4773,7 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             ValueKind::Object
         };
-        self.store_class_function_home_object(
+        self.store_function_home_object(
             function_local,
             home_object_local,
             home_object_tag,
@@ -4682,7 +4800,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn store_class_function_home_object(
+    pub(crate) fn store_function_home_object(
         &mut self,
         function_local: u32,
         home_object_local: u32,
@@ -8733,6 +8851,138 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Routes a run-time-tagged Arguments write through the Arguments storage
+    /// representation. Ordinary-object `HEAP_PTR`/`HEAP_LEN` storage is not a
+    /// valid named-property table for this value kind.
+    fn emit_arguments_named_property_write(
+        &mut self,
+        arguments_local: u32,
+        key_local: u32,
+        key_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let arguments_tag_local = self.reserve_temp_local();
+        let result_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::LocalSet(arguments_tag_local));
+        self.emit_ordinary_set_result_without_receiver_fallback_via_helper(
+            arguments_local,
+            arguments_tag_local,
+            arguments_local,
+            arguments_tag_local,
+            key_local,
+            key_tag_local,
+            payload_local,
+            tag_local,
+            result_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_write_set_failure_else("Cannot assign to arguments property", function)?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(result_local);
+        self.release_temp_local(arguments_tag_local);
+        Ok(())
+    }
+
+    /// Routes a run-time-tagged Arguments write through its exotic indexed and
+    /// special-property branches, or through ordinary `[[Set]]` backed by the
+    /// Arguments named-property table.
+    pub(crate) fn emit_arguments_property_write(
+        &mut self,
+        arguments_local: u32,
+        key_local: u32,
+        key_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let index_local = self.reserve_temp_local();
+        let index_found_local = self.reserve_temp_local();
+        let key_scratch_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(key_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+        function.instruction(&Instruction::LocalSet(key_scratch_local));
+        self.emit_string_payload_equality_i32(key_local, key_scratch_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_length_write(arguments_local, payload_local, tag_local, function)?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(self.strings.payload("callee")));
+        function.instruction(&Instruction::LocalSet(key_scratch_local));
+        self.emit_string_payload_equality_i32(key_local, key_scratch_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_callee_write(arguments_local, payload_local, tag_local, function)?;
+        function.instruction(&Instruction::Else);
+        self.emit_known_array_index_from_property_key(
+            key_local,
+            index_local,
+            index_found_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(index_found_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_write(
+            arguments_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_arguments_named_property_write(
+            arguments_local,
+            key_local,
+            key_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.isConcatSpreadable"),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_is_concat_spreadable_write(
+            arguments_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_arguments_named_property_write(
+            arguments_local,
+            key_local,
+            key_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(key_scratch_local);
+        self.release_temp_local(index_found_local);
+        self.release_temp_local(index_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_arguments_read(
         &mut self,
         arguments_local: u32,
@@ -8791,11 +9041,6 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let descriptor_kind_local = self.reserve_temp_local();
-        let env_local = self.reserve_temp_local();
-        let buffer_local = self.reserve_temp_local();
-        let cap_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let mapped_slot_local = self.reserve_temp_local();
 
         self.emit_arguments_descriptor_kind_for_index(
             arguments_local,
@@ -8803,41 +9048,75 @@ impl<'a> FunctionBuilder<'a> {
             descriptor_kind_local,
             function,
         );
+        let mapping =
+            self.emit_arguments_index_mapping_from_descriptor_word(descriptor_kind_local, function);
+        self.emit_array_read(
+            arguments_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        );
+        self.emit_arguments_parameter_map_read(
+            arguments_local,
+            &mapping,
+            payload_local,
+            tag_local,
+            function,
+        );
+
+        self.release_arguments_index_mapping(mapping);
+        self.release_temp_local(descriptor_kind_local);
+        Ok(())
+    }
+
+    /// Captures the complete ParameterMap fact before an indexed operation may
+    /// replace the descriptor word that carries it.
+    pub(crate) fn emit_arguments_index_mapping_from_descriptor_word(
+        &mut self,
+        descriptor_word_local: u32,
+        function: &mut Function,
+    ) -> ArgumentsIndexMappingLocals {
+        let mapped = self.reserve_temp_local();
+        let slot = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(descriptor_word_local));
+        function.instruction(&Instruction::I64Const(ARGUMENTS_DESCRIPTOR_MAPPED as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(mapped));
+        function.instruction(&Instruction::LocalGet(descriptor_word_local));
+        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(slot));
+        ArgumentsIndexMappingLocals { mapped, slot }
+    }
+
+    /// Reads the mapped environment value without rediscovering its slot from
+    /// an indexed descriptor word that may already have changed.
+    pub(crate) fn emit_arguments_parameter_map_read(
+        &mut self,
+        arguments_local: u32,
+        mapping: &ArgumentsIndexMappingLocals,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        let env_local = self.reserve_temp_local();
         self.load_i64_to_local_from_offset(
             arguments_local,
             HEAP_ARGUMENTS_ENV_HANDLE_OFFSET,
             env_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            arguments_local,
-            HEAP_PTR_OFFSET,
-            buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(arguments_local, HEAP_CAP_OFFSET, cap_local, function);
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(ARGUMENTS_DESCRIPTOR_MAPPED as i64));
-        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalGet(mapping.mapped));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        // The reader of the bits-32..63 mapped-slot payload. `MappedSlot::SHIFT`
-        // rather than a bare literal, so the writer in
-        // `emit_arguments_descriptor_kind_for_index` and both readers move
-        // together.
-        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(mapped_slot_local));
         function.instruction(&Instruction::LocalGet(env_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(mapped_slot_local));
+        function.instruction(&Instruction::LocalGet(mapping.slot));
         function.instruction(&Instruction::I64Const(ENV_SLOT_SIZE as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I32WrapI64);
@@ -8848,7 +9127,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::LocalGet(env_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(mapped_slot_local));
+        function.instruction(&Instruction::LocalGet(mapping.slot));
         function.instruction(&Instruction::I64Const(ENV_SLOT_SIZE as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I32WrapI64);
@@ -8857,76 +9136,32 @@ impl<'a> FunctionBuilder<'a> {
             ENV_SLOT_BASE_OFFSET + ENV_SLOT_TAG_OFFSET,
         )));
         function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(cap_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(buffer_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_ARRAY_PAYLOAD_OFFSET,
-            payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(entry_local, HEAP_ARRAY_TAG_OFFSET, tag_local, function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(mapped_slot_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(cap_local);
-        self.release_temp_local(buffer_local);
         self.release_temp_local(env_local);
-        self.release_temp_local(descriptor_kind_local);
-        Ok(())
     }
 
     pub(crate) fn emit_arguments_parameter_map_write(
         &mut self,
         arguments_local: u32,
-        index_local: u32,
+        mapping: &ArgumentsIndexMappingLocals,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
     ) {
         let env_local = self.reserve_temp_local();
-        let descriptor_kind_local = self.reserve_temp_local();
-        let mapped_slot_local = self.reserve_temp_local();
         self.load_i64_to_local_from_offset(
             arguments_local,
             HEAP_ARGUMENTS_ENV_HANDLE_OFFSET,
             env_local,
             function,
         );
-        self.emit_arguments_descriptor_kind_for_index(
-            arguments_local,
-            index_local,
-            descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        // The reader of the bits-32..63 mapped-slot payload. `MappedSlot::SHIFT`
-        // rather than a bare literal, so the writer in
-        // `emit_arguments_descriptor_kind_for_index` and both readers move
-        // together.
-        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(mapped_slot_local));
+        function.instruction(&Instruction::LocalGet(mapping.mapped));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(env_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(mapped_slot_local));
+        function.instruction(&Instruction::LocalGet(mapping.slot));
         function.instruction(&Instruction::I64Const(ENV_SLOT_SIZE as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I32WrapI64);
@@ -8937,7 +9172,7 @@ impl<'a> FunctionBuilder<'a> {
         )));
         function.instruction(&Instruction::LocalGet(env_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(mapped_slot_local));
+        function.instruction(&Instruction::LocalGet(mapping.slot));
         function.instruction(&Instruction::I64Const(ENV_SLOT_SIZE as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I32WrapI64);
@@ -8946,9 +9181,36 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Store(Self::memarg64(
             ENV_SLOT_BASE_OFFSET + ENV_SLOT_PAYLOAD_OFFSET,
         )));
-        self.release_temp_local(mapped_slot_local);
-        self.release_temp_local(descriptor_kind_local);
+        function.instruction(&Instruction::End);
         self.release_temp_local(env_local);
+    }
+
+    /// Restores a retained mapping on a newly assembled data descriptor word.
+    /// Bit 5 and its bits-32..63 slot payload are emitted together here.
+    pub(crate) fn emit_arguments_mapping_restore_on_data_descriptor(
+        &mut self,
+        mapping: &ArgumentsIndexMappingLocals,
+        descriptor_word_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(mapping.mapped));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(descriptor_word_local));
+        function.instruction(&Instruction::I64Const(ARGUMENTS_DESCRIPTOR_MAPPED as i64));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalGet(mapping.slot));
+        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(descriptor_word_local));
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn release_arguments_index_mapping(&mut self, mapping: ArgumentsIndexMappingLocals) {
+        self.release_temp_local(mapping.slot);
+        self.release_temp_local(mapping.mapped);
     }
 
     pub(crate) fn emit_arguments_descriptor_kind_for_index(
@@ -9087,6 +9349,110 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Receiver-side indexed DefineProperty after OrdinarySet has resolved a
+    /// writable data descriptor on the source side.
+    pub(crate) fn emit_arguments_receiver_index_set_result(
+        &mut self,
+        arguments_local: u32,
+        index_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        result_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let existing_descriptor_kind_local = self.reserve_temp_local();
+        let non_extensible_local = self.reserve_temp_local();
+        let descriptor_kind_local = self.reserve_temp_local();
+        let setter_payload_local = self.reserve_temp_local();
+        let setter_tag_local = self.reserve_temp_local();
+
+        self.emit_arguments_descriptor_kind_for_index(
+            arguments_local,
+            index_local,
+            existing_descriptor_kind_local,
+            function,
+        );
+        let mapping = self.emit_arguments_index_mapping_from_descriptor_word(
+            existing_descriptor_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(setter_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(setter_tag_local));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_store_index_entry(
+            arguments_local,
+            index_local,
+            payload_local,
+            tag_local,
+            setter_payload_local,
+            setter_tag_local,
+            existing_descriptor_kind_local,
+            function,
+        )?;
+        self.emit_arguments_parameter_map_write(
+            arguments_local,
+            &mapping,
+            payload_local,
+            tag_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            arguments_local,
+            HEAP_ARGUMENTS_NON_EXTENSIBLE_OFFSET,
+            non_extensible_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(non_extensible_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(ARRAY_DESCRIPTOR_NORMAL_DATA as i64));
+        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
+        self.emit_arguments_store_index_entry(
+            arguments_local,
+            index_local,
+            payload_local,
+            tag_local,
+            setter_payload_local,
+            setter_tag_local,
+            descriptor_kind_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_arguments_index_mapping(mapping);
+        self.release_temp_local(setter_tag_local);
+        self.release_temp_local(setter_payload_local);
+        self.release_temp_local(descriptor_kind_local);
+        self.release_temp_local(non_extensible_local);
+        self.release_temp_local(existing_descriptor_kind_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_arguments_write(
         &mut self,
         arguments_local: u32,
@@ -9112,6 +9478,8 @@ impl<'a> FunctionBuilder<'a> {
             descriptor_kind_local,
             function,
         );
+        let mapping =
+            self.emit_arguments_index_mapping_from_descriptor_word(descriptor_kind_local, function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(write_succeeded_local));
         self.load_i64_to_local_from_offset(
@@ -9213,55 +9581,52 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(capacity_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_grow_buffer(
-            arguments_local,
-            buffer_local,
-            indexed_extent_local,
-            capacity_local,
+        let arguments_tag_local = self.reserve_temp_local();
+        let prototype_local = self.reserve_temp_local();
+        let prototype_tag_local = self.reserve_temp_local();
+        let index_number_payload_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::LocalSet(arguments_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(key_tag_local));
+        self.emit_index_to_flat_map_key_local(
             index_local,
+            index_number_payload_local,
+            key_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(buffer_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.store_i64_local_at_offset(entry_local, HEAP_ARRAY_TAG_OFFSET, tag_local, function);
-        self.store_i64_local_at_offset(
-            entry_local,
-            HEAP_ARRAY_PAYLOAD_OFFSET,
-            payload_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            entry_local,
-            HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
-            ARRAY_DESCRIPTOR_NORMAL_DATA,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(indexed_extent_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(indexed_extent_local));
-        self.store_i64_local_at_offset(
+        self.load_i64_to_local_from_offset(
             arguments_local,
-            HEAP_LEN_OFFSET,
-            indexed_extent_local,
+            HEAP_PROTOTYPE_OFFSET,
+            prototype_local,
             function,
         );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(write_succeeded_local));
+        self.load_i64_to_local_from_offset(
+            arguments_local,
+            HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+            prototype_tag_local,
+            function,
+        );
+        self.emit_ordinary_set_result_without_receiver_fallback_via_helper(
+            prototype_local,
+            prototype_tag_local,
+            arguments_local,
+            arguments_tag_local,
+            key_local,
+            key_tag_local,
+            payload_local,
+            tag_local,
+            write_succeeded_local,
+            function,
+        )?;
+        self.release_temp_local(key_tag_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(index_number_payload_local);
+        self.release_temp_local(prototype_tag_local);
+        self.release_temp_local(prototype_local);
+        self.release_temp_local(arguments_tag_local);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(write_succeeded_local));
         function.instruction(&Instruction::I64Const(0));
@@ -9273,22 +9638,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(write_succeeded_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(ARGUMENTS_DESCRIPTOR_MAPPED as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_arguments_parameter_map_write(
             arguments_local,
-            index_local,
+            &mapping,
             payload_local,
             tag_local,
             function,
         );
         function.instruction(&Instruction::End);
 
+        self.release_arguments_index_mapping(mapping);
         self.release_temp_local(setter_result_tag_local);
         self.release_temp_local(setter_result_payload_local);
         self.release_temp_local(setter_tag_local);
@@ -9316,7 +9676,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         if self
             .current_function_meta()
-            .is_some_and(WasmFunctionMeta::has_class_execution_context)
+            .is_some_and(WasmFunctionMeta::has_home_object_execution_context)
         {
             let home_object_local = self.reserve_temp_local();
             let home_object_tag_local = self.reserve_temp_local();

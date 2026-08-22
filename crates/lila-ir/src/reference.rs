@@ -22,13 +22,14 @@
 
 use super::*;
 use crate::{WellKnownSymbol, WithObjectBindingName};
+use boa_ast::expression::operator::binary::{ArithmeticOp, BitwiseOp};
 
 const DELETE_SUPER_THIS_BINDING: &str = "$delete.super.this";
 const DELETE_SUPER_KEY_BINDING: &str = "$delete.super.key";
 const DELETE_SUPER_REFERENCE_ERROR: &str = "Cannot delete a super property";
-const WITH_ENVIRONMENT_VALUE_BINDING: &str = "$with.set.value";
-const WITH_ENVIRONMENT_RECHECK_BINDING: &str = "$with.set.exists";
-const WITH_ENVIRONMENT_REFERENCE_ERROR: &str = "with binding no longer exists";
+const OBJECT_ENVIRONMENT_VALUE_BINDING: &str = "$object.environment.set.value";
+const OBJECT_ENVIRONMENT_RECHECK_BINDING: &str = "$object.environment.set.exists";
+const OBJECT_ENVIRONMENT_REFERENCE_ERROR: &str = "object environment binding no longer exists";
 
 fn dynamic_value_info() -> ValueInfo {
     ValueInfo {
@@ -36,6 +37,466 @@ fn dynamic_value_info() -> ValueInfo {
         possible_kinds: KindSet::all_runtime_tags(),
         heap_shape: None,
         function_targets: BTreeSet::new(),
+    }
+}
+
+/// The closed eager compound-assignment domain shared by every consuming
+/// Reference plan. Logical assignment has a separate short-circuit lifecycle
+/// and cannot enter this operation by construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EagerCompoundAssignmentOp {
+    Arithmetic(ArithmeticOp),
+    Bitwise(BitwiseOp),
+}
+
+impl EagerCompoundAssignmentOp {
+    /// Apply the selected eager operation to the old Reference value and RHS.
+    ///
+    /// This is a method on the closed operation so a consuming Reference plan
+    /// can mint the old-value operand and apply it itself. Callers cannot pass
+    /// an arbitrary closure which ignores or substitutes that operand.
+    pub(crate) fn apply(self, lhs: TypedExpr, rhs: TypedExpr) -> TypedExpr {
+        match self {
+            EagerCompoundAssignmentOp::Arithmetic(ArithmeticOp::Add) => {
+                let possible_kinds = KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Number))
+                    .union(KindSet::from_kind(ValueKind::BigInt));
+                TypedExpr::from_info(
+                    ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::CoerciveAdd {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                )
+            }
+            EagerCompoundAssignmentOp::Arithmetic(arithmetic) => {
+                let op = match arithmetic {
+                    ArithmeticOp::Sub => ArithmeticBinaryOp::Sub,
+                    ArithmeticOp::Mul => ArithmeticBinaryOp::Mul,
+                    ArithmeticOp::Div => ArithmeticBinaryOp::Div,
+                    ArithmeticOp::Mod => ArithmeticBinaryOp::Mod,
+                    ArithmeticOp::Exp => ArithmeticBinaryOp::Exp,
+                    ArithmeticOp::Add => unreachable!("addition has string-or-numeric semantics"),
+                };
+                let possible_kinds = KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::BigInt));
+                TypedExpr::from_info(
+                    ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::CoerciveBinaryNumber {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                )
+            }
+            EagerCompoundAssignmentOp::Bitwise(bitwise) => {
+                let op = match bitwise {
+                    BitwiseOp::And => BitwiseBinaryOp::And,
+                    BitwiseOp::Or => BitwiseBinaryOp::Or,
+                    BitwiseOp::Xor => BitwiseBinaryOp::Xor,
+                    BitwiseOp::Shl => BitwiseBinaryOp::Shl,
+                    BitwiseOp::Shr => BitwiseBinaryOp::Shr,
+                    BitwiseOp::UShr => BitwiseBinaryOp::UShr,
+                };
+                let possible_kinds = if matches!(bitwise, BitwiseOp::UShr) {
+                    KindSet::from_kind(ValueKind::Number)
+                } else {
+                    KindSet::from_kind(ValueKind::Number)
+                        .union(KindSet::from_kind(ValueKind::BigInt))
+                };
+                TypedExpr::from_info(
+                    ValueInfo {
+                        kind: possible_kinds.as_value_kind(),
+                        possible_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::BitwiseNumeric {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                )
+            }
+        }
+    }
+}
+
+/// One fused eager mutation of an ordinary property Reference.
+///
+/// Fields are private so the backend cannot receive a write which has lost the
+/// Reference's base/receiver identity, raw referenced name, or `[[Strict]]`.
+/// The lowerer can construct this value only by consuming an
+/// [`OrdinaryPropertyReferencePlan`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an ordinary property Reference mutation must be consumed by the backend"]
+pub struct OrdinaryPropertyEagerCompoundAssignmentIr {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+    old_value_binding: String,
+    result: Box<TypedExpr>,
+}
+
+impl OrdinaryPropertyEagerCompoundAssignmentIr {
+    fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+        old_value_binding: String,
+        result: Box<TypedExpr>,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            strictness,
+            old_value_binding,
+            result,
+        }
+    }
+
+    #[must_use]
+    pub fn base_and_receiver(&self) -> &TypedExpr {
+        &self.base_and_receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+
+    #[must_use]
+    pub fn old_value_binding(&self) -> &str {
+        &self.old_value_binding
+    }
+
+    #[must_use]
+    pub fn result(&self) -> &TypedExpr {
+        &self.result
+    }
+}
+
+/// One fused numeric update of an ordinary property Reference.
+///
+/// The operation and return mode are separate closed domains: the backend must
+/// choose the numeric delta and the old/new publication role independently,
+/// after consuming the same base/key/strictness tuple for GetValue and
+/// PutValue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an ordinary property numeric update must be consumed by the backend"]
+pub struct OrdinaryPropertyNumericUpdateIr {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+    op: NumericUpdateOp,
+    return_mode: UpdateReturnMode,
+    value_kind: ValueKind,
+}
+
+impl OrdinaryPropertyNumericUpdateIr {
+    fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            strictness,
+            op,
+            return_mode,
+            value_kind: ValueKind::Dynamic,
+        }
+    }
+
+    #[must_use]
+    pub fn base_and_receiver(&self) -> &TypedExpr {
+        &self.base_and_receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+
+    #[must_use]
+    pub fn op(&self) -> NumericUpdateOp {
+        self.op
+    }
+
+    #[must_use]
+    pub fn return_mode(&self) -> UpdateReturnMode {
+        self.return_mode
+    }
+
+    #[must_use]
+    pub fn value_kind(&self) -> ValueKind {
+        self.value_kind
+    }
+}
+
+/// A lowerer-owned ordinary property Reference which must be consumed as one
+/// mutation rather than decomposed into independent read and write nodes.
+///
+/// Neither `Clone` nor `Copy`: the same base/raw-key/strictness tuple cannot be
+/// spent twice or rebuilt between GetValue and PutValue.
+#[derive(Debug)]
+#[must_use = "an ordinary property Reference plan must be consumed by one mutation"]
+pub(crate) struct OrdinaryPropertyReferencePlan {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+}
+
+impl OrdinaryPropertyReferencePlan {
+    pub(crate) fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            strictness,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn eager_compound_assignment(
+        self,
+        old_value_binding: String,
+        op: EagerCompoundAssignmentOp,
+        rhs: TypedExpr,
+    ) -> TypedExpr {
+        let old_value = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Identifier(old_value_binding.clone()),
+        );
+        let result = op.apply(old_value, rhs);
+        TypedExpr::from_info(
+            result.value_info(),
+            ExprIr::OrdinaryPropertyEagerCompoundAssignment(
+                OrdinaryPropertyEagerCompoundAssignmentIr::new(
+                    self.base_and_receiver,
+                    self.referenced_name,
+                    self.strictness,
+                    old_value_binding,
+                    Box::new(result),
+                ),
+            ),
+        )
+    }
+
+    #[must_use]
+    pub(crate) fn numeric_update(
+        self,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+    ) -> TypedExpr {
+        let value_kind = ValueKind::Dynamic;
+        let info = ValueInfo {
+            kind: value_kind,
+            possible_kinds: KindSet::from_kind(ValueKind::Number)
+                .union(KindSet::from_kind(ValueKind::BigInt)),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        TypedExpr::from_info(
+            info,
+            ExprIr::OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr::new(
+                self.base_and_receiver,
+                self.referenced_name,
+                self.strictness,
+                op,
+                return_mode,
+            )),
+        )
+    }
+}
+
+/// One fused mutation of a Super Property Reference.
+///
+/// The fields are private so the backend cannot receive a mutation which has
+/// lost the Reference's receiver, raw referenced name, or `[[Strict]]`. The
+/// lowerer can construct this value only by consuming a
+/// [`SuperPropertyReferencePlan`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a Super Property Reference mutation must be consumed by the backend"]
+pub struct SuperPropertyMutationIr {
+    receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+    operation: SuperPropertyMutationOperationIr,
+}
+
+/// The exhaustive operation which consumes a fused Super Property Reference.
+///
+/// Logical assignment is absent deliberately: its conditional RHS and
+/// PutValue lifecycle cannot be represented as an eager operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SuperPropertyMutationOperationIr {
+    NumericUpdate {
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        value_kind: ValueKind,
+    },
+    EagerCompound {
+        old_value_binding: String,
+        result: Box<TypedExpr>,
+    },
+}
+
+impl SuperPropertyMutationIr {
+    fn new(
+        receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+        operation: SuperPropertyMutationOperationIr,
+    ) -> Self {
+        Self {
+            receiver,
+            referenced_name,
+            strictness,
+            operation,
+        }
+    }
+
+    #[must_use]
+    pub fn receiver(&self) -> &TypedExpr {
+        &self.receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+
+    #[must_use]
+    pub fn operation(&self) -> &SuperPropertyMutationOperationIr {
+        &self.operation
+    }
+}
+
+/// A lowerer-owned Super Property Reference which must be consumed as one
+/// mutation rather than decomposed into independent read and write nodes.
+///
+/// Neither `Clone` nor `Copy`: the same captured receiver/key/strictness tuple
+/// cannot be spent twice or rebuilt between GetValue and PutValue.
+#[derive(Debug)]
+#[must_use = "a Super Property Reference plan must be consumed by one mutation"]
+pub(crate) struct SuperPropertyReferencePlan {
+    receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    strictness: Strictness,
+}
+
+impl SuperPropertyReferencePlan {
+    pub(crate) fn new(
+        receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            receiver,
+            referenced_name,
+            strictness,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn numeric_update(
+        self,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        value_kind: ValueKind,
+    ) -> TypedExpr {
+        let info = match value_kind {
+            ValueKind::Number | ValueKind::BigInt => ValueInfo::new(value_kind),
+            ValueKind::Dynamic => ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::BigInt)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ValueKind::Undefined
+            | ValueKind::Null
+            | ValueKind::Boolean
+            | ValueKind::String
+            | ValueKind::Symbol
+            | ValueKind::Object
+            | ValueKind::Array
+            | ValueKind::Function
+            | ValueKind::Arguments => {
+                unreachable!("numeric update value kind must be Number, BigInt, or Dynamic")
+            }
+        };
+        TypedExpr::from_info(
+            info,
+            ExprIr::SuperPropertyMutation(SuperPropertyMutationIr::new(
+                self.receiver,
+                self.referenced_name,
+                self.strictness,
+                SuperPropertyMutationOperationIr::NumericUpdate {
+                    op,
+                    return_mode,
+                    value_kind,
+                },
+            )),
+        )
+    }
+
+    #[must_use]
+    pub(crate) fn eager_compound_assignment(
+        self,
+        old_value_binding: String,
+        op: EagerCompoundAssignmentOp,
+        rhs: TypedExpr,
+    ) -> TypedExpr {
+        let old_value = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Identifier(old_value_binding.clone()),
+        );
+        let result = op.apply(old_value, rhs);
+        TypedExpr::from_info(
+            result.value_info(),
+            ExprIr::SuperPropertyMutation(SuperPropertyMutationIr::new(
+                self.receiver,
+                self.referenced_name,
+                self.strictness,
+                SuperPropertyMutationOperationIr::EagerCompound {
+                    old_value_binding,
+                    result: Box::new(result),
+                },
+            )),
+        )
     }
 }
 
@@ -129,33 +590,51 @@ impl DeleteSuperReferencePlan {
     }
 }
 
-/// The already-materialized binding object of one Object Environment Record.
+/// The exact binding object of one Object Environment Record.
 ///
-/// `with (objectExpression)` evaluates `objectExpression` once and stores it in
-/// a synthetic lexical binding before lowering the body. The active `with`
-/// stack admits only this type, not arbitrary [`TypedExpr`] values, so every
-/// later read names that binding and cannot re-evaluate the source expression.
-/// Cloning is safe for the same reason: it clones a storage name and static
-/// value information, never an effectful expression.
+/// The private source domain distinguishes an already-materialized `with`
+/// object from the compiler-owned global object. Callers cannot provide an
+/// arbitrary [`TypedExpr`], so cloning this value never re-evaluates a source
+/// expression and every operation in one Reference reads the same identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WithEnvironmentBindingObject {
-    storage_name: String,
+pub(crate) struct ObjectEnvironmentBindingObject {
+    source: ObjectEnvironmentBindingObjectSource,
     info: ValueInfo,
 }
 
-impl WithEnvironmentBindingObject {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ObjectEnvironmentBindingObjectSource {
+    Materialized(String),
+    GlobalObject,
+}
+
+impl ObjectEnvironmentBindingObject {
     pub(crate) fn materialized(binding_name: &WithObjectBindingName, info: ValueInfo) -> Self {
         Self {
-            storage_name: binding_name.as_str().to_string(),
+            source: ObjectEnvironmentBindingObjectSource::Materialized(
+                binding_name.as_str().to_string(),
+            ),
+            info,
+        }
+    }
+
+    fn global_object(info: ValueInfo) -> Self {
+        Self {
+            source: ObjectEnvironmentBindingObjectSource::GlobalObject,
             info,
         }
     }
 
     fn read(&self) -> TypedExpr {
-        TypedExpr::from_info(
-            self.info.clone(),
-            ExprIr::Identifier(self.storage_name.clone()),
-        )
+        let expr = match &self.source {
+            ObjectEnvironmentBindingObjectSource::Materialized(storage_name) => {
+                ExprIr::Identifier(storage_name.clone())
+            }
+            ObjectEnvironmentBindingObjectSource::GlobalObject => {
+                ExprIr::Identifier(GLOBAL_THIS_NAME.to_string())
+            }
+        };
+        TypedExpr::from_info(self.info.clone(), expr)
     }
 
     fn has_property(&self, referenced_name: &str) -> TypedExpr {
@@ -299,7 +778,7 @@ impl WithEnvironmentBindingObject {
                 dynamic_value_info(),
                 ExprIr::RuntimeThrow {
                     name: NativeErrorKind::ReferenceError,
-                    message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
                 },
             ),
         };
@@ -323,7 +802,7 @@ impl WithEnvironmentBindingObject {
         let value_info = value.value_info();
         let read_value = TypedExpr::from_info(
             value_info.clone(),
-            ExprIr::Identifier(WITH_ENVIRONMENT_VALUE_BINDING.to_string()),
+            ExprIr::Identifier(OBJECT_ENVIRONMENT_VALUE_BINDING.to_string()),
         );
         let recheck = self.has_property(referenced_name);
         let write = TypedExpr::from_info(
@@ -339,7 +818,7 @@ impl WithEnvironmentBindingObject {
             Strictness::Sloppy => TypedExpr::from_info(
                 value_info.clone(),
                 ExprIr::MaterializeBinding {
-                    name: WITH_ENVIRONMENT_RECHECK_BINDING.to_string(),
+                    name: OBJECT_ENVIRONMENT_RECHECK_BINDING.to_string(),
                     value: Box::new(recheck),
                     body: Box::new(write),
                 },
@@ -353,7 +832,7 @@ impl WithEnvironmentBindingObject {
                         value_info.clone(),
                         ExprIr::RuntimeThrow {
                             name: NativeErrorKind::ReferenceError,
-                            message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                            message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
                         },
                     )),
                 },
@@ -362,9 +841,147 @@ impl WithEnvironmentBindingObject {
         TypedExpr::from_info(
             value_info,
             ExprIr::MaterializeBinding {
-                name: WITH_ENVIRONMENT_VALUE_BINDING.to_string(),
+                name: OBJECT_ENVIRONMENT_VALUE_BINDING.to_string(),
                 value: Box::new(value),
                 body: Box::new(after_recheck),
+            },
+        )
+    }
+
+    /// GetValue, ToNumeric/delta, same-base PutValue, then prefix/postfix
+    /// result. Initial ResolveBinding selection belongs to the
+    /// environment-specific plan.
+    fn numeric_update(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        bindings: &NumericUpdateBindings,
+    ) -> TypedExpr {
+        let NumericUpdateBindings {
+            old_value: old_value_name,
+            result: result_name,
+            write: write_name,
+        } = bindings;
+        let old_value = self.clone().get_value(referenced_name, strictness);
+        let numeric_info = ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: KindSet::from_kind(ValueKind::Number)
+                .union(KindSet::from_kind(ValueKind::BigInt)),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        let update = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::UpdateIdentifier {
+                name: old_value_name.clone(),
+                op,
+                return_mode,
+                value_kind: ValueKind::Dynamic,
+            },
+        );
+        let updated_value = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::Identifier(old_value_name.clone()),
+        );
+        let write = self.put_value(referenced_name, strictness, updated_value);
+        let result = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::Identifier(result_name.clone()),
+        );
+        let after_write = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: write_name.clone(),
+                value: Box::new(write),
+                body: Box::new(result),
+            },
+        );
+        let after_update = TypedExpr::from_info(
+            numeric_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: result_name.clone(),
+                value: Box::new(update),
+                body: Box::new(after_write),
+            },
+        );
+        TypedExpr::from_info(
+            numeric_info,
+            ExprIr::MaterializeBinding {
+                name: old_value_name.clone(),
+                value: Box::new(old_value),
+                body: Box::new(after_update),
+            },
+        )
+    }
+
+    /// GetValue, logical selection, then same-base PutValue only in the taken
+    /// branch. Initial ResolveBinding selection belongs to the
+    /// environment-specific plan.
+    fn logical_assignment(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        op: LogicalBinaryOp,
+        rhs: TypedExpr,
+    ) -> TypedExpr {
+        let lhs = self.clone().get_value(referenced_name, strictness);
+        let write = self.put_value(referenced_name, strictness, rhs);
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::LogicalShortCircuit {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(write),
+            },
+        )
+    }
+
+    /// GetValue, eager operation, same-base PutValue, then result. Initial
+    /// ResolveBinding selection belongs to the environment-specific plan.
+    fn eager_compound_assignment(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        assignment: &EagerCompoundAssignment,
+    ) -> TypedExpr {
+        let EagerCompoundAssignment {
+            bindings:
+                EagerCompoundAssignmentBindings {
+                    old_value: old_value_name,
+                    result: result_name,
+                    write: write_name,
+                },
+            result: applied,
+        } = assignment;
+        let old_value = self.clone().get_value(referenced_name, strictness);
+        let result_info = applied.value_info();
+        let result =
+            TypedExpr::from_info(result_info.clone(), ExprIr::Identifier(result_name.clone()));
+        let write = self.put_value(referenced_name, strictness, result.clone());
+        let after_write = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: write_name.clone(),
+                value: Box::new(write),
+                body: Box::new(result),
+            },
+        );
+        let after_apply = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: result_name.clone(),
+                value: Box::new(applied.clone()),
+                body: Box::new(after_write),
+            },
+        );
+        TypedExpr::from_info(
+            result_info,
+            ExprIr::MaterializeBinding {
+                name: old_value_name.clone(),
+                value: Box::new(old_value),
+                body: Box::new(after_apply),
             },
         )
     }
@@ -495,13 +1112,13 @@ impl ObjectEnvironmentPosition {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PositionedWithEnvironment {
-    binding_object: WithEnvironmentBindingObject,
+    binding_object: ObjectEnvironmentBindingObject,
     position: ObjectEnvironmentPosition,
 }
 
 impl PositionedWithEnvironment {
     pub(crate) fn captured(
-        binding_object: WithEnvironmentBindingObject,
+        binding_object: ObjectEnvironmentBindingObject,
         position: CapturedObjectPosition,
     ) -> Self {
         Self {
@@ -521,7 +1138,7 @@ pub(crate) struct OrderedWithEnvironmentChain {
 impl OrderedWithEnvironmentChain {
     pub(crate) fn enter_current(
         &mut self,
-        binding_object: WithEnvironmentBindingObject,
+        binding_object: ObjectEnvironmentBindingObject,
         depth: CurrentScopeDepth,
     ) {
         self.current.push(PositionedWithEnvironment {
@@ -580,19 +1197,19 @@ impl OrderedWithEnvironmentChain {
 /// only external way to obtain a [`WithEnvironmentReferencePlan`].
 #[derive(Debug)]
 pub(crate) struct SelectedWithEnvironmentObjects {
-    innermost: WithEnvironmentBindingObject,
-    outer: Vec<WithEnvironmentBindingObject>,
+    innermost: ObjectEnvironmentBindingObject,
+    outer: Vec<ObjectEnvironmentBindingObject>,
 }
 
 /// One dynamically queried Object Environment Record in ResolveBinding.
 #[derive(Debug)]
 struct WithEnvironmentResolution {
-    binding_object: WithEnvironmentBindingObject,
+    binding_object: ObjectEnvironmentBindingObject,
     unscopables_binding: String,
 }
 
 impl WithEnvironmentResolution {
-    fn create(binding_object: WithEnvironmentBindingObject, unscopables_binding: String) -> Self {
+    fn create(binding_object: ObjectEnvironmentBindingObject, unscopables_binding: String) -> Self {
         Self {
             binding_object,
             unscopables_binding,
@@ -621,6 +1238,45 @@ impl WithEnvironmentResolution {
         )
     }
 
+    /// Resolve one identifier-call Reference through this Object Environment
+    /// candidate. The same validated binding object produces both the
+    /// GetBindingValue callee and WithBaseObject receiver; callers cannot
+    /// provide or transpose those roles independently.
+    fn call_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        args: &[TypedExpr],
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let callee = binding_object
+            .clone()
+            .get_value(referenced_name, strictness);
+        let receiver = binding_object.read();
+        let selected = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CallIndirect {
+                callee: Box::new(callee),
+                this_arg: Some(Box::new(receiver)),
+                args: args.to_vec(),
+                static_regexp_compilation: None,
+            },
+        );
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
     fn put_value_or_else(
         self,
         referenced_name: &str,
@@ -639,6 +1295,91 @@ impl WithEnvironmentResolution {
             ExprIr::Conditional {
                 condition: Box::new(binding_visible),
                 then_expr: Box::new(with_write),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
+    /// Compose one selected Object Environment Record's independently
+    /// observable GetBindingValue and SetMutableBinding around a numeric
+    /// update. Resolution is not restarted after the getter runs.
+    fn numeric_update_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        bindings: &NumericUpdateBindings,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let selected_update =
+            binding_object.numeric_update(referenced_name, strictness, op, return_mode, bindings);
+        let numeric_info = selected_update.value_info();
+        TypedExpr::from_info(
+            numeric_info,
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected_update),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
+    /// Compose one selected Object Environment Record's GetBindingValue and
+    /// branch-local SetMutableBinding around a logical assignment. Resolution
+    /// is not restarted after either GetValue or the RHS.
+    fn logical_assignment_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        op: LogicalBinaryOp,
+        rhs: TypedExpr,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let selected = binding_object.logical_assignment(referenced_name, strictness, op, rhs);
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
+    /// Compose one selected Object Environment Record's GetBindingValue,
+    /// eager operator application and SetMutableBinding. The sealed assignment
+    /// carries the only old/result/write roles that can reach this operation.
+    fn compound_assignment_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        assignment: &EagerCompoundAssignment,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let selected_assignment =
+            binding_object.eager_compound_assignment(referenced_name, strictness, assignment);
+        let result_info = selected_assignment.value_info();
+        TypedExpr::from_info(
+            result_info,
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(selected_assignment),
                 else_expr: Box::new(fallback),
             },
         )
@@ -665,21 +1406,273 @@ impl SelectedWithEnvironmentObjects {
         outer.reverse();
         WithEnvironmentReferencePlan::create(innermost, outer, referenced_name, strictness)
     }
+
+    /// Consume this non-empty selection into the identifier-call-only
+    /// Reference capability. There is no constructor from a value-only
+    /// identifier, so WithBaseObject cannot be recovered after GetValue.
+    pub(crate) fn into_identifier_call_plan(
+        self,
+        referenced_name: String,
+        strictness: Strictness,
+        allocate_unscopables_binding: impl FnMut() -> String,
+    ) -> WithEnvironmentIdentifierCallReferencePlan {
+        WithEnvironmentIdentifierCallReferencePlan {
+            reference: self.into_reference_plan(
+                referenced_name,
+                strictness,
+                allocate_unscopables_binding,
+            ),
+        }
+    }
+}
+
+/// A non-empty ResolveBinding chain whose only result is an identifier call.
+///
+/// The wrapped Reference is deliberately inaccessible and neither type is
+/// `Clone` or `Copy`. [`Self::call`] is therefore the only way to obtain the
+/// callee/WithBaseObject receiver product, and consuming it twice is E0382.
+#[derive(Debug)]
+#[must_use = "a with-environment identifier-call Reference must be consumed by Call"]
+pub(crate) struct WithEnvironmentIdentifierCallReferencePlan {
+    reference: WithEnvironmentReferencePlan,
+}
+
+impl WithEnvironmentIdentifierCallReferencePlan {
+    /// Consume the Reference into mutually exclusive selected-object calls and
+    /// one ordinary undefined-this fallback call. Argument IR is cloned only
+    /// across runtime-exclusive branches; the source arguments were lowered
+    /// once before entering this transition.
+    #[must_use]
+    pub(crate) fn call(self, args: Vec<TypedExpr>, fallback: TypedExpr) -> TypedExpr {
+        let WithEnvironmentReferencePlan {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self.reference;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.call_or_else(&referenced_name, strictness, &args, resolved);
+        }
+        innermost.call_or_else(&referenced_name, strictness, &args, resolved)
+    }
 }
 
 /// A non-empty ResolveBinding chain for an identifier Reference inside `with`.
 ///
 /// The innermost resolution is a required field instead of the first element
 /// of a `Vec`, so an empty Object Environment chain is not representable. The
-/// plan is deliberately neither `Clone` nor `Copy`; [`Self::get_value`] and
-/// [`Self::put_value`] both consume it, making a second use E0382.
+/// plan is deliberately neither `Clone` nor `Copy`; [`Self::get_value`],
+/// [`Self::put_value`], [`Self::logical_assignment`], [`Self::numeric_update`]
+/// and [`Self::compound_assignment`] consume it, making a second use E0382.
 #[derive(Debug)]
-#[must_use = "a with-environment Reference must be consumed by GetValue or PutValue"]
+#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment"]
 pub(crate) struct WithEnvironmentReferencePlan {
     innermost: WithEnvironmentResolution,
     outer: Vec<WithEnvironmentResolution>,
     referenced_name: String,
     strictness: Strictness,
+}
+
+/// One identifier Reference selected by the Global Environment Record's
+/// Object Record.
+///
+/// This plan is deliberately neither `Clone` nor `Copy`. Its constructor owns
+/// the compiler-known global object identity, while its only consumer performs
+/// the initial HasBinding/HasProperty before the shared GetValue/apply/PutValue
+/// lifecycle. Unlike [`WithEnvironmentReferencePlan`], this type has no
+/// unscopables state or fallback chain.
+#[derive(Debug)]
+#[must_use = "a global Object Environment Reference must be consumed by logical assignment, numeric update, or eager compound assignment"]
+pub(crate) struct GlobalObjectEnvironmentReferencePlan {
+    binding_object: ObjectEnvironmentBindingObject,
+    referenced_name: String,
+    strictness: Strictness,
+}
+
+impl GlobalObjectEnvironmentReferencePlan {
+    pub(crate) fn new(
+        global_object_info: ValueInfo,
+        referenced_name: String,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            binding_object: ObjectEnvironmentBindingObject::global_object(global_object_info),
+            referenced_name,
+            strictness,
+        }
+    }
+
+    /// ResolveBinding's Object Record HasBinding is a plain HasProperty: the
+    /// global record has `[[IsWithEnvironment]] = false` and never observes
+    /// `Symbol.unscopables`. A miss is an unresolvable Reference whose GetValue
+    /// throws before the sealed operation can evaluate its RHS.
+    #[must_use]
+    pub(crate) fn compound_assignment(self, assignment: EagerCompoundAssignment) -> TypedExpr {
+        let Self {
+            binding_object,
+            referenced_name,
+            strictness,
+        } = self;
+        let present = binding_object.has_property(&referenced_name);
+        let selected =
+            binding_object.eager_compound_assignment(&referenced_name, strictness, &assignment);
+        let result_info = selected.value_info();
+        let missing = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+            },
+        );
+        TypedExpr::from_info(
+            result_info,
+            ExprIr::Conditional {
+                condition: Box::new(present),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(missing),
+            },
+        )
+    }
+
+    /// Consume one global Object Record Reference for `++`/`--`. The initial
+    /// plain HasProperty happens before the shared GetValue/ToNumeric/delta/
+    /// PutValue lifecycle, and a miss throws before ToNumeric in both modes.
+    #[must_use]
+    pub(crate) fn numeric_update(
+        self,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        bindings: NumericUpdateBindings,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            referenced_name,
+            strictness,
+        } = self;
+        let present = binding_object.has_property(&referenced_name);
+        let selected =
+            binding_object.numeric_update(&referenced_name, strictness, op, return_mode, &bindings);
+        let result_info = selected.value_info();
+        let missing = TypedExpr::from_info(
+            result_info.clone(),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+            },
+        );
+        TypedExpr::from_info(
+            result_info,
+            ExprIr::Conditional {
+                condition: Box::new(present),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(missing),
+            },
+        )
+    }
+
+    /// Consume one global Object Record Reference for `&&=`/`||=`/`??=`. An
+    /// initial miss throws before the RHS; a short circuit never enters the
+    /// shared PutValue branch.
+    #[must_use]
+    pub(crate) fn logical_assignment(self, op: LogicalBinaryOp, rhs: TypedExpr) -> TypedExpr {
+        let Self {
+            binding_object,
+            referenced_name,
+            strictness,
+        } = self;
+        let present = binding_object.has_property(&referenced_name);
+        let selected = binding_object.logical_assignment(&referenced_name, strictness, op, rhs);
+        let missing = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+            },
+        );
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(present),
+                then_expr: Box::new(selected),
+                else_expr: Box::new(missing),
+            },
+        )
+    }
+}
+
+/// Compiler-private bindings used by one Object Environment numeric update.
+///
+/// All three roles are `String`, so accepting them positionally would allow a
+/// result/write transposition to compile. The constructor allocates the roles
+/// in one fixed order and the fields remain private to this module.
+#[derive(Debug)]
+pub(crate) struct NumericUpdateBindings {
+    old_value: String,
+    result: String,
+    write: String,
+}
+
+/// Compiler-private bindings for one eager Object Environment compound
+/// assignment.
+///
+/// The old-value, result and write-completion roles intentionally cannot be
+/// supplied as three positional `String`s. The sole allocator fixes their
+/// meanings, [`Self::old_value`] is the only old-value operand exposed to the
+/// lowerer, and [`Self::seal`] consumes the carrier before the Reference plan
+/// accepts the operation.
+#[derive(Debug)]
+#[must_use = "eager compound-assignment bindings must be sealed into an operation"]
+pub(crate) struct EagerCompoundAssignmentBindings {
+    old_value: String,
+    result: String,
+    write: String,
+}
+
+impl EagerCompoundAssignmentBindings {
+    pub(crate) fn allocate(mut allocate: impl FnMut(&str) -> String) -> Self {
+        Self {
+            old_value: allocate("object.environment.compound.old."),
+            result: allocate("object.environment.compound.result."),
+            write: allocate("object.environment.compound.write."),
+        }
+    }
+
+    /// The dynamically obtained GetBindingValue result. Returning the operand
+    /// from the role carrier prevents a caller from spelling the old binding
+    /// name independently of the names the consuming plan will materialize.
+    pub(crate) fn old_value(&self) -> TypedExpr {
+        TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::Identifier(self.old_value.clone()),
+        )
+    }
+
+    pub(crate) fn seal(self, result: TypedExpr) -> EagerCompoundAssignment {
+        EagerCompoundAssignment {
+            bindings: self,
+            result,
+        }
+    }
+}
+
+/// One eager operation result sealed to the private bindings which establish
+/// its GetValue/apply/PutValue/result lifecycle.
+#[derive(Debug)]
+#[must_use = "a sealed eager compound assignment must consume its Reference plan"]
+pub(crate) struct EagerCompoundAssignment {
+    bindings: EagerCompoundAssignmentBindings,
+    result: TypedExpr,
+}
+
+impl NumericUpdateBindings {
+    pub(crate) fn allocate(mut allocate: impl FnMut(&str) -> String) -> Self {
+        Self {
+            old_value: allocate("object.environment.update.old."),
+            result: allocate("object.environment.update.result."),
+            write: allocate("object.environment.update.write."),
+        }
+    }
 }
 
 impl WithEnvironmentReferencePlan {
@@ -730,6 +1723,100 @@ impl WithEnvironmentReferencePlan {
             );
         }
         innermost.put_value_or_else(&referenced_name, strictness, value, resolved)
+    }
+
+    /// Consume one ResolveBinding result for `++`/`--`. The required private
+    /// materializations keep the selected GetValue, numeric delta, same-base
+    /// PutValue and returned prefix/postfix result in their specified order.
+    #[must_use]
+    pub(crate) fn numeric_update(
+        self,
+        op: NumericUpdateOp,
+        return_mode: UpdateReturnMode,
+        bindings: NumericUpdateBindings,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.numeric_update_or_else(
+                &referenced_name,
+                strictness,
+                op,
+                return_mode,
+                &bindings,
+                resolved,
+            );
+        }
+        innermost.numeric_update_or_else(
+            &referenced_name,
+            strictness,
+            op,
+            return_mode,
+            &bindings,
+            resolved,
+        )
+    }
+
+    /// Consume one ResolveBinding result for logical assignment. Each Object
+    /// Environment candidate owns an independent selection condition, while
+    /// the RHS and PutValue remain inside only its taken short-circuit branch.
+    #[must_use]
+    pub(crate) fn logical_assignment(
+        self,
+        op: LogicalBinaryOp,
+        rhs: TypedExpr,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.logical_assignment_or_else(
+                &referenced_name,
+                strictness,
+                op,
+                rhs.clone(),
+                resolved,
+            );
+        }
+        innermost.logical_assignment_or_else(&referenced_name, strictness, op, rhs, resolved)
+    }
+
+    /// Consume one ResolveBinding result for an eager compound assignment.
+    /// Every selected branch performs GetValue, evaluates/applies the RHS,
+    /// completes same-base PutValue, and only then exposes the applied result.
+    #[must_use]
+    pub(crate) fn compound_assignment(
+        self,
+        assignment: EagerCompoundAssignment,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.compound_assignment_or_else(
+                &referenced_name,
+                strictness,
+                &assignment,
+                resolved,
+            );
+        }
+        innermost.compound_assignment_or_else(&referenced_name, strictness, &assignment, resolved)
     }
 }
 
@@ -1076,12 +2163,19 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         // `delete <identifier>` an early SyntaxError in strict code), so the
         // ReferenceError branch cannot arise for a delete.
         ExprIr::PropertyWrite { strictness, .. }
-        | ExprIr::PropertyUpdate { strictness, .. }
-        | ExprIr::PropertyCompoundAssign { strictness, .. }
         | ExprIr::SuperPropertyWrite { strictness, .. }
         | ExprIr::DeleteProperty { strictness, .. }
         | ExprIr::DeleteGlobalProperty { strictness, .. } => {
             Some((*strictness, PutValueFailure::TypeErrorOnly))
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            Some((mutation.strictness(), PutValueFailure::TypeErrorOnly))
+        }
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
+            Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
+        }
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            Some((update.strictness(), PutValueFailure::TypeErrorOnly))
         }
 
         // Everything else. `AssignIdentifier`, `CompoundAssignIdentifier` and
@@ -1188,7 +2282,10 @@ pub(crate) enum ReferenceBase {
         private_name_id: PrivateNameId,
     },
     /// `IsSuperReference` true.
-    Super { key: PropertyKeyIr },
+    Super {
+        key: PropertyKeyIr,
+        receiver: TypedExpr,
+    },
     /// `[[Base]]` is unresolvable, or is the global object. The two are not
     /// separable at compile time, so they share a variant and the backend
     /// performs the presence test that PutValue 2.a needs.
@@ -1211,7 +2308,10 @@ impl ReferenceBase {
                 target: Box::new(target.clone()),
                 private_name_id: *private_name_id,
             },
-            Self::Super { key } => ExprIr::SuperPropertyRead { key: key.clone() },
+            Self::Super { key, receiver } => ExprIr::SuperPropertyRead {
+                key: key.clone(),
+                receiver: Box::new(receiver.clone()),
+            },
             Self::Global { name } => ExprIr::GlobalPropertyRead { name: name.clone() },
         }
     }
@@ -1235,8 +2335,9 @@ impl ReferenceBase {
                 private_name_id,
                 value: Box::new(value),
             },
-            Self::Super { key } => ExprIr::SuperPropertyWrite {
+            Self::Super { key, receiver } => ExprIr::SuperPropertyWrite {
                 key,
+                receiver: Box::new(receiver),
                 value: Box::new(value),
                 strictness,
             },
@@ -1263,7 +2364,7 @@ impl ReferenceBase {
     /// is one.
     pub(crate) fn computed_key_mut(&mut self) -> Option<&mut TypedExpr> {
         let key = match self {
-            Self::Property { key, .. } | Self::Super { key } => key,
+            Self::Property { key, .. } | Self::Super { key, .. } => key,
             Self::Private { .. } | Self::Global { .. } => return None,
         };
         match key {
@@ -1318,7 +2419,10 @@ pub(crate) fn reference_base_of_lowered_read(
             target: *target,
             private_name_id,
         }),
-        ExprIr::SuperPropertyRead { key } => Ok(ReferenceBase::Super { key }),
+        ExprIr::SuperPropertyRead { key, receiver } => Ok(ReferenceBase::Super {
+            key,
+            receiver: *receiver,
+        }),
         // `globalThis.x` on a known global resolves to the global binding
         // itself rather than to a property of an object.
         ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {
@@ -1381,8 +2485,8 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::GlobalPropertyWrite { .. }
         | ExprIr::OptionalPropertyChain { .. }
         | ExprIr::PropertyWrite { .. }
-        | ExprIr::PropertyUpdate { .. }
-        | ExprIr::PropertyCompoundAssign { .. }
+        | ExprIr::OrdinaryPropertyNumericUpdate(_)
+        | ExprIr::OrdinaryPropertyEagerCompoundAssignment(_)
         | ExprIr::UpdateIdentifier { .. }
         | ExprIr::GlobalPropertyUpdate { .. }
         | ExprIr::CompoundAssignIdentifier { .. }
@@ -1423,6 +2527,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::CallMethod { .. }
         | ExprIr::SuperConstruct { .. }
         | ExprIr::SuperPropertyWrite { .. }
+        | ExprIr::SuperPropertyMutation(_)
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. }
         | ExprIr::InstanceOf { .. }
@@ -1611,8 +2716,10 @@ mod tests {
         unscopables_binding: &str,
     ) -> WithEnvironmentResolution {
         WithEnvironmentResolution::create(
-            WithEnvironmentBindingObject {
-                storage_name: storage_name.to_string(),
+            ObjectEnvironmentBindingObject {
+                source: ObjectEnvironmentBindingObjectSource::Materialized(
+                    storage_name.to_string(),
+                ),
                 info: ValueInfo::new(ValueKind::Object),
             },
             unscopables_binding.to_string(),
@@ -1678,7 +2785,11 @@ mod tests {
         has_property_target(lhs)
     }
 
-    fn assert_strict_selected_write(expr: &TypedExpr, object_name: &str) {
+    fn assert_strict_selected_write(
+        expr: &TypedExpr,
+        object_name: &str,
+        expected_value_name: &str,
+    ) {
         let ExprIr::MaterializeBinding {
             name: value_name,
             value,
@@ -1687,8 +2798,8 @@ mod tests {
         else {
             panic!("RHS must be materialized in the selected branch");
         };
-        assert_eq!(value_name, WITH_ENVIRONMENT_VALUE_BINDING);
-        assert_eq!(identifier_name(value), "rhs");
+        assert_eq!(value_name, OBJECT_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(identifier_name(value), expected_value_name);
 
         let ExprIr::Conditional {
             condition,
@@ -1713,13 +2824,13 @@ mod tests {
             key,
             PropertyKeyIr::StaticString(name) if name == "x"
         ));
-        assert_eq!(identifier_name(value), WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(identifier_name(value), OBJECT_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(*strictness, Strictness::Strict);
         assert!(matches!(
             &else_expr.expr,
             ExprIr::RuntimeThrow {
                 name: NativeErrorKind::ReferenceError,
-                message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
             }
         ));
     }
@@ -1748,7 +2859,7 @@ mod tests {
                 &else_expr.expr,
                 ExprIr::RuntimeThrow {
                     name: NativeErrorKind::ReferenceError,
-                    message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
                 }
             )),
         }
@@ -1779,7 +2890,7 @@ mod tests {
             panic!("innermost Object Environment must be queried first");
         };
         assert_eq!(initial_resolution_target(inner_condition), "$with.inner");
-        assert_strict_selected_write(inner_write, "$with.inner");
+        assert_strict_selected_write(inner_write, "$with.inner", "rhs");
 
         let ExprIr::Conditional {
             condition: outer_condition,
@@ -1790,7 +2901,7 @@ mod tests {
             panic!("an inner miss must continue through the outer environment");
         };
         assert_eq!(initial_resolution_target(outer_condition), "$with.outer");
-        assert_strict_selected_write(outer_write, "$with.outer");
+        assert_strict_selected_write(outer_write, "$with.outer", "rhs");
         assert_eq!(identifier_name(fallback), "fallback");
     }
 
@@ -1826,7 +2937,7 @@ mod tests {
         else {
             panic!("RHS must be materialized before SetMutableBinding");
         };
-        assert_eq!(value_name, WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(value_name, OBJECT_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(identifier_name(value), "rhs");
         let ExprIr::MaterializeBinding {
             name: recheck_name,
@@ -1836,7 +2947,7 @@ mod tests {
         else {
             panic!("sloppy SetMutableBinding must still observe HasProperty");
         };
-        assert_eq!(recheck_name, WITH_ENVIRONMENT_RECHECK_BINDING);
+        assert_eq!(recheck_name, OBJECT_ENVIRONMENT_RECHECK_BINDING);
         assert_eq!(has_property_target(recheck), "$with.object");
         let ExprIr::PropertyWrite {
             target,
@@ -1852,7 +2963,7 @@ mod tests {
             key,
             PropertyKeyIr::StaticString(name) if name == "x"
         ));
-        assert_eq!(identifier_name(value), WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(identifier_name(value), OBJECT_ENVIRONMENT_VALUE_BINDING);
         assert_eq!(*strictness, Strictness::Sloppy);
     }
 
@@ -1906,9 +3017,455 @@ mod tests {
     }
 
     #[test]
+    fn with_environment_numeric_update_sequences_same_object_get_delta_put_then_result() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .numeric_update(
+            NumericUpdateOp::Increment,
+            UpdateReturnMode::Prefix,
+            NumericUpdateBindings::allocate(|prefix| format!("${}", prefix.trim_end_matches('.'))),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the Object Environment once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+        assert_eq!(identifier_name(fallback), "fallback");
+
+        let ExprIr::MaterializeBinding {
+            name: old_name,
+            value: old_value,
+            body: after_get,
+        } = &selected.expr
+        else {
+            panic!("GetBindingValue must be materialized before ToNumeric");
+        };
+        assert_eq!(old_name, "$object.environment.update.old");
+        assert_selected_get_value(old_value, "$with.object", Strictness::Strict);
+
+        let ExprIr::MaterializeBinding {
+            name: result_name,
+            value: update,
+            body: after_update,
+        } = &after_get.expr
+        else {
+            panic!("the numeric result must be retained across PutValue");
+        };
+        assert_eq!(result_name, "$object.environment.update.result");
+        assert!(matches!(
+            &update.expr,
+            ExprIr::UpdateIdentifier {
+                name,
+                op: NumericUpdateOp::Increment,
+                return_mode: UpdateReturnMode::Prefix,
+                value_kind: ValueKind::Dynamic,
+            } if name == "$object.environment.update.old"
+        ));
+
+        let ExprIr::MaterializeBinding {
+            name: write_name,
+            value: write,
+            body: result,
+        } = &after_update.expr
+        else {
+            panic!("PutValue must complete before the update result is returned");
+        };
+        assert_eq!(write_name, "$object.environment.update.write");
+        assert_strict_selected_write(write, "$with.object", "$object.environment.update.old");
+        assert_eq!(identifier_name(result), "$object.environment.update.result");
+    }
+
+    #[test]
+    fn with_environment_compound_assignment_sequences_same_object_get_apply_put_then_result() {
+        let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
+            format!("${}", prefix.trim_end_matches('.'))
+        });
+        let old_value = bindings.old_value();
+        let applied = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CoerciveAdd {
+                lhs: Box::new(old_value),
+                rhs: Box::new(identifier("rhs", ValueKind::Number)),
+            },
+        );
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .compound_assignment(
+            bindings.seal(applied),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the Object Environment once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+        assert_eq!(identifier_name(fallback), "fallback");
+
+        let ExprIr::MaterializeBinding {
+            name: old_name,
+            value: old_value,
+            body: after_get,
+        } = &selected.expr
+        else {
+            panic!("GetBindingValue must be materialized before RHS/application");
+        };
+        assert_eq!(old_name, "$object.environment.compound.old");
+        assert_selected_get_value(old_value, "$with.object", Strictness::Strict);
+
+        let ExprIr::MaterializeBinding {
+            name: result_name,
+            value: applied,
+            body: after_apply,
+        } = &after_get.expr
+        else {
+            panic!("the applied result must be retained across PutValue");
+        };
+        assert_eq!(result_name, "$object.environment.compound.result");
+        let ExprIr::CoerciveAdd { lhs, rhs } = &applied.expr else {
+            panic!("the sealed eager operation must remain between GetValue and PutValue");
+        };
+        assert_eq!(identifier_name(lhs), "$object.environment.compound.old");
+        assert_eq!(identifier_name(rhs), "rhs");
+
+        let ExprIr::MaterializeBinding {
+            name: write_name,
+            value: write,
+            body: result,
+        } = &after_apply.expr
+        else {
+            panic!("PutValue must complete before the compound result is returned");
+        };
+        assert_eq!(write_name, "$object.environment.compound.write");
+        assert_strict_selected_write(write, "$with.object", "$object.environment.compound.result");
+        assert_eq!(
+            identifier_name(result),
+            "$object.environment.compound.result"
+        );
+    }
+
+    #[test]
+    fn global_object_environment_compound_assignment_has_plain_resolution_then_get_apply_put() {
+        let bindings = EagerCompoundAssignmentBindings::allocate(|prefix| {
+            format!("${}", prefix.trim_end_matches('.'))
+        });
+        let applied = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CoerciveAdd {
+                lhs: Box::new(bindings.old_value()),
+                rhs: Box::new(identifier("rhs", ValueKind::Number)),
+            },
+        );
+        let lowered = GlobalObjectEnvironmentReferencePlan::new(
+            ValueInfo::new(ValueKind::Object),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .compound_assignment(bindings.seal(applied));
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: missing,
+        } = &lowered.expr
+        else {
+            panic!("global ResolveBinding must branch on Object Record HasBinding");
+        };
+        assert_eq!(has_property_target(condition), GLOBAL_THIS_NAME);
+        assert!(matches!(
+            &missing.expr,
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+            }
+        ));
+
+        let ExprIr::MaterializeBinding {
+            name: old_name,
+            value: old_value,
+            body: after_get,
+        } = &selected.expr
+        else {
+            panic!("GetBindingValue must precede RHS/application");
+        };
+        assert_eq!(old_name, "$object.environment.compound.old");
+        assert_selected_get_value(old_value, GLOBAL_THIS_NAME, Strictness::Strict);
+
+        let ExprIr::MaterializeBinding {
+            name: result_name,
+            value: applied,
+            body: after_apply,
+        } = &after_get.expr
+        else {
+            panic!("the eager result must be retained across PutValue");
+        };
+        assert_eq!(result_name, "$object.environment.compound.result");
+        let ExprIr::CoerciveAdd { lhs, rhs } = &applied.expr else {
+            panic!("the sealed operation must remain after GetBindingValue");
+        };
+        assert_eq!(identifier_name(lhs), "$object.environment.compound.old");
+        assert_eq!(identifier_name(rhs), "rhs");
+
+        let ExprIr::MaterializeBinding {
+            name: write_name,
+            value: write,
+            body: result,
+        } = &after_apply.expr
+        else {
+            panic!("PutValue must complete before exposing the result");
+        };
+        assert_eq!(write_name, "$object.environment.compound.write");
+        assert_strict_selected_write(
+            write,
+            GLOBAL_THIS_NAME,
+            "$object.environment.compound.result",
+        );
+        assert_eq!(
+            identifier_name(result),
+            "$object.environment.compound.result"
+        );
+    }
+
+    #[test]
+    fn with_environment_logical_assignment_selects_once_and_puts_only_in_rhs_branch() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .logical_assignment(
+            LogicalBinaryOp::Or,
+            identifier("rhs", ValueKind::Number),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the with Object Record once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+        assert_eq!(identifier_name(fallback), "fallback");
+
+        let ExprIr::LogicalShortCircuit { op, lhs, rhs } = &selected.expr else {
+            panic!("the selected GetValue must control the only PutValue branch");
+        };
+        assert_eq!(*op, LogicalBinaryOp::Or);
+        assert_selected_get_value(lhs, "$with.object", Strictness::Strict);
+        assert_strict_selected_write(rhs, "$with.object", "rhs");
+    }
+
+    #[test]
+    fn with_environment_identifier_call_keeps_callee_and_base_object_together() {
+        let fallback = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::CallIndirect {
+                callee: Box::new(identifier("fallback", ValueKind::Dynamic)),
+                this_arg: None,
+                args: vec![identifier("arg", ValueKind::Number)],
+                static_regexp_compilation: None,
+            },
+        );
+        let lowered = WithEnvironmentIdentifierCallReferencePlan {
+            reference: WithEnvironmentReferencePlan::create(
+                with_environment_resolution("$with.object", "$with.unscopables.object"),
+                Vec::new(),
+                "x".to_string(),
+                Strictness::Sloppy,
+            ),
+        }
+        .call(vec![identifier("arg", ValueKind::Number)], fallback);
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: selected,
+            else_expr: fallback,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must select the with Object Record once");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: Some(receiver),
+            args,
+            ..
+        } = &selected.expr
+        else {
+            panic!("a selected identifier Reference must carry WithBaseObject");
+        };
+        assert_selected_get_value(callee, "$with.object", Strictness::Sloppy);
+        assert_eq!(identifier_name(receiver), "$with.object");
+        assert_eq!(identifier_name(&args[0]), "arg");
+
+        let ExprIr::CallIndirect {
+            callee,
+            this_arg: None,
+            args,
+            ..
+        } = &fallback.expr
+        else {
+            panic!("ordinary fallback must retain the undefined-this path");
+        };
+        assert_eq!(identifier_name(callee), "fallback");
+        assert_eq!(identifier_name(&args[0]), "arg");
+    }
+
+    #[test]
+    fn global_object_environment_logical_assignment_has_plain_resolution_and_branch_local_put() {
+        for op in [
+            LogicalBinaryOp::And,
+            LogicalBinaryOp::Or,
+            LogicalBinaryOp::Coalesce,
+        ] {
+            let lowered = GlobalObjectEnvironmentReferencePlan::new(
+                ValueInfo::new(ValueKind::Object),
+                "x".to_string(),
+                Strictness::Strict,
+            )
+            .logical_assignment(op, identifier("rhs", ValueKind::Number));
+
+            let ExprIr::Conditional {
+                condition,
+                then_expr: selected,
+                else_expr: missing,
+            } = &lowered.expr
+            else {
+                panic!("global ResolveBinding must precede logical selection");
+            };
+            assert_eq!(has_property_target(condition), GLOBAL_THIS_NAME);
+            assert!(matches!(
+                &missing.expr,
+                ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+                }
+            ));
+
+            let ExprIr::LogicalShortCircuit {
+                op: actual_op,
+                lhs,
+                rhs,
+            } = &selected.expr
+            else {
+                panic!("the selected GetValue must control the only PutValue branch");
+            };
+            assert_eq!(*actual_op, op);
+            assert_selected_get_value(lhs, GLOBAL_THIS_NAME, Strictness::Strict);
+            assert_strict_selected_write(rhs, GLOBAL_THIS_NAME, "rhs");
+        }
+    }
+
+    #[test]
+    fn global_object_environment_numeric_update_has_plain_resolution_then_get_delta_put() {
+        let modes = [
+            (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
+            (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
+            (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
+            (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+        ];
+
+        for (op, return_mode) in modes {
+            let bindings = NumericUpdateBindings::allocate(|prefix| {
+                format!("${}", prefix.trim_end_matches('.'))
+            });
+            let lowered = GlobalObjectEnvironmentReferencePlan::new(
+                ValueInfo::new(ValueKind::Object),
+                "x".to_string(),
+                Strictness::Strict,
+            )
+            .numeric_update(op, return_mode, bindings);
+
+            let ExprIr::Conditional {
+                condition,
+                then_expr: selected,
+                else_expr: missing,
+            } = &lowered.expr
+            else {
+                panic!("global ResolveBinding must branch on Object Record HasBinding");
+            };
+            assert_eq!(has_property_target(condition), GLOBAL_THIS_NAME);
+            assert!(matches!(
+                &missing.expr,
+                ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
+                }
+            ));
+
+            let ExprIr::MaterializeBinding {
+                name: old_name,
+                value: old_value,
+                body: after_get,
+            } = &selected.expr
+            else {
+                panic!("GetBindingValue must precede ToNumeric");
+            };
+            assert_eq!(old_name, "$object.environment.update.old");
+            assert_selected_get_value(old_value, GLOBAL_THIS_NAME, Strictness::Strict);
+
+            let ExprIr::MaterializeBinding {
+                name: result_name,
+                value: update,
+                body: after_update,
+            } = &after_get.expr
+            else {
+                panic!("the numeric result must be retained across PutValue");
+            };
+            assert_eq!(result_name, "$object.environment.update.result");
+            assert!(matches!(
+                &update.expr,
+                ExprIr::UpdateIdentifier {
+                    name,
+                    op: actual_op,
+                    return_mode: actual_return_mode,
+                    value_kind: ValueKind::Dynamic,
+                } if name == "$object.environment.update.old"
+                    && *actual_op == op
+                    && *actual_return_mode == return_mode
+            ));
+
+            let ExprIr::MaterializeBinding {
+                name: write_name,
+                value: write,
+                body: result,
+            } = &after_update.expr
+            else {
+                panic!("PutValue must complete before exposing the update result");
+            };
+            assert_eq!(write_name, "$object.environment.update.write");
+            assert_strict_selected_write(write, GLOBAL_THIS_NAME, "$object.environment.update.old");
+            assert_eq!(identifier_name(result), "$object.environment.update.result");
+        }
+    }
+
+    #[test]
     fn selected_with_objects_are_non_empty_and_stop_at_declarative_fallback() {
-        let object = |storage_name: &str| WithEnvironmentBindingObject {
-            storage_name: storage_name.to_string(),
+        let object = |storage_name: &str| ObjectEnvironmentBindingObject {
+            source: ObjectEnvironmentBindingObjectSource::Materialized(storage_name.to_string()),
             info: ValueInfo::new(ValueKind::Object),
         };
         let mut chain = OrderedWithEnvironmentChain::default();
@@ -1920,7 +3477,11 @@ mod tests {
                 CurrentScopeDepth(2),
             )))
             .expect("the inner Object Environment must precede the binding");
-        assert_eq!(selected.innermost.storage_name.as_str(), "$with.inner");
+        assert!(matches!(
+            &selected.innermost.source,
+            ObjectEnvironmentBindingObjectSource::Materialized(storage_name)
+                if storage_name == "$with.inner"
+        ));
         assert!(selected.outer.is_empty());
 
         assert!(

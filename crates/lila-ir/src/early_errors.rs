@@ -150,26 +150,24 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             expr_contains_this_before_super(target, state);
             expr_contains_this_before_super(value, state);
         }
-        ExprIr::PropertyUpdate { target, key, .. } => {
-            expr_contains_this_before_super(target, state);
-            match key {
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            expr_contains_this_before_super(update.base_and_receiver(), state);
+            match update.referenced_name() {
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     expr_contains_this_before_super(expr, state);
                 }
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
         }
-        ExprIr::PropertyCompoundAssign {
-            target, key, value, ..
-        } => {
-            expr_contains_this_before_super(target, state);
-            match key {
+        ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
+            expr_contains_this_before_super(assignment.base_and_receiver(), state);
+            match assignment.referenced_name() {
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     expr_contains_this_before_super(expr, state);
                 }
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
             }
-            expr_contains_this_before_super(value, state);
+            expr_contains_this_before_super(assignment.result(), state);
         }
         ExprIr::DeleteProperty { target, key, .. } => {
             expr_contains_this_before_super(target, state);
@@ -208,28 +206,21 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                     ObjectPropertyIr::PrototypeSetter { value }
                     | ObjectPropertyIr::Spread { source: value }
                     | ObjectPropertyIr::Data { value, .. }
-                    | ObjectPropertyIr::NonEnumerableData { value, .. }
-                    | ObjectPropertyIr::Method {
-                        function: value, ..
-                    }
-                    | ObjectPropertyIr::Getter {
-                        function: value, ..
-                    }
-                    | ObjectPropertyIr::Setter {
-                        function: value, ..
-                    } => {
+                    | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                         expr_contains_this_before_super(value, state);
                     }
                     ObjectPropertyIr::ComputedData { key, value } => {
                         expr_contains_this_before_super(key, state);
                         expr_contains_this_before_super(value, state);
                     }
-                    ObjectPropertyIr::ComputedMethod { key, function }
-                    | ObjectPropertyIr::ComputedGetter { key, function }
-                    | ObjectPropertyIr::ComputedSetter { key, function } => {
+                    ObjectPropertyIr::ComputedMethod { key, .. }
+                    | ObjectPropertyIr::ComputedGetter { key, .. }
+                    | ObjectPropertyIr::ComputedSetter { key, .. } => {
                         expr_contains_this_before_super(key, state);
-                        expr_contains_this_before_super(function, state);
                     }
+                    ObjectPropertyIr::Method { .. }
+                    | ObjectPropertyIr::Getter { .. }
+                    | ObjectPropertyIr::Setter { .. } => {}
                 }
             }
         }
@@ -272,13 +263,35 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         | ExprIr::CompoundAssignIdentifier { .. }
         | ExprIr::GlobalPropertyCompoundAssign { .. }
         | ExprIr::TypeOfUnresolvedIdentifier { .. }
-        | ExprIr::SuperPropertyRead { .. }
-        | ExprIr::SuperPropertyWrite { .. }
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateIn { .. }
         | ExprIr::InstanceOf { .. }
         | ExprIr::CallNamed { .. }
         | ExprIr::RuntimeThrow { .. } => {}
+        ExprIr::SuperPropertyRead { receiver, .. } => {
+            expr_contains_this_before_super(receiver, state);
+        }
+        ExprIr::SuperPropertyWrite {
+            receiver, value, ..
+        } => {
+            expr_contains_this_before_super(receiver, state);
+            expr_contains_this_before_super(value, state);
+        }
+        ExprIr::SuperPropertyMutation(mutation) => {
+            expr_contains_this_before_super(mutation.receiver(), state);
+            match mutation.referenced_name() {
+                PropertyKeyIr::StringExpr(key) | PropertyKeyIr::ArrayIndex(key) => {
+                    expr_contains_this_before_super(key, state);
+                }
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+            }
+            match mutation.operation() {
+                SuperPropertyMutationOperationIr::NumericUpdate { .. } => {}
+                SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
+                    expr_contains_this_before_super(result, state);
+                }
+            }
+        }
     }
 }
 
@@ -336,6 +349,38 @@ fn statement_contains_this_before_super(
         StatementIr::LexicalBlock(statements)
         | StatementIr::ParameterInitialization { statements, .. } => {
             for statement in statements {
+                statement_contains_this_before_super(statement, state);
+                if state.saw_super {
+                    break;
+                }
+            }
+        }
+        StatementIr::SyncDisposableScope {
+            resources, body, ..
+        } => {
+            for resource in resources.iter() {
+                expr_contains_this_before_super(&resource.initializer, state);
+                if state.saw_super {
+                    return;
+                }
+            }
+            for statement in &body.statements {
+                statement_contains_this_before_super(statement, state);
+                if state.saw_super {
+                    break;
+                }
+            }
+        }
+        StatementIr::AsyncDisposableScope {
+            resources, body, ..
+        } => {
+            for resource in resources.iter() {
+                expr_contains_this_before_super(resource.initializer(), state);
+                if state.saw_super {
+                    return;
+                }
+            }
+            for statement in &body.statements {
                 statement_contains_this_before_super(statement, state);
                 if state.saw_super {
                     break;
@@ -405,6 +450,16 @@ fn statement_contains_this_before_super(
                             statement_contains_this_before_super(statement, state);
                         }
                     }
+                    ForInitIr::SyncDisposable(resources) => {
+                        for resource in resources.iter() {
+                            expr_contains_this_before_super(&resource.initializer, state);
+                        }
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        for resource in init.resources().iter() {
+                            expr_contains_this_before_super(resource.initializer(), state);
+                        }
+                    }
                 }
             }
             if let Some(test) = test {
@@ -444,6 +499,16 @@ fn statement_contains_this_before_super(
                     ForInitIr::Statements(statements) => {
                         for statement in statements {
                             statement_contains_this_before_super(statement, state);
+                        }
+                    }
+                    ForInitIr::SyncDisposable(resources) => {
+                        for resource in resources.iter() {
+                            expr_contains_this_before_super(&resource.initializer, state);
+                        }
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        for resource in init.resources().iter() {
+                            expr_contains_this_before_super(resource.initializer(), state);
                         }
                     }
                 }
