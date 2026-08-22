@@ -3643,6 +3643,12 @@ impl StringPool {
                 self.collect_property_key(key);
                 self.collect_expr(value);
             }
+            ExprIr::OrdinaryPropertyAssignment(assignment) => {
+                self.uses_heap = true;
+                self.collect_expr(assignment.base_and_receiver());
+                self.collect_property_key(assignment.referenced_name());
+                self.collect_expr(assignment.rhs());
+            }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.uses_heap = true;
                 self.collect_expr(update.base_and_receiver());

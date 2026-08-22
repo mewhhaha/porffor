@@ -3290,6 +3290,13 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
         }
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            property_access_exposes_global_object(
+                assignment.base_and_receiver(),
+                assignment.referenced_name(),
+            ) || property_key_exposes_global_object(assignment.referenced_name())
+                || expr_exposes_global_object(assignment.rhs())
+        }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             property_access_exposes_global_object(
                 update.base_and_receiver(),
@@ -3792,6 +3799,11 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
+        }
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            collect_expr_global_property_names(assignment.base_and_receiver(), names);
+            collect_property_key_global_property_names(assignment.referenced_name(), names);
+            collect_expr_global_property_names(assignment.rhs(), names);
         }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             collect_expr_global_property_names(update.base_and_receiver(), names);
@@ -5302,6 +5314,18 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             expr_references_function(object, target)
                 || property_key_references_function(key, target)
         }
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            expr_references_function(assignment.base_and_receiver(), target)
+                || property_key_references_function(assignment.referenced_name(), target)
+                || expr_references_function(assignment.rhs(), target)
+                || shape_accessor_references_function(
+                    assignment.base_and_receiver().heap_shape.as_deref(),
+                    assignment.referenced_name(),
+                    target,
+                    false,
+                    true,
+                )
+        }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             expr_references_function(update.base_and_receiver(), target)
                 || property_key_references_function(update.referenced_name(), target)
@@ -6731,6 +6755,9 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
             }
         },
         ExprIr::OrdinaryPropertyNumericUpdate(update) => update.value_kind() == ValueKind::Dynamic,
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            expr_result_tag_is_runtime_dynamic(&assignment.rhs().expr)
+        }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
             expr_result_tag_is_runtime_dynamic(&mutation.result().expr)
         }
@@ -7305,6 +7332,17 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            matches!(assignment.base_and_receiver().kind, ValueKind::Object)
+                || expr_uses_function_table(assignment.base_and_receiver())
+                || expr_uses_function_table(assignment.rhs())
+                || match assignment.referenced_name() {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_function_table(expr)
+                    }
+                }
+        }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             matches!(update.base_and_receiver().kind, ValueKind::Object)
                 || expr_uses_function_table(update.base_and_receiver())
@@ -7502,6 +7540,16 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
             expr_uses_calls(target)
                 || expr_uses_calls(value)
                 || match key {
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
+                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                        expr_uses_calls(expr)
+                    }
+                }
+        }
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            expr_uses_calls(assignment.base_and_receiver())
+                || expr_uses_calls(assignment.rhs())
+                || match assignment.referenced_name() {
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_uses_calls(expr)
@@ -8225,6 +8273,24 @@ const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
 const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
 const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
 
+// Plain assignment has three explicit, non-overlapping phases. Reference
+// evaluation retains the four-local raw base/key carrier while its children
+// run. RHS evaluation adds its payload/tag. PutValue then canonicalizes the
+// retained raw key after reserving the distinct boxed target, then adds its
+// single Set-result local. The Set helper's four own locals and two-local
+// argument vector are the final peak.
+const ORDINARY_PROPERTY_ASSIGNMENT_RAW_TEMP_LOCALS: usize = 4;
+const ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS: usize = 4 + 2;
+const ORDINARY_PROPERTY_ASSIGNMENT_CANONICAL_TEMP_LOCALS: usize = 4 + 2 + 2;
+const ORDINARY_PROPERTY_ASSIGNMENT_READY_TEMP_LOCALS: usize = 4 + 2 + 2 + 1;
+// ToObject's widest branch boxes a string: prototype + wrapper object, three
+// retained `length` definition operands, and three complete-descriptor flags.
+// Its two UTF-16-length locals are a smaller nested phase under those first
+// five, so the boxed-string peak is eight.
+const ORDINARY_PROPERTY_ASSIGNMENT_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;
+const ORDINARY_PROPERTY_ASSIGNMENT_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;
+const ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+
 fn count_sync_disposable_resources_temp_locals(
     resources: &SyncDisposableResourcesIr,
     active_scope_temps: usize,
@@ -8430,6 +8496,27 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 }
             });
             child.max(12)
+        }
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            let key_child = match assignment.referenced_name() {
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    count_expr_temp_locals(expr)
+                }
+            };
+            let raw_phase = ORDINARY_PROPERTY_ASSIGNMENT_RAW_TEMP_LOCALS
+                + count_expr_temp_locals(assignment.base_and_receiver()).max(key_child);
+            let evaluated_phase = ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS
+                + count_expr_temp_locals(assignment.rhs());
+            let canonical_phase = ORDINARY_PROPERTY_ASSIGNMENT_CANONICAL_TEMP_LOCALS
+                + ORDINARY_PROPERTY_ASSIGNMENT_TO_OBJECT_TEMP_LOCALS
+                    .max(ORDINARY_PROPERTY_ASSIGNMENT_TO_PROPERTY_KEY_TEMP_LOCALS);
+            let write_phase = ORDINARY_PROPERTY_ASSIGNMENT_READY_TEMP_LOCALS
+                + ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS;
+            raw_phase
+                .max(evaluated_phase)
+                .max(canonical_phase)
+                .max(write_phase)
         }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
             let key_child = match update.referenced_name() {

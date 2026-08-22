@@ -8,7 +8,7 @@
 //! refuted runner knobs, and why the split has to be by module file rather than
 //! by libtest filter.
 //!
-//! 40 tests, all heavy. Its chunk is `run_chunk language_numerics
+//! 41 tests, all heavy. Its chunk is `run_chunk language_numerics
 //! language_numerics::` in `scripts/rung1c-chunks.sh`, and it needs BOTH that
 //! line and `mod language_numerics;` in `main.rs`: a module with a chunk but no
 //! `mod` line is not compiled, its filter selects nothing, libtest exits 0 on
@@ -31,6 +31,28 @@
 //! of another needs a `--skip` or the two chunks double-run each other's tests.
 
 use crate::*;
+
+#[test]
+fn run_wasm_backend_preserves_ordinary_property_plain_assignment_reference() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_ordinary_property_assignment_reference.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
 
 #[test]
 fn run_wasm_backend_preserves_ordinary_property_numeric_update_reference() {

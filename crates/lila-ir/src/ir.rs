@@ -26,9 +26,10 @@ pub mod reference;
 
 pub use reference::{
     carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
-    IdentifierWriteReferenceIr, OrdinaryPropertyEagerCompoundAssignmentIr,
-    OrdinaryPropertyNumericUpdateIr, PutValueFailure, Strictness, SuperPropertyMutationIr,
-    SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
+    IdentifierWriteReferenceIr, OrdinaryPropertyAssignmentIr,
+    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyNumericUpdateIr, PutValueFailure,
+    Strictness, SuperPropertyMutationIr, SuperPropertyMutationOperationIr,
+    SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -1769,6 +1770,7 @@ pub enum ExprIr {
         /// when it is true.
         strictness: Strictness,
     },
+    OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr),
     OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr),
     OrdinaryPropertyEagerCompoundAssignment(OrdinaryPropertyEagerCompoundAssignmentIr),
     UpdateIdentifier {
@@ -4110,6 +4112,16 @@ impl IrSummaryCounts {
                 self.visit_expr(target);
                 self.visit_property_key(key);
                 self.visit_expr(value);
+            }
+            ExprIr::OrdinaryPropertyAssignment(assignment) => {
+                self.property_writes += 1;
+                if matches!(assignment.referenced_name(), PropertyKeyIr::StaticString(name) if name == "prototype")
+                {
+                    self.prototype_writes += 1;
+                }
+                self.visit_expr(assignment.base_and_receiver());
+                self.visit_property_key(assignment.referenced_name());
+                self.visit_expr(assignment.rhs());
             }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.property_reads += 1;

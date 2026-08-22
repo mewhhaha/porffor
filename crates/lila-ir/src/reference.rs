@@ -191,6 +191,56 @@ impl OrdinaryPropertyEagerCompoundAssignmentIr {
     }
 }
 
+/// One plain assignment through an ordinary property Reference.
+///
+/// The base, raw referenced name, RHS, and `[[Strict]]` remain one fused
+/// obligation. In particular, the backend cannot validate or coerce the
+/// Reference before it has evaluated the carried RHS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an ordinary property assignment must be consumed by the backend"]
+pub struct OrdinaryPropertyAssignmentIr {
+    base_and_receiver: Box<TypedExpr>,
+    referenced_name: PropertyKeyIr,
+    rhs: Box<TypedExpr>,
+    strictness: Strictness,
+}
+
+impl OrdinaryPropertyAssignmentIr {
+    fn new(
+        base_and_receiver: Box<TypedExpr>,
+        referenced_name: PropertyKeyIr,
+        rhs: Box<TypedExpr>,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            base_and_receiver,
+            referenced_name,
+            rhs,
+            strictness,
+        }
+    }
+
+    #[must_use]
+    pub fn base_and_receiver(&self) -> &TypedExpr {
+        &self.base_and_receiver
+    }
+
+    #[must_use]
+    pub fn referenced_name(&self) -> &PropertyKeyIr {
+        &self.referenced_name
+    }
+
+    #[must_use]
+    pub fn rhs(&self) -> &TypedExpr {
+        &self.rhs
+    }
+
+    #[must_use]
+    pub fn strictness(&self) -> Strictness {
+        self.strictness
+    }
+}
+
 /// One fused numeric update of an ordinary property Reference.
 ///
 /// The operation and return mode are separate closed domains: the backend must
@@ -281,6 +331,22 @@ impl OrdinaryPropertyReferencePlan {
             referenced_name,
             strictness,
         }
+    }
+
+    /// Consume the retained Reference together with an already-lowered RHS.
+    /// Runtime validation and key coercion remain backend-owned so both occur
+    /// after RHS evaluation.
+    #[must_use]
+    pub(crate) fn plain_assignment(self, rhs: TypedExpr) -> TypedExpr {
+        TypedExpr::from_info(
+            rhs.value_info(),
+            ExprIr::OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr::new(
+                self.base_and_receiver,
+                self.referenced_name,
+                Box::new(rhs),
+                self.strictness,
+            )),
+        )
     }
 
     #[must_use]
@@ -2171,6 +2237,9 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         ExprIr::SuperPropertyMutation(mutation) => {
             Some((mutation.strictness(), PutValueFailure::TypeErrorOnly))
         }
+        ExprIr::OrdinaryPropertyAssignment(assignment) => {
+            Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
+        }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) => {
             Some((assignment.strictness(), PutValueFailure::TypeErrorOnly))
         }
@@ -2485,6 +2554,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::GlobalPropertyWrite { .. }
         | ExprIr::OptionalPropertyChain { .. }
         | ExprIr::PropertyWrite { .. }
+        | ExprIr::OrdinaryPropertyAssignment(_)
         | ExprIr::OrdinaryPropertyNumericUpdate(_)
         | ExprIr::OrdinaryPropertyEagerCompoundAssignment(_)
         | ExprIr::UpdateIdentifier { .. }

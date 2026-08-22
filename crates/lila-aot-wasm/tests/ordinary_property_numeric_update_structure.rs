@@ -142,7 +142,7 @@ fn lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_ac
             "self.lower_expression(expression)",
             "let plan = OrdinaryPropertyReferencePlan::new(",
             "self.reference_strictness()",
-            "(plan, referenced_name)",
+            "(plan, referenced_name, metadata)",
         ],
     );
 
@@ -191,7 +191,7 @@ fn lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_ac
 #[test]
 fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
     for prefix in [
-        "#[derive(Debug)]\n#[must_use = \"a raw ordinary Property Reference must be consumed by GetValue\"]\nstruct EvaluatedRawOrdinaryPropertyReferenceLocals",
+        "#[derive(Debug)]\n#[must_use = \"a raw ordinary Property Reference must enter its operation-specific transition\"]\nstruct EvaluatedRawOrdinaryPropertyReferenceLocals",
         "#[derive(Debug)]\n#[must_use = \"a numeric ordinary Property Reference must be advanced to its new value\"]\nstruct ReadOrdinaryPropertyNumericUpdateLocals",
         "#[derive(Debug)]\n#[must_use = \"a ready numeric ordinary Property Reference must be consumed by PutValue\"]\nstruct ReadyToWriteOrdinaryPropertyNumericUpdateLocals",
     ] {
@@ -214,7 +214,10 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
         sealed
             .matches("impl OrdinaryPropertyReferenceSource for ")
             .count(),
-        2
+        3
+    );
+    assert!(
+        sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyAssignmentIr")
     );
     assert!(sealed.contains(
         "impl OrdinaryPropertyReferenceSource for OrdinaryPropertyEagerCompoundAssignmentIr"

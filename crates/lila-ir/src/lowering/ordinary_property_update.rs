@@ -16,7 +16,7 @@ impl<'a> ScriptLowerer<'a> {
             UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
             UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
         };
-        let (plan, referenced_name) = self.lower_ordinary_property_reference_plan(access);
+        let (plan, referenced_name, _) = self.lower_ordinary_property_reference_plan(access);
         let result = plan.numeric_update(op, return_mode);
         self.update_written_shape(access.target(), &referenced_name, &result.value_info());
         result

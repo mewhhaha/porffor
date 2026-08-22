@@ -5708,6 +5708,14 @@ impl<'a> ScriptLowerer<'a> {
                 info = self.merge_optional_value_info(info, self.infer_expr_throw_info(value));
                 info
             }
+            ExprIr::OrdinaryPropertyAssignment(assignment) => {
+                let mut info = self.infer_expr_throw_info(assignment.base_and_receiver());
+                info = self.merge_optional_value_info(
+                    info,
+                    self.infer_property_key_throw_info(assignment.referenced_name()),
+                );
+                self.merge_optional_value_info(info, self.infer_expr_throw_info(assignment.rhs()))
+            }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => self.merge_optional_value_info(
                 self.infer_expr_throw_info(update.base_and_receiver()),
                 self.infer_property_key_throw_info(update.referenced_name()),
@@ -23883,7 +23891,14 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     result
                 }
-                AssignTarget::Access(access) => self.lower_property_assign(access, rhs),
+                AssignTarget::Access(access) => match access {
+                    PropertyAccess::Simple(access) => {
+                        self.lower_ordinary_property_plain_assignment(access, rhs)
+                    }
+                    PropertyAccess::Private(_) | PropertyAccess::Super(_) => {
+                        self.lower_property_assign(access, rhs)
+                    }
+                },
                 AssignTarget::Pattern(pattern) => self.lower_pattern_assign(pattern, rhs),
                 // Spelled out rather than `_`. `AssignTarget` is a closed
                 // 4-variant boa enum (`boa_ast-0.21.1/src/expression/operator/

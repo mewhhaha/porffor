@@ -181,6 +181,47 @@ identifier/global/Object Environment, `with`, optional chains, suspended
 References and the broader update-expression subtree remain explicit
 nonclaims.
 
+Plain assignment through an ordinary property Reference now uses a focused
+staging seam. The private consuming producer plan owns one evaluated
+base/receiver, one raw referenced-name expression, the RHS and captured
+`[[Strict]]`. Its backend consumer preserves the exact lifecycle:
+base, raw key, RHS, nullish `ToObject` validation, exactly one
+`ToPropertyKey`, same-reference `[[Set]]`, strict-false routing and only then
+RHS-result publication. The durable CLI fixture makes each boundary observable
+with Proxy/accessor receiver identity, RHS-before-coercion key mutation,
+nullish and abrupt completion, exactly-once evaluation, strict and sloppy false
+Set results, and primitive receivers.
+
+The exact raw Test262 inventory is:
+
+- `language/expressions/assignment/target-member-computed-reference-null.js`;
+- `language/expressions/assignment/target-member-identifier-reference-null.js`;
+  and
+- `language/expressions/assignment/target-member-identifier-reference-undefined.js`.
+
+Each file has no explicit flags and therefore contributes sloppy and strict
+Script executions. At clean pre-batch head `eb32c63a`, the two null-base files
+were freshly `0/2` `Runtime/NotImplemented`; the undefined-base identifier file
+was `1/2`, with strict passing and sloppy reporting `Runtime/Bug`. The selected
+baseline is therefore `1/6`. The adjacent
+`target-member-computed-reference-undefined.js` and
+`target-member-computed-reference.js` controls were each `2/2`. No runner
+rewrite, matrix mask or known-failure entry owns the cohort. Post-batch
+verification is green: the workspace/all-target check in 15.18 seconds and
+cached `cargo xc` in 0.17 seconds; the focused IR invariant `1/1` in 6.85
+seconds after an 8.25-second build; the new structure executable `7/7` in 0.01
+seconds after a 20.76-second build; retained eager-compound and numeric
+structures `7/7` each in 0.22 and 0.02 seconds; and the exact Wasm CLI fixture
+`1/1` in 66.90 seconds. The selected three files now pass all `6/6` executions
+with zero unsupported, not-implemented, crash or bug outcomes, while both adjacent controls
+remain `4/4`. Focused runtime verification removed only the unsupported
+`(1).p` property-read assertion from the fixture; both primitive-assignment
+oracles remain. These focused results do not claim the broader assignment leaf.
+Compound/logical/destructuring assignment, `super`, private,
+identifier/global/Object Environment, `with`, optional-chain and resumable
+property References remain explicit nonclaims. The closed boundary is recorded in
+`docs/rust-rewrite/contracts/ordinary-property-plain-assignment-reference.md`.
+
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central

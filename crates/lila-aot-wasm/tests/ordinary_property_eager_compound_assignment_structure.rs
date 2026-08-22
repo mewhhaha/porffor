@@ -183,7 +183,7 @@ fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decom
             "self.lower_expression(expression)",
             "let plan = OrdinaryPropertyReferencePlan::new(",
             "self.reference_strictness()",
-            "(plan, referenced_name)",
+            "(plan, referenced_name, metadata)",
         ],
     );
     let producer = bounded(
@@ -231,7 +231,7 @@ fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decom
 #[test]
 fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
     for prefix in [
-        "#[derive(Debug)]\n#[must_use = \"a raw ordinary Property Reference must be consumed by GetValue\"]\nstruct EvaluatedRawOrdinaryPropertyReferenceLocals",
+        "#[derive(Debug)]\n#[must_use = \"a raw ordinary Property Reference must enter its operation-specific transition\"]\nstruct EvaluatedRawOrdinaryPropertyReferenceLocals",
         "#[derive(Debug)]\n#[must_use = \"a read ordinary Property Reference must be advanced to its applied result\"]\nstruct ReadOrdinaryPropertyReferenceLocals",
         "#[derive(Debug)]\n#[must_use = \"a ready ordinary Property Reference must be consumed by PutValue\"]\nstruct ReadyToWriteOrdinaryPropertyReferenceLocals",
     ] {
@@ -271,7 +271,7 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
     let get = bounded(
         EXPRESSIONS_SOURCE,
         "    fn emit_get_value_from_raw_ordinary_property_reference(",
-        "    fn emit_result_from_read_ordinary_property_reference(",
+        "    fn evaluate_rhs_for_raw_ordinary_property_assignment(",
     );
     positions_in_order(
         get,

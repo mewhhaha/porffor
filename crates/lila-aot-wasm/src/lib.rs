@@ -15,7 +15,7 @@ use lila_ir::{
     FunctionId, FunctionIr, FunctionParamIr, FunctionProtocolIr, GeneratorResumeModeIr,
     GeneratorTryPlanIr, GlobalBindingPlan, GlobalPropertyInitializerIr, HeapShape, HostBuiltinId,
     IdentifierWriteDisposition, JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp,
-    NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty,
+    NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty, OrdinaryPropertyAssignmentIr,
     OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr,
     PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr,
     StandardBuiltinId, StatementIr, Strictness, SuspendedPropertyReferenceIr,

@@ -3,12 +3,37 @@ use crate::operations::NumericBinaryOperator;
 use lila_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
 
 #[derive(Debug)]
-#[must_use = "a raw ordinary Property Reference must be consumed by GetValue"]
+#[must_use = "a raw ordinary Property Reference must enter its operation-specific transition"]
 struct EvaluatedRawOrdinaryPropertyReferenceLocals {
     base_and_receiver_payload: u32,
     base_and_receiver_tag: u32,
     referenced_name_payload: u32,
     referenced_name_tag: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "an evaluated ordinary property assignment must enter PutValue"]
+struct EvaluatedRawOrdinaryPropertyAssignmentLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    referenced_name_payload: u32,
+    referenced_name_tag: u32,
+    rhs_payload: u32,
+    rhs_tag: u32,
+}
+
+#[derive(Debug)]
+#[must_use = "a canonical ordinary property assignment must be consumed by PutValue"]
+struct ReadyToWriteOrdinaryPropertyAssignmentLocals {
+    base_and_receiver_payload: u32,
+    base_and_receiver_tag: u32,
+    target_object_payload: u32,
+    target_object_tag: u32,
+    property_key_payload: u32,
+    property_key_tag: u32,
+    rhs_payload: u32,
+    rhs_tag: u32,
+    set_result: u32,
 }
 
 #[derive(Debug)]
@@ -63,12 +88,22 @@ struct ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
 
 /// The sealed input required by the shared ordinary Reference evaluator.
 ///
-/// Both fused IR carriers own the same base/raw-key pair. Keeping this trait
-/// private makes that pair the only reusable part of their otherwise distinct
-/// compound-assignment and numeric-update lifecycles.
+/// The three fused IR carriers own the same base/raw-key pair. Keeping this
+/// trait private makes that pair the only reusable part of their otherwise
+/// distinct assignment, compound-assignment and numeric-update lifecycles.
 trait OrdinaryPropertyReferenceSource {
     fn base_and_receiver(&self) -> &TypedExpr;
     fn referenced_name(&self) -> &PropertyKeyIr;
+}
+
+impl OrdinaryPropertyReferenceSource for OrdinaryPropertyAssignmentIr {
+    fn base_and_receiver(&self) -> &TypedExpr {
+        self.base_and_receiver()
+    }
+
+    fn referenced_name(&self) -> &PropertyKeyIr {
+        self.referenced_name()
+    }
 }
 
 impl OrdinaryPropertyReferenceSource for OrdinaryPropertyEagerCompoundAssignmentIr {
@@ -455,6 +490,186 @@ impl<'a> FunctionBuilder<'a> {
             old_value_payload,
             old_value_tag,
         })
+    }
+
+    fn evaluate_rhs_for_raw_ordinary_property_assignment(
+        &mut self,
+        reference: EvaluatedRawOrdinaryPropertyReferenceLocals,
+        assignment: &OrdinaryPropertyAssignmentIr,
+        function: &mut Function,
+    ) -> Result<EvaluatedRawOrdinaryPropertyAssignmentLocals, EmitError> {
+        let EvaluatedRawOrdinaryPropertyReferenceLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            referenced_name_payload,
+            referenced_name_tag,
+        } = reference;
+        let rhs_payload = self.reserve_temp_local();
+        let rhs_tag = self.reserve_temp_local();
+
+        self.compile_expr_to_locals(assignment.rhs(), rhs_payload, rhs_tag, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(rhs_payload, rhs_tag, function)?;
+
+        Ok(EvaluatedRawOrdinaryPropertyAssignmentLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            referenced_name_payload,
+            referenced_name_tag,
+            rhs_payload,
+            rhs_tag,
+        })
+    }
+
+    fn canonicalize_raw_ordinary_property_assignment(
+        &mut self,
+        reference: EvaluatedRawOrdinaryPropertyAssignmentLocals,
+        function: &mut Function,
+    ) -> Result<ReadyToWriteOrdinaryPropertyAssignmentLocals, EmitError> {
+        let EvaluatedRawOrdinaryPropertyAssignmentLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            referenced_name_payload: property_key_payload,
+            referenced_name_tag: property_key_tag,
+            rhs_payload,
+            rhs_tag,
+        } = reference;
+
+        // PutValue applies ToObject only after assignment evaluation has
+        // produced the complete Reference and RHS. Route its nullish abrupt
+        // case through the active catch/finally target before entering the
+        // generic ToObject helper, whose own nullish tail returns from the
+        // current function rather than selecting this Reference's handler.
+        self.compile_nullish_tagged_i32(base_and_receiver_tag, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot convert undefined or null to object",
+            rhs_payload,
+            rhs_tag,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(rhs_payload, rhs_tag, function)?;
+        function.instruction(&Instruction::End);
+
+        // Keep the boxed target distinct from the original Reference base:
+        // OrdinarySet receives the object as `O`, but the unboxed base remains
+        // the `Receiver`.
+        let target_object_payload = self.reserve_temp_local();
+        let target_object_tag = self.reserve_temp_local();
+        self.emit_value_to_object_locals(
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
+            function,
+        )?;
+
+        self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            property_key_payload,
+            property_key_tag,
+            function,
+        )?;
+        let set_result = self.reserve_temp_local();
+
+        Ok(ReadyToWriteOrdinaryPropertyAssignmentLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
+            property_key_payload,
+            property_key_tag,
+            rhs_payload,
+            rhs_tag,
+            set_result,
+        })
+    }
+
+    fn emit_put_value_from_ready_ordinary_property_assignment(
+        &mut self,
+        reference: ReadyToWriteOrdinaryPropertyAssignmentLocals,
+        strictness: Strictness,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ReadyToWriteOrdinaryPropertyAssignmentLocals {
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            target_object_payload,
+            target_object_tag,
+            property_key_payload,
+            property_key_tag,
+            rhs_payload,
+            rhs_tag,
+            set_result,
+        } = reference;
+
+        self.emit_ordinary_set_result_via_helper(
+            target_object_payload,
+            target_object_tag,
+            base_and_receiver_payload,
+            base_and_receiver_tag,
+            property_key_payload,
+            property_key_tag,
+            rhs_payload,
+            rhs_tag,
+            set_result,
+            function,
+        )?;
+        if strictness.throws_on_failed_set() {
+            function.instruction(&Instruction::LocalGet(set_result));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error_to_active_handler(
+                TYPE_ERROR_NAME,
+                "Cannot assign to property",
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+        }
+
+        function.instruction(&Instruction::LocalGet(rhs_payload));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(rhs_tag));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
+        self.release_temp_local(set_result);
+        self.release_temp_local(target_object_tag);
+        self.release_temp_local(target_object_payload);
+        self.release_temp_local(rhs_tag);
+        self.release_temp_local(rhs_payload);
+        self.release_temp_local(property_key_tag);
+        self.release_temp_local(property_key_payload);
+        self.release_temp_local(base_and_receiver_tag);
+        self.release_temp_local(base_and_receiver_payload);
+        Ok(())
+    }
+
+    fn compile_ordinary_property_assignment_to_locals(
+        &mut self,
+        assignment: &OrdinaryPropertyAssignmentIr,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let raw_reference = self.evaluate_raw_ordinary_property_reference(assignment, function)?;
+        let evaluated_assignment = self.evaluate_rhs_for_raw_ordinary_property_assignment(
+            raw_reference,
+            assignment,
+            function,
+        )?;
+        let ready_assignment =
+            self.canonicalize_raw_ordinary_property_assignment(evaluated_assignment, function)?;
+        self.emit_put_value_from_ready_ordinary_property_assignment(
+            ready_assignment,
+            assignment.strictness(),
+            payload_local,
+            tag_local,
+            function,
+        )
     }
 
     fn emit_result_from_read_ordinary_property_reference(
@@ -1359,6 +1574,17 @@ impl<'a> FunctionBuilder<'a> {
                 self.with_reference_strictness(*strictness, function, |emitter, function| {
                     emitter.compile_property_write_payload(target, key, value, function)
                 })?;
+            }
+            ExprIr::OrdinaryPropertyAssignment(assignment) => {
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.compile_ordinary_property_assignment_to_locals(
+                    assignment,
+                    scratch_local,
+                    result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 let scratch_local = self.scratch_local;
@@ -3803,6 +4029,13 @@ impl<'a> FunctionBuilder<'a> {
                     )
                 })?;
             }
+            ExprIr::OrdinaryPropertyAssignment(assignment) => self
+                .compile_ordinary_property_assignment_to_locals(
+                    assignment,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?,
             ExprIr::OrdinaryPropertyNumericUpdate(update) => self
                 .compile_ordinary_property_numeric_update_to_locals(
                     update,

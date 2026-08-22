@@ -521,6 +521,40 @@ Recent focused progress through `2026-08-21`:
   Eager/logical/plain assignment, `super`, private,
   identifier/global/Object Environment, `with`, optional-chain and suspended
   References remain outside this focused batch.
+- Plain assignment through an ordinary property Reference now uses a focused
+  staging seam. A private consuming producer plan owns
+  one evaluated base/receiver, one raw computed key, the RHS and captured
+  `[[Strict]]`; the AOT boundary performs PutValue in the order base,
+  raw key, RHS, nullish `ToObject` validation, exactly one `ToPropertyKey`,
+  `[[Set]]`, strict-false routing and only then RHS-result publication. The
+  durable CLI oracle makes this order observable through Proxy/accessor
+  receiver traces, RHS-before-coercion key mutation, nullish and abrupt paths,
+  exactly-once evaluation, strict and sloppy false Set results, and primitive
+  receivers.
+
+  At clean pre-batch head `eb32c63a`, the exact raw Test262 files
+  `language/expressions/assignment/target-member-computed-reference-null.js`
+  and `target-member-identifier-reference-null.js` were each freshly `0/2`
+  `Runtime/NotImplemented`, while
+  `target-member-identifier-reference-undefined.js` was `1/2`: strict passed
+  and sloppy was `Runtime/Bug`. The selected three-file, six-execution
+  baseline is therefore `1/6`. The adjacent
+  `target-member-computed-reference-undefined.js` and
+  `target-member-computed-reference.js` controls were each `2/2`. No runner
+  rewrite, matrix mask or known-failure entry owns these results. Post-batch
+  verification is green: the workspace/all-target check in 15.18 seconds and
+  cached `cargo xc` in 0.17 seconds; the focused IR invariant `1/1` in 6.85
+  seconds after an 8.25-second build; the new structure executable `7/7` in
+  0.01 seconds after a 20.76-second build; retained eager-compound and numeric
+  structures `7/7` each in 0.22 and 0.02 seconds; and the exact Wasm CLI fixture
+  `1/1` in 66.90 seconds. The three selected raw files now pass all `6/6`
+  executions with zero unsupported, not-implemented, crash or bug outcomes, while both adjacent
+  controls remain `4/4`. Focused runtime verification removed only an
+  unsupported `(1).p` property-read assertion from the fixture; its sloppy and
+  strict primitive-assignment oracles remain. These focused results do not
+  claim the broader assignment leaf. Compound, logical, destructuring,
+  `super`, private, identifier/global/Object Environment, `with`, optional-chain
+  and resumable assignments remain outside this focused boundary.
 - Direct identifier calls selected through `with` now have a verified,
   Reference-preserving lowering seam. A private non-copyable
   `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty
