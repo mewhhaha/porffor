@@ -17,6 +17,29 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: call-expression lowering ownership
+
+`lila-ir/src/lowering/call_expression.rs` now owns the complete `lower_call`
+implementation, including direct-call recognition, builtin and method routing,
+argument evaluation, specialization and final indirect-call construction. The
+parent keeps expression dispatch and the reusable call, shape and static-value
+helpers consumed by that implementation.
+
+This is a semantic-free source move. The only visibility change is the one
+`pub(super)` method consumed by parent expression dispatch; the child remains
+inside the private `lowering` module. The extraction reduces `lowering.rs` from
+31,833 to 28,693 raw lines. The boundary audit requires the child module and
+sole owner method, forbids a second parent body or legacy `include!` assembly,
+budgets the child at 3,200 raw lines and tightens the parent budget to 29,000.
+
+The extraction is verified by an exact normalized source-body comparison with
+the pre-move implementation and a green `cargo check --workspace --all-targets`.
+The serial call-focused IR cohort reports 63/67 and the serial CLI call cohort
+reports 35/36. All five failures reproduce unchanged at pre-extraction commit
+`f2309be48`: four primitive/ordinary method-call inference contracts and the
+`arguments.callee` CLI fixture. The module-boundary and task-plan audits are
+green. No call behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: class-definition lowering ownership
 
 `lila-ir/src/lowering/class_definition.rs` now owns the complete

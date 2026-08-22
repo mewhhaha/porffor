@@ -160,6 +160,26 @@ check_no_inline_legacy_includes "$ir_lib"
 ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
 require_file "$ir_builtin_shapes"
 require_module_decl "$ir_lowering" "builtin_shapes"
+# T02's call-expression boundary keeps direct-call recognition and lowering in
+# one child module. The parent owns expression dispatch and reusable helpers,
+# but cannot regrow a second implementation of its largest former method.
+ir_call_expression_lowering="crates/lila-ir/src/lowering/call_expression.rs"
+require_file "$ir_call_expression_lowering"
+require_module_decl "$ir_lowering" "call_expression"
+require_fixed_string_count \
+  "$ir_call_expression_lowering" \
+  'pub(super) fn lower_call(' \
+  1 \
+  'call-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_call(' \
+  0 \
+  'call-expression lowering body outside child module'
+check_no_inline_legacy_includes "$ir_call_expression_lowering"
+# Measured immediately after extraction: 3,144 raw lines. The margin is for
+# maintenance of the direct-call family, not unrelated lowering.
+check_raw_line_budget "$ir_call_expression_lowering" 3200
 # T02's class-definition boundary keeps the complete element planning,
 # generated-function scheduling and typed ClassDefinitionIr construction in
 # one child module. The parent retains only declaration/expression
@@ -178,7 +198,7 @@ require_fixed_string_count \
   0 \
   'class-definition lowering body outside child module'
 check_no_inline_legacy_includes "$ir_class_definition_lowering"
-# Measured immediately after extraction: 1,328 raw lines. The margin is for
+# Measured immediately after extraction: 1,327 raw lines. The margin is for
 # maintenance of this class-definition family, not unrelated lowering.
 check_raw_line_budget "$ir_class_definition_lowering" 1400
 # T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
@@ -192,11 +212,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured immediately after extraction: 31,979 raw lines. This deliberately
-# leaves only 21 lines of headroom; new builtin shape metadata belongs in the
-# child, and further lowering families should be extracted rather than growing
-# the remaining store again.
-check_raw_line_budget "$ir_lowering" 32000
+# Measured after extracting call-expression lowering: 28,693 raw lines. This
+# leaves modest orchestration headroom while preventing the former 32k-line
+# implementation store from regrowing.
+check_raw_line_budget "$ir_lowering" 29000
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.
