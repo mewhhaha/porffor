@@ -160,6 +160,27 @@ check_no_inline_legacy_includes "$ir_lib"
 ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
 require_file "$ir_builtin_shapes"
 require_module_decl "$ir_lowering" "builtin_shapes"
+# T02's class-definition boundary keeps the complete element planning,
+# generated-function scheduling and typed ClassDefinitionIr construction in
+# one child module. The parent retains only declaration/expression
+# orchestration and cannot regrow a second copy of the implementation.
+ir_class_definition_lowering="crates/lila-ir/src/lowering/class_definition.rs"
+require_file "$ir_class_definition_lowering"
+require_module_decl "$ir_lowering" "class_definition"
+require_fixed_string_count \
+  "$ir_class_definition_lowering" \
+  'pub(super) fn lower_class_common_in_name_scope(' \
+  1 \
+  'class-definition lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_class_common_in_name_scope(' \
+  0 \
+  'class-definition lowering body outside child module'
+check_no_inline_legacy_includes "$ir_class_definition_lowering"
+# Measured immediately after extraction: 1,328 raw lines. The margin is for
+# maintenance of this class-definition family, not unrelated lowering.
+check_raw_line_budget "$ir_class_definition_lowering" 1400
 # T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
 # the ordinary and staged-generator walkers together in their child module so
 # the 32k-line orchestration boundary does not become the edit point again.

@@ -17,6 +17,29 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: class-definition lowering ownership
+
+`lila-ir/src/lowering/class_definition.rs` now owns the complete
+`lower_class_common_in_name_scope` implementation: heritage validation, public
+and private method/field planning, auto-accessor backing and generated-function
+scheduling, instance/static initialization plans, shapes and final typed
+`ClassDefinitionIr` construction. The parent keeps the declaration/expression
+entrypoints, class-name scope orchestration and generated-function helpers.
+
+This is a semantic-free source move. The only visibility change is the one
+`pub(super)` method consumed by the parent orchestrator; the child remains
+inside the private `lowering` module. The extraction reduces `lowering.rs` from
+33,156 to 31,833 raw lines, restoring the enforced 32,000-line boundary. The
+boundary audit requires the child module and sole owner method, forbids a
+second parent body or legacy `include!` assembly, and budgets the child at
+1,400 raw lines.
+
+The extraction is verified by an exact normalized source-body comparison with
+the pre-move implementation, `cargo check --workspace --all-targets`, the
+focused IR auto-accessor regression (1/1), and the serial CLI class group
+(27/27). The module-boundary and task-plan audits are also green. No class
+behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-17: bound-function invoker ownership
 
 The hidden `BoundFunctionInvoker` body now lives beside
