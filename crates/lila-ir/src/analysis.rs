@@ -69,6 +69,8 @@ pub(crate) struct PrivateEnvironmentPlan {
     pub(crate) id: PrivateEnvironmentId,
     pub(crate) parent: Option<PrivateEnvironmentId>,
     pub(crate) bindings: BTreeMap<String, PrivateNameId>,
+    pub(crate) auto_accessor_backings: BTreeMap<usize, AutoAccessorBackingNameIr>,
+    pub(crate) slot_count: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -489,25 +491,34 @@ impl<'a> AnalysisBuilder<'a> {
         interner: &Interner,
     ) -> Option<PrivateEnvironmentId> {
         let mut private_names = Vec::new();
-        for element in elements {
+        let mut auto_accessor_element_indexes = Vec::new();
+        for (element_index, element) in elements.iter().enumerate() {
             let private_name = match element {
                 ClassElement::MethodDefinition(method) => match method.name() {
                     ClassElementName::PrivateName(name) => Some(*name),
                     ClassElementName::PropertyName(_) => None,
                 },
                 ClassElement::PrivateFieldDefinition(field)
-                | ClassElement::PrivateStaticFieldDefinition(field) => Some(*field.name()),
+                | ClassElement::PrivateStaticFieldDefinition(field) => {
+                    if field.kind() == boa_ast::function::PrivateFieldDefinitionKind::AutoAccessor {
+                        auto_accessor_element_indexes.push(element_index);
+                    }
+                    Some(*field.name())
+                }
                 ClassElement::FieldDefinition(_)
-                | ClassElement::AccessorFieldDefinition(_)
                 | ClassElement::StaticFieldDefinition(_)
-                | ClassElement::StaticAccessorFieldDefinition(_)
                 | ClassElement::StaticBlock(_) => None,
+                ClassElement::AccessorFieldDefinition(_)
+                | ClassElement::StaticAccessorFieldDefinition(_) => {
+                    auto_accessor_element_indexes.push(element_index);
+                    None
+                }
             };
             if let Some(private_name) = private_name {
                 private_names.push(private_name_key(interner, private_name));
             }
         }
-        if private_names.is_empty() {
+        if private_names.is_empty() && auto_accessor_element_indexes.is_empty() {
             return None;
         }
 
@@ -522,12 +533,25 @@ impl<'a> AnalysisBuilder<'a> {
                 u32::try_from(bindings.len()).expect("class private name count must fit in u32");
             bindings.insert(private_name, PrivateNameId::new(id.0, name_ordinal));
         }
+        let mut auto_accessor_backings = BTreeMap::new();
+        for element_index in auto_accessor_element_indexes {
+            let name_ordinal = u32::try_from(bindings.len() + auto_accessor_backings.len())
+                .expect("class private slot count must fit in u32");
+            auto_accessor_backings.insert(
+                element_index,
+                AutoAccessorBackingNameIr::new(PrivateNameId::new(id.0, name_ordinal)),
+            );
+        }
+        let slot_count = u32::try_from(bindings.len() + auto_accessor_backings.len())
+            .expect("class private slot count must fit in u32");
         self.private_environment_plans.insert(
             id,
             PrivateEnvironmentPlan {
                 id,
                 parent: self.current_private_environment_id(),
                 bindings,
+                auto_accessor_backings,
+                slot_count,
             },
         );
         self.class_private_environment_ids

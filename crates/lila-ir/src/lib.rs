@@ -9918,18 +9918,26 @@ target[Symbol.iterator];"#,
             .expect("constructor should own its instance element plan");
         let execution_ids =
             instance_plan
-                .fields
+                .elements
                 .iter()
-                .filter_map(|field| field.init_function_id.clone())
+                .filter_map(|element| match element {
+                    ClassInstanceElementIr::Field(field) => field.init_function_id.clone(),
+                    ClassInstanceElementIr::AutoAccessorBacking(accessor) => {
+                        accessor.init_function_id.clone()
+                    }
+                })
                 .chain(class.element_plan.static_elements.iter().filter_map(
                     |element| match element {
                         ClassStaticElementIr::Field(field) => field.init_function_id.clone(),
+                        ClassStaticElementIr::AutoAccessorBacking(accessor) => {
+                            accessor.init_function_id.clone()
+                        }
                         ClassStaticElementIr::Block(block) => Some(block.function_id.clone()),
                     },
                 ))
                 .collect::<BTreeSet<_>>();
 
-        assert_eq!(instance_plan.fields.len(), 2);
+        assert_eq!(instance_plan.elements.len(), 2);
         assert_eq!(class.element_plan.static_elements.len(), 2);
         assert_eq!(execution_ids.len(), 4);
     }
@@ -10004,12 +10012,96 @@ target[Symbol.iterator];"#,
             .as_ref()
             .expect("constructor should own its instance element plan");
         assert!(matches!(
-            instance_plan.fields.as_slice(),
-            [public, private]
+            instance_plan.elements.as_slice(),
+            [ClassInstanceElementIr::Field(public), ClassInstanceElementIr::Field(private)]
                 if matches!(&public.key, ClassFieldKeyIr::Public(key) if key == "publicInstance")
                     && matches!(&private.key, ClassFieldKeyIr::Private(_))
         ));
         assert_eq!(instance_plan.private_method_brands.len(), 1);
+    }
+
+    #[test]
+    fn class_auto_accessors_have_distinct_exposed_and_backing_plans() {
+        let program = lower_script(
+            "class C {
+                accessor publicValue = 1;
+                static accessor staticValue;
+                accessor #privateValue = 2;
+                static accessor #privateStatic = 3;
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let class = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical {
+                    init:
+                        TypedExpr {
+                            expr: ExprIr::ClassDefinition(class),
+                            ..
+                        },
+                    ..
+                } => Some(class.as_ref()),
+                _ => None,
+            })
+            .expect("class definition should be lowered");
+        let private_environment = class
+            .private_environment
+            .expect("auto-accessors require a class private environment");
+        assert_eq!(class.private_name_ids.len(), 2);
+        assert_eq!(private_environment.slot_count(), 6);
+
+        let accessors = class
+            .element_plan
+            .definitions
+            .iter()
+            .filter_map(|definition| match definition {
+                ClassElementDefinitionIr::AutoAccessor(accessor) => Some(accessor),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(accessors.len(), 4);
+        let backing_names = accessors
+            .iter()
+            .map(|accessor| accessor.backing_name.private_name_id())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(backing_names.len(), 4);
+        assert!(backing_names.iter().all(|backing| !class
+            .private_name_ids
+            .values()
+            .any(|visible| visible == backing)));
+        for accessor in accessors {
+            let getter = script
+                .functions
+                .iter()
+                .find(|function| &function.id == accessor.functions.getter())
+                .expect("generated getter should exist");
+            let setter = script
+                .functions
+                .iter()
+                .find(|function| &function.id == accessor.functions.setter())
+                .expect("generated setter should exist");
+            assert_eq!(getter.protocol, FunctionProtocolIr::ClassGetter);
+            assert_eq!(setter.protocol, FunctionProtocolIr::ClassSetter);
+            assert!(getter.strict && setter.strict);
+            assert!(getter.params.is_empty());
+            assert_eq!(setter.params.len(), 1);
+        }
+
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.id == class.constructor_function_id)
+            .expect("class constructor should be lowered");
+        let instance_plan = constructor
+            .class_instance_element_plan
+            .as_ref()
+            .expect("instance backing initializers should be planned");
+        assert_eq!(instance_plan.elements.len(), 2);
+        assert_eq!(class.element_plan.static_elements.len(), 2);
     }
 
     #[test]
@@ -10054,11 +10146,11 @@ target[Symbol.iterator];"#,
             .as_ref()
             .expect("constructor should own its instance field plan");
         assert!(matches!(
-            instance_plan.fields.as_slice(),
-            [ClassFieldInitIr {
+            instance_plan.elements.as_slice(),
+            [ClassInstanceElementIr::Field(ClassFieldInitIr {
                 key: ClassFieldKeyIr::ComputedPublic(0),
                 ..
-            }]
+            })]
         ));
         assert!(matches!(
             class.element_plan.static_elements.as_slice(),
@@ -10164,7 +10256,10 @@ target[Symbol.iterator];"#,
             .class_instance_element_plan
             .as_ref()
             .expect("constructor should own its instance element plan");
-        for field in &instance_plan.fields {
+        for field in &instance_plan.elements {
+            let ClassInstanceElementIr::Field(field) = field else {
+                panic!("expected an ordinary field")
+            };
             let initializer_id = field
                 .init_function_id
                 .as_ref()
@@ -10187,7 +10282,9 @@ target[Symbol.iterator];"#,
             .iter()
             .filter_map(|element| match element {
                 ClassStaticElementIr::Field(field) => Some(field),
-                ClassStaticElementIr::Block(_) => None,
+                ClassStaticElementIr::AutoAccessorBacking(_) | ClassStaticElementIr::Block(_) => {
+                    None
+                }
             })
         {
             let initializer_id = field
@@ -10213,7 +10310,9 @@ target[Symbol.iterator];"#,
             .iter()
             .find_map(|element| match element {
                 ClassStaticElementIr::Block(block) => Some(&block.function_id),
-                ClassStaticElementIr::Field(_) => None,
+                ClassStaticElementIr::Field(_) | ClassStaticElementIr::AutoAccessorBacking(_) => {
+                    None
+                }
             })
             .expect("static block should be planned");
         let static_block = script

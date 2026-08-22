@@ -40,27 +40,29 @@ their metadata names `decorators`, and neither file contains an actual `@`
 decorator. `staging/decorators/accessor-as-identifier.js` is the adjacent
 contextual-keyword control.
 
-A focused Wasm-AOT probe reports the declaration grammar file as `0/2`, both
-exact failures being Runtime/NotImplemented with detail `auto-accessor class
-field`. The probe declares Test262 revision
-`aa55200d1310384c5cf69ea95b2a2ecba457007b`, which is also the current vendored
-Test262 suite-tree identity. The probe's compiler commit and executable predate
-the current code head, so it selects this work but is not current-SHA completion
-evidence.
+The pre-implementation probe reported the declaration grammar file as `0/2`,
+both failures at the old `auto-accessor class field` boundary. Current
+`2026-08-22` evidence supersedes that probe: the five raw grammar/contextual
+keyword files pass `10/10` Wasm-AOT executions, the public staging semantic file
+passes `2/2`, and the durable all-form fixture passes `1/1`. The private staging
+file remains a diagnostic: its ordinary private auto-accessor sections execute,
+but both cases finish Runtime/Bug because literal `eval` duplicate-name checks
+receive the wrong error constructor. That is dynamic-source/error-realm debt,
+not an auto-accessor storage failure.
 
-The implementation sources corroborate the present boundary:
+The implementation seam is now:
 
-- `vendor/boa_ast-0.21.1/src/function/class.rs` has public instance/static
-  `AccessorFieldDefinition` variants and retains decorator expressions;
-- `vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs`
-  recognizes the no-LineTerminator contextual keyword, but currently maps
-  private auto-accessors to ordinary private-field variants and loses their
-  semantic kind;
-- `crates/lila-ir/src/lowering.rs` rejects the two public variants as
-  `auto-accessor class field` and cannot distinguish the private form; and
-- `vendor/boa_engine-0.21.1/src/bytecompiler/class.rs` demonstrates the useful
-  decomposition into a fresh private backing name plus generated functions.
-  It is seam evidence, not a product-path oracle.
+- `PrivateFieldDefinitionKind::{Field, AutoAccessor}` preserves the private
+  parser distinction without source-text recovery;
+- `PrivateEnvironmentPlan` separates visible private bindings, hidden backing
+  names and total slot count;
+- `AutoAccessorBackingNameIr` and `AutoAccessorFunctionPairIr` make hidden-name
+  freshness and complete getter/setter pairing structural;
+- `ClassElementDefinitionIr`, `ClassInstanceElementIr` and
+  `ClassStaticElementIr` carry exhaustive definition and initialization events;
+  and
+- `compile_class_definition_payload` reuses the ordinary accessor descriptor,
+  private definition, private field and generated class-function paths.
 
 The relevant specification operations are `ClassDefinitionEvaluation`, class
 field-definition evaluation, `InitializeInstanceElements`, `DefineField`,
@@ -306,15 +308,12 @@ records exist.
 
 The local seven-file evidence corpus has two different gates. The raw green set
 is the four generated `language/{expressions,statements}/class/elements` files
-listed above plus `staging/decorators/accessor-as-identifier.js`. The public and
-private staging semantic files are diagnostics, not raw acceptance gates:
-`staging/decorators/public-auto-accessor.js` and
-`staging/decorators/private-auto-accessor.js` necessarily execute literal
-`eval` for inherited-static failures or duplicate-private early errors. They
-must reach the explicit dynamic-code-generation boundary rather than being
-silently skipped or counted as auto-accessor green. Durable static-source
-fixtures must cover all of their auto-accessor semantics, including static
-rewrites of the eval-only assertions, before the backend slice is called green.
+listed above plus `staging/decorators/accessor-as-identifier.js`. The public
+staging semantic file is additionally green at the current head. The private
+staging semantic file remains diagnostic because its duplicate-private section
+executes literal `eval`; durable static-source fixtures cover its auto-accessor
+storage semantics while the dynamic-source/error-constructor result stays
+reported separately.
 
 After implementation, run the focused green gates in this order:
 
@@ -329,8 +328,8 @@ cargo test -p lila-cli wasm_class_auto_accessor --quiet
 ./target/debug/lila test262 run staging/decorators/accessor-as-identifier.js --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
-Run the two semantic sources separately as diagnostics. Their expected terminal
-classification is the explicit Wasm-AOT dynamic-source boundary, not success:
+Run the two semantic sources separately. Public is a current green semantic
+gate; private remains a dynamic-source/error-constructor diagnostic:
 
 ```sh
 ./target/debug/lila test262 run staging/decorators/public-auto-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1

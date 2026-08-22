@@ -809,10 +809,74 @@ pub struct ClassFieldInitIr {
     pub init_function_id: Option<FunctionId>,
 }
 
+/// The unspellable private name allocated for one auto-accessor's backing slot.
+///
+/// This wrapper deliberately cannot be constructed outside `lila-ir`: source
+/// private-name lookup accepts [`PrivateNameId`], while an auto-accessor backing
+/// reaches the backend only through the closed class-element plans below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AutoAccessorBackingNameIr(PrivateNameId);
+
+impl AutoAccessorBackingNameIr {
+    pub(crate) const fn new(private_name_id: PrivateNameId) -> Self {
+        Self(private_name_id)
+    }
+
+    pub const fn private_name_id(self) -> PrivateNameId {
+        self.0
+    }
+}
+
+/// The generated getter/setter identities owned by one auto-accessor.
+///
+/// Both functions are allocated together and consumers can only project the
+/// two required sides; a half-pair is not representable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoAccessorFunctionPairIr {
+    getter: FunctionId,
+    setter: FunctionId,
+}
+
+impl AutoAccessorFunctionPairIr {
+    pub(crate) fn new(getter: FunctionId, setter: FunctionId) -> Self {
+        Self { getter, setter }
+    }
+
+    pub fn getter(&self) -> &FunctionId {
+        &self.getter
+    }
+
+    pub fn setter(&self) -> &FunctionId {
+        &self.setter
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassAutoAccessorIr {
+    pub key: ClassFieldKeyIr,
+    pub computed_key: Option<PropertyKeyIr>,
+    pub backing_name: AutoAccessorBackingNameIr,
+    pub functions: AutoAccessorFunctionPairIr,
+    pub init_function_id: Option<FunctionId>,
+    pub placement: ClassMethodPlacementIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassAutoAccessorBackingInitIr {
+    pub backing_name: AutoAccessorBackingNameIr,
+    pub init_function_id: Option<FunctionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassInstanceElementIr {
+    Field(ClassFieldInitIr),
+    AutoAccessorBacking(ClassAutoAccessorBackingInitIr),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassInstanceElementPlanIr {
     pub private_method_brands: Vec<PrivateNameId>,
-    pub fields: Vec<ClassFieldInitIr>,
+    pub elements: Vec<ClassInstanceElementIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -825,11 +889,13 @@ pub enum ClassElementDefinitionIr {
     PublicMethod(ClassPublicMethodIr),
     PrivateMethod(ClassPrivateMethodIr),
     ComputedFieldKey { slot: u32, key: PropertyKeyIr },
+    AutoAccessor(ClassAutoAccessorIr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClassStaticElementIr {
     Field(ClassFieldInitIr),
+    AutoAccessorBacking(ClassAutoAccessorBackingInitIr),
     Block(ClassStaticBlockIr),
 }
 
@@ -845,6 +911,39 @@ pub struct ClassNameBindingIr {
     pub environment: LexicalEnvironmentIr,
 }
 
+/// The allocation facts for one class private environment.
+///
+/// `slot_count` includes both source-visible private names and hidden
+/// auto-accessor backing names. Keeping it next to the class scope prevents a
+/// public-only auto-accessor class from masquerading as a class with no private
+/// environment merely because its visible-name map is empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassPrivateEnvironmentIr {
+    class_scope: u32,
+    slot_count: u32,
+}
+
+impl ClassPrivateEnvironmentIr {
+    pub(crate) const fn new(class_scope: u32, slot_count: u32) -> Self {
+        assert!(
+            slot_count > 0,
+            "a class private environment must own a slot"
+        );
+        Self {
+            class_scope,
+            slot_count,
+        }
+    }
+
+    pub const fn class_scope(self) -> u32 {
+        self.class_scope
+    }
+
+    pub const fn slot_count(self) -> u32 {
+        self.slot_count
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassDefinitionIr {
     pub name: Option<String>,
@@ -855,6 +954,7 @@ pub struct ClassDefinitionIr {
     pub heritage: Option<Box<TypedExpr>>,
     pub element_plan: ClassElementPlanIr,
     pub private_name_ids: BTreeMap<String, PrivateNameId>,
+    pub private_environment: Option<ClassPrivateEnvironmentIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3594,11 +3694,16 @@ struct IrSummaryCounts {
 impl IrSummaryCounts {
     fn visit_function(&mut self, function: &FunctionIr) {
         if let Some(plan) = &function.class_instance_element_plan {
-            self.class_fields += plan.fields.len();
+            self.class_fields += plan.elements.len();
             self.private_elements += plan
-                .fields
+                .elements
                 .iter()
-                .filter(|field| matches!(&field.key, ClassFieldKeyIr::Private(_)))
+                .filter(|element| match element {
+                    ClassInstanceElementIr::Field(field) => {
+                        matches!(&field.key, ClassFieldKeyIr::Private(_))
+                    }
+                    ClassInstanceElementIr::AutoAccessorBacking(_) => true,
+                })
                 .count();
         }
         if function.is_nested {
@@ -4407,6 +4512,10 @@ impl IrSummaryCounts {
                             self.private_elements +=
                                 usize::from(matches!(&field.key, ClassFieldKeyIr::Private(_)));
                         }
+                        ClassStaticElementIr::AutoAccessorBacking(_) => {
+                            self.class_fields += 1;
+                            self.private_elements += 1;
+                        }
                         ClassStaticElementIr::Block(_) => self.static_blocks += 1,
                     }
                 }
@@ -4422,10 +4531,20 @@ impl IrSummaryCounts {
                     self.visit_expr(heritage);
                 }
                 for definition in &class.element_plan.definitions {
-                    let ClassElementDefinitionIr::PublicMethod(method) = definition else {
-                        continue;
-                    };
-                    self.visit_property_key(&method.key);
+                    match definition {
+                        ClassElementDefinitionIr::PublicMethod(method) => {
+                            self.visit_property_key(&method.key);
+                        }
+                        ClassElementDefinitionIr::AutoAccessor(accessor) => {
+                            if let Some(key) = &accessor.computed_key {
+                                self.visit_property_key(key);
+                            }
+                            self.private_elements +=
+                                usize::from(matches!(accessor.key, ClassFieldKeyIr::Private(_)));
+                        }
+                        ClassElementDefinitionIr::PrivateMethod(_)
+                        | ClassElementDefinitionIr::ComputedFieldKey { .. } => {}
+                    }
                 }
             }
             ExprIr::CallMethod {

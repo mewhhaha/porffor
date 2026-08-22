@@ -1017,7 +1017,7 @@ where
                                         function_name,
                                         Span::new((1234, 1234), (1234, 1234)),
                                     ));
-                                    let field = PrivateFieldDefinition::new(
+                                    let field = PrivateFieldDefinition::new_auto_accessor(
                                         PrivateName::new(name, name_span),
                                         Some(rhs),
                                     );
@@ -1029,7 +1029,7 @@ where
                                 }
                                 _ => {
                                     cursor.expect_semicolon("expected semicolon", interner)?;
-                                    let field = PrivateFieldDefinition::new(
+                                    let field = PrivateFieldDefinition::new_auto_accessor(
                                         PrivateName::new(name, name_span),
                                         None,
                                     );

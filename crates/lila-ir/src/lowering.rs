@@ -5968,13 +5968,17 @@ impl<'a> ScriptLowerer<'a> {
                     .as_deref()
                     .and_then(|heritage| self.infer_expr_throw_info(heritage));
                 for definition in &class.element_plan.definitions {
-                    let ClassElementDefinitionIr::PublicMethod(method) = definition else {
-                        continue;
+                    let key = match definition {
+                        ClassElementDefinitionIr::PublicMethod(method) => Some(&method.key),
+                        ClassElementDefinitionIr::AutoAccessor(accessor) => {
+                            accessor.computed_key.as_ref()
+                        }
+                        ClassElementDefinitionIr::PrivateMethod(_)
+                        | ClassElementDefinitionIr::ComputedFieldKey { .. } => None,
                     };
-                    info = self.merge_optional_value_info(
-                        info,
-                        self.infer_property_key_throw_info(&method.key),
-                    );
+                    let Some(key) = key else { continue };
+                    info = self
+                        .merge_optional_value_info(info, self.infer_property_key_throw_info(key));
                 }
                 info
             }
@@ -12446,12 +12450,24 @@ impl<'a> ScriptLowerer<'a> {
             placement: ClassMethodPlacementIr,
         }
 
+        #[derive(Clone)]
+        struct AutoAccessorPlan<'b> {
+            key: ClassFieldKeyIr,
+            computed_key: Option<PropertyKeyIr>,
+            backing_name: AutoAccessorBackingNameIr,
+            functions: AutoAccessorFunctionPairIr,
+            init_function_id: Option<FunctionId>,
+            initializer: Option<&'b Expression>,
+            placement: ClassMethodPlacementIr,
+        }
+
         #[derive(Clone, Copy)]
         enum ClassElementOrder {
             PublicMethod(usize),
             PrivateMethod(usize),
             PublicField(usize),
             PrivateField(usize),
+            AutoAccessor(usize),
             StaticBlock(usize),
         }
 
@@ -12459,13 +12475,16 @@ impl<'a> ScriptLowerer<'a> {
         let mut private_methods = Vec::<PrivateMethodPlan<'_>>::new();
         let mut fields = Vec::<FieldPlan<'_>>::new();
         let mut private_fields = Vec::<PrivateFieldPlan<'_>>::new();
+        let mut auto_accessors = Vec::<AutoAccessorPlan<'_>>::new();
         let mut static_blocks = Vec::<(FunctionId, &StaticBlockBody)>::new();
         let mut element_order = Vec::<ClassElementOrder>::new();
         let mut instance_private_method_brands = BTreeSet::<PrivateNameId>::new();
         let mut static_private_method_brands = BTreeSet::<PrivateNameId>::new();
         let mut computed_field_key_count = 0u32;
 
-        for element in elements {
+        let private_environment_plan = class_private_environment_id
+            .map(|environment_id| self.analysis.private_environment_plans[&environment_id].clone());
+        for (element_index, element) in elements.iter().enumerate() {
             match element {
                 ClassElement::MethodDefinition(method) => {
                     let (kind, execution_kind) = match method.kind() {
@@ -12632,25 +12651,55 @@ impl<'a> ScriptLowerer<'a> {
                         } else {
                             ClassMethodPlacementIr::Instance
                         };
-                    let field_index = private_fields.len();
-                    private_fields.push(PrivateFieldPlan {
-                        private_name_id,
-                        init_function_id: field.initializer().map(|initializer| {
-                            let execution_key = class_field_initializer_key(initializer);
-                            self.analysis
-                                .class_execution_ids
-                                .get(&execution_key)
-                                .cloned()
-                                .unwrap_or_else(|| {
-                                    panic!(
-                                        "class field execution `{execution_key}` must be planned"
-                                    )
-                                })
-                        }),
-                        initializer: field.initializer(),
-                        placement,
+                    let init_function_id = field.initializer().map(|initializer| {
+                        let execution_key = class_field_initializer_key(initializer);
+                        self.analysis
+                            .class_execution_ids
+                            .get(&execution_key)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                panic!("class field execution `{execution_key}` must be planned")
+                            })
                     });
-                    element_order.push(ClassElementOrder::PrivateField(field_index));
+                    if field.kind() == boa_ast::function::PrivateFieldDefinitionKind::AutoAccessor {
+                        if !field.decorators().is_empty() {
+                            return self.unsupported_expr("decorated auto-accessor class field");
+                        }
+                        let backing_name = private_environment_plan
+                            .as_ref()
+                            .and_then(|plan| {
+                                plan.auto_accessor_backings.get(&element_index).copied()
+                            })
+                            .expect("private auto-accessor backing name must be planned");
+                        let accessor_index = auto_accessors.len();
+                        auto_accessors.push(AutoAccessorPlan {
+                            key: ClassFieldKeyIr::Private(private_name_id),
+                            computed_key: None,
+                            backing_name,
+                            functions: AutoAccessorFunctionPairIr::new(
+                                self.alloc_generated_function_id("auto-accessor.get"),
+                                self.alloc_generated_function_id("auto-accessor.set"),
+                            ),
+                            init_function_id,
+                            initializer: field.initializer(),
+                            placement,
+                        });
+                        if placement == ClassMethodPlacementIr::Static {
+                            static_private_method_brands.insert(private_name_id);
+                        } else {
+                            instance_private_method_brands.insert(private_name_id);
+                        }
+                        element_order.push(ClassElementOrder::AutoAccessor(accessor_index));
+                    } else {
+                        let field_index = private_fields.len();
+                        private_fields.push(PrivateFieldPlan {
+                            private_name_id,
+                            init_function_id,
+                            initializer: field.initializer(),
+                            placement,
+                        });
+                        element_order.push(ClassElementOrder::PrivateField(field_index));
+                    }
                 }
                 ClassElement::StaticBlock(block) => {
                     let execution_key = class_static_block_key(block);
@@ -12666,9 +12715,64 @@ impl<'a> ScriptLowerer<'a> {
                     static_blocks.push((function_id, block));
                     element_order.push(ClassElementOrder::StaticBlock(block_index));
                 }
-                ClassElement::AccessorFieldDefinition(_)
-                | ClassElement::StaticAccessorFieldDefinition(_) => {
-                    return self.unsupported_expr("auto-accessor class field");
+                ClassElement::AccessorFieldDefinition(field)
+                | ClassElement::StaticAccessorFieldDefinition(field) => {
+                    if !field.decorators().is_empty() {
+                        return self.unsupported_expr("decorated auto-accessor class field");
+                    }
+                    let (key, computed_key) = match field.name() {
+                        PropertyName::Literal(name) => (
+                            ClassFieldKeyIr::Public(
+                                self.interner.resolve_expect(name.sym()).to_string(),
+                            ),
+                            None,
+                        ),
+                        PropertyName::Computed(expr) => {
+                            let Some(computed_key) = self
+                                .lower_class_property_key(expr, class_body_private_environment_id)
+                            else {
+                                return self.unsupported_expr("computed auto-accessor class field");
+                            };
+                            let slot = computed_field_key_count;
+                            computed_field_key_count += 1;
+                            (ClassFieldKeyIr::ComputedPublic(slot), Some(computed_key))
+                        }
+                    };
+                    let placement =
+                        if matches!(element, ClassElement::StaticAccessorFieldDefinition(_)) {
+                            ClassMethodPlacementIr::Static
+                        } else {
+                            ClassMethodPlacementIr::Instance
+                        };
+                    let backing_name = private_environment_plan
+                        .as_ref()
+                        .and_then(|plan| plan.auto_accessor_backings.get(&element_index).copied())
+                        .expect("public auto-accessor backing name must be planned");
+                    let accessor_index = auto_accessors.len();
+                    auto_accessors.push(AutoAccessorPlan {
+                        key,
+                        computed_key,
+                        backing_name,
+                        functions: AutoAccessorFunctionPairIr::new(
+                            self.alloc_generated_function_id("auto-accessor.get"),
+                            self.alloc_generated_function_id("auto-accessor.set"),
+                        ),
+                        init_function_id: field.initializer().map(|initializer| {
+                            let execution_key = class_field_initializer_key(initializer);
+                            self.analysis
+                                .class_execution_ids
+                                .get(&execution_key)
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "class field execution `{execution_key}` must be planned"
+                                    )
+                                })
+                        }),
+                        initializer: field.initializer(),
+                        placement,
+                    });
+                    element_order.push(ClassElementOrder::AutoAccessor(accessor_index));
                 }
             }
         }
@@ -12711,6 +12815,28 @@ impl<'a> ScriptLowerer<'a> {
                 key,
                 method.function_id.clone(),
                 method.kind,
+            );
+        }
+        for accessor in &auto_accessors {
+            if accessor.placement != ClassMethodPlacementIr::Instance {
+                continue;
+            }
+            let key = match &accessor.key {
+                ClassFieldKeyIr::Public(key) => key.clone(),
+                ClassFieldKeyIr::Private(private_name_id) => private_data_key(*private_name_id),
+                ClassFieldKeyIr::ComputedPublic(_) => continue,
+            };
+            Self::insert_class_method_shape(
+                &mut prototype_shape.properties,
+                key.clone(),
+                accessor.functions.getter().clone(),
+                ClassMethodKindIr::Getter,
+            );
+            Self::insert_class_method_shape(
+                &mut prototype_shape.properties,
+                key,
+                accessor.functions.setter().clone(),
+                ClassMethodKindIr::Setter,
             );
         }
 
@@ -12780,6 +12906,28 @@ impl<'a> ScriptLowerer<'a> {
                 key,
                 method.function_id.clone(),
                 method.kind,
+            );
+        }
+        for accessor in &auto_accessors {
+            if accessor.placement != ClassMethodPlacementIr::Static {
+                continue;
+            }
+            let key = match &accessor.key {
+                ClassFieldKeyIr::Public(key) => key.clone(),
+                ClassFieldKeyIr::Private(private_name_id) => private_data_key(*private_name_id),
+                ClassFieldKeyIr::ComputedPublic(_) => continue,
+            };
+            Self::insert_class_method_shape(
+                &mut class_properties,
+                key.clone(),
+                accessor.functions.getter().clone(),
+                ClassMethodKindIr::Getter,
+            );
+            Self::insert_class_method_shape(
+                &mut class_properties,
+                key,
+                accessor.functions.setter().clone(),
+                ClassMethodKindIr::Setter,
             );
         }
 
@@ -12891,6 +13039,48 @@ impl<'a> ScriptLowerer<'a> {
                             .properties
                             .insert(hidden_key, ObjectShapeProperty::Data(field_info));
                         shape.private_brands.insert(field.private_name_id);
+                    }
+                }
+                ClassElementOrder::AutoAccessor(index) => {
+                    let accessor = &auto_accessors[*index];
+                    if accessor.placement != ClassMethodPlacementIr::Static {
+                        continue;
+                    }
+                    let backing_name_id = accessor.backing_name.private_name_id();
+                    let hidden_key = private_data_key(backing_name_id);
+                    let field_info = if let Some(init_function_id) = &accessor.init_function_id {
+                        self.lower_generated_expr_function(
+                            init_function_id.clone(),
+                            format!(
+                                "{}.auto-accessor.{hidden_key}",
+                                class_name.clone().unwrap_or_else(|| "<class>".to_string())
+                            ),
+                            CallableToStringRepresentation::NativeAnonymous,
+                            accessor
+                                .initializer
+                                .expect("accessor initializer should exist"),
+                            class_info.clone(),
+                            ClassElementExecutionKind::StaticFieldInitializer,
+                            ClassLoweringContext {
+                                private_name_ids: private_name_ids.clone(),
+                                heritage_kind,
+                                super_base_shape: None,
+                                super_constructor_target: None,
+                                is_static: true,
+                                is_derived_constructor: false,
+                            },
+                        )
+                        .return_info
+                    } else {
+                        ValueInfo::undefined()
+                    };
+                    if let Some(HeapShape::Object(shape)) =
+                        class_info.heap_shape.as_mut().map(Box::as_mut)
+                    {
+                        shape
+                            .properties
+                            .insert(hidden_key, ObjectShapeProperty::Data(field_info));
+                        shape.private_brands.insert(backing_name_id);
                     }
                 }
                 ClassElementOrder::StaticBlock(index) => {
@@ -13039,6 +13229,58 @@ impl<'a> ScriptLowerer<'a> {
                         None => {}
                     }
                 }
+                ClassElementOrder::AutoAccessor(index) => {
+                    let accessor = &auto_accessors[*index];
+                    if accessor.placement != ClassMethodPlacementIr::Instance {
+                        continue;
+                    }
+                    let backing_name_id = accessor.backing_name.private_name_id();
+                    let hidden_key = private_data_key(backing_name_id);
+                    let field_info = if let Some(init_function_id) = &accessor.init_function_id {
+                        self.lower_generated_expr_function(
+                            init_function_id.clone(),
+                            format!(
+                                "{}.auto-accessor.{hidden_key}",
+                                class_name.clone().unwrap_or_else(|| "<class>".to_string())
+                            ),
+                            CallableToStringRepresentation::NativeAnonymous,
+                            accessor
+                                .initializer
+                                .expect("accessor initializer should exist"),
+                            instance_info.clone(),
+                            ClassElementExecutionKind::InstanceFieldInitializer,
+                            ClassLoweringContext {
+                                private_name_ids: private_name_ids.clone(),
+                                heritage_kind,
+                                super_base_shape: None,
+                                super_constructor_target: None,
+                                is_static: false,
+                                is_derived_constructor: false,
+                            },
+                        )
+                        .return_info
+                    } else {
+                        ValueInfo::undefined()
+                    };
+                    match instance_info.heap_shape.as_mut().map(Box::as_mut) {
+                        Some(HeapShape::Object(shape)) => {
+                            shape
+                                .properties
+                                .insert(hidden_key, ObjectShapeProperty::Data(field_info));
+                            shape.private_brands.insert(backing_name_id);
+                        }
+                        Some(HeapShape::Array(array)) => {
+                            array
+                                .properties
+                                .insert(hidden_key, ObjectShapeProperty::Data(field_info));
+                            array.properties.insert(
+                                private_brand_key(backing_name_id),
+                                ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Boolean)),
+                            );
+                        }
+                        None => {}
+                    }
+                }
                 ClassElementOrder::PublicMethod(_)
                 | ClassElementOrder::PrivateMethod(_)
                 | ClassElementOrder::StaticBlock(_) => continue,
@@ -13171,25 +13413,73 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        let instance_fields = element_order
+        for accessor in &auto_accessors {
+            let is_static = accessor.placement == ClassMethodPlacementIr::Static;
+            let this_info = if is_static {
+                class_info.clone()
+            } else {
+                instance_info.clone()
+            };
+            let exposed_name = match &accessor.key {
+                ClassFieldKeyIr::Public(name) => name.clone(),
+                ClassFieldKeyIr::ComputedPublic(_) => "<computed>".to_string(),
+                ClassFieldKeyIr::Private(private_name_id) => private_name_ids
+                    .iter()
+                    .find_map(|(name, id)| (*id == *private_name_id).then(|| format!("#{name}")))
+                    .expect("private auto-accessor source name must remain visible"),
+            };
+            self.lower_generated_auto_accessor_function(
+                accessor.functions.getter().clone(),
+                format!("get {exposed_name}"),
+                FunctionProtocolIr::ClassGetter,
+                accessor.backing_name,
+                this_info.clone(),
+                private_name_ids.clone(),
+                heritage_kind,
+                is_static,
+            );
+            self.lower_generated_auto_accessor_function(
+                accessor.functions.setter().clone(),
+                format!("set {exposed_name}"),
+                FunctionProtocolIr::ClassSetter,
+                accessor.backing_name,
+                this_info,
+                private_name_ids.clone(),
+                heritage_kind,
+                is_static,
+            );
+        }
+
+        let instance_elements = element_order
             .iter()
             .filter_map(|element| match element {
                 ClassElementOrder::PublicField(index) => {
                     let field = &fields[*index];
                     (field.placement == ClassMethodPlacementIr::Instance).then(|| {
-                        ClassFieldInitIr {
+                        ClassInstanceElementIr::Field(ClassFieldInitIr {
                             key: field.key.clone(),
                             init_function_id: field.init_function_id.clone(),
-                        }
+                        })
                     })
                 }
                 ClassElementOrder::PrivateField(index) => {
                     let field = &private_fields[*index];
                     (field.placement == ClassMethodPlacementIr::Instance).then(|| {
-                        ClassFieldInitIr {
+                        ClassInstanceElementIr::Field(ClassFieldInitIr {
                             key: ClassFieldKeyIr::Private(field.private_name_id),
                             init_function_id: field.init_function_id.clone(),
-                        }
+                        })
+                    })
+                }
+                ClassElementOrder::AutoAccessor(index) => {
+                    let accessor = &auto_accessors[*index];
+                    (accessor.placement == ClassMethodPlacementIr::Instance).then(|| {
+                        ClassInstanceElementIr::AutoAccessorBacking(
+                            ClassAutoAccessorBackingInitIr {
+                                backing_name: accessor.backing_name,
+                                init_function_id: accessor.init_function_id.clone(),
+                            },
+                        )
                     })
                 }
                 ClassElementOrder::PublicMethod(_)
@@ -13198,10 +13488,10 @@ impl<'a> ScriptLowerer<'a> {
             })
             .collect::<Vec<_>>();
         let class_instance_element_plan = (!instance_private_method_brands.is_empty()
-            || !instance_fields.is_empty())
+            || !instance_elements.is_empty())
         .then(|| ClassInstanceElementPlanIr {
             private_method_brands: instance_private_method_brands.iter().copied().collect(),
-            fields: instance_fields.clone(),
+            elements: instance_elements,
         });
 
         let constructor_output = if let Some(constructor) = constructor {
@@ -13323,6 +13613,19 @@ impl<'a> ScriptLowerer<'a> {
                                     ClassElementDefinitionIr::ComputedFieldKey { slot: *slot, key }
                                 })
                             }
+                            ClassElementOrder::AutoAccessor(index) => {
+                                let accessor = &auto_accessors[*index];
+                                Some(ClassElementDefinitionIr::AutoAccessor(
+                                    ClassAutoAccessorIr {
+                                        key: accessor.key.clone(),
+                                        computed_key: accessor.computed_key.clone(),
+                                        backing_name: accessor.backing_name,
+                                        functions: accessor.functions.clone(),
+                                        init_function_id: accessor.init_function_id.clone(),
+                                        placement: accessor.placement,
+                                    },
+                                ))
+                            }
                             ClassElementOrder::PrivateField(_)
                             | ClassElementOrder::StaticBlock(_) => None,
                         })
@@ -13348,6 +13651,17 @@ impl<'a> ScriptLowerer<'a> {
                                     })
                                 })
                             }
+                            ClassElementOrder::AutoAccessor(index) => {
+                                let accessor = &auto_accessors[*index];
+                                (accessor.placement == ClassMethodPlacementIr::Static).then(|| {
+                                    ClassStaticElementIr::AutoAccessorBacking(
+                                        ClassAutoAccessorBackingInitIr {
+                                            backing_name: accessor.backing_name,
+                                            init_function_id: accessor.init_function_id.clone(),
+                                        },
+                                    )
+                                })
+                            }
                             ClassElementOrder::StaticBlock(index) => {
                                 Some(ClassStaticElementIr::Block(ClassStaticBlockIr {
                                     function_id: static_blocks[*index].0.clone(),
@@ -13359,6 +13673,9 @@ impl<'a> ScriptLowerer<'a> {
                         .collect(),
                 },
                 private_name_ids,
+                private_environment: private_environment_plan
+                    .as_ref()
+                    .map(|plan| ClassPrivateEnvironmentIr::new(plan.id.0, plan.slot_count)),
             })),
         )
     }
@@ -14164,6 +14481,146 @@ impl<'a> ScriptLowerer<'a> {
             this_info: current_this_info,
             construct_this_info: current_construct_this_info,
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lower_generated_auto_accessor_function(
+        &mut self,
+        function_id: FunctionId,
+        function_name: String,
+        protocol: FunctionProtocolIr,
+        backing_name: AutoAccessorBackingNameIr,
+        current_this_info: ValueInfo,
+        private_name_ids: BTreeMap<String, PrivateNameId>,
+        heritage_kind: ClassHeritageKind,
+        is_static: bool,
+    ) {
+        let value_info = ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: KindSet::all_runtime_tags(),
+            heap_shape: None,
+            function_targets: BTreeSet::new(),
+        };
+        let backing_name_id = backing_name.private_name_id();
+        let (params, body, return_info) = match protocol {
+            FunctionProtocolIr::ClassGetter => {
+                let read = TypedExpr::from_info(
+                    value_info.clone(),
+                    ExprIr::PrivateRead {
+                        target: Box::new(TypedExpr::from_info(
+                            current_this_info.clone(),
+                            ExprIr::This,
+                        )),
+                        private_name_id: backing_name_id,
+                    },
+                );
+                (
+                    Vec::new(),
+                    BlockIr {
+                        result_kind: value_info.kind,
+                        statements: vec![StatementIr::Return(read)],
+                        lexical_environment: None,
+                    },
+                    value_info,
+                )
+            }
+            FunctionProtocolIr::ClassSetter => {
+                let parameter_name = "$auto_accessor_value".to_string();
+                let value = TypedExpr::from_info(
+                    value_info.clone(),
+                    ExprIr::Identifier(parameter_name.clone()),
+                );
+                let write = TypedExpr::from_info(
+                    value_info,
+                    ExprIr::PrivateWrite {
+                        target: Box::new(TypedExpr::from_info(
+                            current_this_info.clone(),
+                            ExprIr::This,
+                        )),
+                        private_name_id: backing_name_id,
+                        value: Box::new(value),
+                    },
+                );
+                (
+                    vec![FunctionParamIr {
+                        name: parameter_name,
+                        kind: ValueKind::Dynamic,
+                        default_init: None,
+                        is_rest: false,
+                    }],
+                    BlockIr {
+                        result_kind: ValueKind::Undefined,
+                        statements: vec![StatementIr::Expression(write)],
+                        lexical_environment: None,
+                    },
+                    ValueInfo::undefined(),
+                )
+            }
+            _ => unreachable!("auto-accessor function must be a class getter or setter"),
+        };
+        self.function_signatures.insert(
+            function_id.clone(),
+            FunctionSignature {
+                id: function_id.clone(),
+                to_string_representation: CallableToStringRepresentation::NativeAnonymous,
+                protocol,
+                callable: false,
+                class_heritage_kind: heritage_kind,
+                params: params
+                    .iter()
+                    .map(|_| FunctionParamSignature {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                        observed: true,
+                        has_default: false,
+                        is_rest: false,
+                    })
+                    .collect(),
+                return_kind: return_info.kind,
+                return_possible_kinds: return_info.possible_kinds,
+                return_shape: return_info.heap_shape.clone(),
+                return_targets: return_info.function_targets.clone(),
+                constructor_instance: ValueInfo::undefined(),
+                this_info: current_this_info.clone(),
+                this_observed: true,
+            },
+        );
+        self.generated_functions.push(FunctionIr {
+            id: function_id,
+            name: function_name,
+            to_string_representation: CallableToStringRepresentation::NativeAnonymous,
+            protocol,
+            generator_plan: None,
+            resumable_plan: None,
+            strict: true,
+            class_element_execution_kind: ClassElementExecutionKind::None,
+            class_heritage_kind: heritage_kind,
+            is_static_class_member: is_static,
+            is_derived_constructor: false,
+            is_synthetic_default_derived_constructor: false,
+            class_instance_element_plan: None,
+            super_constructor_target: None,
+            uses_super: false,
+            this_before_super: false,
+            lexical_derived_activation: None,
+            private_name_ids,
+            captures_private_environment: true,
+            is_nested: true,
+            is_expression: true,
+            is_named_expression: false,
+            captures_lexical_this: false,
+            captures_lexical_arguments: false,
+            params,
+            body,
+            return_kind: return_info.kind,
+            return_shape: return_info.heap_shape,
+            return_targets: return_info.function_targets,
+            constructor_instance: ValueInfo::undefined(),
+            owned_env_bindings: Vec::new(),
+            captured_bindings: Vec::new(),
+        });
     }
 
     fn lower_call(&mut self, callee: &Expression, args: &[Expression]) -> TypedExpr {

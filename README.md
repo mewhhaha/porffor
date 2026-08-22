@@ -84,6 +84,10 @@ What is already in place:
   arrays, promises/async execution, generators/iterators, binary data,
   collections, strings, RegExp, numbers/BigInt/JSON, Date/Temporal and host
   builtins.
+- class auto-accessors compile on the direct Wasm path for public/private and
+  instance/static placement with hidden backing fields; the focused raw grammar
+  cohort and public staging semantics are green, while the private staging
+  file's eval-based duplicate-name checks remain dynamic-source debt;
 - `%DisposableStack%` has a real constructor, distinct synchronous brand and
   the complete typed `use`/`adopt`/`defer`/`move`/`dispose`/`disposed`
   lifecycle, including exact `Symbol.dispose` identity, LIFO disposal and

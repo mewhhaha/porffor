@@ -249,10 +249,16 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(heritage, state);
             }
             for definition in &class.element_plan.definitions {
-                let ClassElementDefinitionIr::PublicMethod(method) = definition else {
-                    continue;
+                let key = match definition {
+                    ClassElementDefinitionIr::PublicMethod(method) => Some(&method.key),
+                    ClassElementDefinitionIr::AutoAccessor(accessor) => {
+                        accessor.computed_key.as_ref()
+                    }
+                    ClassElementDefinitionIr::PrivateMethod(_)
+                    | ClassElementDefinitionIr::ComputedFieldKey { .. } => None,
                 };
-                match &method.key {
+                let Some(key) = key else { continue };
+                match key {
                     PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                         expr_contains_this_before_super(expr, state);
                     }

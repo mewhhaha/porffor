@@ -27,22 +27,24 @@ AsyncGeneratorFunction while suppressing their automatically generated
 `prototype` object. The exact matrix and boundary choices are recorded in
 `docs/rust-rewrite/contracts/function-protocol.md`.
 
-Class auto-accessors now have a theory-first implementation contract before
-the parser/IR/runtime seam is changed. The four public/private and
-instance/static forms share one invariant: class definition installs a paired
-getter/setter while element initialization adds a distinct, fresh and
-unspellable private backing field. The contract fixes descriptor attributes,
-definition and initialization order, inheritance, receiver/realm errors, the
-decorator rejection boundary, and a minimal linked typed IR plan. A focused
-probe of the public declaration grammar file reported `0/2`
-Runtime/NotImplemented against suite tree `aa55200d…`, which remains the
-current vendored Test262 tree identity; the probe is stale relative to compiler
-head, not suite content. Current parsing also loses the private auto-accessor
-semantic kind, so implementation must begin with AST fidelity rather than
-source-text recovery. The five-file raw gate, two eval-bound diagnostics,
-durable static-fixture obligation and staged gates are recorded in
+Class auto-accessors now preserve their public/private and instance/static AST
+kinds and lower through a closed descriptor-plus-backing plan. Every element
+owns an inseparable generated getter/setter pair and a fresh typed backing name
+which source private-name lookup cannot construct; the class private
+environment separately records visible names and total slots. Definition-time
+events install complete public or private accessor entries, while ordered
+instance/static events initialize only the backing private field. The Wasm
+fixture covers all four placements, literal/computed/string/numeric/Symbol
+keys, detached and wrong receivers, descriptor flags and lengths, overwrite
+order, inheritance and non-extensible receiver rejection. At `2026-08-22`, the
+focused IR/backend/CLI gates are `1/1`, `1/1`, and `1/1`; the five raw pinned
+grammar/control files pass `10/10`; and the public staging semantic file passes
+`2/2`. The private staging file's ordinary semantics execute, but its two
+literal-`eval` duplicate-name assertions remain `0/2` Runtime/Bug because the
+dynamic-source boundary produces the wrong error constructor. A created-realm
+class fixture also remains open. The design, evidence and nonclaims are
+recorded in
 [`class-auto-accessors.md`](../docs/rust-rewrite/contracts/class-auto-accessors.md).
-No auto-accessor runtime capability is claimed yet.
 
 Object-literal methods, getters and setters now extend that closed function
 protocol without masquerading as class members. A public
