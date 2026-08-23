@@ -2,6 +2,7 @@ const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const EARLY_ERRORS_SOURCE: &str = include_str!("../../lila-ir/src/early_errors.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const THROW_INFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/lowering/throw_inference.rs");
 const REFERENCE_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
 const LOGICAL_LOWERING_SOURCE: &str =
@@ -480,7 +481,7 @@ fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
     );
 
     let throw_inference = bounded(
-        LOWERING_SOURCE,
+        THROW_INFERENCE_SOURCE,
         "            ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {",
         "            ExprIr::OrdinaryPropertyNumericUpdate(update) =>",
     );

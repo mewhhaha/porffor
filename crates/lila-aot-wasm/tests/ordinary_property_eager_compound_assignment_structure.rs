@@ -1,6 +1,7 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const THROW_INFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/lowering/throw_inference.rs");
 const ORDINARY_PROPERTY_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
 const EARLY_ERRORS_SOURCE: &str = include_str!("../../lila-ir/src/early_errors.rs");
@@ -169,9 +170,8 @@ fn ir_owns_one_closed_ordinary_property_eager_reference() {
     ));
     assert!(EARLY_ERRORS_SOURCE
         .contains("ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) =>"));
-    assert!(
-        LOWERING_SOURCE.contains("ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) =>")
-    );
+    assert!(THROW_INFERENCE_SOURCE
+        .contains("ExprIr::OrdinaryPropertyEagerCompoundAssignment(assignment) =>"));
 }
 
 #[test]

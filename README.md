@@ -374,6 +374,17 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Recursive throw-value inference now lives in
+  `lowering/throw_inference.rs`: six methods form one private 895-line owner,
+  with only block inference visible to its sole consumer in
+  `lowering/try_statement.rs`. The byte-exact extraction reduces `lowering.rs`
+  from 21,877 to 20,986 lines. Capped pre/post goldens cover 633 fixtures in
+  635 byte-identical artifacts; both compile gates, three focused IR cohorts,
+  two exact structure witnesses and three exact CLI witnesses pass. Sixteen
+  mutation controls and independent semantic and policy reviews cover the
+  ownership, call graph, exhaustive-match and recursive-wrapper invariants.
+  This is an ownership result, not broad Test262, full-workspace behavior or
+  throw-conformance progress.
 - For-in lowering now lives in `lowering/for_in.rs`: the sole statement-facing
   lowerer and twelve owner-only helpers form one private 571-line module, while
   shared for-in/of environment, TDZ, scope and analysis helpers remain with
@@ -527,10 +538,11 @@ Recent focused progress through `2026-08-23`:
   captures pass `2/2`, contain 635 artifacts each and are byte-identical. No
   property-access behavior or conformance change is claimed.
 - Try/catch/finally lowering now lives in `lowering/try_statement.rs`: catch
-  Environment Record construction, thrown-value inference, resumable-state
-  planning and final try IR assembly move together. Private named catch/finally
-  records replace the former eight- and five-field tuples, so generator and
-  async entry/exit states cannot be transposed by positional access. This
+  Environment Record construction, consumption of inferred thrown values,
+  resumable-state planning and final try IR assembly move together. Private
+  named catch/finally records replace the former eight- and five-field tuples,
+  so generator and async entry/exit states cannot be transposed by positional
+  access. Reusable throw-value inference now has its own private owner. This
   reduces `lowering.rs` from 24,910 to 24,663 raw lines. Focused IR coverage
   passes `12/12` for `try_` and `14/14` for `catch`; three CLI filters pass
   `2/2` each. Pre/post golden captures pass `2/2`, contain 635 artifacts each

@@ -920,6 +920,297 @@ check_no_inline_legacy_includes "$ir_try_statement_lowering"
 # Measured after formatting the extraction and named-record cleanup: 264 raw
 # lines. The margin is for maintenance of try-statement lowering only.
 check_raw_line_budget "$ir_try_statement_lowering" 320
+# T02's throw-inference boundary owns the complete recursive statement,
+# expression and property-key analysis closure. Only block inference crosses
+# the private boundary for try-statement lowering; shared value/type algebra
+# remains with its existing owners.
+ir_throw_inference_lowering="crates/lila-ir/src/lowering/throw_inference.rs"
+require_file "$ir_throw_inference_lowering"
+require_exact_line_count \
+  "$ir_lowering" \
+  'mod throw_inference;' \
+  1 \
+  'private throw-inference module declaration'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+infer_block_throw_info[[:space:]]*\(' \
+  1 \
+  'block throw-inference entry point'
+for private_owner in \
+  merge_optional_value_info \
+  infer_statement_throw_info \
+  infer_expr_throw_info \
+  infer_expr_operand_throw_info \
+  infer_property_key_throw_info
+do
+  require_regex_count \
+    "$ir_throw_inference_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${private_owner}[[:space:]]*[<(]" \
+    1 \
+    "private ${private_owner} owner"
+done
+for throw_owner in \
+  merge_optional_value_info \
+  infer_block_throw_info \
+  infer_statement_throw_info \
+  infer_expr_throw_info \
+  infer_expr_operand_throw_info \
+  infer_property_key_throw_info
+do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${throw_owner}[[:space:]]*[<(]" \
+    0 \
+    "${throw_owner} outside throw-inference child"
+done
+# Five private methods plus the reviewed pub(super) entry point are the entire
+# child method surface. Count modifier-qualified declarations as well, so a
+# const/async/unsafe/extern/default helper cannot evade the closed owner set.
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*fn[[:space:]]+' \
+  5 \
+  'private method'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  6 \
+  'total function declaration'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+require_fixed_string_count \
+  "$ir_try_statement_lowering" \
+  'infer_block_throw_info' \
+  1 \
+  'throw-inference identifier use'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'infer_block_throw_info' \
+  0 \
+  'throw-inference identifier use outside child module'
+while IFS= read -r caller; do
+  case "$caller" in
+    "$ir_throw_inference_lowering"|"$ir_try_statement_lowering") continue ;;
+  esac
+  if grep -Fq 'infer_block_throw_info' "$caller"; then
+    fail "unexpected infer_block_throw_info identifier use: $caller"
+  fi
+done < <(find crates/lila-ir/src/lowering -type f -name '*.rs' -print)
+for shared_parent_owner in \
+  merge_value_infos \
+  resolve_single_function_target \
+  object_like_kind_set
+do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    1 \
+    "parent-owned shared ${shared_parent_owner} helper"
+  require_regex_count \
+    "$ir_throw_inference_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_parent_owner} helper copied into throw-inference owner"
+done
+require_regex_count \
+  "$ir_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+unknown_runtime_value_info[[:space:]]*[<(]' \
+  1 \
+  'parent-owned unknown-runtime helper'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+unknown_runtime_value_info[[:space:]]*[<(]' \
+  0 \
+  'unknown-runtime helper copied into throw-inference owner'
+for shared_owner_spec in \
+  'crates/lila-ir/src/lowering/builtin_shapes.rs:standard_error_instance_info' \
+  'crates/lila-ir/src/reference.rs:carried_put_value_failure'
+do
+  shared_owner_file="${shared_owner_spec%%:*}"
+  shared_owner_name="${shared_owner_spec##*:}"
+  require_regex_count \
+    "$shared_owner_file" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_owner_name}[[:space:]]*[<(]" \
+    1 \
+    "shared ${shared_owner_name} helper owner"
+  require_regex_count \
+    "$ir_throw_inference_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_owner_name}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_owner_name} helper copied into throw-inference owner"
+done
+require_regex_count \
+  "crates/lila-ir/src/reference.rs" \
+  '^[[:space:]]*pub[[:space:]]+enum[[:space:]]+PutValueFailure([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'closed PutValueFailure owner'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?((unsafe|auto)[[:space:]]+)*(struct|enum|union|type|trait)[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*([[:space:]]|<|\{|\(|=|;|:)' \
+  0 \
+  'local type or trait declaration'
+# This owner needs no textual runtime data. Keeping non-line-comment block
+# comments and string literals out also makes the executable shape checks below
+# immune to code-looking text in /* ... */ or raw/multiline strings.
+throw_non_line_comment_source="$(sed '/^[[:space:]]*\/\//d' "$ir_throw_inference_lowering")"
+if printf '%s\n' "$throw_non_line_comment_source" | grep -Eq '/\*|\*/|"'; then
+  fail "$ir_throw_inference_lowering must express throw analysis through typed values, not block comments or string literals"
+fi
+# A catch-all silently converts the closed IR/type algebra back into an open
+# domain. Inspect each match-arm prefix, including inline and parenthesized
+# arms, and every top-level or-pattern alternative. Guarded bindings are not
+# catch-alls; `true` and `false` are exhaustive values rather than bindings.
+throw_catch_all_arms="$(awk '
+  function trim(value) {
+    sub(/^[[:space:]]+/, "", value)
+    sub(/[[:space:]]+$/, "", value)
+    return value
+  }
+  function unparen(atom) {
+    atom = trim(atom)
+    while (atom ~ /^\(.*\)$/) {
+      atom = trim(substr(atom, 2, length(atom) - 2))
+    }
+    return atom
+  }
+  function is_binding(atom) {
+    atom = unparen(atom)
+    if (atom == "true" || atom == "false") {
+      return 0
+    }
+    return atom ~ /^(&[[:space:]]*(mut[[:space:]]+)?)?((ref[[:space:]]+mut|ref|mut)[[:space:]]+)?(r#)?[a-z][[:alnum:]_]*$/
+  }
+  function is_simple_catch_all(atom) {
+    atom = unparen(atom)
+    if (atom == "_" || atom == "..") {
+      return 1
+    }
+    return is_binding(atom)
+  }
+  function is_catch_all(atom, inner, parts, count, part_index, at, binding, pattern) {
+    atom = trim(atom)
+    if (atom ~ /^\(.*\)$/) {
+      inner = trim(substr(atom, 2, length(atom) - 2))
+      if (inner ~ /,/) {
+        count = split(inner, parts, /,/)
+        for (part_index = 1; part_index <= count; part_index += 1) {
+          if (!is_simple_catch_all(parts[part_index])) {
+            return 0
+          }
+        }
+        return count > 1
+      }
+      atom = inner
+    }
+    if ((at = index(atom, "@")) != 0) {
+      binding = trim(substr(atom, 1, at - 1))
+      pattern = unparen(substr(atom, at + 1))
+      if (!is_binding(binding)) {
+        return 0
+      }
+      count = split(pattern, parts, /\|/)
+      for (part_index = 1; part_index <= count; part_index += 1) {
+        if (is_simple_catch_all(parts[part_index])) {
+          return 1
+        }
+      }
+      return 0
+    }
+    count = split(atom, parts, /\|/)
+    for (part_index = 1; part_index <= count; part_index += 1) {
+      if (is_simple_catch_all(parts[part_index])) {
+        return 1
+      }
+    }
+    return 0
+  }
+  {
+    rest = $0
+    sub(/[[:space:]]*\/\/.*$/, "", rest)
+    while ((arrow = index(rest, "=>")) != 0) {
+      prefix = substr(rest, 1, arrow - 1)
+      start = 0
+      paren_depth = 0
+      bracket_depth = 0
+      brace_depth = 0
+      for (i = length(prefix); i >= 1; i -= 1) {
+        delimiter = substr(prefix, i, 1)
+        if (delimiter == ")") {
+          paren_depth += 1
+        } else if (delimiter == "(" && paren_depth > 0) {
+          paren_depth -= 1
+        } else if (delimiter == "]") {
+          bracket_depth += 1
+        } else if (delimiter == "[" && bracket_depth > 0) {
+          bracket_depth -= 1
+        } else if (delimiter == "}") {
+          brace_depth += 1
+        } else if (delimiter == "{" && brace_depth > 0) {
+          brace_depth -= 1
+        } else if (paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 \
+            && (delimiter == "{" || delimiter == ",")) {
+          start = i
+          break
+        }
+      }
+      arm = trim(substr(prefix, start + 1))
+      if (arm !~ /[[:space:]]if[[:space:]]/ && is_catch_all(arm)) {
+        print NR ":" arm
+      }
+      rest = substr(rest, arrow + 2)
+    }
+  }
+' "$ir_throw_inference_lowering")"
+if [ -n "$throw_catch_all_arms" ]; then
+  fail "$ir_throw_inference_lowering must keep every match exhaustive without catch-all arms"
+fi
+require_fixed_string_count \
+  "$ir_throw_inference_lowering" \
+  'unreachable!' \
+  0 \
+  'unreachable escape hatch'
+require_fixed_string_count \
+  "$ir_throw_inference_lowering" \
+  'macro_rules!' \
+  0 \
+  'local macro definition'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^(    )?(::[[:space:]]*)?((r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*::[[:space:]]*)*(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*!' \
+  0 \
+  'module-or-impl-level generated helper invocation'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*let[[:space:]]+strict_put_value_throw[[:space:]]*=[[:space:]]*match[[:space:]]+carried_put_value_failure\(&expr\.expr\)[[:space:]]*\{' \
+  1 \
+  'executable carried PutValue failure read'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*self\.infer_expr_operand_throw_info\(expr\),[[:space:]]*$' \
+  1 \
+  'executable wrapper-to-operand delegation'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*PutValueFailure::TypeErrorOnly[[:space:]]*=>[[:space:]]*type_error,[[:space:]]*$' \
+  1 \
+  'executable TypeError-only PutValue arm'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*PutValueFailure::TypeErrorOrReferenceError[[:space:]]*=>[[:space:]]*self\.merge_value_infos\([[:space:]]*$' \
+  1 \
+  'executable TypeError-or-ReferenceError PutValue arm'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*Some\(\(Strictness::Sloppy, _\)\)[[:space:]]*\|[[:space:]]*None[[:space:]]*=>[[:space:]]*None,[[:space:]]*$' \
+  1 \
+  'executable sloppy-or-absent PutValue arm'
+check_no_inline_legacy_includes "$ir_throw_inference_lowering"
+# Measured after formatting the extraction: 895 raw lines. The margin is for
+# maintenance of this closed recursive analysis owner, not general lowering.
+check_raw_line_budget "$ir_throw_inference_lowering" 950
 # T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
 # the ordinary and staged-generator walkers together in their child module so
 # the 32k-line orchestration boundary does not become the edit point again.
@@ -931,10 +1222,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the for-in extraction: 21,877 raw lines. This
-# leaves modest orchestration headroom while preventing the former
+# Measured after formatting the throw-inference extraction: 20,986 raw lines.
+# This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 23000
+check_raw_line_budget "$ir_lowering" 22000
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

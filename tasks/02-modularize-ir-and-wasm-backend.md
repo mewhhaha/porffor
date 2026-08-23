@@ -1,6 +1,6 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — major builtin ownership bottlenecks plus the for-of and for-in lowering owner splits; broader lowering/emitter seams remain
+**Status:** In progress — major builtin ownership bottlenecks plus the for-of, for-in and throw-value inference owner splits; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
@@ -16,6 +16,79 @@ seams and line budgets. The split remains partial: `lowering.rs`,
 still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
+
+### Landed 2026-08-23: throw-value inference ownership
+
+`lila-ir/src/lowering/throw_inference.rs` now owns the complete recursive
+throw-value inference closure: `merge_optional_value_info`, block and statement
+walkers, the expression wrapper and operand walker, and property-key inference.
+The family is one contiguous 891-line parent slice containing exactly six
+methods. Its exact move reduces `lowering.rs` from 21,877 to 20,986 raw lines
+and produces an 895-line child. Only `infer_block_throw_info` crosses the
+private child boundary as `pub(super)` for the sole external caller in
+`lowering/try_statement.rs`; the other five methods remain private. No IR type,
+public Rust API or compiler behavior moves with it.
+
+The parent retains `merge_value_infos`, `resolve_single_function_target`,
+`object_like_kind_set` and the free `unknown_runtime_value_info` helper;
+`builtin_shapes.rs` retains `standard_error_instance_info`, while
+`reference.rs` retains the exhaustive `carried_put_value_failure` classifier.
+Every `StatementIr`, `ExprIr`, `PropertyKeyIr`, `ValueInfo`,
+`PutValueFailure`, `Strictness` and builtin identity type remains with its
+current owner. The child imports those owners through `super::*` rather than
+copying a helper or widening a type.
+
+The move preserves every inference and merge ordering. Block, statement,
+resource, argument and case lists stay left-to-right; ordinary `For` remains
+initializer, test, update, body; `GeneratorLoop` remains initializer, test,
+update, before-suspension, suspension, after-suspension; and try inference
+remains try, catch, finally. `StatementIr::Throw` first infers failures in its
+operand and only then merges the thrown value. `infer_expr_throw_info` remains
+the recursive wrapper: it exhaustively converts the carried strict
+`PutValueFailure` and merges it before operand failures, then delegates exactly
+once to `infer_expr_operand_throw_info`; recursive operand and property-key
+walks route back through that wrapper so nested strict writes contribute. The
+exhaustive `StatementIr`, both `ForInitIr`, `ExprIr`, `PropertyKeyIr`,
+`PutValueFailure`, super-mutation, object-property, optional-chain,
+class-element and suspended-reference matches retain zero wildcard or
+bare-binding catch-all arms. Adding a variant to one of those closed domains is
+a compile error until its throw semantics are chosen; non-exhaustive `if let`
+filters such as the generator resume-mode specialization remain explicit
+nonclaims. `RuntimeThrow` continues through the total native error constructor
+mapping, while dynamic disposal, spread, property-hook and call contributions
+and rejection-only `import()` handling remain exact.
+
+The module audit requires the exact private child declaration, all six sole
+method owners, exactly one Rust-visible child item, the sole external caller in
+`try_statement.rs`, zero parent copies, zero copied shared helper or type
+declarations, zero catch-all arms or `unreachable!`, exactly one carried-failure
+read and one wrapper-to-operand delegation, no local macro/generated helper or
+legacy `include!`/`#[path]` assembly, and measured parent/child line budgets.
+Sixteen negative controls reject a missing child, public module, reintroduced
+parent owner, widened helper, modifier-qualified extra method, copied shared
+helper or type, alternate external caller, local item macro or trait, forged
+string witness, four catch-all spellings and missing recursive delegation.
+
+Two existing source-structure witnesses now follow the owner rather than keep
+searching `lowering.rs`: the eager compound-assignment throw arm and the logical
+assignment throw arm. Their exact assertions, the IR
+`contribute_arbitrary_catch_values` filter, the private-`in` and unbound-global
+inference witnesses, the strict/sloppy top-level-try CLI pair and the dynamic
+global ReferenceError supplement are the focused behavioral contract. No new
+permanent behavior test is justified solely by this exact ownership move, and
+the two broader structure targets retain unrelated stale `lower_assign`
+source bounds outside this batch.
+
+At clean parent `a77f923b3`, the capped pre-move Wasm golden passes `2/2` in
+312.13 seconds; the post-move capture passes `2/2` in 327.32 seconds. Both
+record 633 fixtures in 635 artifacts and their recursive diff is empty. Exact
+source-equivalence and independent semantic and policy reviews pass. The
+all-target `lila-ir` check and `cargo xc` are green. Serial IR witnesses pass
+`2/2`, `1/1` and `1/1`; the two exact source-structure witnesses each pass
+`1/1`; and the strict, sloppy and dynamic-global CLI witnesses each pass
+`1/1`. The module-boundary audit passes after all sixteen negative controls.
+No broad Test262, full-workspace behavior or throw-conformance improvement is
+claimed by this ownership-only extraction.
 
 ### Landed 2026-08-23: for-in lowering ownership
 
@@ -371,10 +444,11 @@ property-access behavior or conformance improvement is claimed.
 
 `lila-ir/src/lowering/try_statement.rs` now owns the complete `lower_try`
 lifecycle: try/catch/finally block lowering, catch-parameter Environment Record
-construction, thrown-value inference, generator/async resume planning and final
-`TryCatch`, `TryFinally` or `TryCatchFinally` assembly. The parent statement
-dispatcher remains its sole caller, while reusable block and throw-analysis
-helpers remain parent-owned.
+construction, consumption of inferred thrown values, generator/async resume
+planning and final `TryCatch`, `TryFinally` or `TryCatchFinally` assembly. The
+parent statement dispatcher remains its sole caller. Reusable throw-value
+inference now lives in `lowering/throw_inference.rs`; shared analysis helpers
+remain parent-owned.
 
 The former eight-field catch tuple and five-field finally tuple are now private
 `LoweredCatchClause` and `LoweredFinallyClause` records. Named generator/async
