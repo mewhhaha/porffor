@@ -6,8 +6,8 @@ use super::array::{
 use super::atomics::AtomicsBuiltin;
 use super::bigint::BigIntBuiltin;
 use super::binary_data::{
-    ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy, TypedArrayAccessorKind,
-    TypedArrayViewLocals, TypedArrayWitnessUse,
+    ArrayBufferSliceBound, ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy,
+    TypedArrayAccessorKind, TypedArrayViewLocals, TypedArrayWitnessUse,
 };
 use super::boolean::BooleanBuiltin;
 use super::errors::ErrorBuiltin;
@@ -20822,16 +20822,14 @@ impl<'a> FunctionBuilder<'a> {
                 );
 
                 self.emit_array_buffer_slice_index_to_local(
-                    0,
+                    ArrayBufferSliceBound::Start,
                     byte_length_local,
-                    false,
                     start_local,
                     function,
                 )?;
                 self.emit_array_buffer_slice_index_to_local(
-                    1,
+                    ArrayBufferSliceBound::End,
                     byte_length_local,
-                    true,
                     end_local,
                     function,
                 )?;

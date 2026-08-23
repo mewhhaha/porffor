@@ -124,6 +124,21 @@ exact structural witness (`1/1`) and the existing exact CLI lifecycle fixture
 DisposableStack cohorts were not refreshed, and no conformance gain is
 claimed.
 
+The ArrayBuffer slice bound-normalization seam now carries the private, closed
+`ArrayBufferSliceBound::{Start, End}` role instead of a caller-selected argument
+index and default Boolean. Exhaustive projection fixes `Start` to argument zero
+and default zero and `End` to argument one and the entry byte length; the sole
+grouped body for ordinary, shared, and immutable slice writes `start_local`
+before `end_local`. The implementation and strengthened caller/order guard are
+independently reviewed. Under the shared eight-core cap,
+`cargo fmt --all -- --check` and `cargo xc` are green, the structural guard
+passes `3/3`, the exact species-capture CLI fixture passes `1/1`, and the exact
+`start-default-if-undefined.js` and `end-default-if-absent.js` Test262 leaves
+each pass `2/2` Wasm-AOT executions with all failure buckets zero under
+`--jobs 1 --threads 1`. This verifies only the bound-role invariant: no broad
+ArrayBuffer/Test262 refresh, shared-operation migration, copy-policy change, or
+conformance gain is claimed.
+
 The earlier Proxy `Call` and primitive `ToNumber` migrations are likewise
 invariant-only rewrites. Their former boolean selections already chose the
 correct policies, all existing public wrapper call sites are unchanged, and the

@@ -1,5 +1,26 @@
 use super::super::*;
 
+/// Which source argument supplies an ArrayBuffer slice bound.
+///
+/// The argument position and its missing-or-undefined default are one
+/// specification role. Keeping them together makes a start bound that defaults
+/// to length, an end bound that defaults to zero, and arbitrary argument
+/// positions unrepresentable at the caller boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ArrayBufferSliceBound {
+    Start,
+    End,
+}
+
+impl ArrayBufferSliceBound {
+    const fn argument_index(self) -> usize {
+        match self {
+            Self::Start => 0,
+            Self::End => 1,
+        }
+    }
+}
+
 /// The closed source and copy policies admitted by the ArrayBuffer slice seam.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ArrayBufferSliceCopyPolicy {
@@ -1587,17 +1608,17 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_array_buffer_slice_index_to_local(
+    pub(super) fn emit_array_buffer_slice_index_to_local(
         &mut self,
-        arg_index: usize,
+        bound: ArrayBufferSliceBound,
         length_local: u32,
-        default_to_length: bool,
         dest_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         let int_local = self.reserve_temp_local();
+        let arg_index = bound.argument_index();
 
         self.emit_builtin_arg_to_locals(arg_index, payload_local, tag_local, function);
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
@@ -1608,10 +1629,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if default_to_length {
-            function.instruction(&Instruction::LocalGet(length_local));
-        } else {
-            function.instruction(&Instruction::I64Const(0));
+        match bound {
+            ArrayBufferSliceBound::Start => {
+                function.instruction(&Instruction::I64Const(0));
+            }
+            ArrayBufferSliceBound::End => {
+                function.instruction(&Instruction::LocalGet(length_local));
+            }
         }
         function.instruction(&Instruction::LocalSet(dest_local));
         function.instruction(&Instruction::Else);
