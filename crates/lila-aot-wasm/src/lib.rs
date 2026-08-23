@@ -136,6 +136,10 @@ mod tests {
     use lila_ir::{lower, lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy};
     use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
 
+    fn without_whitespace(source: &str) -> String {
+        source.chars().filter(|ch| !ch.is_whitespace()).collect()
+    }
+
     fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
         emit(&lower_with_host_surface_policy(
@@ -159,6 +163,197 @@ mod tests {
             "#[must_use = \"a pending DisposableStack record must be consumed by the instance finalizer\"]\nstruct PendingDisposableStackRecordLocal(u32);"
         ));
         assert!(!constructor.contains("derive(Clone"));
+        assert!(!constructor.contains("return_now"));
+        assert_eq!(
+            constructor
+                .matches("emit_disposable_stack_return_value(")
+                .count(),
+            4,
+            "the helper definition plus its three reviewed callers close the caller map"
+        );
+        let return_disposition = constructor
+            .split_once("enum DisposableStackReturnDisposition {")
+            .expect("DisposableStack value-return disposition should exist")
+            .1
+            .split_once("}\n\nimpl<'a> FunctionBuilder<'a> {")
+            .expect("DisposableStack value-return disposition should be bounded")
+            .0;
+        assert_eq!(
+            return_disposition
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>(),
+            ["ReturnCurrentFunction,", "LeaveInCompletion,"],
+            "the value-return route must remain a closed two-state domain"
+        );
+        let return_helper = constructor
+            .split_once("fn emit_disposable_stack_return_value(")
+            .expect("DisposableStack value-return helper")
+            .1
+            .split_once("fn emit_disposable_stack_return_undefined(")
+            .expect("DisposableStack value-return helper must be bounded")
+            .0;
+        let normalized_return_helper = without_whitespace(return_helper);
+        let exact_disposition_match = without_whitespace(
+            r#"
+            match disposition {
+                DisposableStackReturnDisposition::ReturnCurrentFunction => {
+                    self.emit_return_current_completion(function);
+                }
+                DisposableStackReturnDisposition::LeaveInCompletion => {}
+            }
+            "#,
+        );
+        assert!(
+            normalized_return_helper.contains(exact_disposition_match.as_str()),
+            "each named disposition must retain its exact emitted control flow"
+        );
+        assert_eq!(
+            return_helper
+                .matches("emit_return_current_completion(function)")
+                .count(),
+            1,
+            "only the immediate-return disposition may emit a Wasm return"
+        );
+        assert_eq!(
+            return_helper
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            1,
+            "the helper must exhaust the immediate-return route exactly once"
+        );
+        assert_eq!(
+            return_helper
+                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
+                .count(),
+            1,
+            "the helper must exhaust the leave-in-completion route exactly once"
+        );
+
+        let use_body = constructor
+            .split_once("pub(crate) fn emit_disposable_stack_use(")
+            .expect("DisposableStack use body")
+            .1
+            .split_once("pub(crate) fn emit_disposable_stack_adopt(")
+            .expect("DisposableStack use body must be bounded")
+            .0;
+        let use_nullish = use_body
+            .find("emit_disposable_stack_is_nullish_i32")
+            .expect("use must classify its nullish fast path");
+        let use_immediate = use_body
+            .find("DisposableStackReturnDisposition::ReturnCurrentFunction")
+            .expect("nullish use must return immediately");
+        let nullish_branch = use_body
+            .split_once("self.emit_disposable_stack_is_nullish_i32(value_tag_local, function);")
+            .expect("use must classify its nullish fast path")
+            .1
+            .split_once("function.instruction(&Instruction::End);")
+            .expect("use nullish branch must be bounded")
+            .0;
+        assert!(
+            nullish_branch.contains("function.instruction(&Instruction::If(BlockType::Empty));")
+        );
+        assert_eq!(
+            nullish_branch
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            1,
+            "the immediate route must remain inside the nullish branch"
+        );
+        assert!(!nullish_branch.contains("DisposableStackReturnDisposition::LeaveInCompletion"));
+        let use_acquire = use_body
+            .find("emit_disposable_stack_get_method(")
+            .expect("non-nullish use must acquire the disposer");
+        let use_push = use_body
+            .find("emit_disposable_stack_push_entry(")
+            .expect("successful use must publish one entry");
+        let use_leave = use_body
+            .find("DisposableStackReturnDisposition::LeaveInCompletion")
+            .expect("successful use must leave its result in the completion");
+        assert!(
+            use_nullish < use_immediate
+                && use_immediate < use_acquire
+                && use_acquire < use_push
+                && use_push < use_leave,
+            "use must return nullish values early and publish before its normal epilogue"
+        );
+        assert_eq!(
+            use_body
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            1
+        );
+        let normalized_use = without_whitespace(use_body);
+        for (disposition, expected) in [("ReturnCurrentFunction", 1), ("LeaveInCompletion", 1)] {
+            let call = without_whitespace(&format!(
+                r#"
+                self.emit_disposable_stack_return_value(
+                    value_payload_local,
+                    value_tag_local,
+                    DisposableStackReturnDisposition::{disposition},
+                    function,
+                );
+                "#
+            ));
+            assert_eq!(
+                normalized_use.matches(call.as_str()).count(),
+                expected,
+                "use must select {disposition} through the reviewed helper call"
+            );
+        }
+        assert_eq!(
+            use_body
+                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
+                .count(),
+            1
+        );
+
+        let adopt_body = constructor
+            .split_once("pub(crate) fn emit_disposable_stack_adopt(")
+            .expect("DisposableStack adopt body")
+            .1
+            .split_once("pub(crate) fn emit_disposable_stack_defer(")
+            .expect("DisposableStack adopt body must be bounded")
+            .0;
+        assert!(
+            adopt_body
+                .find("emit_disposable_stack_push_entry(")
+                .expect("successful adopt must publish one entry")
+                < adopt_body
+                    .find("DisposableStackReturnDisposition::LeaveInCompletion")
+                    .expect("successful adopt must leave its result in the completion"),
+            "adopt must publish before its normal epilogue"
+        );
+        assert_eq!(
+            adopt_body
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            0
+        );
+        assert_eq!(
+            adopt_body
+                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
+                .count(),
+            1
+        );
+        let adopt_leave_call = without_whitespace(
+            r#"
+            self.emit_disposable_stack_return_value(
+                value_payload_local,
+                value_tag_local,
+                DisposableStackReturnDisposition::LeaveInCompletion,
+                function,
+            );
+            "#,
+        );
+        assert_eq!(
+            without_whitespace(adopt_body)
+                .matches(adopt_leave_call.as_str())
+                .count(),
+            1,
+            "adopt must select its fallthrough route through the reviewed helper call"
+        );
         assert_eq!(
             constructor
                 .matches("emit_alloc_pending_disposable_stack_record(function)?")

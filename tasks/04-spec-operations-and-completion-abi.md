@@ -77,9 +77,25 @@ policy immediately after creating the error and before emitting the existing
 placeholder NaN, preserving their instruction order while making boolean
 inversion impossible.
 
-These are invariant-only rewrites. The former boolean selections already chose
-the correct policies, all existing public wrapper call sites are unchanged, and
-the policy-dependent emission points retain their exact return/leave branch and
+The synchronous DisposableStack value-return seam now names its remaining
+two-policy choice with a private, exhaustive
+`DisposableStackReturnDisposition`: return the current function from the early
+nullish `use()` branch, or fall through after a completed `use()` / `adopt()`
+path installs the normal result. The former raw Boolean is gone, so a new caller
+must name that lifecycle decision and cannot silently transpose an unlabeled
+Boolean or omit the choice. This closes one feature-local completion-routing
+invariant; it does not migrate the stack to a shared completion operation or
+change the tuple ABI. The implementation, source
+contract and bounded caller-map guard pass the capped `cargo xc` gate, the
+exact structural witness (`1/1`) and the existing exact CLI lifecycle fixture
+(`1/1`). This verifies the routing-only seam; the 76-file inventory and broad
+DisposableStack cohorts were not refreshed, and no conformance gain is
+claimed.
+
+The earlier Proxy `Call` and primitive `ToNumber` migrations are likewise
+invariant-only rewrites. Their former boolean selections already chose the
+correct policies, all existing public wrapper call sites are unchanged, and the
+policy-dependent emission points retain their exact return/leave branch and
 instruction order. Focused source contracts pin each closed variant set,
 exhaustive projection, private raw entry and named-wrapper route. Their static
 source/diff/rustfmt gates are green; compile and the existing Proxy apply,
