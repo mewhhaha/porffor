@@ -312,6 +312,50 @@ check_no_inline_legacy_includes "$ir_if_statement_lowering"
 # Measured after formatting the extraction: 141 raw lines. The margin is for
 # maintenance of if-statement lowering only.
 check_raw_line_budget "$ir_if_statement_lowering" 180
+# T02's labelled-statement boundary owns nested label collection, target-kind
+# classification and final Labelled IR assembly. The active-label stack types
+# remain parent-owned because break/continue lowering also consumes them.
+ir_labelled_statement_lowering="crates/lila-ir/src/lowering/labelled_statement.rs"
+require_file "$ir_labelled_statement_lowering"
+require_module_decl "$ir_lowering" "labelled_statement"
+require_fixed_string_count \
+  "$ir_labelled_statement_lowering" \
+  'pub(super) fn lower_labelled(' \
+  1 \
+  'labelled-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_labelled(' \
+  0 \
+  'labelled-statement lowering outside child module'
+require_fixed_string_count \
+  "$ir_labelled_statement_lowering" \
+  'fn collect_labels' \
+  1 \
+  'nested-label collection helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn collect_labels' \
+  0 \
+  'nested-label collection helper outside child module'
+require_fixed_string_count \
+  "$ir_labelled_statement_lowering" \
+  'fn label_target_kind' \
+  1 \
+  'label target-kind helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn label_target_kind' \
+  0 \
+  'label target-kind helper outside child module'
+require_fixed_string_count "$ir_lowering" 'struct ActiveLabel' 1 'shared active-label type in parent'
+require_fixed_string_count "$ir_labelled_statement_lowering" 'struct ActiveLabel' 0 'active-label type copied into labelled owner'
+require_fixed_string_count "$ir_lowering" 'enum LabelTargetKind' 1 'shared label-target type in parent'
+require_fixed_string_count "$ir_labelled_statement_lowering" 'enum LabelTargetKind' 0 'label-target type copied into labelled owner'
+check_no_inline_legacy_includes "$ir_labelled_statement_lowering"
+# Measured after formatting the extraction: 72 raw lines. The margin is for
+# maintenance of labelled-statement lowering only.
+check_raw_line_budget "$ir_labelled_statement_lowering" 100
 # T02's while-family boundary owns ordinary/resumable while lowering and the
 # explicit do-while suspension refusal. Shared loop resumption helpers remain
 # parent-owned and the parent cannot regrow either loop implementation.
@@ -514,9 +558,9 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the while-family extraction: 23,502 raw lines. This
-# leaves modest orchestration headroom while preventing the former 32k-line
-# implementation store from regrowing.
+# Measured after formatting the labelled-statement extraction: 23,434 raw
+# lines. This leaves modest orchestration headroom while preventing the former
+# 32k-line implementation store from regrowing.
 check_raw_line_budget "$ir_lowering" 24500
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,

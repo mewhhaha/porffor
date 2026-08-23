@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Labelled-statement lowering now lives in `lowering/labelled_statement.rs`:
+  one owner carries nested-label collection, target-kind classification,
+  active-label stack management and final `Labelled` IR assembly while shared
+  break/continue label types remain in the parent. The exact 68-line family
+  move reduces `lowering.rs` from 23,502 to 23,434 raw lines; the child is 72
+  lines. Five focused IR filters and three focused CLI filters pass. Pre/post
+  golden captures pass `2/2`, contain 635 artifacts each and are byte-identical.
+  No labelled-statement behavior or conformance change is claimed.
 - Direct `using` or `await using` declarations in switch CaseClause and
   DefaultClause StatementLists now share one typed early-error code across
   Script, Module and retained dependency parsing. Nested blocks, loops,

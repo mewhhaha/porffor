@@ -17,6 +17,28 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: labelled-statement ownership
+
+`lila-ir/src/lowering/labelled_statement.rs` now owns nested-label collection,
+direct labelled-function routing, loop-versus-breakable target classification,
+active-label stack installation/removal and final `Labelled` IR assembly. The
+statement dispatcher remains its sole caller; the shared `ActiveLabel` and
+`LabelTargetKind` types remain parent-owned for break/continue lowering.
+
+This is an exact source move. All 68 method/helper lines compare exactly after
+normalizing only `fn lower_labelled` to private-module visibility. The
+extraction reduces `lowering.rs` from 23,502 to 23,434 raw lines, and the child
+is 72 lines. The module audit requires the sole owner and both private helpers,
+rejects copies of the shared label types, forbids legacy `include!` assembly,
+budgets parent and child separately, and fails its negative control when the
+child is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Five focused IR label/target/lifecycle filters
+pass `5/5`; three focused CLI inspect, iterator-closing and await-using filters
+pass `3/3`. The all-target `lila-ir` and workspace checks are green. No labelled
+statement behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: while-family ownership
 
 `lila-ir/src/lowering/while_loop.rs` now owns ordinary and resumable `while`
