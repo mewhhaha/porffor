@@ -1,5 +1,16 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 for-in using-declaration amendment
+
+T07 now classifies Boa's exact fixed-message rejection for `using` or
+`await using` in a `for-in` head. The normative extension is:
+
+`docs/rust-rewrite/contracts/for-in-using-declaration-early-errors.md`
+
+The domain has **39** variants and the one parse-failure table has **37** rows.
+The `for-of`, ordinary lexical `for-in`, and classic-for grammar siblings stay
+parse-valid under both goals.
+
 ## 2026-08-23 Script top-level using-declaration amendment
 
 T07 now classifies Boa's exact fixed-position post-parse rejection for a

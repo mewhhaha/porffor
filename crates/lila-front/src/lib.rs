@@ -787,6 +787,47 @@ mod tests {
     }
 
     #[test]
+    fn for_in_using_declarations_reject_under_both_goals() {
+        for source in [
+            "for (using x in {}) {}",
+            "async function f() { for (await using x in {}) {} }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a using declaration in a for-in head should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ForInUsingDeclaration),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn for_in_using_declaration_siblings_remain_valid() {
+        for source in [
+            "for (using x of [null]) {}",
+            "async function f() { for (await using x of []) {} }",
+            "for (let x in {}) {}",
+            "for (const x in {}) {}",
+            "for (using x = null;;) break;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("for-of, ordinary for-in and classic-for siblings should remain valid");
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -1851,6 +1892,7 @@ switch (0) {
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelUsingDeclaration).is_some()
         );
+        assert!(ParseClassified::from_early(EarlyErrorCode::ForInUsingDeclaration).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(

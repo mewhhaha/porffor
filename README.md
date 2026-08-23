@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- `for-in` heads using `using` or `await using` now share one typed early-error
+  code across Script, Module and retained dependency parsing. `for-of`,
+  ordinary `let`/`const` `for-in`, and initialized `using` in classic `for`
+  remain valid grammar siblings. The capped front gate passes `59/59`, the IR
+  early-error filter passes `3/3`, and the exact two-file cohort passes `4/4`
+  sloppy/strict Wasm-AOT executions with every failure and non-success bucket
+  at zero. This is bounded classification, not disposal execution, direct eval,
+  all iterable-loop grammar, or broad T07 closure.
 - While-family lowering now lives in `lowering/while_loop.rs`: one owner
   carries ordinary/resumable `while` construction and the deliberate
   `do while` suspension refusal while shared loop-resumption helpers remain in

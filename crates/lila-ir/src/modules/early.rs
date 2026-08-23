@@ -439,6 +439,10 @@ mod tests {
                 EarlyErrorCode::ScriptTopLevelUsingDeclaration,
             ),
             (
+                "using declarations are not allowed in for-in loop heads at line 1, col 1",
+                EarlyErrorCode::ForInUsingDeclaration,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -834,6 +838,28 @@ mod tests {
         ] {
             lila_front::parse(source, lila_front::ParseOptions::module())
                 .expect("top-level using declarations are valid Module syntax");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_for_in_using_declarations() {
+        for source in [
+            "export {}; for (using x in {}) {}",
+            "export async function f() { for (await using x in {}) {} }",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained Module for-in using declaration should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::ForInUsingDeclaration),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
         }
     }
 
