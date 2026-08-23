@@ -43,6 +43,39 @@ require_fixed_string_count() {
   fi
 }
 
+require_exact_line_count() {
+  file="$1"
+  line="$2"
+  expected="$3"
+  description="$4"
+  count="$(grep -Fxc "$line" "$file" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "$file must contain $expected exact $description lines (found $count)"
+  fi
+}
+
+require_regex_count() {
+  file="$1"
+  pattern="$2"
+  expected="$3"
+  description="$4"
+  count="$(grep -Ec "$pattern" "$file" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "$file must contain $expected $description lines (found $count)"
+  fi
+}
+
+require_tree_regex_count() {
+  root="$1"
+  pattern="$2"
+  expected="$3"
+  description="$4"
+  count="$({ grep -RhE --include='*.rs' "$pattern" "$root" || true; } | wc -l | tr -d '[:space:]')"
+  if [ "$count" -ne "$expected" ]; then
+    fail "$root must contain $expected $description declarations (found $count)"
+  fi
+}
+
 # Non-test CODE lines: everything before the crate's `#[cfg(test)]` block, minus
 # blank lines and minus whole-line comments (`//`, `///`, `//!` and lines inside
 # a whole-line `/* ... */` block).
@@ -262,6 +295,100 @@ check_no_inline_legacy_includes "$ir_for_loop_lowering"
 # Measured after formatting the extraction: 213 raw lines. The margin is for
 # maintenance of the classic-for lifecycle, not unrelated loop lowering.
 check_raw_line_budget "$ir_for_loop_lowering" 250
+# T02's for-of boundary owns every specialization decision, the lowering-only
+# protocol carrier and the closed resumable array-walk classification. The
+# statement dispatcher is the sole caller; shared loop/environment helpers and
+# public statement/protocol IR remain in their existing owners.
+ir_for_of_lowering="crates/lila-ir/src/lowering/for_of.rs"
+require_file "$ir_for_of_lowering"
+require_exact_line_count "$ir_lowering" 'mod for_of;' 1 'private for-of module declaration'
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'pub(super) fn lower_for_of_loop(' \
+  1 \
+  'for-of statement-facing owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_for_of_loop(' \
+  0 \
+  'for-of lowering outside child module'
+for private_owner in lower_async_for_of_array_with_body_await lower_for_of_head; do
+  require_fixed_string_count \
+    "$ir_for_of_lowering" \
+    "fn ${private_owner}(" \
+    1 \
+    "private ${private_owner} owner"
+  require_fixed_string_count \
+    "$ir_lowering" \
+    "fn ${private_owner}(" \
+    0 \
+    "${private_owner} outside child module"
+done
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'enum AsyncForOfArrayWalkForm' \
+  1 \
+  'private resumable array-walk classification carrier'
+require_fixed_string_count \
+  "crates/lila-ir/src/lowering_helpers.rs" \
+  'enum AsyncForOfArrayWalkForm' \
+  0 \
+  'resumable array-walk carrier declarations in the former helper owner'
+require_tree_regex_count \
+  "crates/lila-ir/src" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?enum[[:space:]]+AsyncForOfArrayWalkForm([[:space:]]|\{)' \
+  1 \
+  'resumable array-walk carrier'
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'struct ForOfLoweringIr' \
+  1 \
+  'private for-of protocol carrier'
+require_fixed_string_count \
+  "crates/lila-ir/src/ir.rs" \
+  'struct ForOfLoweringIr' \
+  0 \
+  'for-of protocol carrier declarations in the former IR owner'
+require_tree_regex_count \
+  "crates/lila-ir/src" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?struct[[:space:]]+ForOfLoweringIr([[:space:]]|\{)' \
+  1 \
+  'for-of protocol carrier'
+# The statement-facing wrapper is the child's only Rust-visible item. This one
+# count makes leaking either carrier, any field or any helper fail closed.
+require_regex_count \
+  "$ir_for_of_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+for shared_helper in \
+  plain_async_entry_state \
+  split_resumable_loop_body \
+  lower_loop_body \
+  lower_for_in_of_environment \
+  lower_for_head_expression_with_tdz \
+  for_of_loop_binding_storage_name
+do
+  require_fixed_string_count \
+    "$ir_for_of_lowering" \
+    "fn ${shared_helper}(" \
+    0 \
+    "shared ${shared_helper} helper copied into for-of owner"
+done
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'fn generator_loop_has_unsupported_control' \
+  0 \
+  'shared generic generator_loop_has_unsupported_control helper copied into for-of owner'
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'enum LoweredForOfHeadKind' \
+  0 \
+  'async-disposable head-kind type copied into for-of owner'
+check_no_inline_legacy_includes "$ir_for_of_lowering"
+# Measured after formatting the extraction: 1,036 raw lines. The margin is for
+# maintenance of the complete for-of lowering family, not unrelated lowering.
+check_raw_line_budget "$ir_for_of_lowering" 1100
 # T02's if-statement boundary owns branch lowering, flow-fact joins and the
 # generator split/merge lifecycle. The shared static expression helpers remain
 # parent-owned and the parent cannot regrow a second if implementation.
@@ -685,10 +812,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the with-statement extraction: 23,208 raw
-# lines. This leaves modest orchestration headroom while preventing the former
+# Measured after formatting the for-of extraction: 22,444 raw lines. This
+# leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 24500
+check_raw_line_budget "$ir_lowering" 23500
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

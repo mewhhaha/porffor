@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- For-of lowering now lives in `lowering/for_of.rs`: one owner carries every
+  specialization decision plus the private `AsyncForOfArrayWalkForm` and
+  `ForOfLoweringIr` proofs. The 1,026-line source-family move leaves a 1,036-line
+  child and reduces `lowering.rs` to 22,444 lines; the lowering-only carrier no
+  longer leaks through the public IR surface. Seven focused IR witnesses,
+  thirteen structure checks and four exact CLI witnesses pass. Capped pre/post
+  goldens cover 633 fixtures in 635 artifacts and are byte-identical. No broad
+  Test262, full-workspace or for-of conformance improvement is claimed.
 - The callable-parameter `Contains YieldExpression` / `Contains
   AwaitExpression` matrix now has closed typed conditions across declarations,
   expressions, methods and ordinary/async arrows. Existing fixed arrow

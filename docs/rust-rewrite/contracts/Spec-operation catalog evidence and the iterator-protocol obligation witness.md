@@ -810,7 +810,7 @@ what cannot be a type and why.
 | **L2** | A row's `abrupt` set matches what the emitter arm actually emits. | `lila-ir` cannot see `lila-aot-wasm`; the dependency runs the other way, and the emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm emits a throw path". | **Not checked in this area.** Recorded as an open defect of the same class as `ca09433c1`. Proposed follow-up lane: change the emitter arm's success type to a `Emitted::{MayThrow, NoAbrupt}` that the caller must match, and const-assert it against `SpecOperationIr::abrupt()`. Out of scope here because it lives in `lila-aot-wasm/src/operations.rs` and would touch the emitted-code path. |
 | **L3** | An `IntactnessPremise` is *true* of the program being compiled. | The premise is a statement about the user's source, not about our code. No type can prove it; only a lowering-time guard can, and building that guard is a separate lane by scope. | **Nothing.** Deliberately. The witness makes the premise *nameable and greppable*; it does not make it true. §9's adversarial traces record the exact programs for which `ArrayIteratorIntact` is false today. |
 | **L4** | `static_object_iterator_iife_source_values` (`lowering.rs:35919-35944`) picks a specialization on a **substring of whitespace-stripped source text** (`"[Symbol.iterator]:null"`, `"[Symbol.iterator]:undefined"`, `"=>{name}.next()"`). Reformatting the program changes which specialization fires. | It is a source-text oracle, not a semantic one; typing it would mean rewriting it. Out of scope by the area definition. | **Named unsound guard.** Recorded here so it is not rediscovered as a mystery. Must be cited by any future lane that touches for-of specialization. |
-| **L5** | `KindSet::EMPTY.is_subset_of(KindSet::from_kind(ValueKind::Array))` is `true` (`ir.rs:339`). A value with an *empty* `possible_kinds` therefore selects `ForOfArray` at `lowering.rs:13413`. | The subset test is correct set theory; the *use* of it as "is definitely an Array" is the bug. Fixing it changes which specialization fires, i.e. changes emitted bytes — out of scope. | **Recorded, not fixed.** The `ARRAY_INDEX_WALK` witness's premises are stated as holding "for a value whose inferred kind set is exactly `{Array}`"; whether the guard actually establishes that is L5's business. Flagged for the lane that closes L3. |
+| **L5** | `KindSet::EMPTY.is_subset_of(KindSet::from_kind(ValueKind::Array))` is `true` (`ir.rs:339`). A value with an *empty* `possible_kinds` therefore selects `ForOfArray` in `lowering/for_of.rs::lower_for_of_head`. | The subset test is correct set theory; the *use* of it as "is definitely an Array" is the bug. Fixing it changes which specialization fires, i.e. changes emitted bytes — out of scope. | **Recorded, not fixed.** The `ARRAY_INDEX_WALK` witness's premises are stated as holding "for a value whose inferred kind set is exactly `{Array}`"; whether the guard actually establishes that is L5's business. Flagged for the lane that closes L3. |
 
 ---
 
@@ -1098,7 +1098,7 @@ The `ForOfIterator` control case. Establishes the reference trace against which
 
 | id | Program | Spec answer | Traced answer | Confirms |
 |---|---|---|---|---|
-| **A1** | `Array.prototype[Symbol.iterator] = function*(){ yield 99; }; for (const x of [1,2]) log(x);` | `99` | `1`, `2`. `[1,2]` has `possible_kinds = {Array}`; `lowering.rs:13413` selects `ForOfArray`; `compile_for_of_array` (`control_flow.rs:5732`) is a bare `emit_array_length` + `emit_array_read` index walk with **no** `@@iterator` `Get` anywhere in it. | Mistake class 6 / ledger L3. Fixes the exact premise `ArrayIteratorIntact` must state. |
+| **A1** | `Array.prototype[Symbol.iterator] = function*(){ yield 99; }; for (const x of [1,2]) log(x);` | `99` | `1`, `2`. `[1,2]` has `possible_kinds = {Array}`; `lowering/for_of.rs::lower_for_of_head` selects `ForOfArray`; `compile_for_of_array` (`control_flow.rs:5732`) is a bare `emit_array_length` + `emit_array_read` index walk with **no** `@@iterator` `Get` anywhere in it. | Mistake class 6 / ledger L3. Fixes the exact premise `ArrayIteratorIntact` must state. |
 | **A2** | `class A extends Array { *[Symbol.iterator]() { yield 7; } } for (const x of new A(1,2,3)) log(x);` | `7` | Depends on whether `new A(...)` narrows to `{Array}`. Dry-runner must resolve this against `lowering.rs`'s `new`-expression kind inference and record it. If it narrows, A2 is a second, independent route to the same premise violation — and the one a "did anyone assign to `Array.prototype`?" guard would miss. | Mistake class 6; scopes any future intactness guard. |
 | **A3a** | Add `SpecOperationIr::IsLessThan` with no catalog row. | build failure | **`E0004` in four places** (`family`, `normal_result`, `abrupt`, `catalog_index`). | Mistake class 2a. |
 | **A3b** | Add a catalog row `"ToNumericString"` with no variant. | build failure *if it claims implementation* | Only expressible as `TrackedGapRow`, i.e. an honest gap; claiming `SharedWasmEmitter` is `E0560`/`E0609` because the struct has no such field. A duplicate name is `E0080` from const assert J1. | Mistake class 2b. |
@@ -1295,15 +1295,17 @@ Allocation order is unchanged, so the emitted binding names are byte-identical.
 
 A `protocol` field on three `ForOf*` variants cannot catch a specialization
 that is not spelled as a `ForOf*`. `for (x of arr) { … await … }` inside a
-plain async function is desugared by `lower_async_for_of_array_with_body_await`
+plain async function is desugared by
+`lowering/for_of.rs::lower_async_for_of_array_with_body_await`
 into `StatementIr::GeneratorLoop` with an explicit
 `index < PropertyKeyIr::ArrayLength` test and `PropertyKeyIr::ArrayIndex`
 element reads — an index walk on all the array premises, with no witness and no
 way to demand one. §2's "for-of specialization construction sites: 3" was wrong.
 
-The obligation is now attached to the **lowering of the head**:
-`lower_for_of_head` returns `ForOfLoweringIr`, whose only constructor takes an
-`IteratorProtocolWitness`, and every one of its ten exits produces one
+The obligation is now attached to the **lowering of the head**. The private
+`lowering/for_of.rs::lower_for_of_head` returns the module-private
+`ForOfLoweringIr`, whose only constructor takes an `IteratorProtocolWitness`,
+and every exit produces one
 (`ForOfLoweringIr::no_iteration()` for the bail-outs, `NO_ITERATION` for the
 `WebCompatCall` head that throws instead of iterating,
 `ARRAY_INDEX_WALK_RESUMABLE` for the `GeneratorLoop` desugaring). The `ForOf*`
@@ -1311,11 +1313,10 @@ The obligation is now attached to the **lowering of the head**:
 is demanded. Spread, `yield*` and array destructuring reach the protocol by
 other routes and are named as `EmissionSite`s instead (13.9).
 
-One honest cost, recorded under the same heading as L7: `ForOfLoweringIr::protocol()`
-has no caller. The witness's work is done at the type level by the time control
-leaves `lower_for_of_head`, and the accessor exists so the private field is
-reachable public API rather than a field rustc reports as never read. Delete it
-in the patch that gives a consumer a reason to inspect a witness.
+The former public `ForOfLoweringIr::protocol()` accessor had no caller and was
+deleted. The carrier now stays private with its lowering family, and
+`into_statement_and_kind` consumes it, reads the witness and checks the two
+locally decidable conditions before the statement crosses back to dispatch.
 
 ## 13.6 `IntactnessPremise` conflated three kinds of claim
 

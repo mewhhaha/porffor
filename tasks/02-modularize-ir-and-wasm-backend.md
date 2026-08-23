@@ -1,6 +1,6 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — major builtin ownership bottlenecks split; broader lowering/emitter seams remain
+**Status:** In progress — major builtin ownership bottlenecks and the for-of lowering owner split; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
@@ -16,6 +16,60 @@ seams and line budgets. The split remains partial: `lowering.rs`,
 still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
+
+### Landed 2026-08-23: for-of lowering ownership
+
+`lila-ir/src/lowering/for_of.rs` now owns the complete for-of lowering family:
+the async array-index resumable specialization, the sole statement-facing
+wrapper, the exhaustive head lowering, and the two lowering-only carriers
+`AsyncForOfArrayWalkForm` and `ForOfLoweringIr`. The extraction moves one
+coherent 1,026-line source family out of `lowering.rs`, `lowering_helpers.rs`
+and `ir.rs`. Only `lower_for_of_loop` crosses the child boundary as
+`pub(super)`; the other methods, both carriers and their
+constructors/conversions are private to the child.
+
+Moving `ForOfLoweringIr` deliberately removes an accidental public Rust API
+created by `pub use ir::*`. It has no workspace consumer outside this family,
+and its privacy is the invariant: every path out of `lower_for_of_head` must
+construct a protocol witness, while no unrelated code may construct, retain or
+discard that lowering-only proof. This is an intentional pre-1.0 API narrowing,
+not a claim that the patch is only a filename change.
+
+The statement dispatcher remains the sole external caller. Shared loop and
+environment helpers stay in the parent, including `plain_async_entry_state`,
+`split_resumable_loop_body`, `lower_loop_body`,
+`lower_for_in_of_environment` and `lower_for_head_expression_with_tdz`.
+`lowering/async_disposable.rs` retains `LoweredForOfHeadKind` plus admission,
+pending-head, finalization and statement construction. Public statement/head,
+environment, iterator-plan and protocol-witness IR remain in their existing
+IR and iterator-obligation owners. The extraction copies none of those helpers
+and does not widen their visibility.
+
+The move preserves source order and behavior: scope push/pop on every bailout,
+flow-fact snapshots and joins, iterable-before-body evaluation, synchronous-
+using TDZ/disposal ordering, async-disposable pending-head sequencing,
+suspension-state acquisition, five load-bearing async iterator slot
+allocations, the closed array/string/generic/resumable protocol outcomes, and
+`AsyncForOfArrayWalkForm`'s non-array / target-shape / captured-iteration /
+captured-TDZ classification priority. No specialization cleanup, diagnostic
+change, intactness repair or conformance expansion belongs in this batch.
+
+The extraction reduces `lowering.rs` from 23,208 to 22,444 raw lines; the child
+is 1,036 lines. The module audit requires the one child owner, all three sole
+methods, both private carriers, zero parent/helper/IR copies, no shared-helper
+copies, no legacy `include!` assembly and separate parent/child budgets. Its
+missing-child, public-module, public-carrier, copied-shared-helper and generic-
+helper negative controls all fail correctly. The two source-bounded for-of
+backend tests read the new child directly.
+
+The capped pre/post Wasm goldens both pass `2/2`, record 633 fixtures in 635
+artifacts and have an empty recursive diff; the post capture finished in
+388.51 seconds. The focused IR witnesses pass `3/3`, `3/3` and `1/1`; the three
+backend structure targets pass `5/5`, `5/5` and `3/3`; and four exact CLI
+witnesses pass `4/4`. `cargo check -p lila-ir --all-targets`, `cargo xc`,
+formatting, diff, module-boundary and task-plan checks are green. No broad
+Test262 filter or full workspace test was used as evidence. No for-of behavior
+or conformance improvement is claimed.
 
 ### Landed 2026-08-23: with-statement ownership
 

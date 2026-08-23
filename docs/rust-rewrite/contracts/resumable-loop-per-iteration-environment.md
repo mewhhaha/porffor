@@ -116,9 +116,8 @@ The coherent implementation owns:
 - this contract;
 - `crates/lila-ir/src/ir.rs` for the closed lifecycle enum and required
   `GeneratorLoop` field;
-- `crates/lila-ir/src/lowering_helpers.rs` for classification into a supported
-  environment plan or a precise rejection;
-- `crates/lila-ir/src/lowering.rs` for carrying the analyzed iteration
+- `crates/lila-ir/src/lowering/for_of.rs` for classifying the supported
+  environment plan or precise rejection and carrying the analyzed iteration
   environment into the resumable loop;
 - `crates/lila-aot-wasm/src/control_flow.rs` and
   `crates/lila-aot-wasm/src/environments.rs` for allocation, static binding

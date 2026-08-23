@@ -1,5 +1,5 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const FOR_OF_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_of.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
 const FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_using_for_of_lifecycle.js");
@@ -67,9 +67,9 @@ fn closed_head_forces_resources_onto_the_generic_synchronous_protocol() {
 #[test]
 fn lowering_keeps_tdz_and_specialization_decisions_at_the_closed_head_boundary() {
     let lowering = bounded(
-        LOWERING_SOURCE,
+        FOR_OF_LOWERING_SOURCE,
         "    fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {",
-        "    fn lower_for_init(&mut self, init: &ForLoopInitializer) -> Option<ForInitIr> {",
+        "        ForOfLoweringIr::new(statement, body_kind, protocol)",
     );
     for boundary in [
         "IterableLoopInitializer::Using(Binding::Identifier(identifier))",
