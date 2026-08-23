@@ -202,6 +202,35 @@ check_no_inline_legacy_includes "$ir_delete_expression_lowering"
 # Measured after formatting the extraction: 217 raw lines. The margin is for
 # maintenance of this exhaustive dispatcher, not unrelated lowering.
 check_raw_line_budget "$ir_delete_expression_lowering" 250
+# T02's property-access boundary owns ordinary, private and super access
+# dispatch plus the primitive/exotic target-kind split. Keep that split
+# exhaustive so a future ValueKind cannot silently inherit Number's currently
+# unsupported behavior through a catch-all arm.
+ir_property_access_lowering="crates/lila-ir/src/lowering/property_access.rs"
+require_file "$ir_property_access_lowering"
+require_module_decl "$ir_lowering" "property_access"
+require_fixed_string_count \
+  "$ir_property_access_lowering" \
+  'pub(super) fn lower_property_access(' \
+  1 \
+  'property-access lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_property_access(' \
+  0 \
+  'property-access lowering outside child module'
+require_fixed_string_count \
+  "$ir_property_access_lowering" \
+  'ValueKind::Number => {' \
+  1 \
+  'explicit Number property-access arm'
+if grep -Fq '_ => self.unsupported_expr("property access on non-object target")' "$ir_property_access_lowering"; then
+  fail "$ir_property_access_lowering must exhaust ValueKind instead of hiding future variants behind a catch-all"
+fi
+check_no_inline_legacy_includes "$ir_property_access_lowering"
+# Measured after formatting the extraction: 223 raw lines. The margin is for
+# maintenance of property-access lowering only.
+check_raw_line_budget "$ir_property_access_lowering" 260
 # T02's call-expression boundary keeps direct-call recognition and lowering in
 # one child module. The parent owns expression dispatch and reusable helpers,
 # but cannot regrow a second implementation of its largest former method.
@@ -325,7 +354,7 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the delete-expression extraction: 24,910 raw
+# Measured after formatting the property-access extraction: 24,446 raw
 # lines. This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
 check_raw_line_budget "$ir_lowering" 25200

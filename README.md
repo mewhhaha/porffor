@@ -374,6 +374,15 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Property-access lowering now lives in `lowering/property_access.rs`: one
+  dispatcher owns ordinary, private and super reads plus primitive/exotic
+  routing and unknown-effect invalidation. Its target-kind match names
+  `ValueKind::Number` instead of hiding future variants behind a catch-all.
+  This reduces `lowering.rs` from 24,663 to 24,446 raw lines; the child is 223
+  lines. Focused IR property cohorts pass `2/2`, `6/6`, `1/1`, `1/1` and
+  `34/34`; focused CLI cohorts pass `3/3`, `1/1` and `6/6`. Pre/post golden
+  captures pass `2/2`, contain 635 artifacts each and are byte-identical. No
+  property-access behavior or conformance change is claimed.
 - Try/catch/finally lowering now lives in `lowering/try_statement.rs`: catch
   Environment Record construction, thrown-value inference, resumable-state
   planning and final try IR assembly move together. Private named catch/finally

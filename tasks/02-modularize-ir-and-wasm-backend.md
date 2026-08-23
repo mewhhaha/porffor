@@ -17,6 +17,30 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: property-access ownership
+
+`lila-ir/src/lowering/property_access.rs` now owns the complete ordinary,
+private and super property-access dispatcher. Primitive auto-boxing, array and
+arguments exotic routing, well-known Symbol recognition, property-hook
+observation and unknown-effect invalidation move together; the parent
+expression dispatcher remains the sole caller.
+
+The target-kind match now names `ValueKind::Number` explicitly instead of
+using a catch-all for its existing unsupported result. That preserves current
+behavior while making a future `ValueKind` addition a compile error until this
+dispatcher assigns it semantics. The module audit requires that exhaustive
+arm, forbids the old catch-all and enforces single ownership.
+
+The source body is otherwise exact after normalizing private-module
+visibility. The extraction reduces `lowering.rs` from 24,663 to 24,446 raw
+lines; the formatted child is 223 lines. The capped pre/post Wasm goldens both
+pass `2/2`, capture 635 artifacts each and have an empty recursive diff. The
+all-target `lila-ir` and workspace checks are green. Serial IR filters pass
+`2/2` for `property_access`, `6/6` for `property_read`, `1/1` each for
+`symbol_description` and `dynamic_string_property`, and `34/34` for `call_`;
+the corresponding focused CLI filters pass `3/3`, `1/1` and `6/6`. No
+property-access behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: try-statement ownership
 
 `lila-ir/src/lowering/try_statement.rs` now owns the complete `lower_try`
