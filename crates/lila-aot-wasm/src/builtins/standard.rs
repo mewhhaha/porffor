@@ -980,29 +980,20 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             receiver_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             receiver_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             receiver_byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
             receiver_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
             receiver_bytes_per_element_local,
             function,
+        );
+        let receiver_view = TypedArrayViewLocals::new(
+            receiver_payload_local,
+            receiver_buffer_local,
+            receiver_byte_offset_local,
+            receiver_byte_length_local,
+            receiver_bytes_per_element_local,
         );
         self.load_i64_to_local_from_offset(
             receiver_payload_local,
@@ -1010,18 +1001,13 @@ impl<'a> FunctionBuilder<'a> {
             receiver_element_kind_local,
             function,
         );
-        self.emit_validate_typed_array_current_byte_length(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_buffer_local,
-            receiver_byte_offset_local,
-            receiver_byte_length_local,
+        self.emit_typed_array_witness(
+            &receiver_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local: receiver_length_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(receiver_byte_length_local));
-        function.instruction(&Instruction::LocalGet(receiver_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(receiver_length_local));
 
         self.emit_typed_array_stable_sort(
             receiver_payload_local,
@@ -1545,29 +1531,20 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             receiver_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             receiver_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             receiver_byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
             receiver_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
             receiver_bytes_per_element_local,
             function,
+        );
+        let receiver_view = TypedArrayViewLocals::new(
+            receiver_payload_local,
+            receiver_buffer_local,
+            receiver_byte_offset_local,
+            receiver_byte_length_local,
+            receiver_bytes_per_element_local,
         );
         self.load_i64_to_local_from_offset(
             receiver_payload_local,
@@ -1575,18 +1552,13 @@ impl<'a> FunctionBuilder<'a> {
             receiver_element_kind_local,
             function,
         );
-        self.emit_validate_typed_array_current_byte_length(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_buffer_local,
-            receiver_byte_offset_local,
-            receiver_byte_length_local,
+        self.emit_typed_array_witness(
+            &receiver_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local: receiver_length_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(receiver_byte_length_local));
-        function.instruction(&Instruction::LocalGet(receiver_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(receiver_length_local));
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(constructor_payload_local));

@@ -9,6 +9,12 @@ function assertSequence(actual, expected, label) {
   }
 }
 
+function assertIndexedSequence(actual, expected, label) {
+  for (var index = 0; index < expected.length; index++) {
+    assertSame(actual[index], expected[index], label + " value " + index);
+  }
+}
+
 function assertThrows(expectedConstructor, callback, label) {
   try {
     callback();
@@ -22,7 +28,8 @@ function assertThrows(expectedConstructor, callback, label) {
 var numeric = new Uint16Array([111, 3, 22, 2, 11, 1]);
 Object.defineProperty(numeric, "length", { value: 50 });
 assertSame(numeric.sort(), numeric, "returns receiver");
-assertSequence(numeric, [1, 2, 3, 11, 22, 111], "default numeric order");
+assertSame(numeric.length, 50, "own length is preserved");
+assertIndexedSequence(numeric, [1, 2, 3, 11, 22, 111], "default numeric order");
 
 var descending = new Int16Array([1, 2, 3, 4]);
 descending.sort(function(a, b) { return b - a; });

@@ -124,13 +124,33 @@ eight-core cap, `cargo xc` is green; the structural witness and the exact
 `reverse/resizable-buffer.js` and `toReversed/reverses.js` Test262 leaves each
 pass `2/2` Wasm-AOT executions with every non-success bucket at zero.
 
-This migration does not cover `copyWithin`, `sort`, `toSorted`, `with`, `set`,
-`slice` or other remaining raw validators. It does not change the shared
-indexed `Get`, per-index integer-indexed behavior, result allocation,
-SharedArrayBuffer synchronization, Test262 rewrites or published counts. The
-existing fixtures do not prove created-Realm error-prototype identity at
-runtime; only the shared witness's current-function-Realm route is structurally
-owned here.
+The `%TypedArray%.prototype.sort` and `toSorted` compilers now carry the same
+validated-method-entry ownership. Comparator admissibility remains before the
+receiver check, and each compiler completes that brand guard before loading one
+immutable `TypedArrayViewLocals` record and consuming one
+`ValidatedMethodEntry` witness. Both retain one separate element-kind load.
+`sort` still targets and returns its receiver; `toSorted` still performs
+same-kind allocation, copies the complete captured range before sorting the
+distinct result and returns that result. The shared stable-sort emitter is
+unchanged. The focused
+[sort-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-sort-family-buffer-witness.md)
+and bounded source-structure regression record those invariants. The
+implementation and guard are independently reviewed. Under the shared
+eight-core cap, `cargo xc` is green, the structural guard passes `1/1`, and the
+exact `sort` and `toSorted` CLI fixtures each pass `1/1`. The pinned
+`sort/return-abrupt-from-this-out-of-bounds.js` and
+`toSorted/length-property-ignored.js` leaves each pass `2/2` Wasm-AOT
+executions with all non-success buckets at zero under `--jobs 1 --threads 1`.
+The fixtures now separately preserve their own `length = 50` shadow and check
+the six integer-indexed elements, removing a contradictory assertion found by
+the focused run. No aggregate or published conformance-count change is claimed.
+
+These migrations do not cover `copyWithin`, `with`, `set`, `slice` or other
+remaining raw validators. They do not change the shared indexed `Get`,
+per-index integer-indexed behavior, result allocation, SharedArrayBuffer
+synchronization, Test262 rewrites or published counts. The existing fixtures do
+not prove created-Realm error-prototype identity at runtime; only the shared
+witness's current-function-Realm route is structurally owned here.
 
 ## Objective
 
