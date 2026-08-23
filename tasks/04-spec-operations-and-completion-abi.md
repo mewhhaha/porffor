@@ -94,6 +94,21 @@ exact TypedArray `with` CLI witness passes `1/1` while exercising Number
 rejection by a BigInt typed-data write. This verifies the bounded policy seam;
 no broad BigInt, Temporal or Test262 refresh or conformance gain is claimed.
 
+The shared ECMAScript string-trim core now carries a private, exhaustive
+`EcmaTrimMode::{Start, End, Both}` instead of independent `trim_start` and
+`trim_end` Booleans. That is the complete `TrimString` `where` domain, so the
+former unowned neither-end state is unrepresentable. Three named wrappers own
+the only raw-core entries: String-to-BigInt selects Both; the static String
+method fast path maps `trim` to Both, `trimStart`/`trimLeft` to Start and
+`trimEnd`/`trimRight` to End; and the standard-builtin dispatcher applies the
+same mapping to its three builtin identities. The existing receiver coercion,
+abrupt-completion, scan, slice and temporary-local order is unchanged. The
+normative source contract, implementation and hardened caller/alias mutation
+guard are independently reviewed. Under the shared eight-core cap, `cargo xc`
+is green, the structural guard passes `2/2`, and the exact String trim and
+arbitrary-precision BigInt string fixtures each pass `1/1`. No broad String,
+BigInt or Test262 refresh or conformance gain is claimed.
+
 The synchronous DisposableStack value-return seam now names its remaining
 two-policy choice with a private, exhaustive
 `DisposableStackReturnDisposition`: return the current function from the early

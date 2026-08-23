@@ -16,6 +16,18 @@ pub(crate) enum BigIntNumberPolicy {
     NumberToBigInt,
 }
 
+/// Which boundary or boundaries the shared ECMAScript string trim owns.
+///
+/// `TrimString` admits exactly start, end, or start+end. Keeping the raw core
+/// behind this private domain makes the former `(false, false)` state
+/// unrepresentable and forces a new mode through both exhaustive scans below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EcmaTrimMode {
+    Start,
+    End,
+    Both,
+}
+
 /// One already-evaluated ECMAScript value admitted to the has-instance
 /// dispatcher. The raw local pair stays private so the two abstract-operation
 /// signatures below cannot transpose `object` and `constructor` accidentally.
@@ -6169,7 +6181,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
         function.instruction(&Instruction::LocalSet(output_tag_local));
 
-        self.emit_ecmascript_trim_payload_from_locals(string_payload_local, true, true, function)?;
+        self.emit_ecmascript_trim_both_payload_from_locals(string_payload_local, function)?;
         function.instruction(&Instruction::LocalSet(trimmed_string_payload_local));
         self.emit_unpack_string_payload(
             trimmed_string_payload_local,
@@ -11514,11 +11526,46 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(src_offset_local);
     }
 
-    pub(crate) fn emit_ecmascript_trim_payload_from_locals(
+    pub(crate) fn emit_ecmascript_trim_start_payload_from_locals(
         &mut self,
         string_payload_local: u32,
-        trim_start: bool,
-        trim_end: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_ecmascript_trim_payload_from_locals(
+            string_payload_local,
+            EcmaTrimMode::Start,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_ecmascript_trim_end_payload_from_locals(
+        &mut self,
+        string_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_ecmascript_trim_payload_from_locals(
+            string_payload_local,
+            EcmaTrimMode::End,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_ecmascript_trim_both_payload_from_locals(
+        &mut self,
+        string_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_ecmascript_trim_payload_from_locals(
+            string_payload_local,
+            EcmaTrimMode::Both,
+            function,
+        )
+    }
+
+    fn emit_ecmascript_trim_payload_from_locals(
+        &mut self,
+        string_payload_local: u32,
+        mode: EcmaTrimMode,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let src_offset_local = self.reserve_temp_local();
@@ -11542,72 +11589,78 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(end_local));
 
-        if trim_start {
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(start_local));
-            function.instruction(&Instruction::LocalGet(end_local));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(start_local));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(byte_local));
-            for bytes in ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8 {
-                Self::emit_skip_utf8_whitespace_forward(
-                    function,
-                    end_local,
-                    start_local,
-                    byte_local,
-                    bytes,
-                );
+        match mode {
+            EcmaTrimMode::Start | EcmaTrimMode::Both => {
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::LocalGet(end_local));
+                function.instruction(&Instruction::I64GeU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(byte_local));
+                for bytes in ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8 {
+                    Self::emit_skip_utf8_whitespace_forward(
+                        function,
+                        end_local,
+                        start_local,
+                        byte_local,
+                        bytes,
+                    );
+                }
+                self.emit_is_ascii_whitespace_i32(byte_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(start_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
             }
-            self.emit_is_ascii_whitespace_i32(byte_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(start_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(start_local));
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+            EcmaTrimMode::End => {}
         }
 
-        if trim_end {
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(end_local));
-            function.instruction(&Instruction::LocalGet(start_local));
-            function.instruction(&Instruction::I64LeU);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(end_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(byte_local));
-            for bytes in ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8 {
-                Self::emit_skip_utf8_whitespace_backward(
-                    function,
-                    start_local,
-                    end_local,
-                    byte_local,
-                    bytes,
-                );
+        match mode {
+            EcmaTrimMode::End | EcmaTrimMode::Both => {
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(end_local));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::I64LeU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(end_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(byte_local));
+                for bytes in ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8 {
+                    Self::emit_skip_utf8_whitespace_backward(
+                        function,
+                        start_local,
+                        end_local,
+                        byte_local,
+                        bytes,
+                    );
+                }
+                self.emit_is_ascii_whitespace_i32(byte_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::LocalSet(end_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
             }
-            self.emit_is_ascii_whitespace_i32(byte_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::LocalSet(end_local));
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+            EcmaTrimMode::Start => {}
         }
 
         function.instruction(&Instruction::LocalGet(end_local));

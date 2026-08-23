@@ -30478,20 +30478,18 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(string_local));
-                self.emit_ecmascript_trim_payload_from_locals(
-                    string_local,
-                    matches!(
-                        builtin,
-                        StandardBuiltinId::StringPrototypeTrim
-                            | StandardBuiltinId::StringPrototypeTrimStart
-                    ),
-                    matches!(
-                        builtin,
-                        StandardBuiltinId::StringPrototypeTrim
-                            | StandardBuiltinId::StringPrototypeTrimEnd
-                    ),
-                    function,
-                )?;
+                match builtin {
+                    StandardBuiltinId::StringPrototypeTrim => {
+                        self.emit_ecmascript_trim_both_payload_from_locals(string_local, function)?
+                    }
+                    StandardBuiltinId::StringPrototypeTrimStart => {
+                        self.emit_ecmascript_trim_start_payload_from_locals(string_local, function)?
+                    }
+                    StandardBuiltinId::StringPrototypeTrimEnd => {
+                        self.emit_ecmascript_trim_end_payload_from_locals(string_local, function)?
+                    }
+                    _ => unreachable!("trim builtin arm requires a trim builtin identity"),
+                }
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));

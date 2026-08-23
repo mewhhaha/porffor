@@ -12199,16 +12199,6 @@ impl<'a> FunctionBuilder<'a> {
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if matches!(name.as_str(), "trim" | "trimStart" | "trimLeft" | "trimEnd" | "trimRight"))
         {
-            let trim_start = matches!(
-                key,
-                PropertyKeyIr::StaticString(name)
-                    if matches!(name.as_str(), "trim" | "trimStart" | "trimLeft")
-            );
-            let trim_end = matches!(
-                key,
-                PropertyKeyIr::StaticString(name)
-                    if matches!(name.as_str(), "trim" | "trimEnd" | "trimRight")
-            );
             let receiver_payload_local = self.reserve_temp_local();
             let receiver_tag_local = self.reserve_temp_local();
             let string_local = self.reserve_temp_local();
@@ -12235,12 +12225,21 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             function.instruction(&Instruction::LocalSet(string_local));
-            self.emit_ecmascript_trim_payload_from_locals(
-                string_local,
-                trim_start,
-                trim_end,
-                function,
-            )?;
+            match key {
+                PropertyKeyIr::StaticString(name) => match name.as_str() {
+                    "trim" => {
+                        self.emit_ecmascript_trim_both_payload_from_locals(string_local, function)?
+                    }
+                    "trimStart" | "trimLeft" => {
+                        self.emit_ecmascript_trim_start_payload_from_locals(string_local, function)?
+                    }
+                    "trimEnd" | "trimRight" => {
+                        self.emit_ecmascript_trim_end_payload_from_locals(string_local, function)?
+                    }
+                    _ => unreachable!("trim fast path requires a recognized static method name"),
+                },
+                _ => unreachable!("trim fast path requires a static method name"),
+            }
             function.instruction(&Instruction::LocalSet(payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
