@@ -62,10 +62,10 @@ use the same fixed, case-sensitive raw message. Both are in
 For loop initializer declared in loop body
 ```
 
-- the classic-`for` producer currently at lines 279-290 computes
+- the classic-`for` producer currently at lines 333-346 computes
   `var_declared_names(&body)`, walks `bound_names(initializer.declaration())`
   only for `ForLoopInitializer::Lexical`, and rejects their intersection;
-- the iterable-loop producer currently at lines 329-350 computes
+- the iterable-loop producer currently at lines 383-412 computes
   `var_declared_names(&body)`, walks `bound_names(&init)` only for the four
   lexical `IterableLoopInitializer` variants, and rejects the same
   intersection.

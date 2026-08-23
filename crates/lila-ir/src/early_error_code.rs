@@ -62,6 +62,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ScriptTopLevelNewTarget
         | EarlyErrorCode::ScriptTopLevelUsingDeclaration
         | EarlyErrorCode::ForHeadBodyDeclarationConflict
+        | EarlyErrorCode::ForDeclarationDuplicateBoundName
         | EarlyErrorCode::ForInUsingDeclaration
         | EarlyErrorCode::SwitchClauseUsingDeclaration
         | EarlyErrorCode::GeneratorDeclarationParametersContainYield

@@ -80,7 +80,7 @@ where
                 if matches!(tok.kind(), TokenKind::Keyword((Keyword::Const | Keyword::Let, _)))
                     || using_decl.is_some() =>
             {
-                LexicalDeclaration::new(true, self.allow_yield, self.allow_await, false)
+                LexicalDeclaration::statement(true, self.allow_yield, self.allow_await)
                     .parse(cursor, interner)
                     .map(Into::into)
             }

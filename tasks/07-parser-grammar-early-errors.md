@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template and for-head/body declaration-conflict classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict and duplicate `ForDeclaration` BoundNames classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,45 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Focused-verified 2026-08-23: duplicate `ForDeclaration` BoundNames
+
+`ForDeclarationDuplicateBoundName`
+(`E_FOR_DECLARATION_DUPLICATE_BOUND_NAME`) now owns the ECMA-262 14.7.5.1
+condition where a `let`/`const` iterable-loop `ForDeclaration` binding pattern
+has duplicate `BoundNames`. The previously unreachable pinned-Boa producer is
+now reached through a bounded parser repair: one private exhaustive
+`Statement | ForHead` context replaces both raw loop-initializer booleans, one
+shared validator preserves the generic duplicate-lexical owner for ordinary and
+classic declarations, and a typed deferred lexical initializer routes `in` /
+`of` heads to the existing condition-specific producer while retaining the
+lexical keyword position for classic heads.
+
+The closed domain and parse table now have 59 and 58 entries. One anchored
+classifier row owns the complete fixed producer prefix, evaluated const
+assertions make that ownership compile-time checked, and the exhaustive IR map
+projects the new code. Direct Script and Module witnesses cover array/object
+patterns across `for-in`, `for-of`, and async `for-await-of`, with permanent
+`var`, classic-for, resource-like expression, forbidden-`let`, and mixed
+head/body-conflict boundaries. A real failed Module parse and a retained
+rejected dependency prove front-to-IR and graph projection.
+
+Independent reviews of the vendored repair and the front/IR closure were clean.
+Under the shared CPU cap, `cargo fmt --all -- --check` and `cargo xc` were green.
+The first complete `lila-front` run exposed two text-guard count/indent
+assumptions; after repair, the exact vendored-source guard passed `1/1` and the
+complete library passed `103/103`. The focused `lila-ir` early-module group
+passed `42/42`, and the exact retained graph witness passed `1/1`.
+
+The four complete pinned paths
+`language/statements/for-in/head-let-bound-names-dup.js`,
+`language/statements/for-in/head-const-bound-names-dup.js`,
+`language/statements/for-of/head-let-bound-names-dup.js`, and
+`language/statements/for-of/head-const-bound-names-dup.js` each passed `2/2`
+sloppy/strict Wasm-AOT variants, for exactly `8/8`, with every failure and
+non-success bucket at zero under `--jobs 1 --threads 1`. This is bounded
+diagnostic closure only: no aggregate refresh, measured new-pass gain, broader
+iteration-grammar result, T07 closure, or aggregate-conformance claim is made.
 
 ### Focused-verified 2026-08-23: for-head/body declaration conflicts
 

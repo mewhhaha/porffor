@@ -459,6 +459,10 @@ mod tests {
                 EarlyErrorCode::ForHeadBodyDeclarationConflict,
             ),
             (
+                "For loop initializer cannot contain duplicate identifiers at line 1, col 1",
+                EarlyErrorCode::ForDeclarationDuplicateBoundName,
+            ),
+            (
                 "using declarations are not allowed in for-in loop heads at line 1, col 1",
                 EarlyErrorCode::ForInUsingDeclaration,
             ),
@@ -927,6 +931,28 @@ mod tests {
         let span = diagnostic
             .span
             .expect("the conflicting loop declaration must retain its source span");
+        assert!(span.start < span.end, "{diagnostic:?}");
+    }
+
+    #[test]
+    fn for_declaration_duplicate_bound_name_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; for (const { a: x, b: x } of []) {}",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained duplicate ForDeclaration BoundName should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ForDeclarationDuplicateBoundName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the duplicate loop binding must retain its source span");
         assert!(span.start < span.end, "{diagnostic:?}");
     }
 

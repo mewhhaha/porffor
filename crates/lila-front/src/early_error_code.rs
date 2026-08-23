@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 58] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 59] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -314,6 +314,11 @@ early_error_codes! {
     /// iterable loop's `ForDeclaration` has a `BoundName` that also occurs in
     /// the body `Statement`'s `VarDeclaredNames`.
     ForHeadBodyDeclarationConflict => "E_FOR_HEAD_BODY_DECLARATION_CONFLICT";
+    /// 14.7.5.1. The `BoundNames` of a `ForDeclaration` contains duplicate
+    /// entries. This is reachable through `let`/`const` binding patterns;
+    /// `var`, classic-for lexical declarations and resource bindings are
+    /// deliberately excluded.
+    ForDeclarationDuplicateBoundName => "E_FOR_DECLARATION_DUPLICATE_BOUND_NAME";
     /// 14.7.5.1. A `for-in` head's lexical declaration is `using` or
     /// `await using`. The `for-of` sibling deliberately remains valid.
     ForInUsingDeclaration => "E_FOR_IN_USING_DECLARATION";
@@ -443,11 +448,13 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 57;
+const PARSE_FAILURE_RULE_COUNT: usize = 58;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
 const FOR_HEAD_BODY_DECLARATION_CONFLICT_PREFIX: &str =
     "For loop initializer declared in loop body at line";
+const FOR_DECLARATION_DUPLICATE_BOUND_NAME_PREFIX: &str =
+    "For loop initializer cannot contain duplicate identifiers at line";
 
 /// The one message-pattern table.
 ///
@@ -480,8 +487,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     },
     // 4. W2: boa_parser/src/parser/mod.rs:512,526 (module goal only).
     //    W1: boa_parser/src/parser/mod.rs:366,376; statement/block/mod.rs:109;
-    //        statement/switch/mod.rs:88; statement/declaration/lexical.rs:239;
-    //        statement/declaration/hoistable/class_decl/mod.rs:712.
+    //        statement/switch/mod.rs:88; the shared validator in
+    //        statement/declaration/lexical.rs used by ordinary declarations
+    //        and classic-for lexical heads; class_decl/mod.rs:718.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["lexical name", "declared multiple times"]),
         code: EarlyErrorCode::DuplicateLexicalDeclaration,
@@ -490,7 +498,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "lexical name declared multiple times",
         ],
     },
-    // 5. W3: statement/block/mod.rs:122; class_decl/mod.rs:724.
+    // 5. W3: statement/block/mod.rs:122; class_decl/mod.rs:730.
     //    W4: statement/switch/mod.rs:101.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["lexical name declared in var"]),
@@ -754,9 +762,10 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
         ],
     },
-    // 37. statement/iteration/for_statement.rs:436-446. One fixed LexError
-    //     message owns both using-declaration variants; `at line` keeps it
-    //     disjoint from Boa's other using restrictions without fixing a source
+    // 37. statement/iteration/for_statement.rs::
+    //     initializer_to_iterable_loop_initializer. One fixed LexError message
+    //     owns both using-declaration variants; `at line` keeps it disjoint
+    //     from Boa's other using restrictions without fixing a source
     //     coordinate.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["using declarations are not allowed in for-in loop heads at line"]),
@@ -955,14 +964,28 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::OptionalChainTaggedTemplate,
         witnesses: &["Invalid tagged template on optional chain at line 1, col 1"],
     },
-    // 57. statement/iteration/for_statement.rs:279-290,329-350. The classic-for
-    //     LexicalDeclaration and iterable-loop ForDeclaration producers compute
-    //     the same BoundNames / body VarDeclaredNames intersection and emit the
-    //     same fixed raw message.
+    // 57. statement/iteration/for_statement.rs::ForStatement::parse and
+    //     ::parse_iterable_loop_tail. The classic-for LexicalDeclaration and
+    //     iterable-loop ForDeclaration producers compute the same BoundNames /
+    //     body VarDeclaredNames intersection and emit the same fixed raw
+    //     message.
     ParseFailureRule {
         pattern: ParseFailurePattern::StartsWith(FOR_HEAD_BODY_DECLARATION_CONFLICT_PREFIX),
         code: EarlyErrorCode::ForHeadBodyDeclarationConflict,
         witnesses: &["For loop initializer declared in loop body at line 1, col 1"],
+    },
+    // 58. statement/iteration/for_statement.rs::parse_iterable_loop_tail. The
+    //     sole producer traverses one iterable-loop ForDeclaration's
+    //     BoundNames through an FxHashSet and emits this fixed message when
+    //     insertion finds a duplicate.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(
+            FOR_DECLARATION_DUPLICATE_BOUND_NAME_PREFIX,
+        ),
+        code: EarlyErrorCode::ForDeclarationDuplicateBoundName,
+        witnesses: &[
+            "For loop initializer cannot contain duplicate identifiers at line 1, col 1",
+        ],
     },
 ];
 
@@ -1185,6 +1208,8 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ForHeadBodyDeclarationConflict);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ForDeclarationDuplicateBoundName);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
     code_is_owned_once_by_exact_starts_with(
@@ -1199,6 +1224,13 @@ const _: () = assert!(
         "For loop initializer declared in loop body at line",
     ),
     "the for-head/body declaration-conflict code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::ForDeclarationDuplicateBoundName,
+        "For loop initializer cannot contain duplicate identifiers at line",
+    ),
+    "the ForDeclaration duplicate-BoundName code must have one owner using its complete reviewed prefix"
 );
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),

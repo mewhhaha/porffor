@@ -862,6 +862,122 @@ mod tests {
     }
 
     #[test]
+    fn for_declaration_duplicate_bound_names_reject_under_both_goals() {
+        for source in [
+            "for (let [x, x] in {}) {}",
+            "for (const { a: x, b: x } in {}) {}",
+            "for (let { a: x, b: x } of []) {}",
+            "for (const [x, x] of []) {}",
+            "async function f() { for await (let [x, x] of []) {} }",
+            "async function f() { for await (const { a: x, b: x } of []) {} }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("duplicate BoundNames in a ForDeclaration should fail");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ForDeclarationDuplicateBoundName),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the duplicate loop binding must retain its source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn for_declaration_duplicate_bound_name_boundaries_remain_distinct() {
+        for source in [
+            "for (var [x, x] in {}) {}",
+            "for (var { a: x, b: x } of []) {}",
+            "async function f() { for await (var [x, x] of []) {} }",
+            "for (let [x, y] in {}) {}",
+            "for (const { a: x, b: y } of []) {}",
+            "async function f() { for await (let [x, y] of []) {} }",
+            "for (let [x, y] = []; false;) {}",
+            "for (const { a: x, b: y } = {}; false;) {}",
+            "for (using [x, x] of []) {}",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "positive boundaries outside duplicate ForDeclaration BoundNames should parse",
+                );
+            }
+        }
+
+        for (source, keyword) in [
+            ("for (let [x, x] = []; false;) {}", "let"),
+            ("for (const { a: x, b: x } = {}; false;) {}", "const"),
+            ("for (\n    let [x, x] = [];\n    false;\n) {}", "let"),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("classic-for lexical duplicate BoundNames should fail");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::DuplicateLexicalDeclaration),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("classic-for revalidation must retain the lexical keyword position");
+                let keyword_start = source
+                    .find(keyword)
+                    .expect("the classic-for source must contain its lexical keyword");
+                assert_eq!(
+                    span,
+                    SourceSpan {
+                        start: keyword_start,
+                        end: keyword_start + 1,
+                    },
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+
+        let source = "for (let [x, x] of []) { var x; }";
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            let err = parse(source, options)
+                .expect_err("the head/body conflict should be diagnosed before the duplicate");
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ForHeadBodyDeclarationConflict),
+                "{source:?}: {err:?}"
+            );
+        }
+
+        for source in [
+            "for (let let of []) {}",
+            "async function f() { for (await using [x, x] of []) {} }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("an earlier non-ForDeclaration boundary should reject");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Parse,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, ParseCode::Malformed);
+                assert_ne!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ForDeclarationDuplicateBoundName),
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn var_heads_and_nested_function_var_declarations_remain_valid() {
         for source in [
             "for (var x; false;) { var x; }",
@@ -899,7 +1015,7 @@ mod tests {
     }
 
     #[test]
-    fn known_for_head_body_declaration_conflict_producers_stay_reviewed() {
+    fn known_for_declaration_semantic_producers_stay_reviewed() {
         fn count_message_in_rust_sources(root: &std::path::Path, message: &str) -> usize {
             let entries = std::fs::read_dir(root)
                 .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()));
@@ -918,7 +1034,120 @@ mod tests {
             count
         }
 
-        const MESSAGE: &str = "For loop initializer declared in loop body";
+        const CONFLICT_MESSAGE: &str = "For loop initializer declared in loop body";
+        const DUPLICATE_MESSAGE: &str = "For loop initializer cannot contain duplicate identifiers";
+        const GENERIC_DUPLICATE_MESSAGE: &str = "lexical name declared multiple times";
+        const LEXICAL_CONTEXT: &str = r#"enum LexicalDeclarationContext {
+    Statement,
+    ForHead,
+}"#;
+        const EXHAUSTIVE_CONTEXT_PROJECTION: &str = r#"const fn is_for_head(self) -> bool {
+        match self {
+            Self::Statement => false,
+            Self::ForHead => true,
+        }
+    }"#;
+        const STATEMENT_CONTEXT_CONSTRUCTOR: &str = r#"pub(in crate::parser) fn statement<I, Y, A>(
+        allow_in: I,
+        allow_yield: Y,
+        allow_await: A,
+    ) -> Self
+    where
+        I: Into<AllowIn>,
+        Y: Into<AllowYield>,
+        A: Into<AllowAwait>,
+    {
+        Self {
+            allow_in: allow_in.into(),
+            allow_yield: allow_yield.into(),
+            allow_await: allow_await.into(),
+            context: LexicalDeclarationContext::Statement,
+        }
+    }"#;
+        const FOR_HEAD_CONTEXT_CONSTRUCTOR: &str = r#"pub(in crate::parser) fn for_head<I, Y, A>(
+        allow_in: I,
+        allow_yield: Y,
+        allow_await: A,
+    ) -> Self
+    where
+        I: Into<AllowIn>,
+        Y: Into<AllowYield>,
+        A: Into<AllowAwait>,
+    {
+        Self {
+            allow_in: allow_in.into(),
+            allow_yield: allow_yield.into(),
+            allow_await: allow_await.into(),
+            context: LexicalDeclarationContext::ForHead,
+        }
+    }"#;
+        const AWAIT_RESOURCE_PATTERN_LOOKAHEAD_EXIT: &str = r#"if matches!(
+            next.kind(),
+            TokenKind::Punctuator(Punctuator::OpenBracket | Punctuator::OpenBlock)
+        ) {
+            return Ok(None);
+        }"#;
+        const ORDINARY_RESOURCE_PATTERN_LOOKAHEAD_EXIT: &str = r#"if matches!(
+        next.kind(),
+        TokenKind::Punctuator(Punctuator::OpenBracket | Punctuator::OpenBlock)
+    ) {
+        return Ok(None);
+    }"#;
+        const DEFERRED_LEXICAL_INITIALIZER: &str = r#"DeferredLexical {
+        declaration: ast::declaration::LexicalDeclaration,
+        keyword_position: Position,
+    }"#;
+        const SHARED_DUPLICATE_VALIDATOR: &str = r#"pub(in crate::parser) fn validate_duplicate_bound_names(
+        declaration: &ast::declaration::LexicalDeclaration,
+        position: Position,
+    ) -> ParseResult<()> {
+        let mut names = FxHashSet::default();
+        for name in bound_names(declaration) {
+            if !names.insert(name) {
+                return Err(Error::general(
+                    "lexical name declared multiple times",
+                    position,
+                ));
+            }
+        }
+        Ok(())
+    }"#;
+        const STATEMENT_TERMINATOR: &str = r#"if !self.context.is_for_head() {
+            cursor.expect_semicolon("lexical declaration", interner)?;
+        }"#;
+        const ORDINARY_VALIDATION: &str = r#"if !self.context.is_for_head() {
+            Self::validate_duplicate_bound_names(&lexical_declaration, tok.span().start())?;
+        }"#;
+        const FOR_HEAD_MISSING_INITIALIZER: &str = r#"if init_is_some || self.context.is_for_head() {
+                    decls.push(decl);
+                } else {"#;
+        const FOR_HEAD_BINDING_TERMINATOR: &str = r#"SemicolonResult::NotFound(_) if self.context.is_for_head() => {
+                    break;
+                }"#;
+        const DEFERRED_CLASSIC_ROUTE: &str = r#"(
+                Some(ParsedForInitializer::DeferredLexical {
+                    declaration,
+                    keyword_position,
+                }),
+                _,
+            ) => {
+                LexicalDeclaration::validate_duplicate_bound_names(
+                    &declaration,
+                    keyword_position,
+                )?;
+                Some(declaration.into())
+            }"#;
+        const DEFERRED_ITERABLE_ROUTE: &str = r#"Some(ParsedForInitializer::DeferredLexical { declaration, .. }),
+                TokenKind::Keyword((kw @ (Keyword::In | Keyword::Of), false)),
+            ) => {
+                let in_loop = kw == &Keyword::In;
+                let init = initializer_to_iterable_loop_initializer(
+                    declaration.into(),
+                    position,
+                    cursor.strict(),
+                    in_loop,
+                )?;
+                return parse_iterable_loop_tail("#;
         const CLASSIC_INTERSECTION: &str = r#"if let Some(ForLoopInitializer::Lexical(initializer)) = &init {
             let vars = var_declared_names(&body);
             for name in bound_names(initializer.declaration()) {
@@ -946,20 +1175,235 @@ mod tests {
                 return Err(Error::general(
                     "For loop initializer declared in loop body",
 "#;
+        const DUPLICATE_AFTER_INTERSECTION: &str = r#"if vars.contains(&name) {
+                return Err(Error::general(
+                    "For loop initializer declared in loop body",
+                    position,
+                ));
+            }
+            if !names.insert(name) {
+                return Err(Error::general(
+                    "For loop initializer cannot contain duplicate identifiers",
+"#;
         const FOR_STATEMENT_SOURCE: &str = include_str!(
             "../../../vendor/boa_parser-0.21.1/src/parser/statement/iteration/for_statement.rs"
+        );
+        const LEXICAL_DECLARATION_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/lexical.rs"
+        );
+        const DECLARATION_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/mod.rs"
         );
 
         let boa_package_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
-        assert_eq!(count_message_in_rust_sources(&boa_package_root, MESSAGE), 2);
-        assert_eq!(FOR_STATEMENT_SOURCE.matches(MESSAGE).count(), 2);
+        assert_eq!(
+            count_message_in_rust_sources(&boa_package_root, CONFLICT_MESSAGE),
+            2
+        );
+        assert_eq!(
+            count_message_in_rust_sources(&boa_package_root, DUPLICATE_MESSAGE),
+            1
+        );
+        assert_eq!(
+            count_message_in_rust_sources(&boa_package_root, GENERIC_DUPLICATE_MESSAGE),
+            6
+        );
+        assert_eq!(FOR_STATEMENT_SOURCE.matches(CONFLICT_MESSAGE).count(), 2);
+        assert_eq!(FOR_STATEMENT_SOURCE.matches(DUPLICATE_MESSAGE).count(), 1);
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches(GENERIC_DUPLICATE_MESSAGE)
+                .count(),
+            0
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(GENERIC_DUPLICATE_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(SHARED_DUPLICATE_VALIDATOR)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE.matches(LEXICAL_CONTEXT).count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(EXHAUSTIVE_CONTEXT_PROJECTION)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(STATEMENT_CONTEXT_CONSTRUCTOR)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(FOR_HEAD_CONTEXT_CONSTRUCTOR)
+                .count(),
+            1
+        );
+        assert_eq!(LEXICAL_DECLARATION_SOURCE.matches("loop_init").count(), 0);
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("matches!(self.context")
+                .count(),
+            0
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("match self.context")
+                .count(),
+            0
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("self.context ==")
+                .count(),
+            0
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("self.context !=")
+                .count(),
+            0
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("self.context.is_for_head()")
+                .count(),
+            4
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("context: LexicalDeclarationContext,")
+                .count(),
+            3
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("LexicalDeclarationContext::Statement")
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("LexicalDeclarationContext::ForHead")
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("Self::Statement")
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE.matches("Self::ForHead").count(),
+            1
+        );
+        assert_eq!(
+            DECLARATION_SOURCE
+                .matches("LexicalDeclaration::statement(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches("LexicalDeclaration::for_head(")
+                .count(),
+            3
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches("using_declaration_kind(cursor, interner, self.allow_await.0, true)?")
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(AWAIT_RESOURCE_PATTERN_LOOKAHEAD_EXIT)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(ORDINARY_RESOURCE_PATTERN_LOOKAHEAD_EXIT)
+                .count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches(DEFERRED_LEXICAL_INITIALIZER)
+                .count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches("keyword_position: init_token.span().start()")
+                .count(),
+            3
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(STATEMENT_TERMINATOR)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(ORDINARY_VALIDATION)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(FOR_HEAD_MISSING_INITIALIZER)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(FOR_HEAD_BINDING_TERMINATOR)
+                .count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE.matches(DEFERRED_CLASSIC_ROUTE).count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches("LexicalDeclaration::validate_duplicate_bound_names(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches(DEFERRED_ITERABLE_ROUTE)
+                .count(),
+            1
+        );
         assert_eq!(
             FOR_STATEMENT_SOURCE.matches(CLASSIC_INTERSECTION).count(),
             1
         );
         assert_eq!(
             FOR_STATEMENT_SOURCE.matches(ITERABLE_INTERSECTION).count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches(DUPLICATE_AFTER_INTERSECTION)
+                .count(),
             1
         );
     }
@@ -2978,6 +3422,9 @@ switch (0) {
         );
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ForHeadBodyDeclarationConflict).is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ForDeclarationDuplicateBoundName).is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ForInUsingDeclaration).is_some());
         assert!(

@@ -267,9 +267,9 @@ Measured: `boa` produces **five** distinct wordings for this rule.
 
 | # | verbatim message | producer |
 |---|---|---|
-| W1 | `lexical name declared multiple times` | `boa_parser/src/parser/mod.rs:366,376`; `statement/block/mod.rs:109`; `statement/switch/mod.rs:88`; `statement/declaration/lexical.rs:239`; `statement/declaration/hoistable/class_decl/mod.rs:712` |
+| W1 | `lexical name declared multiple times` | `boa_parser/src/parser/mod.rs:366,376`; `statement/block/mod.rs:109`; `statement/switch/mod.rs:88`; the shared validator in `statement/declaration/lexical.rs` used by ordinary declarations and classic-for lexical heads; `statement/declaration/hoistable/class_decl/mod.rs:718` |
 | W2 | ``lexical name `x` declared multiple times`` | `boa_parser/src/parser/mod.rs:512,526` (**module goal only**) |
-| W3 | `lexical name declared in var names` | `statement/block/mod.rs:122`; `class_decl/mod.rs:724` |
+| W3 | `lexical name declared in var names` | `statement/block/mod.rs:122`; `class_decl/mod.rs:730` |
 | W4 | `lexical name declared in var declared names` | `statement/switch/mod.rs:101` |
 | W5 | `invalid scope analysis: duplicate lexical declaration` | `boa_parser/src/parser/mod.rs:186-191` wrapping `boa_ast/src/scope_analyzer.rs:1783,1793` |
 
@@ -700,8 +700,8 @@ read from `vendor/`; the cited `file:line` is where it was read.
 | 1 | `["Duplicate __proto__ fields"]` | `ObjectDuplicateProto` | `Duplicate __proto__ fields are not allowed in object literals.` | `boa_parser/src/parser/expression/primary/object_initializer/mod.rs:133` |
 | 2 | `["exported name", "declared multiple times"]` | `ModuleDuplicateExport` | ``exported name `x` declared multiple times`` | `boa_parser/src/parser/mod.rs:541` |
 | 3 | `["could not find the exported binding"]` | `ModuleUndeclaredExport` | ``could not find the exported binding `x` in the declared names of the module`` | `boa_parser/src/parser/mod.rs:556` |
-| 4 | `["lexical name", "declared multiple times"]` | `DuplicateLexicalDeclaration` | **two:** ``lexical name `x` declared multiple times`` (W2) and `lexical name declared multiple times` (W1) | W2: `boa_parser/src/parser/mod.rs:512,526`. W1: `mod.rs:366,376`, `block/mod.rs:109`, `switch/mod.rs:88`, `lexical.rs:239`, `class_decl/mod.rs:712` |
-| 5 | `["lexical name declared in var"]` | `DuplicateLexicalDeclaration` | **two:** `lexical name declared in var names` (W3) and `lexical name declared in var declared names` (W4) | W3: `block/mod.rs:122`, `class_decl/mod.rs:724`. W4: `switch/mod.rs:101` |
+| 4 | `["lexical name", "declared multiple times"]` | `DuplicateLexicalDeclaration` | **two:** ``lexical name `x` declared multiple times`` (W2) and `lexical name declared multiple times` (W1) | W2: `boa_parser/src/parser/mod.rs:512,526`. W1: `mod.rs:366,376`, `block/mod.rs:109`, `switch/mod.rs:88`, the shared `lexical.rs` validator used by ordinary declarations and classic-for lexical heads, `class_decl/mod.rs:718` |
+| 5 | `["lexical name declared in var"]` | `DuplicateLexicalDeclaration` | **two:** `lexical name declared in var names` (W3) and `lexical name declared in var declared names` (W4) | W3: `block/mod.rs:122`, `class_decl/mod.rs:730`. W4: `switch/mod.rs:101` |
 | 6 | `["duplicate lexical declaration"]` | `DuplicateLexicalDeclaration` | `invalid scope analysis: duplicate lexical declaration` (W5) | `boa_parser/src/parser/mod.rs:186-191` wrapping `boa_ast/src/scope_analyzer.rs:1783,1793` |
 | 7 | `["formal parameter", "declared in lexically declared names"]` | `DuplicateLexicalDeclaration` | ``formal parameter `x` declared in lexically declared names`` | `boa_parser/src/parser/mod.rs:614` |
 | 8 | `["module cannot contain", "super"]` | `ModuleTopLevelSuper` | ``module cannot contain `super` on the top-level`` | `boa_parser/src/parser/mod.rs:567` |
