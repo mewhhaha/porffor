@@ -27,6 +27,25 @@ AsyncGeneratorFunction while suppressing their automatically generated
 `prototype` object. The exact matrix and boundary choices are recorded in
 `docs/rust-rewrite/contracts/function-protocol.md`.
 
+Class auto-accessors now preserve their public/private and instance/static AST
+kinds and lower through a closed descriptor-plus-backing plan. Every element
+owns an inseparable generated getter/setter pair and a fresh typed backing name
+which source private-name lookup cannot construct; the class private
+environment separately records visible names and total slots. Definition-time
+events install complete public or private accessor entries, while ordered
+instance/static events initialize only the backing private field. The Wasm
+fixture covers all four placements, literal/computed/string/numeric/Symbol
+keys, detached and wrong receivers, descriptor flags and lengths, overwrite
+order, inheritance and non-extensible receiver rejection. At `2026-08-22`, the
+focused IR/backend/CLI gates are `1/1`, `1/1`, and `1/1`; the five raw pinned
+grammar/control files pass `10/10`; and the public staging semantic file passes
+`2/2`. The private staging file's ordinary semantics execute, but its two
+literal-`eval` duplicate-name assertions remain `0/2` Runtime/Bug because the
+dynamic-source boundary produces the wrong error constructor. A created-realm
+class fixture also remains open. The design, evidence and nonclaims are
+recorded in
+[`class-auto-accessors.md`](../docs/rust-rewrite/contracts/class-auto-accessors.md).
+
 Object-literal methods, getters and setters now extend that closed function
 protocol without masquerading as class members. A public
 `ObjectMethodFunctionIr` with private construction state is the only value the
@@ -112,6 +131,17 @@ strict primitive is not boxed during binding and a sloppy primitive receives a
 fresh wrapper on each invocation. The boundary and its cross-realm nonclaim are
 recorded in
 `docs/rust-rewrite/contracts/bound-function-this-capture.md`.
+
+Class-definition installation now preserves the non-configurable constructor
+`prototype` invariant. Class constructors materialize their own `prototype`
+data property with all three attributes false. Computed public static
+`prototype` fields, methods/getters/setters and auto-accessors share one
+property-key guard; field initializers run before the resulting TypeError,
+while auto-accessor backing initialization remains after the failing accessor
+definition. The durable class-element fixture passes `1/1`, the three exact
+computed-field files pass `6/6`, and the adjacent nine-file
+method/accessor/descriptor cohort passes `18/18` Wasm-AOT executions. This is a
+bounded class-definition correction, not complete class closure.
 
 The closed thirteen-member family of non-generic Boolean, Number, BigInt, and
 String prototype methods now retains the acquired function object and the

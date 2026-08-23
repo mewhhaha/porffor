@@ -220,9 +220,9 @@ into the same trap. Better still, give the file a consumer that fails without it
 ### Rung G — the refactor gate
 
 `crates/lila-aot-wasm/tests/emit_golden.rs` runs the real
-`parse -> lower -> emit` pipeline over all 527 CLI fixtures and records emitted
-byte length, a content hash, and the backend `debug_dump` per fixture. It is
-inert unless `LILA_GOLDEN_OUT` is set.
+`parse -> lower -> emit` pipeline over every `.js` file in the current CLI
+fixture corpus and records emitted byte length, a content hash, and the backend
+`debug_dump` per fixture. It is inert unless `LILA_GOLDEN_OUT` is set.
 
 ```sh
 git stash

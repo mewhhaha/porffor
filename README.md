@@ -84,6 +84,10 @@ What is already in place:
   arrays, promises/async execution, generators/iterators, binary data,
   collections, strings, RegExp, numbers/BigInt/JSON, Date/Temporal and host
   builtins.
+- class auto-accessors compile on the direct Wasm path for public/private and
+  instance/static placement with hidden backing fields; the focused raw grammar
+  cohort and public staging semantics are green, while the private staging
+  file's eval-based duplicate-name checks remain dynamic-source debt;
 - `%DisposableStack%` has a real constructor, distinct synchronous brand and
   the complete typed `use`/`adopt`/`defer`/`move`/`dispose`/`disposed`
   lifecycle, including exact `Symbol.dispose` identity, LIFO disposal and
@@ -368,7 +372,349 @@ denominators. Unflagged files now contribute separate sloppy and strict
 executions, so only entries that explicitly report execution variants from a
 post-cutover rerun are current focused evidence.
 
-Recent focused progress through `2026-08-21`:
+Recent focused progress through `2026-08-23`:
+
+- Duplicate static import-attribute keys now have the typed
+  `ModuleDuplicateImportAttributeKey` identity across import and export-from
+  declarations. A prefix-anchored parser pattern prevents user-controlled
+  export names from forging that classification, while a const ownership check
+  and the exhaustive IR map keep the closed domain at 56 variants and the
+  message-pattern table at 55 rows. Under the eight-core cap, `cargo xc` is
+  green; the front and module-early cohorts pass `93/93` and `39/39`; and the
+  exact Test262 duplicate-attribute filter passes `3/3` Wasm-AOT executions
+  with every non-success bucket at zero. This is bounded typed-diagnostic
+  evidence, not a measured pass gain, T07 closure or aggregate conformance.
+- Strict-mode `delete` early errors now have distinct typed identities for
+  identifier and private-reference operands. A vendored Boa repair places both
+  families beneath one strictness guard and exhaustively recognizes
+  private-ending optional chains, while sloppy undeclared private operands stay
+  owned by `InvalidPrivateIdentifier`. The closed domain has 55 variants and
+  the parse classifier has 54 rows; const parse-ownership witnesses and the
+  exhaustive IR map make drift fail compilation. The capped serial front,
+  early-module, retained-dependency graph and focused IR gates pass `89/89`,
+  `38/38`, `1/1` and `3/3`; `cargo xc` and the release CLI build are green; and
+  the exact 194-file cohort passes `386/386` Wasm-AOT executions with every
+  failure and non-success bucket at zero and an exact completed-ID set match.
+  This is typed diagnostic closure and bounded no-regression, not a measured
+  pass gain, runtime delete/private-element support, T07 closure or aggregate
+  conformance.
+- Callable bodies containing a Use Strict Directive with non-simple parameters
+  now have one typed `Early`/`SyntaxError` condition across declarations,
+  expressions, methods, setters and arrows. Three narrow parser repairs make
+  the producer boundary grammar-honest: private getters require `()`, class
+  setters accept exactly one non-rest parameter, and the binding-identifier
+  arrow path no longer carries an impossible non-simple-list branch. The
+  closed domain has 53 variants, the parse classifier has 52 rows, and a source
+  inventory test pins all 16 remaining parser producers. The capped
+  serial front, retained-module and focused IR gates pass `85/85`, `38/38` and
+  `3/3`; `cargo xc` is green; and the exact 110-file cohort passes `220/220`
+  sloppy/strict Wasm-AOT executions with every failure and non-success bucket
+  at zero. This is typed diagnostic closure and bounded no-regression evidence,
+  not a measured pass gain, dynamic-source support, runtime parameter
+  semantics, T07 closure or aggregate Test262 progress.
+- Static `JSON.parse` reviver specialization now lives in the private 242-line
+  `lowering/static_json_parse.rs` owner. Only
+  `try_lower_static_json_parse_reviver` is visible to its two sibling call
+  sites; dynamic reviver-target discovery and observation remain in the
+  parent. The exact 236-source-line move reduces `lowering.rs` from 20,986 to
+  20,748 lines. Capped pre/post goldens cover 633 fixtures in 635 byte-identical
+  artifacts; the all-target `lila-ir` check and `cargo xc` are green; the moved
+  static IR witness, two engine witnesses and four CLI witnesses pass `1/1`,
+  `2/2` and `4/4`. The retained dynamic IR control fails identically at clean
+  parent `9a3ac9ad5` and the moved tree, leaving the combined filter unchanged
+  at `1/2`. The closed boundary audit and independent reviews pass. This is an
+  ownership result, not JSON behavior, T20 or conformance progress.
+- Recursive throw-value inference now lives in
+  `lowering/throw_inference.rs`: six methods form one private 895-line owner,
+  with only block inference visible to its sole consumer in
+  `lowering/try_statement.rs`. The byte-exact extraction reduces `lowering.rs`
+  from 21,877 to 20,986 lines. Capped pre/post goldens cover 633 fixtures in
+  635 byte-identical artifacts; both compile gates, three focused IR cohorts,
+  two exact structure witnesses and three exact CLI witnesses pass. Sixteen
+  mutation controls and independent semantic and policy reviews cover the
+  ownership, call graph, exhaustive-match and recursive-wrapper invariants.
+  This is an ownership result, not broad Test262, full-workspace behavior or
+  throw-conformance progress.
+- For-in lowering now lives in `lowering/for_in.rs`: the sole statement-facing
+  lowerer and twelve owner-only helpers form one private 571-line module, while
+  shared for-in/of environment, TDZ, scope and analysis helpers remain with
+  their existing owners. The byte-exact extraction reduces `lowering.rs` from
+  22,444 to 21,877 lines. Capped pre/post goldens cover 633 fixtures in 635
+  byte-identical artifacts, both compile gates pass, and focused IR witnesses
+  pass `8/8`, `2/2`, `1/1` and `1/1`. CLI evidence is unchanged from the clean
+  parent at `4/7` for the `for_in_` filter and `2/3` supplemental exact
+  witnesses; the same four object-order/object-keys failures predate the move.
+  This is an ownership and no-regression result, not broad Test262,
+  full-workspace or for-in conformance progress.
+- For-of lowering now lives in `lowering/for_of.rs`: one owner carries every
+  specialization decision plus the private `AsyncForOfArrayWalkForm` and
+  `ForOfLoweringIr` proofs. The 1,026-line source-family move leaves a 1,036-line
+  child and reduces `lowering.rs` to 22,444 lines; the lowering-only carrier no
+  longer leaks through the public IR surface. Seven focused IR witnesses,
+  thirteen structure checks and four exact CLI witnesses pass. Capped pre/post
+  goldens cover 633 fixtures in 635 artifacts and are byte-identical. No broad
+  Test262, full-workspace or for-of conformance improvement is claimed.
+- The callable-parameter `Contains YieldExpression` / `Contains
+  AwaitExpression` matrix now has closed typed conditions across declarations,
+  expressions, methods and ordinary/async arrows. Existing fixed arrow
+  wordings map to two codes keyed by the containment condition rather than the
+  syntax form. Three narrow vendored-parser repairs preserve the enclosing
+  Yield grammar in parenthesized async-arrow parameters and add the missing
+  Await containment checks for async function expressions and async methods.
+  The only exact pinned cohort is two files expanding to four sloppy/strict
+  executions through the ordinary-arrow producers. No pinned source reaches
+  any of the three repaired producers, whose evidence is the direct front-end
+  and retained-module witnesses. This closes that bounded matrix, not T07 or
+  aggregate parser closure.
+  The capped serial front, retained-module and focused IR gates pass `81/81`,
+  `37/37` and `3/3`, respectively, and `cargo xc` is green. The exact pinned
+  ordinary-arrow cohort passes `4/4` sloppy/strict Wasm-AOT executions with
+  every failure and non-success bucket at zero.
+- Labelled-statement lowering now lives in `lowering/labelled_statement.rs`:
+  one owner carries nested-label collection, target-kind classification,
+  active-label stack management and final `Labelled` IR assembly while shared
+  break/continue label types remain in the parent. The exact 68-line family
+  move reduces `lowering.rs` from 23,502 to 23,434 raw lines; the child is 72
+  lines. Five focused IR filters and three focused CLI filters pass. Pre/post
+  golden captures pass `2/2`, contain 635 artifacts each and are byte-identical.
+  No labelled-statement behavior or conformance change is claimed.
+- Direct `using` or `await using` declarations in switch CaseClause and
+  DefaultClause StatementLists now share one typed early-error code across
+  Script, Module and retained dependency parsing. Nested blocks, loops,
+  functions and direct `let`/`const` declarations remain valid clause
+  boundaries. The capped front gate passes `61/61`, the IR early-error filter
+  passes `3/3`, and the exact four-file cohort passes `8/8` sloppy/strict
+  Wasm-AOT executions with every failure and non-success bucket at zero. This
+  is bounded classification, not disposal execution, direct eval, all switch
+  grammar, or broad T07 closure.
+- `for-in` heads using `using` or `await using` now share one typed early-error
+  code across Script, Module and retained dependency parsing. `for-of`,
+  ordinary `let`/`const` `for-in`, and initialized `using` in classic `for`
+  remain valid grammar siblings. The capped front gate passes `59/59`, the IR
+  early-error filter passes `3/3`, and the exact two-file cohort passes `4/4`
+  sloppy/strict Wasm-AOT executions with every failure and non-success bucket
+  at zero. This is bounded classification, not disposal execution, direct eval,
+  all iterable-loop grammar, or broad T07 closure.
+- While-family lowering now lives in `lowering/while_loop.rs`: one owner
+  carries ordinary/resumable `while` construction and the deliberate
+  `do while` suspension refusal while shared loop-resumption helpers remain in
+  the parent. The exact 99-line family move reduces `lowering.rs` from 23,601
+  to 23,502 raw lines; the child is 106 lines. Five focused IR filters and
+  three focused CLI filters pass. Pre/post golden captures pass `2/2`, contain
+  635 artifacts each and are byte-identical. No while/do-while behavior or
+  conformance change is claimed.
+- If-statement lowering now lives in `lowering/if_statement.rs`: one owner
+  carries static condition selection, branch-local var/global facts,
+  post-branch joins, abrupt-completion result typing and generator yield-state
+  splitting/merging. The exact 137-line family move reduces `lowering.rs` from
+  23,738 to 23,601 raw lines; the child is 141 lines. Six focused IR filters
+  and four focused CLI filters pass. Pre/post golden captures pass `2/2`,
+  contain 635 artifacts each and are byte-identical. No if-statement behavior
+  or conformance change is claimed.
+- ScriptBody top-level `using` now has one typed early-error code for Boa's
+  fixed-position post-parse producer. Nested Script boundaries remain valid,
+  retained Modules allow both top-level `using` forms, and the earlier untyped
+  parser rejection for top-level Script `await using` remains honest rather
+  than being forced through a source-interpolating classifier. The capped front
+  gate passes `57/57`, the IR early-error filter passes `3/3`, and the exact
+  two-file cohort passes `4/4` sloppy/strict Wasm-AOT executions with every
+  failure and non-success bucket at zero. This is bounded classification, not
+  parser-reachability repair, disposal execution, or broad T07 closure.
+- Classic `for` lowering now lives in `lowering/for_loop.rs`: one owner carries
+  head validation, lexical TDZ/environment setup, flow merging, resumable-state
+  construction and the final `For`/`GeneratorLoop` choice. The exact 209-line
+  method move reduces `lowering.rs` from 23,947 to 23,738 raw lines; the child
+  is 213 lines. Eight focused IR filters and three focused CLI filters pass.
+  Pre/post golden captures pass `2/2`, contain 635 artifacts each and are
+  byte-identical. No classic-for behavior or conformance change is claimed.
+- ScriptBody `Contains NewTarget` now has one typed early-error code for direct
+  and top-level-arrow-carried `new.target`. Ordinary functions, their nested
+  arrows, constructors, methods and class static blocks remain valid; retained
+  dependencies keep the separate `ModuleTopLevelNewTarget` code. The capped
+  front gate passes `55/55`, the IR early-error filter passes `3/3`, and the
+  exact two-file cohort passes `4/4` sloppy/strict Wasm-AOT executions with
+  every failure and non-success bucket at zero. This is bounded Script
+  classification, not direct-eval or broad T07 closure.
+- ObjectLiteral `CoverInitializedName` now has one typed early-error code across
+  Script, function-body, Module-item and class-static-block parser contexts.
+  Assignment/binding reinterpretations, arrow parameters, shorthand and data
+  properties remain parse-valid, and retained dependencies preserve the same
+  `Early`/`SyntaxError` diagnostic. The capped front gate passes `53/53`, the IR
+  early-error filter passes `3/3`, and the exact pinned witness passes `2/2`
+  sloppy/strict Wasm-AOT executions with every failure and non-success bucket
+  at zero. This is bounded classification, not broad ObjectLiteral or T07
+  closure.
+- Statement dispatch now lives in `lowering/statement.rs`: one exhaustive
+  owner routes ordinary and resumable expression statements plus every
+  control-flow/declaration form to its focused lowerer. The exact 255-line
+  method move reduces `lowering.rs` from 24,202 to 23,947 raw lines; the child
+  is 259 lines. Seven focused IR filters and four focused CLI filters pass.
+  Pre/post golden captures pass `2/2`, contain 635 artifacts each and are
+  byte-identical. No statement behavior or conformance change is claimed.
+- Public static ordinary, generator, async, async-generator, getter and setter
+  methods with the literal name `prototype` now share one typed early-error
+  code across Script, Module and retained dependency parsing. Instance literal,
+  public computed and private static names remain parse-valid, preserving the
+  separate computed-key run-time installation rule. The capped front gate
+  passes `51/51`, the IR early-error filter passes `3/3`, and the exact
+  twelve-file pinned cohort passes `24/24` sloppy/strict Wasm-AOT executions
+  with every failure and non-success bucket at zero. This is bounded diagnostic
+  classification, not method execution or broad T07 closure.
+- Class-static-block `ContainsAwait` now has one typed pre-evaluation code
+  across Script, Module and retained dependency parsing. Its classifier uses
+  the adjacent rendered fragment `invalid await usage at line`, keeping Boa's
+  longer generator-parameter error distinct; positive tests preserve nested
+  async ordinary and arrow function bodies. The capped front gate passes
+  `49/49`, the IR early-error filter passes `3/3`, and the exact pinned
+  Test262 witness passes `2/2` Wasm-AOT executions with every failure and
+  non-success bucket at zero. This is bounded diagnostic classification, not
+  broad T07 closure.
+- New-expression lowering now lives in `lowering/new_expression.rs`: one owner
+  carries constructor target resolution, argument evaluation, result typing,
+  dynamic-source rejection and static RegExp compilation. The exact source
+  move reduces `lowering.rs` from 24,446 to 24,202 raw lines; the child is 248
+  lines. Five focused IR filters pass; the two Map/Set iterable-construction
+  shape assertions fail identically at parent `394e8fda7`. Five focused CLI
+  filters pass. Pre/post golden captures pass `2/2`, contain 635 artifacts each
+  and are byte-identical. No constructor behavior or conformance change is
+  claimed.
+- Property-access lowering now lives in `lowering/property_access.rs`: one
+  dispatcher owns ordinary, private and super reads plus primitive/exotic
+  routing and unknown-effect invalidation. Its target-kind match names
+  `ValueKind::Number` instead of hiding future variants behind a catch-all.
+  This reduces `lowering.rs` from 24,663 to 24,446 raw lines; the child is 223
+  lines. Focused IR property cohorts pass `2/2`, `6/6`, `1/1`, `1/1` and
+  `34/34`; focused CLI cohorts pass `3/3`, `1/1` and `6/6`. Pre/post golden
+  captures pass `2/2`, contain 635 artifacts each and are byte-identical. No
+  property-access behavior or conformance change is claimed.
+- Try/catch/finally lowering now lives in `lowering/try_statement.rs`: catch
+  Environment Record construction, consumption of inferred thrown values,
+  resumable-state planning and final try IR assembly move together. Private
+  named catch/finally records replace the former eight- and five-field tuples,
+  so generator and async entry/exit states cannot be transposed by positional
+  access. Reusable throw-value inference now has its own private owner. This
+  reduces `lowering.rs` from 24,910 to 24,663 raw lines. Focused IR coverage
+  passes `12/12` for `try_` and `14/14` for `catch`; three CLI filters pass
+  `2/2` each. Pre/post golden captures pass `2/2`, contain 635 artifacts each
+  and are byte-identical. No try-statement behavior or conformance change is
+  claimed.
+- Delete-expression lowering now lives in
+  `lowering/delete_expression.rs`: one exhaustive target dispatcher owns
+  ordinary/private/super property References, identifiers and non-Reference
+  values while reusable helpers remain in the parent. The exact 213-line
+  method move reduces `lowering.rs` from 25,123 to 24,910 raw lines and changes
+  only its private-module visibility. The capped workspace check is green;
+  serial delete coverage passes `7/7` CLI, `2/2` AOT-Wasm and `4/4` engine
+  tests. No delete behavior or conformance change is claimed.
+- Assignment-expression lowering now lives in `lowering/assignment.rs`: one
+  exhaustive dispatcher owns identifier, property, private, destructuring,
+  logical and eager compound assignment while specialized Reference carriers
+  remain in their typed modules. The exact 707-line method move reduces
+  `lowering.rs` from 25,830 to 25,123 raw lines and changes only its
+  private-module visibility. The capped workspace check and IR assignment
+  cohort (`34/34`) are green; CLI assignment remains `6/7` before and after the
+  move with the identical with-environment failure.
+- Ordinary function-definition lowering now lives in
+  `lowering/function_definition.rs`: nested lowerer state, parameters, body,
+  captures, signatures, resumable metadata and final `FunctionIr` assembly
+  move together, while shared helpers remain in the parent. The exact 717-line
+  method move reduces `lowering.rs` from 26,547 to 25,830 raw lines and changes
+  only its private-module visibility. Capped serial IR function coverage passes
+  `61/61`; CLI function coverage reports `45/49`, with all four failures
+  reproduced at the exact parent commit.
+- Builtin call-result analysis now lives in
+  `lowering/builtin_call_info.rs`: one exhaustive `StandardBuiltinId` table
+  owns return kinds and shapes plus its narrowly related observation updates,
+  while four lowering paths remain consumers. The exact 2,146-line method move
+  reduces `lowering.rs` from 28,693 to 26,547 raw lines and changes only its
+  private-module visibility. The capped workspace check and CLI `call_` cohort
+  (`6/6`) are green; current IR `call_` is green at `34/34` after its
+  materialized-receiver contract accepted canonical `GetV` alongside typed
+  `PropertyRead`. A Wasm-AOT witness completes with `boolean(true)`.
+- Atomics backend ownership now lives in `builtins/atomics.rs`: all fourteen
+  intrinsic bodies, integer/RMW domains, wait/notify state and atomic-memory
+  helpers sit behind one closed `AtomicsBuiltin` dispatch. A six-case RMW type
+  removes four runtime `unreachable!` fallbacks, while three checked hooks serve
+  the TypedArray, event-loop and Promise consumers. This reduces
+  `builtins/standard.rs` from 33,275 to 30,567 raw lines without changing the
+  emitted family bodies. Capped serial focused coverage passes `2/2` AOT-Wasm
+  and `5/5` engine tests; the CLI cohort passes `12/13`, with its remaining
+  `Atomics.isLockFree` core-fixture failure reproduced unchanged at the parent
+  commit.
+- Duplicate class private names now carry one typed early-error code across
+  fields, methods, accessors and static/instance conflicts. Script, Module and
+  retained-module paths agree on `Early`/`SyntaxError`; valid getter/setter
+  pairs and nested-class private-name domains remain accepted. The capped
+  serial front and focused IR gates pass `42/42` and `3/3`, and the exact
+  32-file pinned Test262 cohort passes `64/64` sloppy/strict Wasm-AOT
+  executions with every failure bucket at zero. This is bounded parser
+  evidence, not class-grammar or aggregate closure.
+- Public class-field literal-name restrictions now carry two typed early-error
+  codes: non-static fields/auto-accessors reject literal `constructor`, while
+  static forms reject literal `constructor` or `prototype`. All eight parser
+  branches share the Script, Module and retained-module boundary; computed
+  names and ordinary constructor methods remain valid. A narrow vendored
+  parser repair stops identifier `constructor` fields from being misrouted
+  into parameter parsing. Computed static `prototype` remains valid syntax but
+  now throws at class definition after the required field-initializer ordering;
+  methods, accessors and auto-accessors share that public-static guard, and the
+  class constructor's own `prototype` descriptor is all-false. The exact
+  18-file class-field cohort passes `36/36` executions, the adjacent nine-file
+  runtime/descriptor cohort passes `18/18`, and the durable Wasm class-element
+  fixture passes `1/1`.
+- Strict-mode `with` statements now carry one typed early-error code from the
+  sole parser producer through retained Module diagnostics. Strict Script and
+  function bodies, class methods and Modules reject, while sloppy Script and
+  function contexts remain valid. The capped serial front and focused IR gates
+  pass `44/44` and `3/3`; the exact seven-file pinned cohort passes `7/7`
+  Wasm-AOT executions with every failure bucket at zero. This is bounded
+  parser classification only; valid sloppy `with` runtime semantics are
+  unchanged.
+- Class-field `ContainsArguments` parser rejections now carry one typed early-
+  error code across public/private, instance/static and auto-accessor
+  initializers. The front-end preserves lexical traversal through arrows and
+  stops at ordinary function/method boundaries; retained dependency modules
+  project the same `Early`/`SyntaxError` diagnostic. The focused front and IR
+  gates pass `40/40` and `3/3`, and the exact 60-file pinned Test262 cohort
+  passes `120/120` Wasm-AOT executions with every failure bucket at zero.
+  Literal direct-`eval` source remains explicit T13 dynamic-source debt.
+- Ordinary-property `&&=`, `||=` and `??=` now consume one fused Reference
+  carrier. One base/receiver and raw key flow through nullish validation, a
+  sole `ToPropertyKey`/GetValue transition, branch-local RHS and same-reference
+  Set, strict false-Set routing and result publication only after normal
+  PutValue. As a safe implementation optimization, the backend retains one
+  boxed target `O` separately from the original receiver, preserving primitive
+  accessor receivers through both Get and a taken Set; eager compound
+  assignment and numeric update share that backend invariant. Possible writes
+  also invalidate dependent global-property facts and Array prototype fast
+  paths. At clean pre-batch commit `04e38f2ba`, the three exact
+  strict `no-set-put.js` witnesses were `0/3` Runtime/Bug, while the three
+  independent ordering files were already `6/6`. Workspace/all-target check,
+  focused IR `2/2`, new structure `6/6`, affected retained structures `21/21`
+  and the Wasm lifecycle fixture `1/1` in `76.52s` are green. The selected raw
+  post-batch cohorts pass strict false-Set `8/8`, ordering `6/6` and
+  short-circuit `3/3`, with every failure and NotImplemented/Crash/Bug bucket
+  at zero. This is focused seventeen-execution evidence, not complete logical
+  assignment or pinned-matrix closure. Subsequent implicit-hook effect and
+  compact target-provenance hardening passed an eight-core-capped
+  workspace/all-target check, the filtered ordinary-property IR suite
+  (`49/49`), all four ordinary-property structure suites (`27/27`), the Wasm
+  logical-assignment lifecycle fixture (`1/1`) and the complete current
+  logical-assignment leaf (`132/132`, zero failure or non-success outcomes).
+- Unicode 17 `Emoji_Keycap_Sequence` now has an exact finite RegExp
+  property-of-strings representation: twelve `[#*0-9] FE0F 20E3` strings.
+  Direct `\p{Emoji_Keycap_Sequence}` atoms and UnicodeSets union,
+  intersection and subtraction reuse the canonical finite class-string set;
+  the direct `iv` form is identical because every member is simple-case-fold
+  invariant. Other string properties remain typed unsupported and
+  negated-string-class early errors remain intact. At clean pre-batch commit `04e38f2ba`, the direct
+  property file and one generated string-union representative were each `0/2`
+  Runtime/NotImplemented. Workspace/all-target checking, focused IR `1/1`,
+  retained structure `7/7`, the expanded Wasm fixture `1/1` in `24.04s`, and
+  the exact 37-file/74-execution inventory `74/74` are green, including the
+  three negative syntax files. Every failure and NotImplemented/Crash/Bug
+  bucket is zero. This does not claim the remaining Unicode string properties
+  or broader RegExp completion.
 
 - A bounded RegExp batch now implements finite UnicodeSets `\q{…}` class-string
   algebra. At clean pre-batch commit `f580b424d`, one union, one intersection
@@ -387,9 +733,9 @@ Recent focused progress through `2026-08-21`:
   with zero parser, early-error, lowering, runtime, Wasm-backend, harness,
   unsupported, crash or bug outcomes. The runtime fixture exposed and closed a
   reverse-lookbehind gap by sharing the canonical Unicode range-membership
-  emitter in both matcher directions. The six adjacent generated files that
-  require Unicode properties of strings and direct class-string `/iv` folding
-  remain explicit typed capability boundaries. This records no broader
+  emitter in both matcher directions. Other Unicode properties of strings and
+  direct class-string `/iv` folding remain explicit typed capability
+  boundaries. This records no broader
   UnicodeSets or RegExp completion claim.
 - A bounded matcher batch now implements RepeatMatcher's nullable
   unbounded-quantifier progress rule. At clean pre-batch commit `44247b836b`,
@@ -407,7 +753,7 @@ Recent focused progress through `2026-08-21`:
   passed `1/1` in `22.83s`, and the retained quantifier fixture passed `1/1` in
   `27.19s`. The exact Test262 file now passes `2/2` with zero unsupported,
   crash or bug verdicts. This is focused evidence only: no broader RegExp or
-  full-suite claim is made. Class strings, properties of strings, runtime
+  full-suite claim is made. Other Unicode properties of strings, runtime
   pattern compilation and the complete RegExp/String trees remain separate T19
   work.
 - Non-resumable object-literal methods, getters and setters now carry their
@@ -521,6 +867,40 @@ Recent focused progress through `2026-08-21`:
   Eager/logical/plain assignment, `super`, private,
   identifier/global/Object Environment, `with`, optional-chain and suspended
   References remain outside this focused batch.
+- Plain assignment through an ordinary property Reference now uses a focused
+  staging seam. A private consuming producer plan owns
+  one evaluated base/receiver, one raw computed key, the RHS and captured
+  `[[Strict]]`; the AOT boundary performs PutValue in the order base,
+  raw key, RHS, nullish `ToObject` validation, exactly one `ToPropertyKey`,
+  `[[Set]]`, strict-false routing and only then RHS-result publication. The
+  durable CLI oracle makes this order observable through Proxy/accessor
+  receiver traces, RHS-before-coercion key mutation, nullish and abrupt paths,
+  exactly-once evaluation, strict and sloppy false Set results, and primitive
+  receivers.
+
+  At clean pre-batch head `eb32c63a`, the exact raw Test262 files
+  `language/expressions/assignment/target-member-computed-reference-null.js`
+  and `target-member-identifier-reference-null.js` were each freshly `0/2`
+  `Runtime/NotImplemented`, while
+  `target-member-identifier-reference-undefined.js` was `1/2`: strict passed
+  and sloppy was `Runtime/Bug`. The selected three-file, six-execution
+  baseline is therefore `1/6`. The adjacent
+  `target-member-computed-reference-undefined.js` and
+  `target-member-computed-reference.js` controls were each `2/2`. No runner
+  rewrite, matrix mask or known-failure entry owns these results. Post-batch
+  verification is green: the workspace/all-target check in 15.18 seconds and
+  cached `cargo xc` in 0.17 seconds; the focused IR invariant `1/1` in 6.85
+  seconds after an 8.25-second build; the new structure executable `7/7` in
+  0.01 seconds after a 20.76-second build; retained eager-compound and numeric
+  structures `7/7` each in 0.22 and 0.02 seconds; and the exact Wasm CLI fixture
+  `1/1` in 66.90 seconds. The three selected raw files now pass all `6/6`
+  executions with zero unsupported, not-implemented, crash or bug outcomes, while both adjacent
+  controls remain `4/4`. Focused runtime verification removed only an
+  unsupported `(1).p` property-read assertion from the fixture; its sloppy and
+  strict primitive-assignment oracles remain. These focused results do not
+  claim the broader assignment leaf. Destructuring,
+  `super`, private, identifier/global/Object Environment, `with`, optional-chain
+  and resumable assignments remain outside this focused boundary.
 - Direct identifier calls selected through `with` now have a verified,
   Reference-preserving lowering seam. A private non-copyable
   `WithEnvironmentIdentifierCallReferencePlan` consumes the analyzed non-empty
@@ -5158,18 +5538,19 @@ Existing developer artifacts are never cleaned automatically. If an old
 one-time cleanup explicitly with `cargo clean`; the next dependency build will
 be intentionally cold.
 
-### Backend byte-identity golden capture
+### Compiler byte-identity golden capture
 
-Pure refactors of the backend — splitting builtin registries, extracting
-intrinsic installation, flattening the standard-builtin dispatch — are poorly
-served by the existing suites, which assert on program output. A refactor that
-perturbs emission order, function index assignment, or property installation
-order can leave every one of those assertions green while changing the emitted
-module.
+Pure refactors of `lila-ir` lowering or the backend — extracting lowering
+families, splitting builtin registries, extracting intrinsic installation or
+flattening the standard-builtin dispatch — are poorly served by the existing
+suites, which assert on program output. A refactor that perturbs emission order,
+function index assignment or property installation order can leave every one
+of those assertions green while changing the emitted module.
 
 `crates/lila-aot-wasm/tests/emit_golden.rs` closes that gap. It runs the real
-`parse -> lower -> emit` pipeline over all 527 CLI fixtures and records the
-emitted byte length, a content hash, and the backend `debug_dump` per fixture.
+`parse -> lower -> emit` pipeline over every `.js` file in the current CLI
+fixture corpus and records the emitted byte length, a content hash, and the
+backend `debug_dump` per fixture.
 It is inert unless `LILA_GOLDEN_OUT` names an output directory, so it costs
 nothing in an ordinary `cargo test` run.
 

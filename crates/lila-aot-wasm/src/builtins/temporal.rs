@@ -2,6 +2,7 @@ use super::super::*;
 use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
 use super::temporal_plain_date::{TemporalCalendarId, TemporalEraField};
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
+use crate::operations::BigIntNumberPolicy;
 
 /// Which `Temporal.ZonedDateTime.prototype` accessor
 /// [`FunctionBuilder::emit_temporal_zoned_date_time_iso_field`] is producing.
@@ -1941,7 +1942,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_bigint_locals(
             epoch_argument_tag_local,
             epoch_argument_payload_local,
-            false,
+            BigIntNumberPolicy::RejectNumber,
             epoch_payload_local,
             epoch_tag_local,
             function,
@@ -3554,7 +3555,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_bigint_locals(
             argument_tag_local,
             argument_payload_local,
-            false,
+            BigIntNumberPolicy::RejectNumber,
             nanoseconds_payload_local,
             nanoseconds_tag_local,
             function,

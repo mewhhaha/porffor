@@ -250,6 +250,27 @@ fn run_wasm_backend_preserves_class_element_source_order() {
 }
 
 #[test]
+fn run_wasm_class_auto_accessor_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_class_auto_accessors.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_preserves_private_setter_identity_and_completion() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

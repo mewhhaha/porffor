@@ -1,6 +1,6 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — major builtin ownership bottlenecks split; broader lowering/emitter seams remain
+**Status:** In progress — major builtin ownership bottlenecks plus the for-of, for-in, throw-value inference and static-JSON parse owner splits; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
@@ -16,6 +16,686 @@ seams and line budgets. The split remains partial: `lowering.rs`,
 still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
+
+### Landed 2026-08-23: static-JSON parse lowering ownership
+
+This ownership seam is deliberately narrower than the complete `JSON.parse`
+lowering family. `lila-ir/src/lowering/static_json_parse.rs` now owns the
+static-reviver specialization entry point, its static-string input
+recovery helper and the private `JsonStaticParser`. These are 236 source lines:
+two `ScriptLowerer` methods plus the parser type and its eleven methods. The
+exact formatted move produces a 242-line child and reduces `lowering.rs` from
+20,986 to 20,748 raw lines.
+
+Only `try_lower_static_json_parse_reviver` crosses the private child boundary,
+as `pub(super)`, for the two direct-call sites in `lowering/call_expression.rs`.
+`static_json_parse_input` and every parser operation remain private. The parent
+retains `known_json_parse_reviver_targets` and
+`observe_json_parse_reviver_targets`: the ordinary dynamic `JSON.parse` path
+also consumes that target/signature analysis, so moving or copying it would
+make the static filename a false owner. `JsonStaticValueIr`, `TypedExpr`,
+`ExprIr`, `ValueKind`, `KindSet`, builtin identity and every flow-fact field
+remain with their existing owners. No field, helper, type or public Rust API is
+widened.
+
+The move preserves the static admission sequence exactly: builtin identity,
+two-argument arity, reviver callable-kind proof, static input recovery, complete
+JSON parse and known nonempty reviver-target proof. The parser must retain full
+input consumption; source lexemes and parsed `f64` bits; rejection of leading
+zeroes and incomplete fraction/exponent forms; `serde_json` string decoding and
+raw control-byte rejection; recursive array/object behavior and trailing-comma
+rejection; and duplicate-object-key replacement without changing the first
+insertion position.
+
+The boundary audit requires the exact private module declaration, the exact
+thirteen-function inventory, exactly one Rust-visible child item, both sibling
+call sites, sole ownership of the moved entry/input/parser family, both shared
+target helpers in the parent, zero parent copies, no
+copied shared type, no local macro/generated helper or legacy `include!`/`#[path]`
+assembly, executable input-to-parser-to-target wiring, and measured parent/child
+line budgets. No new behavior test is justified for an exact ownership-only
+move.
+
+At clean parent `9a3ac9ad5`, the capped pre-move Wasm golden passes `2/2` in
+309.29 seconds; the post-move capture passes `2/2` in 314.61 seconds. Both
+record 633 fixtures in 635 artifacts and their recursive diff is empty. The
+236 moved source lines have the same normalized SHA-256 before and after the
+move, `edb11f2be0d0376cd042d5541572e08a236ac569a7a81575b322630ae027cd06`.
+Formatting, the all-target `lila-ir` check, `cargo xc`, the strengthened module
+boundary audit and both independent reviews pass. The moved static IR witness
+passes `1/1`, both engine witnesses pass `2/2`, and the three static plus one
+dynamic-control CLI witnesses pass `4/4`. The retained
+`dynamic_json_parse_observes_reviver_holder_kinds` IR control fails identically
+at the clean parent and moved tree, so the combined `json_parse` IR filter is
+unchanged at `1/2`. This is architecture and byte-identical no-regression
+evidence, not a JSON behavior change, T20 work, broad Test262 coverage or JSON
+conformance progress.
+
+### Landed 2026-08-23: throw-value inference ownership
+
+`lila-ir/src/lowering/throw_inference.rs` now owns the complete recursive
+throw-value inference closure: `merge_optional_value_info`, block and statement
+walkers, the expression wrapper and operand walker, and property-key inference.
+The family is one contiguous 891-line parent slice containing exactly six
+methods. Its exact move reduces `lowering.rs` from 21,877 to 20,986 raw lines
+and produces an 895-line child. Only `infer_block_throw_info` crosses the
+private child boundary as `pub(super)` for the sole external caller in
+`lowering/try_statement.rs`; the other five methods remain private. No IR type,
+public Rust API or compiler behavior moves with it.
+
+The parent retains `merge_value_infos`, `resolve_single_function_target`,
+`object_like_kind_set` and the free `unknown_runtime_value_info` helper;
+`builtin_shapes.rs` retains `standard_error_instance_info`, while
+`reference.rs` retains the exhaustive `carried_put_value_failure` classifier.
+Every `StatementIr`, `ExprIr`, `PropertyKeyIr`, `ValueInfo`,
+`PutValueFailure`, `Strictness` and builtin identity type remains with its
+current owner. The child imports those owners through `super::*` rather than
+copying a helper or widening a type.
+
+The move preserves every inference and merge ordering. Block, statement,
+resource, argument and case lists stay left-to-right; ordinary `For` remains
+initializer, test, update, body; `GeneratorLoop` remains initializer, test,
+update, before-suspension, suspension, after-suspension; and try inference
+remains try, catch, finally. `StatementIr::Throw` first infers failures in its
+operand and only then merges the thrown value. `infer_expr_throw_info` remains
+the recursive wrapper: it exhaustively converts the carried strict
+`PutValueFailure` and merges it before operand failures, then delegates exactly
+once to `infer_expr_operand_throw_info`; recursive operand and property-key
+walks route back through that wrapper so nested strict writes contribute. The
+exhaustive `StatementIr`, both `ForInitIr`, `ExprIr`, `PropertyKeyIr`,
+`PutValueFailure`, super-mutation, object-property, optional-chain,
+class-element and suspended-reference matches retain zero wildcard or
+bare-binding catch-all arms. Adding a variant to one of those closed domains is
+a compile error until its throw semantics are chosen; non-exhaustive `if let`
+filters such as the generator resume-mode specialization remain explicit
+nonclaims. `RuntimeThrow` continues through the total native error constructor
+mapping, while dynamic disposal, spread, property-hook and call contributions
+and rejection-only `import()` handling remain exact.
+
+The module audit requires the exact private child declaration, all six sole
+method owners, exactly one Rust-visible child item, the sole external caller in
+`try_statement.rs`, zero parent copies, zero copied shared helper or type
+declarations, zero catch-all arms or `unreachable!`, exactly one carried-failure
+read and one wrapper-to-operand delegation, no local macro/generated helper or
+legacy `include!`/`#[path]` assembly, and measured parent/child line budgets.
+Sixteen negative controls reject a missing child, public module, reintroduced
+parent owner, widened helper, modifier-qualified extra method, copied shared
+helper or type, alternate external caller, local item macro or trait, forged
+string witness, four catch-all spellings and missing recursive delegation.
+
+Two existing source-structure witnesses now follow the owner rather than keep
+searching `lowering.rs`: the eager compound-assignment throw arm and the logical
+assignment throw arm. Their exact assertions, the IR
+`contribute_arbitrary_catch_values` filter, the private-`in` and unbound-global
+inference witnesses, the strict/sloppy top-level-try CLI pair and the dynamic
+global ReferenceError supplement are the focused behavioral contract. No new
+permanent behavior test is justified solely by this exact ownership move, and
+the two broader structure targets retain unrelated stale `lower_assign`
+source bounds outside this batch.
+
+At clean parent `a77f923b3`, the capped pre-move Wasm golden passes `2/2` in
+312.13 seconds; the post-move capture passes `2/2` in 327.32 seconds. Both
+record 633 fixtures in 635 artifacts and their recursive diff is empty. Exact
+source-equivalence and independent semantic and policy reviews pass. The
+all-target `lila-ir` check and `cargo xc` are green. Serial IR witnesses pass
+`2/2`, `1/1` and `1/1`; the two exact source-structure witnesses each pass
+`1/1`; and the strict, sloppy and dynamic-global CLI witnesses each pass
+`1/1`. The module-boundary audit passes after all sixteen negative controls.
+No broad Test262, full-workspace behavior or throw-conformance improvement is
+claimed by this ownership-only extraction.
+
+### Landed 2026-08-23: for-in lowering ownership
+
+`lila-ir/src/lowering/for_in.rs` now owns the complete for-in lowering family:
+the sole statement-facing lowerer and its twelve owner-only helpers for Annex B
+initializer prefixes, closed initializer-name recovery, known-empty and
+non-enumerable Test262 guards, pattern/property body prefixes, target
+classification and final statement construction. The moved family was 564
+source lines across four parent blocks; removing their separator lines reduced
+`lowering.rs` from 22,444 to 21,877 raw lines and produced a
+571-line child. Only `lower_for_in_loop` crosses the private child boundary
+as `pub(super)`; all twelve helpers remain private. No IR type, public Rust API
+or compiler behavior moved with it.
+
+The statement dispatcher remains the only external caller. The parent retains
+the shared for-in/of environment and TDZ lowering, loop-body and declarator
+lowering, global-target recognition, single-statement and identifier matching,
+static-string analysis, async-entry-state query, expression/pattern/property
+lowering, scope/allocation/flow helpers, and the shared `contains`,
+`supported_bound_names` and `for_in_loop_binding_storage_name` free functions.
+`lowering/for_of.rs` continues to consume the shared environment helper, while
+`lowering/call_expression.rs` continues to consume `for_in_global_target`; the
+extraction copies neither owner and does not widen their visibility.
+
+The byte-exact move preserves the source order of every observable decision:
+refusing an awaiting body before lowering the head; retaining the Annex B
+initializer prefix on every supported early exit; evaluating a nullish head
+for effects; pattern-head TDZ scope push/pop; inferred-undefined parameter
+widening; dynamic/array/string/object/nullish/primitive target classification;
+access and pattern assignment prefixes; per-iteration lexical-environment
+storage; body scope teardown before var/global flow joins; and the final
+dynamic, array, string and object statement choice. The existing known-empty
+and non-enumerable shortcuts, diagnostics and specialization rules are copied
+exactly, not cleaned up or expanded in this batch.
+
+The module audit requires the exact private child declaration, all thirteen
+sole method owners, exactly one Rust-visible child item, zero parent copies,
+zero copied shared-helper definitions, no legacy `include!` assembly and
+measured parent/child line budgets. Negative controls reject a missing child,
+widened module or helper, copied shared or generic helper, copied type and an
+extra modifier-qualified function. Existing focused IR and CLI behavior
+witnesses remain the semantic contract; no new permanent test is justified
+solely by the filename move.
+
+At clean parent `fcb0a924b`, the fresh capped pre-move Wasm golden passes `2/2`,
+records 633 fixtures in 635 artifacts and is retained under
+`target/golden/for-in-before-fcb0a924b`. The capped post-move golden also passes
+`2/2` over the same 633 fixtures and 635 artifacts, and the recursive artifact
+diff is empty. `cargo check -p lila-ir --all-targets` and `cargo xc` pass; the
+focused IR witnesses pass `8/8`, `2/2`, `1/1` and `1/1`. The CLI `for_in_`
+filter is unchanged at `4/7` on both the clean parent and moved tree: array
+DefineProperty order, simple-object order and prototype order remain
+pre-existing failures. Supplemental exact CLI witnesses are likewise unchanged
+at `2/3`, with the object-keys primitive witness the pre-existing failure. This
+is architecture and no-regression evidence, not a for-in behavior or
+conformance improvement, broad Test262 run or full-workspace claim.
+
+### Landed 2026-08-23: for-of lowering ownership
+
+`lila-ir/src/lowering/for_of.rs` now owns the complete for-of lowering family:
+the async array-index resumable specialization, the sole statement-facing
+wrapper, the exhaustive head lowering, and the two lowering-only carriers
+`AsyncForOfArrayWalkForm` and `ForOfLoweringIr`. The extraction moves one
+coherent 1,026-line source family out of `lowering.rs`, `lowering_helpers.rs`
+and `ir.rs`. Only `lower_for_of_loop` crosses the child boundary as
+`pub(super)`; the other methods, both carriers and their
+constructors/conversions are private to the child.
+
+Moving `ForOfLoweringIr` deliberately removes an accidental public Rust API
+created by `pub use ir::*`. It has no workspace consumer outside this family,
+and its privacy is the invariant: every path out of `lower_for_of_head` must
+construct a protocol witness, while no unrelated code may construct, retain or
+discard that lowering-only proof. This is an intentional pre-1.0 API narrowing,
+not a claim that the patch is only a filename change.
+
+The statement dispatcher remains the sole external caller. Shared loop and
+environment helpers stay in the parent, including `plain_async_entry_state`,
+`split_resumable_loop_body`, `lower_loop_body`,
+`lower_for_in_of_environment` and `lower_for_head_expression_with_tdz`.
+`lowering/async_disposable.rs` retains `LoweredForOfHeadKind` plus admission,
+pending-head, finalization and statement construction. Public statement/head,
+environment, iterator-plan and protocol-witness IR remain in their existing
+IR and iterator-obligation owners. The extraction copies none of those helpers
+and does not widen their visibility.
+
+The move preserves source order and behavior: scope push/pop on every bailout,
+flow-fact snapshots and joins, iterable-before-body evaluation, synchronous-
+using TDZ/disposal ordering, async-disposable pending-head sequencing,
+suspension-state acquisition, five load-bearing async iterator slot
+allocations, the closed array/string/generic/resumable protocol outcomes, and
+`AsyncForOfArrayWalkForm`'s non-array / target-shape / captured-iteration /
+captured-TDZ classification priority. No specialization cleanup, diagnostic
+change, intactness repair or conformance expansion belongs in this batch.
+
+The extraction reduces `lowering.rs` from 23,208 to 22,444 raw lines; the child
+is 1,036 lines. The module audit requires the one child owner, all three sole
+methods, both private carriers, zero parent/helper/IR copies, no shared-helper
+copies, no legacy `include!` assembly and separate parent/child budgets. Its
+missing-child, public-module, public-carrier, copied-shared-helper and generic-
+helper negative controls all fail correctly. The two source-bounded for-of
+backend tests read the new child directly.
+
+The capped pre/post Wasm goldens both pass `2/2`, record 633 fixtures in 635
+artifacts and have an empty recursive diff; the post capture finished in
+388.51 seconds. The focused IR witnesses pass `3/3`, `3/3` and `1/1`; the three
+backend structure targets pass `5/5`, `5/5` and `3/3`; and four exact CLI
+witnesses pass `4/4`. `cargo check -p lila-ir --all-targets`, `cargo xc`,
+formatting, diff, module-boundary and task-plan checks are green. No broad
+Test262 filter or full workspace test was used as evidence. No for-of behavior
+or conformance improvement is claimed.
+
+### Landed 2026-08-23: with-statement ownership
+
+`lila-ir/src/lowering/with_statement.rs` now owns the complete Object
+Environment lifecycle for `with`: outer-environment object evaluation,
+analyzed hidden-binding materialization, resumable/capture refusal, ordered
+environment-chain entry and exit, body lowering and nested lexical-block IR
+assembly. The statement dispatcher remains its sole caller; allocation,
+suspension and reference-lifecycle helpers remain in their shared owners.
+
+This is an exact source move. All 99 method lines compare exactly after
+normalizing only `fn lower_with_statement` to private-module visibility. The
+extraction reduces `lowering.rs` from 23,307 to 23,208 raw lines, and the child
+is 103 lines. The module audit requires the sole owner, rejects copied shared
+helpers and lifecycle types, requires exactly one chain entry and exit, forbids
+legacy `include!` assembly, budgets parent and child separately, and fails both
+missing-child and missing-exit negative controls. No persistent structural test
+used the old method as a source-slice sentinel.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Seven targeted IR environment, definition-
+cursor, hidden-capture, suspension and fallback witnesses pass `7/7`. The five
+targeted CLI fixtures pass `2/5`; one combined run at untouched parent
+`870203481` reproduces the other three failures with identical diagnostics:
+two existing `instanceof`-callability errors and one Wasmtime function-size
+limit. A deliberately broader `with_` IR filter passed `66/67`; its unrelated
+Object.seal result-shape assertion remains red and was not used as evidence for
+this owner. The all-target `lila-ir` and workspace checks are green. No `with`
+behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: break/continue ownership
+
+`lila-ir/src/lowering/break_continue.rs` now owns labelled and unlabelled
+break/continue target validation and final abrupt-control IR assembly. The
+statement dispatcher remains its sole caller. The parent-owned active-label
+stack and `LabelTargetKind` stay shared with labelled-statement lowering, while
+the breakable and loop depths remain lowerer state.
+
+This is an exact source move. All 41 method lines compare exactly after
+normalizing only `fn lower_break` and `fn lower_continue` to private-module
+visibility. The extraction reduces `lowering.rs` from 23,348 to 23,307 raw
+lines, and the child is 45 lines. The module audit requires both sole owners,
+rejects copies of the shared active-label types, forbids legacy `include!`
+assembly, budgets parent and child separately, and fails its missing-child
+negative control. No persistent structural test used either old method as a
+source-slice sentinel.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Three focused IR loop, switch-label and
+direct-label-target witnesses pass `3/3`; five focused CLI inspect, finally,
+iterator-closing and using-loop lifecycle witnesses pass `5/5`. The all-target
+`lila-ir` and workspace checks are green. No break/continue behavior or
+conformance improvement is claimed.
+
+### Landed 2026-08-23: switch-statement ownership
+
+`lila-ir/src/lowering/switch_statement.rs` now owns discriminant and selector
+evaluation, the one shared CaseBlock lexical environment, hoisted and Annex B
+function selection, case-body lowering, flow-fact joins, breakable-depth
+lifecycle and final `Switch` IR assembly. The statement dispatcher remains its
+sole caller; reusable statement-list, function, environment and flow helpers
+remain parent-owned.
+
+This is an exact source move. All 86 method lines compare exactly after
+normalizing only `fn lower_switch` to private-module visibility. The extraction
+reduces `lowering.rs` from 23,434 to 23,348 raw lines, and the child is 90
+lines. The module audit requires the sole owner, rejects copied shared
+statement-list and environment-materialization helpers, forbids legacy
+`include!` assembly, budgets parent and child separately, and fails its
+missing-child negative control. Two for-of structural tests now end their
+source slice at the adjacent `lower_for_init` owner instead of depending on the
+old location of `lower_switch`.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Six focused IR CaseBlock, TDZ, Annex B,
+capture and label witnesses pass `6/6`; two focused CLI inspect and throwing
+property-read witnesses pass `2/2`; the two affected for-of structural targets
+pass `5/5` each. The all-target `lila-ir` and workspace checks are green. No
+switch behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: labelled-statement ownership
+
+`lila-ir/src/lowering/labelled_statement.rs` now owns nested-label collection,
+direct labelled-function routing, loop-versus-breakable target classification,
+active-label stack installation/removal and final `Labelled` IR assembly. The
+statement dispatcher remains its sole caller; the shared `ActiveLabel` and
+`LabelTargetKind` types remain parent-owned for break/continue lowering.
+
+This is an exact source move. All 68 method/helper lines compare exactly after
+normalizing only `fn lower_labelled` to private-module visibility. The
+extraction reduces `lowering.rs` from 23,502 to 23,434 raw lines, and the child
+is 72 lines. The module audit requires the sole owner and both private helpers,
+rejects copies of the shared label types, forbids legacy `include!` assembly,
+budgets parent and child separately, and fails its negative control when the
+child is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Five focused IR label/target/lifecycle filters
+pass `5/5`; three focused CLI inspect, iterator-closing and await-using filters
+pass `3/3`. The all-target `lila-ir` and workspace checks are green. No labelled
+statement behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: while-family ownership
+
+`lila-ir/src/lowering/while_loop.rs` now owns ordinary and resumable `while`
+lowering plus the explicit `do while` suspension refusal. Condition/body order,
+loop flow-fact joins, async/generator resume-state selection and the final
+`While`, `DoWhile` or `GeneratorLoop` choice move together. The statement
+dispatcher remains their sole caller; shared loop-resumption helpers remain in
+the parent.
+
+This is an exact source move. All 99 source lines compare exactly after
+normalizing the two private-module visibility tokens and rustfmt's wrapped
+`lower_do_while_loop` signature. The extraction reduces `lowering.rs` from
+23,601 to 23,502 raw lines, and the child is 106 lines. The module audit
+requires both sole owners, rejects copies of `plain_async_entry_state` and
+`split_resumable_loop_body`, forbids legacy `include!` assembly, budgets parent
+and child separately, and fails its negative control when the child is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Five focused IR loop/resumption/refusal
+filters pass `5/5`; three focused CLI lexical-environment, abrupt-finally and
+iterator flat-map filters pass `3/3`. The all-target `lila-ir` and workspace
+checks are green. No while/do-while behavior or conformance improvement is
+claimed.
+
+### Landed 2026-08-23: if-statement ownership
+
+`lila-ir/src/lowering/if_statement.rs` now owns the complete conditional
+lifecycle: condition lowering and static selection, branch-local var/global
+facts, post-branch joins, abrupt-completion result typing and generator
+yield-state splitting/merging. The statement dispatcher remains its sole
+caller; shared static-expression helpers remain in the parent.
+
+This is an exact source move. All 137 method/helper lines compare exactly after
+normalizing only `fn` to `pub(super) fn` on the owner method. The extraction
+reduces `lowering.rs` from 23,738 to 23,601 raw lines, and the child is 141
+lines. The module audit requires the sole owner and both private lifecycle
+helpers, rejects a copied `static_bool_expr`, forbids legacy `include!`
+assembly, budgets parent and child separately, and fails its negative control
+when the child is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Six focused IR branch/flow/resumption filters
+pass `6/6`; four focused CLI inspect, Wasm, async-generator and finally filters
+pass `4/4`. The all-target `lila-ir` and workspace checks are green. No
+if-statement behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: classic-for ownership
+
+`lila-ir/src/lowering/for_loop.rs` now owns the complete classic `for`
+lifecycle: async-disposable head validation, resumable-loop eligibility,
+lexical TDZ setup, initializer and per-iteration Environment Record selection,
+test/update/body lowering, flow-fact merging, suspension-state construction and
+the final `For` or `GeneratorLoop` IR choice. The statement dispatcher remains
+its sole caller; reusable loop, scope, flow and resumption helpers remain in the
+parent.
+
+This is an exact source move. The only method-body change is private-module
+visibility from `fn` to `pub(super) fn`; all 209 source lines compare exactly
+after normalizing that token. The extraction reduces `lowering.rs` from 23,947
+to 23,738 raw lines, and the child is 213 lines. The module audit requires the
+sole owner, forbids a second parent body or legacy `include!` assembly, budgets
+the parent and child separately, and fails its negative control when the child
+is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Eight focused IR lifecycle/refusal filters
+pass `8/8`; three focused CLI lexical-environment, async-disposable and
+throw-propagation filters pass `3/3`. No classic-for behavior or conformance
+improvement is claimed.
+
+### Landed 2026-08-23: statement-dispatch ownership
+
+`lila-ir/src/lowering/statement.rs` now owns the exhaustive `Statement`
+dispatcher and its resumable expression-statement specialization. Direct and
+nested async `await`, generator `yield` and assignment resumption, staged
+generator templates/expressions, ordinary expression statements and every
+control-flow/declaration delegate remain in one closed dispatch. The focused
+statement implementations and reusable suspension helpers remain parent-owned.
+
+This is an exact source move. The only method-body change is private-module
+visibility from `fn` to `pub(super) fn`; all 255 source lines compare exactly
+after normalizing that token. The extraction reduces `lowering.rs` from 24,202
+to 23,947 raw lines, and the child is 259 lines. The module audit requires the
+sole owner, forbids a second parent body or legacy `include!` assembly, budgets
+the parent and child separately, and fails its negative control when the child
+is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Seven focused IR statement/resumption
+filters pass `7/7`; four focused CLI inspect and Wasm control-flow filters pass
+`4/4`. No statement behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: new-expression ownership
+
+`lila-ir/src/lowering/new_expression.rs` now owns the complete `lower_new`
+lifecycle: constructor target resolution, spread-aware argument evaluation,
+builtin and user-constructor result typing, Proxy trap-hint observation,
+dynamic-source rejection, instance-prototype inference and static RegExp
+compilation. The parent expression dispatcher remains its sole caller.
+
+This is an exact source move. The only source-body change is private-module
+visibility from `fn` to `pub(super) fn`; all constructor branches and emitted
+IR choices compare exactly. The extraction reduces `lowering.rs` from 24,446
+to 24,202 raw lines; the formatted child is 248 lines. The module audit
+requires the sole owner, forbids a second parent body or legacy `include!`
+assembly, and budgets parent and child separately.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. The all-target `lila-ir` and workspace checks
+are green. Five focused IR filters pass `2/2`, `1/1`, `1/1`, `1/1` and `1/1`;
+the Map/Set iterable-construction filter fails `0/2` both here and at untouched
+parent `394e8fda7` with the same shape assertions. Five focused CLI filters
+pass `1/1`, `2/2`, `1/1`, `1/1` and `1/1`. No constructor behavior or
+conformance improvement is claimed.
+
+### Landed 2026-08-23: property-access ownership
+
+`lila-ir/src/lowering/property_access.rs` now owns the complete ordinary,
+private and super property-access dispatcher. Primitive auto-boxing, array and
+arguments exotic routing, well-known Symbol recognition, property-hook
+observation and unknown-effect invalidation move together; the parent
+expression dispatcher remains the sole caller.
+
+The target-kind match now names `ValueKind::Number` explicitly instead of
+using a catch-all for its existing unsupported result. That preserves current
+behavior while making a future `ValueKind` addition a compile error until this
+dispatcher assigns it semantics. The module audit requires that exhaustive
+arm, forbids the old catch-all and enforces single ownership.
+
+The source body is otherwise exact after normalizing private-module
+visibility. The extraction reduces `lowering.rs` from 24,663 to 24,446 raw
+lines; the formatted child is 223 lines. The capped pre/post Wasm goldens both
+pass `2/2`, capture 635 artifacts each and have an empty recursive diff. The
+all-target `lila-ir` and workspace checks are green. Serial IR filters pass
+`2/2` for `property_access`, `6/6` for `property_read`, `1/1` each for
+`symbol_description` and `dynamic_string_property`, and `34/34` for `call_`;
+the corresponding focused CLI filters pass `3/3`, `1/1` and `6/6`. No
+property-access behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: try-statement ownership
+
+`lila-ir/src/lowering/try_statement.rs` now owns the complete `lower_try`
+lifecycle: try/catch/finally block lowering, catch-parameter Environment Record
+construction, consumption of inferred thrown values, generator/async resume
+planning and final `TryCatch`, `TryFinally` or `TryCatchFinally` assembly. The
+parent statement dispatcher remains its sole caller. Reusable throw-value
+inference now lives in `lowering/throw_inference.rs`; shared analysis helpers
+remain parent-owned.
+
+The former eight-field catch tuple and five-field finally tuple are now private
+`LoweredCatchClause` and `LoweredFinallyClause` records. Named generator/async
+entry and exit fields make positional state transposition impossible at every
+plan and final-assembly use site. The module audit requires both records and
+rejects positional tuple-field access in this owner.
+
+The extraction reduces `lowering.rs` from 24,910 to 24,663 raw lines; the
+formatted child is 264 lines. The capped pre/post Wasm goldens both pass `2/2`,
+capture 635 artifacts each and have an empty recursive diff. The focused
+all-target `lila-ir` check and the new module boundary are green. Serial IR
+filters pass `12/12` for `try_` and `14/14` for `catch`; the CLI `finally`,
+`catchability` and `top_level_try` filters pass `2/2` each. No try-statement
+behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: delete-expression ownership
+
+`lila-ir/src/lowering/delete_expression.rs` now owns the complete
+`lower_delete` target dispatcher across ordinary/private/super property
+References, identifier deletion and non-Reference values. The parent retains
+the sole unary-expression call and the reusable shape, strictness and property
+helpers consumed by the implementation.
+
+This is a semantic-free source move. All 213 method lines compare exactly to
+the pre-move implementation after normalizing only `fn` to `pub(super) fn`.
+The private child boundary reduces `lowering.rs` from 25,123 to 24,910 raw
+lines; the formatted child is 217 lines. The module audit requires the sole
+owner method, forbids a second parent body or legacy `include!` assembly, and
+budgets parent and child separately.
+
+The extraction does not combine the two currently duplicate computed-key
+branches. That cleanup can be reviewed separately after this exact move's
+behavioral checkpoint; this commit preserves the existing instruction and
+invalidation choices byte-for-byte at the Rust source level. No delete behavior
+or conformance improvement is claimed.
+
+The capped workspace/all-target check is green. Serial delete-focused coverage
+passes `7/7` in `lila-cli`, `2/2` in `lila-aot-wasm` and `4/4` in
+`lila-engine`. Formatting, exact source comparison, module-boundary and
+task-plan audits are green.
+
+### Landed 2026-08-23: assignment-expression ownership
+
+`lila-ir/src/lowering/assignment.rs` now owns the complete exhaustive
+`lower_assign` dispatcher across identifier, property, private, destructuring,
+logical and eager compound assignment. The parent expression match remains its
+single caller. Specialized ordinary-property and Object Environment Record
+Reference lifecycles remain in their existing typed child modules.
+
+This is a semantic-free source move. All 706 body lines compare exactly to the
+pre-move implementation; the signature changes only private-module visibility
+and rustfmt's multiline layout. The child boundary reduces `lowering.rs` from
+25,830 to 25,123 raw lines; the formatted child is 716 lines. The module audit
+requires the sole owner method, forbids a second parent body or legacy
+`include!` assembly, and budgets parent and child separately.
+
+The capped workspace/all-target check and serial IR `assignment` cohort
+(`34/34`) are green. The serial CLI `assignment` cohort reports `6/7` both
+before and after extraction; the same with-environment compound-assignment
+fixture fails with the same completion and error text. Formatting, exact body
+comparison, module-boundary and task-plan audits are green. No assignment
+behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: ordinary function-definition ownership
+
+`lila-ir/src/lowering/function_definition.rs` now owns the complete ordinary
+`lower_function` lifecycle: nested lowerer creation, analysis-state transfer,
+parameter and body lowering, capture/lexical-environment planning, signature
+updates, resumable metadata and final `FunctionIr` construction. The seven
+top-level orchestration calls remain in the parent; parameter helpers shared
+with generated iterators, class methods and object methods also remain there.
+
+This is a semantic-free source move. All 717 method lines compare exactly to
+the pre-move implementation after normalizing only `fn` to `pub(super) fn`.
+The private child boundary reduces `lowering.rs` from 26,547 to 25,830 raw
+lines; the formatted child is 721 lines. The module audit requires the sole
+owner method, forbids a second parent body or legacy `include!` assembly, and
+budgets parent and child separately.
+
+The capped workspace/all-target check and serial IR `function_` cohort
+(`61/61`) are green. The serial CLI `functions::` cohort reports `45/49`; both
+inspect-shape assertions and both mapped-arguments semantics fixtures reproduce
+at the exact pre-extraction commit `bda775dfc`. Formatting, exact source
+comparison, module-boundary and task-plan audits are green. No function
+behavior or conformance improvement is claimed.
+
+### Landed 2026-08-23: builtin call-result analysis ownership
+
+`lila-ir/src/lowering/builtin_call_info.rs` now owns the complete exhaustive
+`StandardBuiltinId` result analysis: return kinds and shapes, boxed-builtin
+accounting, callback parameter observations and the few result-dependent flow
+invalidations. Construct lowering, general resolved calls, RegExp literal
+lowering and well-known-symbol method routing remain its four consumers.
+
+This is a semantic-free source move. All 2,146 method lines compare exactly to
+the pre-move implementation after normalizing only `fn` to `pub(super) fn`.
+The private child boundary reduces `lowering.rs` from 28,693 to 26,547 raw
+lines; the formatted child is 2,150 lines. The module audit requires the sole
+owner method, forbids a second parent body or legacy `include!` assembly, and
+budgets parent and child separately.
+
+The capped workspace/all-target check and the serial CLI `call_` cohort (`6/6`)
+are green. The current serial IR `call_` cohort is also green (`34/34`) after a
+follow-up contract refresh accepted both typed `PropertyRead` and canonical
+`GetV` as the same materialized method Reference read. Formatting, exact source
+comparison, module-boundary and task-plan audits are green. No call behavior or
+conformance improvement is claimed.
+
+### Landed 2026-08-23: Atomics backend ownership
+
+`lila-aot-wasm/src/builtins/atomics.rs` now owns all fourteen Atomics builtin
+bodies, the shared integer-operation machinery, synchronous and asynchronous
+wait/notify state transitions, host-agent calls, and atomic memory access
+helpers. The flat catalog dispatch retains one typed delegate per builtin
+through the closed `AtomicsBuiltin` domain; the family file cannot accept an
+unrelated `StandardBuiltinId`.
+
+The extraction also replaces the old RMW helper's broad nine-case operation
+parameter and four `unreachable!` catch-alls with a six-case
+`AtomicsRmwOperation`. Load, store and compare-exchange can no longer reach an
+RMW opcode selector. Only three methods cross the family boundary: the BigInt
+element-kind predicate shared with `TypedArray.prototype.with`, the event-loop
+waiter-drain checkpoint, and the Promise-job waiter-poll checkpoint.
+
+The moved emitter bodies and their instruction sequences are source-identical
+to the pre-move implementation. The non-emitting structural changes are the
+typed family dispatch, the narrower RMW carrier and one deliberate visibility
+change. The `Atomics.isLockFree` body is unchanged apart from becoming a
+private family method. `standard.rs` falls from 33,275 to 30,567 raw lines;
+the formatted family file is 2,805 lines. The boundary audit requires the
+module, all fourteen typed delegates, the three closed domains, the three
+reviewed cross-family hooks, exhaustive matches and separate line budgets for
+parent and child.
+
+The capped workspace/all-target check is green. Focused serial Atomics coverage
+passes `2/2` in `lila-aot-wasm` and `5/5` in `lila-engine`; the CLI cohort passes
+`12/13`. Its remaining `Atomics.isLockFree` core-fixture failure reproduces at
+the untouched parent commit, so this structural extraction neither owns nor
+claims to fix it. Formatting, module-boundary and task-plan audits are green.
+
+### Landed 2026-08-23: call-expression lowering ownership
+
+`lila-ir/src/lowering/call_expression.rs` now owns the complete `lower_call`
+implementation, including direct-call recognition, builtin and method routing,
+argument evaluation, specialization and final indirect-call construction. The
+parent keeps expression dispatch and the reusable call, shape and static-value
+helpers consumed by that implementation.
+
+This is a semantic-free source move. The only visibility change is the one
+`pub(super)` method consumed by parent expression dispatch; the child remains
+inside the private `lowering` module. The extraction reduces `lowering.rs` from
+31,833 to 28,693 raw lines. The boundary audit requires the child module and
+sole owner method, forbids a second parent body or legacy `include!` assembly,
+budgets the child at 3,200 raw lines and tightens the parent budget to 29,000.
+
+The extraction is verified by an exact normalized source-body comparison with
+the pre-move implementation and a green `cargo check --workspace --all-targets`.
+The serial call-focused IR cohort reports 63/67 and the serial CLI call cohort
+reports 35/36. All five failures reproduce unchanged at pre-extraction commit
+`f2309be48`: four primitive/ordinary method-call inference contracts and the
+`arguments.callee` CLI fixture. The module-boundary and task-plan audits are
+green. No call behavior or conformance improvement is claimed.
+
+A later contract refresh removed the last current IR `call_` false negative.
+Flow widening legitimately selects the canonical `GetV` carrier for an
+ordinary method read; the test now verifies that either `GetV` or the typed
+`PropertyRead` consumes the one materialized receiver before Call supplies the
+same value as `this`. The focused test and current serial IR cohort pass `1/1`
+and `34/34`; an independent Wasm-AOT witness completes with `boolean(true)`.
+Production lowering and emitted semantics are unchanged.
+
+### Landed 2026-08-23: class-definition lowering ownership
+
+`lila-ir/src/lowering/class_definition.rs` now owns the complete
+`lower_class_common_in_name_scope` implementation: heritage validation, public
+and private method/field planning, auto-accessor backing and generated-function
+scheduling, instance/static initialization plans, shapes and final typed
+`ClassDefinitionIr` construction. The parent keeps the declaration/expression
+entrypoints, class-name scope orchestration and generated-function helpers.
+
+This is a semantic-free source move. The only visibility change is the one
+`pub(super)` method consumed by the parent orchestrator; the child remains
+inside the private `lowering` module. The extraction reduces `lowering.rs` from
+33,156 to 31,833 raw lines, restoring the enforced 32,000-line boundary. The
+boundary audit requires the child module and sole owner method, forbids a
+second parent body or legacy `include!` assembly, and budgets the child at
+1,400 raw lines.
+
+The extraction is verified by an exact normalized source-body comparison with
+the pre-move implementation, `cargo check --workspace --all-targets`, the
+focused IR auto-accessor regression (1/1), and the serial CLI class group
+(27/27). The module-boundary and task-plan audits are also green. No class
+behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-17: bound-function invoker ownership
 
@@ -159,6 +839,12 @@ Fourteen previously coupled builtin stores now have separate owners:
   remain implementation details rather than pretend namespace members. Four
   typed delegates preserve the flat catalog dispatch, and `standard.rs` fell
   from 34,948 to 34,461 lines.
+- `lila-aot-wasm/src/builtins/atomics.rs` owns all fourteen Atomics bodies,
+  integer/RMW operation domains, wait queues, host-agent calls and atomic
+  memory helpers. Fourteen typed delegates preserve the catalog dispatch;
+  three explicitly checked helpers remain visible to the TypedArray,
+  event-loop and Promise consumers. `standard.rs` fell from 33,275 to 30,567
+  lines.
 
 The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
 and `lila-intl`, and the focused builtin catalog tests pass for the moves that

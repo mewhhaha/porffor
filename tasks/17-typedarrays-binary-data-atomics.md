@@ -109,6 +109,143 @@ open. The focused structure and CLI fixture pass on the current working tree.
 Remaining raw validators, the shared indexed `Get`, Test262 rewrites and full
 binary-data closure remain separate work.
 
+The `%TypedArray%.prototype.reverse` and `toReversed` compilers now use the
+same validated-method-entry buffer witness. Each method brand-checks its
+receiver, loads one immutable `TypedArrayViewLocals` record and consumes the
+element length produced by one `ValidatedMethodEntry` projection instead of
+calling the legacy raw validator and dividing byte length locally.
+`toReversed` retains its separate element-kind load and intrinsic same-kind
+allocation; both reversal loops and their indexed read/write order are
+unchanged. The focused
+[reverse-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-reverse-family-buffer-witness.md)
+and bounded source-structure regression record that ownership. Under the shared
+eight-core cap, `cargo xc` is green; the structural witness and the exact
+`reverse` and `toReversed` CLI fixtures each pass `1/1`. The pinned
+`reverse/resizable-buffer.js` and `toReversed/reverses.js` Test262 leaves each
+pass `2/2` Wasm-AOT executions with every non-success bucket at zero.
+
+The `%TypedArray%.prototype.sort` and `toSorted` compilers now carry the same
+validated-method-entry ownership. Comparator admissibility remains before the
+receiver check, and each compiler completes that brand guard before loading one
+immutable `TypedArrayViewLocals` record and consuming one
+`ValidatedMethodEntry` witness. Both retain one separate element-kind load.
+`sort` still targets and returns its receiver; `toSorted` still performs
+same-kind allocation, copies the complete captured range before sorting the
+distinct result and returns that result. The shared stable-sort emitter is
+unchanged. The focused
+[sort-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-sort-family-buffer-witness.md)
+and bounded source-structure regression record those invariants. The
+implementation and guard are independently reviewed. Under the shared
+eight-core cap, `cargo xc` is green, the structural guard passes `1/1`, and the
+exact `sort` and `toSorted` CLI fixtures each pass `1/1`. The pinned
+`sort/return-abrupt-from-this-out-of-bounds.js` and
+`toSorted/length-property-ignored.js` leaves each pass `2/2` Wasm-AOT
+executions with all non-success buckets at zero under `--jobs 1 --threads 1`.
+The fixtures now separately preserve their own `length = 50` shadow and check
+the six integer-indexed elements, removing a contradictory assertion found by
+the focused run. No aggregate or published conformance-count change is claimed.
+
+The four `%TypedArray%.prototype` find-family methods now have the same written
+method-entry ownership. Their shared `FindViaPredicateKind` compiler completes
+the receiver-brand check, loads one immutable `TypedArrayViewLocals` record and
+consumes one `ValidatedMethodEntry` witness before predicate validation. That
+witness produces the single snapshot length used by all four direction and
+value/index projections; later indexed reads, Proxy-aware predicate calls,
+abrupt routing and result policies remain in the existing shared algorithm. The
+focused
+[find-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-find-family-buffer-witness.md)
+and hardened bounded source-structure regression record those invariants and
+reject the raw validator, private-slot reconstruction, parallel backing-store
+observation and local byte-length division. The guard also fixes all eight
+Array/TypedArray builtin-to-kind mappings, the single brand-error owner, exact
+callback receiver/argument wiring, and the live-read, abrupt-propagation,
+truthiness and projection sequence. The implementation and guard are written
+and independently reviewed. Under the shared eight-core cap, `cargo xc` is
+green, the structural guard passes `4/4`, the exact
+`wasm_typedarray_find.js` CLI fixture passes `1/1`, and the current-pin
+`find/return-abrupt-from-this-out-of-bounds.js` and
+`findLastIndex/detached-buffer.js` leaves each pass `2/2` Wasm-AOT executions
+with `--jobs 1 --threads 1`. No new-pass, baseline or published-count change is
+claimed.
+
+The `%TypedArray%.prototype.every` and `some` quantifier family now uses one
+validated-method-entry witness after its receiver-brand check and before callback
+validation. The shared compiler consumes the witness-produced snapshot length
+without a raw validator, private-slot reconstruction or local byte-length
+division, while retaining live indexed reads, callback ordering and the closed
+`Every`/`Some` short-circuit polarities. The focused
+[quantifier-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-quantifier-family-buffer-witness.md)
+and `3/3` structural guard are implemented, independently reviewed and
+focused-verified as of 2026-08-23. Under the shared eight-core cap,
+`cargo fmt --all -- --check` and `cargo xc` are green; the exact
+`wasm_typedarray_every_some.js` CLI fixture passes `1/1`, and the exact
+current-pin `every/return-abrupt-from-this-out-of-bounds.js` and
+`some/detached-buffer.js` Test262 leaves each pass `2/2`, for `4/4` Wasm-AOT
+executions with all failure buckets at zero under `--jobs 1 --threads 1`.
+
+The direct `%TypedArray%.prototype.toLocaleString` entry now uses the same
+validated-method-entry witness after its receiver-brand check. One cached
+backing-store observation supplies the captured loop length, while the shared
+loop retains live per-index reads; the generic
+`Array.prototype.toLocaleString` branch keeps its distinct non-throwing
+`LengthOfArrayLike` policy. The focused
+[toLocaleString buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-to-locale-string-buffer-witness.md),
+companion invocation guard and bounded witness guard are implemented,
+independently reviewed and focused-verified as of 2026-08-23. Under the shared
+eight-core cap, `cargo fmt --all -- --check`, `cargo xc` and `git diff --check`
+are green; the companion structure suite passes `4/4`, the witness structure
+suite passes `3/3`, and the exact core and invocation CLI fixtures each pass
+`1/1`. The pinned out-of-bounds, detached-buffer, mid-invocation growth and
+mid-invocation shrink Test262 leaves each pass `2/2`, for `8/8` Wasm-AOT
+executions with all failure buckets at zero under `--jobs 1 --threads 1`.
+
+The `%TypedArray%.prototype.map` and `filter` compilers now use that same
+validated-method-entry witness after their receiver-brand guards and before
+callback validation. Each loads one immutable `TypedArrayViewLocals` record
+and consumes its witness-produced snapshot length without a raw validator,
+private-slot reconstruction or local byte-length division. The migration keeps
+the algorithms' distinct allocation order: `map` performs species construction
+before its callback loop, while `filter` completes callback collection before
+species construction and selected-value writes. Live per-index reads and the
+existing callback `(value, index, receiver)` wiring remain unchanged.
+
+The focused
+[map/filter buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-map-filter-buffer-witness.md)
+and bounded source guard are implemented, independently reviewed and
+focused-verified as of 2026-08-23. Under the shared eight-core, 22 GB cap,
+`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green; the
+structural guard passes `3/3`, and the exact `map` and `filter` CLI fixtures
+each pass `1/1`, including detached and out-of-bounds entry controls that prove
+the callback is not called. The eight pinned detached, out-of-bounds, growth
+and shrink Test262 leaves each pass `2/2`, for `16/16` Wasm-AOT executions with
+every failure bucket at zero under `--jobs 1 --threads 1`.
+
+`%TypedArray%.prototype.copyWithin` now uses one immutable
+`TypedArrayViewLocals` record and exactly two validated-method-entry witnesses:
+the entry witness captures the range before coercion, while a second witness
+inside the positive-count branch reobserves the buffer after target, start and
+end coercion. The typed seam preserves fixed-view extent, whole-element
+flooring, current-length truncation and the zero-count rule that skips the
+second observation and all copy setup. Its structural guard pins coercion and
+clamping order, both length snapshots, branch containment, current-length
+caps, overlap direction and the byte-copy loop.
+
+The implementation and guard were independently reviewed and focused-verified
+on 2026-08-23. Under the shared eight-core, 22 GB cap, the structure suite
+passes `3/3`, the exact CLI fixture passes `1/1`, and the six exact Test262
+leaves pass `12/12` Wasm-AOT variants with every failure bucket at zero under
+`--jobs 1 --threads 1`. The source of truth is
+`docs/rust-rewrite/contracts/typed-array-copy-within-buffer-witness.md`.
+
+These migrations still do not cover `with`, `set`, `slice`,
+constructor validation or other remaining raw validators. They
+do not change the shared indexed `Get`, per-index integer-indexed behavior,
+result allocation, SharedArrayBuffer synchronization, Test262 rewrites or
+published counts. The toLocaleString, map/filter and copyWithin fixtures do not
+prove created-Realm buffer-error prototype identity at direct method entry;
+only the shared witness's current-function-Realm route is structurally owned
+for that case.
+
 ## Objective
 
 Implement the complete binary-data stack, integer-indexed exotic semantics and real agent/Atomics behavior. Replace rejection-only SharedArrayBuffer behavior and harness simulations with general backing-store and host concurrency support.

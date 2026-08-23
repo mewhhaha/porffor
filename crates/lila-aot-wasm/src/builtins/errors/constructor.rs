@@ -36,7 +36,11 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_install_error_cause_from_arg(self.result_local, 1, function)?;
+        self.emit_install_error_cause_from_arg(
+            self.result_local,
+            ErrorCauseOptionsArgument::MessageError,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(message_payload_local));
@@ -47,7 +51,11 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_install_error_cause_from_arg(self.result_local, 1, function)?;
+        self.emit_install_error_cause_from_arg(
+            self.result_local,
+            ErrorCauseOptionsArgument::MessageError,
+            function,
+        )?;
         function.instruction(&Instruction::End);
         self.release_error_constructor_prototype(prototype);
         self.release_temp_local(message_payload_local);

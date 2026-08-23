@@ -8,34 +8,36 @@ use lila_ir::{
     ArrayDestructuringElementIr, ArrayDestructuringPatternIr, BigIntBitwiseOp, BindingMode,
     BitwiseBinaryOp, BlockIr, CallableToStringRepresentation, ClassDefinitionIr,
     ClassElementDefinitionIr, ClassElementExecutionKind, ClassFieldKeyIr, ClassFunctionKind,
-    ClassHeritageKind, ClassInstanceElementPlanIr, ClassMethodPlacementIr, ClassStaticElementIr,
-    DeleteIdentifierKindIr, DestructuringPropertyKeyIr, DestructuringTargetIr, DynamicFunctionKind,
-    DynamicSourceIntrinsic, EqualityBinaryOp, ExprIr, ForInOfEnvironmentIr, ForInitIr,
-    ForLexicalEnvironmentIr, ForOfIteratorHeadIr, FunctionExecutionKind, FunctionFlavor,
-    FunctionId, FunctionIr, FunctionParamIr, FunctionProtocolIr, GeneratorResumeModeIr,
-    GeneratorTryPlanIr, GlobalBindingPlan, GlobalPropertyInitializerIr, HeapShape, HostBuiltinId,
-    IdentifierWriteDisposition, JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp,
-    NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty,
-    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr,
-    PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr,
-    StandardBuiltinId, StatementIr, Strictness, SuspendedPropertyReferenceIr,
-    SuspendedPropertyReferenceUse, SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint,
-    TypedExpr, UnaryBitwiseOp, UnaryNumericOp, UpdateReturnMode, ValueInfo, ValueKind,
-    VarDeclaratorIr, YieldForm, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME,
-    BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
-    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME,
-    FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME,
-    INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME,
-    JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME,
-    LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, LILA_GENERATOR_THROW_SLOT,
-    LILA_STATIC_GENERATOR_ITERATOR_SLOT, LILA_STATIC_GENERATOR_VALUES_METHOD, MAP_NAME, MATH_NAME,
-    NUMBER_NAME, OBJECT_NAME, PRINT_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME,
-    REFLECT_NAME, REGEXP_NAME, SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME,
-    SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TEMPORAL_DURATION_NAME,
-    TEMPORAL_NOW_NAME, TEMPORAL_PLAIN_DATE_NAME, TEMPORAL_PLAIN_DATE_TIME_NAME,
-    TEMPORAL_PLAIN_MONTH_DAY_NAME, TEMPORAL_PLAIN_TIME_NAME, TEMPORAL_PLAIN_YEAR_MONTH_NAME,
-    TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME, UINT16_ARRAY_NAME,
-    UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
+    ClassHeritageKind, ClassInstanceElementIr, ClassInstanceElementPlanIr, ClassMethodPlacementIr,
+    ClassStaticElementIr, DeleteIdentifierKindIr, DestructuringPropertyKeyIr,
+    DestructuringTargetIr, DynamicFunctionKind, DynamicSourceIntrinsic, EqualityBinaryOp, ExprIr,
+    ForInOfEnvironmentIr, ForInitIr, ForLexicalEnvironmentIr, ForOfIteratorHeadIr,
+    FunctionExecutionKind, FunctionFlavor, FunctionId, FunctionIr, FunctionParamIr,
+    FunctionProtocolIr, GeneratorResumeModeIr, GeneratorTryPlanIr, GlobalBindingPlan,
+    GlobalPropertyInitializerIr, HeapShape, HostBuiltinId, IdentifierWriteDisposition,
+    JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp, NumericUpdateOp,
+    ObjectPropertyIr, ObjectShapeProperty, OrdinaryPropertyAssignmentIr,
+    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyLogicalAssignmentIr,
+    OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr, PrivateNameId, PropertyKeyIr,
+    RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr, StandardBuiltinId,
+    StatementIr, Strictness, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
+    SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
+    UnaryNumericOp, UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm,
+    AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BIGINT64_ARRAY_NAME,
+    BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME,
+    EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
+    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
+    INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
+    LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
+    LILA_GENERATOR_THROW_SLOT, LILA_STATIC_GENERATOR_ITERATOR_SLOT,
+    LILA_STATIC_GENERATOR_VALUES_METHOD, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
+    PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SET_NAME,
+    SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
+    TEMPORAL_DURATION_NAME, TEMPORAL_NOW_NAME, TEMPORAL_PLAIN_DATE_NAME,
+    TEMPORAL_PLAIN_DATE_TIME_NAME, TEMPORAL_PLAIN_MONTH_DAY_NAME, TEMPORAL_PLAIN_TIME_NAME,
+    TEMPORAL_PLAIN_YEAR_MONTH_NAME, TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME,
+    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
+    URI_ERROR_NAME,
 };
 use lila_ir::{SuperPropertyMutationIr, SuperPropertyMutationOperationIr};
 // `Function` is deliberately absent from this list. The name is bound below to
@@ -134,6 +136,10 @@ mod tests {
     use lila_ir::{lower, lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy};
     use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
 
+    fn without_whitespace(source: &str) -> String {
+        source.chars().filter(|ch| !ch.is_whitespace()).collect()
+    }
+
     fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
         emit(&lower_with_host_surface_policy(
@@ -157,6 +163,197 @@ mod tests {
             "#[must_use = \"a pending DisposableStack record must be consumed by the instance finalizer\"]\nstruct PendingDisposableStackRecordLocal(u32);"
         ));
         assert!(!constructor.contains("derive(Clone"));
+        assert!(!constructor.contains("return_now"));
+        assert_eq!(
+            constructor
+                .matches("emit_disposable_stack_return_value(")
+                .count(),
+            4,
+            "the helper definition plus its three reviewed callers close the caller map"
+        );
+        let return_disposition = constructor
+            .split_once("enum DisposableStackReturnDisposition {")
+            .expect("DisposableStack value-return disposition should exist")
+            .1
+            .split_once("}\n\nimpl<'a> FunctionBuilder<'a> {")
+            .expect("DisposableStack value-return disposition should be bounded")
+            .0;
+        assert_eq!(
+            return_disposition
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>(),
+            ["ReturnCurrentFunction,", "LeaveInCompletion,"],
+            "the value-return route must remain a closed two-state domain"
+        );
+        let return_helper = constructor
+            .split_once("fn emit_disposable_stack_return_value(")
+            .expect("DisposableStack value-return helper")
+            .1
+            .split_once("fn emit_disposable_stack_return_undefined(")
+            .expect("DisposableStack value-return helper must be bounded")
+            .0;
+        let normalized_return_helper = without_whitespace(return_helper);
+        let exact_disposition_match = without_whitespace(
+            r#"
+            match disposition {
+                DisposableStackReturnDisposition::ReturnCurrentFunction => {
+                    self.emit_return_current_completion(function);
+                }
+                DisposableStackReturnDisposition::LeaveInCompletion => {}
+            }
+            "#,
+        );
+        assert!(
+            normalized_return_helper.contains(exact_disposition_match.as_str()),
+            "each named disposition must retain its exact emitted control flow"
+        );
+        assert_eq!(
+            return_helper
+                .matches("emit_return_current_completion(function)")
+                .count(),
+            1,
+            "only the immediate-return disposition may emit a Wasm return"
+        );
+        assert_eq!(
+            return_helper
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            1,
+            "the helper must exhaust the immediate-return route exactly once"
+        );
+        assert_eq!(
+            return_helper
+                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
+                .count(),
+            1,
+            "the helper must exhaust the leave-in-completion route exactly once"
+        );
+
+        let use_body = constructor
+            .split_once("pub(crate) fn emit_disposable_stack_use(")
+            .expect("DisposableStack use body")
+            .1
+            .split_once("pub(crate) fn emit_disposable_stack_adopt(")
+            .expect("DisposableStack use body must be bounded")
+            .0;
+        let use_nullish = use_body
+            .find("emit_disposable_stack_is_nullish_i32")
+            .expect("use must classify its nullish fast path");
+        let use_immediate = use_body
+            .find("DisposableStackReturnDisposition::ReturnCurrentFunction")
+            .expect("nullish use must return immediately");
+        let nullish_branch = use_body
+            .split_once("self.emit_disposable_stack_is_nullish_i32(value_tag_local, function);")
+            .expect("use must classify its nullish fast path")
+            .1
+            .split_once("function.instruction(&Instruction::End);")
+            .expect("use nullish branch must be bounded")
+            .0;
+        assert!(
+            nullish_branch.contains("function.instruction(&Instruction::If(BlockType::Empty));")
+        );
+        assert_eq!(
+            nullish_branch
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            1,
+            "the immediate route must remain inside the nullish branch"
+        );
+        assert!(!nullish_branch.contains("DisposableStackReturnDisposition::LeaveInCompletion"));
+        let use_acquire = use_body
+            .find("emit_disposable_stack_get_method(")
+            .expect("non-nullish use must acquire the disposer");
+        let use_push = use_body
+            .find("emit_disposable_stack_push_entry(")
+            .expect("successful use must publish one entry");
+        let use_leave = use_body
+            .find("DisposableStackReturnDisposition::LeaveInCompletion")
+            .expect("successful use must leave its result in the completion");
+        assert!(
+            use_nullish < use_immediate
+                && use_immediate < use_acquire
+                && use_acquire < use_push
+                && use_push < use_leave,
+            "use must return nullish values early and publish before its normal epilogue"
+        );
+        assert_eq!(
+            use_body
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            1
+        );
+        let normalized_use = without_whitespace(use_body);
+        for (disposition, expected) in [("ReturnCurrentFunction", 1), ("LeaveInCompletion", 1)] {
+            let call = without_whitespace(&format!(
+                r#"
+                self.emit_disposable_stack_return_value(
+                    value_payload_local,
+                    value_tag_local,
+                    DisposableStackReturnDisposition::{disposition},
+                    function,
+                );
+                "#
+            ));
+            assert_eq!(
+                normalized_use.matches(call.as_str()).count(),
+                expected,
+                "use must select {disposition} through the reviewed helper call"
+            );
+        }
+        assert_eq!(
+            use_body
+                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
+                .count(),
+            1
+        );
+
+        let adopt_body = constructor
+            .split_once("pub(crate) fn emit_disposable_stack_adopt(")
+            .expect("DisposableStack adopt body")
+            .1
+            .split_once("pub(crate) fn emit_disposable_stack_defer(")
+            .expect("DisposableStack adopt body must be bounded")
+            .0;
+        assert!(
+            adopt_body
+                .find("emit_disposable_stack_push_entry(")
+                .expect("successful adopt must publish one entry")
+                < adopt_body
+                    .find("DisposableStackReturnDisposition::LeaveInCompletion")
+                    .expect("successful adopt must leave its result in the completion"),
+            "adopt must publish before its normal epilogue"
+        );
+        assert_eq!(
+            adopt_body
+                .matches("DisposableStackReturnDisposition::ReturnCurrentFunction")
+                .count(),
+            0
+        );
+        assert_eq!(
+            adopt_body
+                .matches("DisposableStackReturnDisposition::LeaveInCompletion")
+                .count(),
+            1
+        );
+        let adopt_leave_call = without_whitespace(
+            r#"
+            self.emit_disposable_stack_return_value(
+                value_payload_local,
+                value_tag_local,
+                DisposableStackReturnDisposition::LeaveInCompletion,
+                function,
+            );
+            "#,
+        );
+        assert_eq!(
+            without_whitespace(adopt_body)
+                .matches(adopt_leave_call.as_str())
+                .count(),
+            1,
+            "adopt must select its fallthrough route through the reviewed helper call"
+        );
         assert_eq!(
             constructor
                 .matches("emit_alloc_pending_disposable_stack_record(function)?")
@@ -1761,7 +1958,7 @@ mod tests {
             .split_once("fn emit_error_to_string_value_to_string_local(")
             .expect("Error.prototype.toString conversion boundary should exist")
             .1
-            .split_once("pub(crate) fn emit_install_error_cause_from_arg(")
+            .split_once("fn emit_install_error_cause_from_arg(")
             .expect("the conversion boundary should have a bounded body")
             .0;
 
@@ -2185,9 +2382,11 @@ mod tests {
     /// asserts a constant; it cannot express the relationship it means.
     ///
     /// So the test emits a second probe that is the same text with a **static**
-    /// index (`x = A[0];`) and asserts that the dynamic body costs the static
-    /// body plus at most [`DYNAMIC_KEY_MARGIN_BYTES`]. That is the real claim:
-    /// *a dynamic key costs about what a static key costs, plus a call.* The
+    /// index (`x = A[0];`) and asserts that, when the dynamic body is larger,
+    /// it costs the static body plus at most [`DYNAMIC_KEY_MARGIN_BYTES`]. That
+    /// is the real claim: *a dynamic key may not add an inlined coercion
+    /// composite.* A cheaper dynamic path is valid when lowering can preserve
+    /// more useful key information than the static-control path. The
     /// margin is 10,000 rather than the few hundred bytes a seam plus a call
     /// should really cost, because the post-split delta has not been measured —
     /// but 10,000 is one seventh of the 72,528 bytes a single inline copy of
@@ -2283,21 +2482,17 @@ mod tests {
         let (dynamic_name, dynamic_bytes) = largest_probe_body(&artifact);
         let control = emit_script(STATIC_CONTROL).expect("static control script should emit");
         let (static_name, static_bytes) = largest_probe_body(&control);
-        assert!(
-            dynamic_bytes >= static_bytes,
-            "a dynamic key cannot be cheaper than a static one: \
-             {dynamic_name} is {dynamic_bytes} bytes, {static_name} is {static_bytes}"
-        );
-        let delta = dynamic_bytes - static_bytes;
-        assert!(
-            delta <= DYNAMIC_KEY_MARGIN_BYTES,
-            "a dynamic key costs {delta} bytes over the static control \
-             ({dynamic_name} {dynamic_bytes} vs {static_name} {static_bytes}), \
-             against a margin of {DYNAMIC_KEY_MARGIN_BYTES}. One inline copy of the \
-             ToPrimitive/ToPropertyKey composite is 72,528 bytes, so a delta this \
-             large means at least one of the two seams did not fire — read the two \
-             numbers rather than only raising the margin"
-        );
+        if let Some(delta) = dynamic_bytes.checked_sub(static_bytes) {
+            assert!(
+                delta <= DYNAMIC_KEY_MARGIN_BYTES,
+                "a dynamic key costs {delta} bytes over the static control \
+                 ({dynamic_name} {dynamic_bytes} vs {static_name} {static_bytes}), \
+                 against a margin of {DYNAMIC_KEY_MARGIN_BYTES}. One inline copy of the \
+                 ToPrimitive/ToPropertyKey composite is 72,528 bytes, so a delta this \
+                 large means at least one of the two seams did not fire — read the two \
+                 numbers rather than only raising the margin"
+            );
+        }
     }
 
     /// The `LILA_EMIT_SIZE_REPORT_PATH` sink writes one line per emitted

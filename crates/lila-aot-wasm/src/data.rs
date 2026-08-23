@@ -2182,9 +2182,21 @@ impl StringPool {
                 for private_name_id in &plan.private_method_brands {
                     pool.intern_string(&private_brand_key(*private_name_id));
                 }
-                for field in &plan.fields {
-                    match &field.key {
-                        ClassFieldKeyIr::Public(key) => pool.intern_string(key),
+                for element in &plan.elements {
+                    let key = match element {
+                        ClassInstanceElementIr::Field(field) => &field.key,
+                        ClassInstanceElementIr::AutoAccessorBacking(accessor) => {
+                            pool.intern_string(&private_data_key(
+                                accessor.backing_name.private_name_id(),
+                            ));
+                            pool.intern_string(&private_brand_key(
+                                accessor.backing_name.private_name_id(),
+                            ));
+                            continue;
+                        }
+                    };
+                    match key {
+                        ClassFieldKeyIr::Public(key) => pool.intern_string(key.as_str()),
                         ClassFieldKeyIr::ComputedPublic(_) => {}
                         ClassFieldKeyIr::Private(private_name_id) => {
                             pool.intern_string(&private_data_key(*private_name_id));
@@ -3643,6 +3655,18 @@ impl StringPool {
                 self.collect_property_key(key);
                 self.collect_expr(value);
             }
+            ExprIr::OrdinaryPropertyAssignment(assignment) => {
+                self.uses_heap = true;
+                self.collect_expr(assignment.base_and_receiver());
+                self.collect_property_key(assignment.referenced_name());
+                self.collect_expr(assignment.rhs());
+            }
+            ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+                self.uses_heap = true;
+                self.collect_expr(assignment.base_and_receiver());
+                self.collect_property_key(assignment.referenced_name());
+                self.collect_expr(assignment.rhs());
+            }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.uses_heap = true;
                 self.collect_expr(update.base_and_receiver());
@@ -4164,13 +4188,42 @@ impl StringPool {
                         ClassElementDefinitionIr::ComputedFieldKey { key, .. } => {
                             self.collect_property_key(key);
                         }
+                        ClassElementDefinitionIr::AutoAccessor(accessor) => {
+                            if let Some(key) = &accessor.computed_key {
+                                self.collect_property_key(key);
+                            }
+                            match &accessor.key {
+                                ClassFieldKeyIr::Public(key) => self.intern_string(key),
+                                ClassFieldKeyIr::ComputedPublic(_) => {}
+                                ClassFieldKeyIr::Private(private_name_id) => {
+                                    self.intern_string(&private_data_key(*private_name_id));
+                                    self.intern_string(&private_brand_key(*private_name_id));
+                                }
+                            }
+                            self.intern_string(&private_data_key(
+                                accessor.backing_name.private_name_id(),
+                            ));
+                            self.intern_string(&private_brand_key(
+                                accessor.backing_name.private_name_id(),
+                            ));
+                        }
                     }
                 }
                 for static_element in &class.element_plan.static_elements {
-                    let ClassStaticElementIr::Field(field) = static_element else {
-                        continue;
+                    let key = match static_element {
+                        ClassStaticElementIr::Field(field) => &field.key,
+                        ClassStaticElementIr::AutoAccessorBacking(accessor) => {
+                            self.intern_string(&private_data_key(
+                                accessor.backing_name.private_name_id(),
+                            ));
+                            self.intern_string(&private_brand_key(
+                                accessor.backing_name.private_name_id(),
+                            ));
+                            continue;
+                        }
+                        ClassStaticElementIr::Block(_) => continue,
                     };
-                    match &field.key {
+                    match key {
                         ClassFieldKeyIr::Public(key) => self.intern_string(key),
                         ClassFieldKeyIr::ComputedPublic(_) => {}
                         ClassFieldKeyIr::Private(private_name_id) => {

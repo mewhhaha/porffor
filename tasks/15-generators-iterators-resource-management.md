@@ -15,6 +15,46 @@ materialization, and the README records unsupported suspended/control-flow
 families. General sync/async generator state machines, iterator-close coverage
 across all consumers and complete resource-management filters remain open.
 
+The synchronous generator heap word now has the closed
+`GeneratorState::{SuspendedStart, Executing, Completed, SuspendedYield}` domain.
+Its exhaustive private word projection is the sole integer encoding; a strict
+one-load decoder traps unknown words and returns a private non-`Copy` token, and
+typed store/compare/release helpers own every product access to the private heap
+offset. The bounded guard pins all allocation, resume and terminal owners plus
+their lifecycle ordering, so raw states, wrong-domain locals and unknown-word
+fallthroughs are structurally rejected.
+
+The implementation and guard were independently reviewed and focused-verified
+on 2026-08-23. Under the shared eight-core, 22 GB cap, the structure suite
+passes `4/4`, four exact CLI lifecycle/suspension/heap fixtures pass `4/4`, and
+the six exact generator-state Test262 leaves pass `12/12` Wasm-AOT variants
+with every failure bucket at zero under `--jobs 1 --threads 1`. This is a typed
+state-word boundary, not a claim that general continuation, generator, iterator
+or T15 closure is complete. The source of truth is
+`docs/rust-rewrite/contracts/generator-state-word.md`.
+
+Async-generator request settlement now carries the closed
+`AsyncGeneratorCompleteStepKind::{Yielded, Completed}` lifecycle state rather
+than an unlabeled Boolean. Its sole exhaustive projection lives at the
+iterator-result materializer: the one yield-completion owner selects
+`Yielded -> done: false`, while the ten terminal body, queue-drain,
+awaited-return and already-completed owners select `Completed -> done: true`.
+The focused
+[complete-step kind contract](../docs/rust-rewrite/contracts/async-generator-complete-step-kind.md)
+and owner/lifecycle guard are implemented, independently reviewed and
+focused-verified as of 2026-08-23. Under the shared eight-core, 22 GB cap,
+`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green; the
+structural guard passes `4/4`, and the exact
+`expression-yield-as-operand.js` Test262 leaf passes `2/2` Wasm-AOT variants
+with every failure bucket at zero.
+
+The existing broad resumable-loop CLI test still fails because later classic
+loop iterations and post-yield lexical state are lost. A detached unchanged
+`HEAD` worktree produces byte-identical output, while all observed yielded and
+terminal `done` bits remain correct. That is explicit pre-existing general
+suspension debt in this task, not a regression hidden by the typed settlement
+seam, and the red `0/1` run is not counted as passing evidence.
+
 The complete synchronous `%DisposableStack%` lifecycle now extends the real
 constructor/brand foundation. `DisposableStackState::{Pending, Disposed}` and
 `DisposableStackEntryKind::{Use, Adopt, Defer}` are distinct closed heap-word
@@ -515,6 +555,30 @@ instruction order. This is invariant hardening, not a claim that broader helper
 semantics or IteratorClose coverage are complete. The seam is dry-written and
 statically checked; Cargo, runtime and pinned Test262 gates remain deferred to
 the central verifier.
+
+The flatMap-specific abrupt outer-close boundary now uses the private,
+exhaustive `IteratorFlatMapInnerState::{NotInstalled, Active}` domain instead
+of a raw `clear_inner_active` Boolean. The sole shared helper retains exactly
+eight calls in `IteratorFlatMapNext`: four `Active` calls for abrupt inner
+`next`, result-object validation, `done` access and `value` access, and four
+`NotInstalled` calls for abrupt or invalid inner-iterator acquisition before
+the unique installation sequence. Its existing observable order remains outer
+IteratorClose with the original throw preserved, `Done`, the state-selected
+inner-active clear, then `Executing`. The contract and swap-resistant lifecycle
+guard are independently reviewed. Under the shared eight-core cap,
+`cargo fmt --all -- --check`, `git diff --check`, and `cargo xc` are green; the
+`iterator_flat_map_inner_close_state_structure` executable passes `3/3`, the
+exact
+`iterator::run_wasm_backend_succeeds_for_iterator_prototype_flat_map_fixture`
+CLI lifecycle witness passes `1/1`, and the exact
+`staging/sm/Iterator/prototype/flatMap/close-iterator-when-inner-next-throws.js`
+and
+`staging/sm/Iterator/prototype/flatMap/throw-when-inner-not-iterable.js`
+Test262 leaves pass `4/4` Wasm-AOT variants in total with every failure bucket
+at zero under `--jobs 1 --threads 1`. This focused result verifies the typed
+lifecycle boundary only; it does not generalize to other helper families,
+close an inner iterator on these paths, refresh a broad Iterator cohort, claim
+a conformance gain, or complete T15.
 
 The `%Iterator%` constructor now selects its primitive
 `NewTarget.prototype` fallback through the closed

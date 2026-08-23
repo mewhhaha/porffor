@@ -9,7 +9,8 @@ use boa_ast::{
     },
     function::{
         ClassDeclaration, ClassElement, ClassFieldDefinition, ClassMethodDefinition,
-        FormalParameterList, FunctionBody, FunctionExpression,
+        FormalParameterList, FunctionBody, FunctionExpression, PrivateFieldDefinition,
+        PrivateName,
     },
     property::MethodDefinitionKind,
 };
@@ -126,6 +127,46 @@ fn check_async_field() {
             )))
             .into(),
         ],
+        interner,
+    );
+}
+
+#[test]
+fn private_auto_accessors_retain_their_closed_ast_kind() {
+    let interner = &mut Interner::default();
+    let x = interner.get_or_intern_static("x", utf16!("x"));
+    let y = interner.get_or_intern_static("y", utf16!("y"));
+    let elements = vec![
+        ClassElement::PrivateFieldDefinition(PrivateFieldDefinition::new_auto_accessor(
+            PrivateName::new(x, Span::new((2, 14), (2, 16))),
+            Some(Literal::new(1, Span::new((2, 19), (2, 20))).into()),
+        )),
+        ClassElement::PrivateStaticFieldDefinition(PrivateFieldDefinition::new_auto_accessor(
+            PrivateName::new(y, Span::new((3, 21), (3, 23))),
+            None,
+        )),
+    ];
+
+    check_script_parser(
+        indoc! {r#"
+            class A {
+                accessor #x = 1;
+                static accessor #y;
+            }
+        "#},
+        [Declaration::ClassDeclaration(
+            ClassDeclaration::new(
+                Identifier::new(
+                    interner.get_or_intern_static("A", utf16!("A")),
+                    Span::new((1, 7), (1, 8)),
+                ),
+                None,
+                None,
+                elements.into(),
+            )
+            .into(),
+        )
+        .into()],
         interner,
     );
 }

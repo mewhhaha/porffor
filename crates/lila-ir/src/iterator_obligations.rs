@@ -398,11 +398,10 @@ impl IteratorCloseDischarge {
 ///
 /// Non-defaultable, non-optional, all fields private, and **`new` is private to
 /// this module**. Outside `iterator_obligations`, the only available values of
-/// this type are the named constants below. That is what turns "these constants are
-/// the only witnesses `lowering.rs` may use" from a rule in a document into a
-/// property of the type: a new specialization cannot invent a witness at a
-/// construction site 13,000 lines into `lowering.rs`; it must add a constant
-/// here, next to the premises it is claiming.
+/// this type are the named constants below. That turns "these constants are the
+/// only witnesses lowering may use" from a rule in a document into a property
+/// of the type: a new specialization cannot invent a witness at its construction
+/// site; it must add a constant here, next to the premises it is claiming.
 ///
 /// `Copy`, and free of `String`, so putting it on a `StatementIr` variant costs
 /// no allocation and preserves `PartialEq`/`Clone`.
@@ -545,7 +544,7 @@ iterator_witnesses! {
     /// The same index walk, reached by a different desugaring: `for (x of arr)`
     /// whose body awaits, inside a plain async function, becomes a
     /// `StatementIr::GeneratorLoop` over `PropertyKeyIr::ArrayLength` and
-    /// `PropertyKeyIr::ArrayIndex` (`lowering.rs`,
+    /// `PropertyKeyIr::ArrayIndex` (`lowering/for_of.rs`,
     /// `lower_async_for_of_array_with_body_await`).
     ///
     /// It is a *fourth* for-of specialization that is not spelled as a `ForOf*`

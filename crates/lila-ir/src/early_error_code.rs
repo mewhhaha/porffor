@@ -1,7 +1,7 @@
 //! The `EarlyErrorCode` → rejection-stage map, and the assertions that tie the
 //! parse table in `lila-front` to it.
 //!
-//! The domain itself, the fragment table and the classifier live one crate down,
+//! The domain itself, the message-pattern table and the classifier live one crate down,
 //! in `lila_front::early_error_code`, because every entry and dependency parse
 //! is produced there and `lila-ir` depends on `lila-front`. This
 //! module holds only what needs a `lila-ir` type. There is no second copy of
@@ -31,23 +31,59 @@ pub use lila_front::{EarlyErrorCode, ParseClassified};
 pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
     match code {
         EarlyErrorCode::ObjectDuplicateProto
+        | EarlyErrorCode::ObjectLiteralCoverInitializedName
         | EarlyErrorCode::DuplicateLexicalDeclaration
+        | EarlyErrorCode::LexicalBoundNameLet
         | EarlyErrorCode::DuplicateFormalParameter
+        | EarlyErrorCode::CallableNonSimpleParametersContainUseStrict
         | EarlyErrorCode::DuplicateCatchParameter
         | EarlyErrorCode::CatchBodyDeclarationConflict
         | EarlyErrorCode::DuplicateClassConstructor
+        | EarlyErrorCode::ClassBaseConstructorHasDirectSuper
         | EarlyErrorCode::ClassConstructorGeneratorMethod
         | EarlyErrorCode::ClassConstructorAsyncMethod
         | EarlyErrorCode::ClassConstructorGetter
         | EarlyErrorCode::ClassConstructorSetter
         | EarlyErrorCode::ClassPrivateConstructorName
+        | EarlyErrorCode::ClassStaticMethodPrototypeName
+        | EarlyErrorCode::ClassDuplicatePrivateName
         | EarlyErrorCode::ClassStaticBlockContainsArguments
+        | EarlyErrorCode::ClassStaticBlockContainsSuperCall
+        | EarlyErrorCode::ClassStaticBlockContainsAwait
+        | EarlyErrorCode::ClassFieldConstructorName
+        | EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName
+        | EarlyErrorCode::ClassFieldContainsArguments
+        | EarlyErrorCode::StrictModeWithStatement
+        | EarlyErrorCode::StrictModeDeleteIdentifierReference
         | EarlyErrorCode::DuplicateLabel
         | EarlyErrorCode::UndefinedBreakTarget
         | EarlyErrorCode::UndefinedContinueTarget
         | EarlyErrorCode::IllegalBreak
         | EarlyErrorCode::IllegalContinue
         | EarlyErrorCode::InvalidPrivateIdentifier
+        | EarlyErrorCode::StrictModeDeletePrivateReference
+        | EarlyErrorCode::ScriptTopLevelNewTarget
+        | EarlyErrorCode::ScriptTopLevelSuper
+        | EarlyErrorCode::ScriptTopLevelUsingDeclaration
+        | EarlyErrorCode::ForHeadBodyDeclarationConflict
+        | EarlyErrorCode::ForDeclarationDuplicateBoundName
+        | EarlyErrorCode::ForInUsingDeclaration
+        | EarlyErrorCode::SwitchClauseUsingDeclaration
+        | EarlyErrorCode::GeneratorDeclarationParametersContainYield
+        | EarlyErrorCode::AsyncDeclarationParametersContainAwait
+        | EarlyErrorCode::GeneratorExpressionParametersContainYield
+        | EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield
+        | EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait
+        | EarlyErrorCode::GeneratorMethodParametersContainYield
+        | EarlyErrorCode::AsyncGeneratorMethodParametersContainYield
+        | EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait
+        | EarlyErrorCode::ArrowParametersContainYield
+        | EarlyErrorCode::ArrowParametersContainAwait
+        | EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait
+        | EarlyErrorCode::AsyncMethodParametersContainAwait
+        | EarlyErrorCode::OptionalChainTaggedTemplate
+        | EarlyErrorCode::ImportMetaOutsideModule
+        | EarlyErrorCode::ModuleDuplicateImportAttributeKey
         | EarlyErrorCode::ModuleDuplicateExport
         | EarlyErrorCode::ModuleUndeclaredExport
         | EarlyErrorCode::ModuleTopLevelSuper

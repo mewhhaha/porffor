@@ -580,10 +580,22 @@ impl ClassFieldDefinition {
     }
 }
 
+/// The closed syntactic kind of a private field definition.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivateFieldDefinitionKind {
+    /// An ordinary private field.
+    Field,
+    /// A private auto-accessor whose exposed name is distinct from its backing field.
+    AutoAccessor,
+}
+
 /// A private class element field definition.
 ///
-/// More information:
-///  - [ECMAScript reference][spec]
+/// The closed kind preserves whether the parser consumed the contextual
+/// `accessor` keyword. Consumers must not recover that distinction from source
+/// text after parsing.
 ///
 /// [spec]: https://tc39.es/ecma262/#prod-FieldDefinition
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -593,6 +605,7 @@ pub struct PrivateFieldDefinition {
     pub(crate) name: PrivateName,
     pub(crate) initializer: Option<Expression>,
     pub(crate) decorators: Box<[Expression]>,
+    pub(crate) kind: PrivateFieldDefinitionKind,
 
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) scope: Scope,
@@ -603,7 +616,24 @@ impl PrivateFieldDefinition {
     #[inline]
     #[must_use]
     pub fn new(name: PrivateName, initializer: Option<Expression>) -> Self {
-        Self::new_with_decorators(name, initializer, Box::default())
+        Self::new_with_kind_and_decorators(
+            name,
+            initializer,
+            PrivateFieldDefinitionKind::Field,
+            Box::default(),
+        )
+    }
+
+    /// Creates a private auto-accessor field definition.
+    #[inline]
+    #[must_use]
+    pub fn new_auto_accessor(name: PrivateName, initializer: Option<Expression>) -> Self {
+        Self::new_with_kind_and_decorators(
+            name,
+            initializer,
+            PrivateFieldDefinitionKind::AutoAccessor,
+            Box::default(),
+        )
     }
 
     /// Creates a new private field definition with decorators.
@@ -614,10 +644,25 @@ impl PrivateFieldDefinition {
         initializer: Option<Expression>,
         decorators: Box<[Expression]>,
     ) -> Self {
+        Self::new_with_kind_and_decorators(
+            name,
+            initializer,
+            PrivateFieldDefinitionKind::Field,
+            decorators,
+        )
+    }
+
+    fn new_with_kind_and_decorators(
+        name: PrivateName,
+        initializer: Option<Expression>,
+        kind: PrivateFieldDefinitionKind,
+        decorators: Box<[Expression]>,
+    ) -> Self {
         Self {
             name,
             initializer,
             decorators,
+            kind,
             scope: Scope::default(),
         }
     }
@@ -641,6 +686,13 @@ impl PrivateFieldDefinition {
     #[must_use]
     pub const fn decorators(&self) -> &[Expression] {
         &self.decorators
+    }
+
+    /// Returns whether this is an ordinary field or an auto-accessor.
+    #[inline]
+    #[must_use]
+    pub const fn kind(&self) -> PrivateFieldDefinitionKind {
+        self.kind
     }
 
     /// Sets the decorators attached to the private field definition.
@@ -722,39 +774,53 @@ impl ToIndentedString for ClassElement {
                     )
                 }
             },
-            Self::PrivateFieldDefinition(PrivateFieldDefinition {
-                name, initializer, ..
-            }) => match initializer {
+            Self::PrivateFieldDefinition(field) => match &field.initializer {
                 Some(expr) => {
                     format!(
-                        "{indentation}#{} = {};\n",
-                        interner.resolve_expect(name.description()),
+                        "{indentation}{}#{} = {};\n",
+                        if field.kind == PrivateFieldDefinitionKind::AutoAccessor {
+                            "accessor "
+                        } else {
+                            ""
+                        },
+                        interner.resolve_expect(field.name.description()),
                         expr.to_no_indent_string(interner, indent_n + 1)
                     )
                 }
                 None => {
                     format!(
-                        "{indentation}#{};\n",
-                        interner.resolve_expect(name.description()),
+                        "{indentation}{}#{};\n",
+                        if field.kind == PrivateFieldDefinitionKind::AutoAccessor {
+                            "accessor "
+                        } else {
+                            ""
+                        },
+                        interner.resolve_expect(field.name.description()),
                     )
                 }
             },
-            Self::PrivateStaticFieldDefinition(PrivateFieldDefinition {
-                name,
-                initializer,
-                ..
-            }) => match initializer {
+            Self::PrivateStaticFieldDefinition(field) => match &field.initializer {
                 Some(expr) => {
                     format!(
-                        "{indentation}static #{} = {};\n",
-                        interner.resolve_expect(name.description()),
+                        "{indentation}static {}#{} = {};\n",
+                        if field.kind == PrivateFieldDefinitionKind::AutoAccessor {
+                            "accessor "
+                        } else {
+                            ""
+                        },
+                        interner.resolve_expect(field.name.description()),
                         expr.to_no_indent_string(interner, indent_n + 1)
                     )
                 }
                 None => {
                     format!(
-                        "{indentation}static #{};\n",
-                        interner.resolve_expect(name.description()),
+                        "{indentation}static {}#{};\n",
+                        if field.kind == PrivateFieldDefinitionKind::AutoAccessor {
+                            "accessor "
+                        } else {
+                            ""
+                        },
+                        interner.resolve_expect(field.name.description()),
                     )
                 }
             },

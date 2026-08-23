@@ -349,7 +349,7 @@ pub(crate) const HEAP_OBJECT_INTERNAL_BRAND_OFFSET: u64 = 56;
 pub(crate) const HEAP_OBJECT_PROTOTYPE_TAG_OFFSET: u64 = 64;
 pub(crate) const HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 72;
 pub(crate) const HEAP_PROXY_HANDLER_TAG_OFFSET: u64 = 80;
-pub(crate) const HEAP_GENERATOR_STATE_OFFSET: u64 = 80;
+const HEAP_GENERATOR_STATE_OFFSET: u64 = 80;
 pub(crate) const HEAP_GENERATOR_FUNCTION_OFFSET: u64 = 88;
 pub(crate) const HEAP_GENERATOR_THIS_PAYLOAD_OFFSET: u64 = 96;
 pub(crate) const HEAP_GENERATOR_THIS_TAG_OFFSET: u64 = 104;
@@ -405,7 +405,7 @@ pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET: u64 = 152;
 pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET: u64 = 160;
 pub(crate) const HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET: u64 = 168;
 pub(crate) const HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET: u64 = 176;
-pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET: u64 = 0;
+const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET: u64 = 0;
 pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_CAPABILITY_OFFSET: u64 = 24;
@@ -1802,10 +1802,81 @@ pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
 /// `[[DisposableState]]` is intentionally not the async brand. The five
 /// AsyncDisposableStack wrong-receiver witnesses depend on this distinction.
 pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;
-pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
-pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
-pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
-pub(crate) const GENERATOR_STATE_SUSPENDED_YIELD: u64 = 3;
+/// The closed `[[GeneratorState]]` domain persisted in a synchronous
+/// generator record.
+///
+/// The declaration order follows the stable heap words. The explicit
+/// projection, rather than a Rust discriminant, owns that representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeneratorState {
+    SuspendedStart,
+    Executing,
+    Completed,
+    SuspendedYield,
+}
+
+impl GeneratorState {
+    const ALL: [Self; 4] = [
+        Self::SuspendedStart,
+        Self::Executing,
+        Self::Completed,
+        Self::SuspendedYield,
+    ];
+
+    const fn word(self) -> u64 {
+        match self {
+            Self::SuspendedStart => 0,
+            Self::Executing => 1,
+            Self::Completed => 2,
+            Self::SuspendedYield => 3,
+        }
+    }
+}
+
+/// One strictly validated snapshot of a synchronous generator's state word.
+///
+/// The raw local is private and the token is deliberately non-`Copy`. State
+/// dispatch borrows it, then must consume it through the matching release
+/// boundary once every comparison has been emitted.
+#[must_use = "a loaded generator state must be compared and released"]
+pub(crate) struct LoadedGeneratorState(u32);
+
+/// The closed Completion Record subset persisted in an async-generator
+/// request.
+///
+/// The semantic declaration order follows the specification operations. The
+/// stable heap words come exclusively from the general completion ABI below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncGeneratorRequestCompletionKind {
+    Normal,
+    Return,
+    Throw,
+}
+
+impl AsyncGeneratorRequestCompletionKind {
+    const ALL: [Self; 3] = [Self::Normal, Self::Throw, Self::Return];
+
+    const fn completion_kind(self) -> CompletionKind {
+        match self {
+            Self::Normal => CompletionKind::Normal,
+            Self::Return => CompletionKind::Return,
+            Self::Throw => CompletionKind::Throw,
+        }
+    }
+
+    const fn word(self) -> u64 {
+        self.completion_kind().code() as u64
+    }
+}
+
+/// One strictly validated snapshot of an async-generator request's completion
+/// kind.
+///
+/// The raw local is private and the token is deliberately non-`Copy`. Routing
+/// borrows it, then must consume it through the matching release boundary.
+#[must_use = "a loaded request completion kind must be routed and released"]
+pub(crate) struct LoadedAsyncGeneratorRequestCompletionKind(u32);
+
 pub(crate) const GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
 pub(crate) const GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
 pub(crate) const GENERATOR_RESUME_KIND_RETURN: u64 = 1;
@@ -5924,6 +5995,154 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) const fn align_heap_size(size: u64) -> u64 {
         (size + 7) & !7
+    }
+
+    /// Store one state from the closed synchronous-generator lifecycle.
+    pub(crate) fn emit_store_generator_state(
+        &self,
+        generator_payload_local: u32,
+        state: GeneratorState,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            generator_payload_local,
+            HEAP_GENERATOR_STATE_OFFSET,
+            state.word(),
+            function,
+        );
+    }
+
+    /// Load and strictly validate one snapshot of `[[GeneratorState]]`.
+    ///
+    /// An unknown word is an impossible generator record. Trap rather than
+    /// letting the builtin dispatcher mistake it for `SuspendedStart`.
+    pub(crate) fn emit_load_generator_state_strict(
+        &mut self,
+        generator_payload_local: u32,
+        function: &mut Function,
+    ) -> LoadedGeneratorState {
+        let state_word_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            generator_payload_local,
+            HEAP_GENERATOR_STATE_OFFSET,
+            state_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for state in GeneratorState::ALL {
+            function.instruction(&Instruction::LocalGet(state_word_local));
+            function.instruction(&Instruction::I64Const(state.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        LoadedGeneratorState(state_word_local)
+    }
+
+    /// Emit one comparison against a strictly loaded generator-state word.
+    pub(crate) fn emit_generator_state_equals(
+        &self,
+        loaded: &LoadedGeneratorState,
+        expected: GeneratorState,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Release the private local owned by a loaded generator-state snapshot.
+    pub(crate) fn release_loaded_generator_state(&mut self, loaded: LoadedGeneratorState) {
+        self.release_temp_local(loaded.0);
+    }
+
+    /// Store one completion kind from the closed async-generator request
+    /// domain.
+    pub(crate) fn emit_store_async_generator_request_completion_kind(
+        &self,
+        request_local: u32,
+        kind: AsyncGeneratorRequestCompletionKind,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            request_local,
+            HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET,
+            kind.word(),
+            function,
+        );
+    }
+
+    /// Load and strictly validate one async-generator request completion kind.
+    ///
+    /// An unknown or wrong-domain word is an impossible request record. Trap
+    /// before either request consumer can mistake it for Normal.
+    pub(crate) fn emit_load_async_generator_request_completion_kind_strict(
+        &mut self,
+        request_local: u32,
+        function: &mut Function,
+    ) -> LoadedAsyncGeneratorRequestCompletionKind {
+        let kind_word_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            request_local,
+            HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET,
+            kind_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for kind in AsyncGeneratorRequestCompletionKind::ALL {
+            function.instruction(&Instruction::LocalGet(kind_word_local));
+            function.instruction(&Instruction::I64Const(kind.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        LoadedAsyncGeneratorRequestCompletionKind(kind_word_local)
+    }
+
+    /// Emit one comparison against a strictly loaded request completion kind.
+    pub(crate) fn emit_async_generator_request_completion_kind_equals(
+        &self,
+        loaded: &LoadedAsyncGeneratorRequestCompletionKind,
+        expected: AsyncGeneratorRequestCompletionKind,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Copy a validated request word into the generic completion transport
+    /// consumed by async-generator complete-step.
+    pub(crate) fn emit_copy_async_generator_request_completion_kind_to_step_completion(
+        &self,
+        loaded: &LoadedAsyncGeneratorRequestCompletionKind,
+        step_completion_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::LocalSet(step_completion_kind_local));
+    }
+
+    /// Release the private local owned by a loaded request-kind snapshot.
+    pub(crate) fn release_loaded_async_generator_request_completion_kind(
+        &mut self,
+        loaded: LoadedAsyncGeneratorRequestCompletionKind,
+    ) {
+        self.release_temp_local(loaded.0);
     }
 
     /// Initialize a Promise record in the sole valid non-terminal state.

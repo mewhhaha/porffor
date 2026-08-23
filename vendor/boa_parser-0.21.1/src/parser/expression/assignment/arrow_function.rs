@@ -9,13 +9,11 @@
 
 use super::AssignmentExpression;
 use crate::{
-    error::{Error, ErrorContext, ParseResult},
-    lexer::{Error as LexError, TokenKind},
+    error::{ErrorContext, ParseResult},
+    lexer::TokenKind,
     parser::{
         AllowAwait, AllowIn, AllowYield, Cursor, OrAbrupt, TokenParser,
-        expression::BindingIdentifier,
-        function::{FormalParameters, FunctionBody},
-        name_in_lexically_declared_names,
+        expression::BindingIdentifier, function::FunctionBody, name_in_lexically_declared_names,
     },
     source::ReadChar,
 };
@@ -24,12 +22,14 @@ use boa_ast::{
     self as ast, Expression, Punctuator, Span, Spanned, StatementList,
     declaration::Variable,
     function::{FormalParameter, FormalParameterList},
-    operations::{ContainsSymbol, contains},
     statement::Return,
 };
 use boa_interner::Interner;
 
-/// Arrow function parsing.
+/// Arrow function parsing for the `BindingIdentifier` form.
+///
+/// Parenthesized arrow parameters are owned by `AssignmentExpression`'s cover
+/// grammar path.
 ///
 /// More information:
 ///  - [MDN documentation][mdn]
@@ -67,58 +67,16 @@ where
     type Output = ast::function::ArrowFunction;
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
-        let next_token = cursor.peek(0, interner).or_abrupt()?;
-        let start_linear_span = next_token.linear_span();
-
-        let (params, params_start_position) =
-            if next_token.kind() == &TokenKind::Punctuator(Punctuator::OpenParen) {
-                // CoverParenthesizedExpressionAndArrowParameterList
-                let params_start_position = cursor
-                    .expect(Punctuator::OpenParen, "arrow function", interner)?
-                    .span()
-                    .start();
-
-                let params = FormalParameters::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)?;
-                cursor.expect(Punctuator::CloseParen, "arrow function", interner)?;
-                (params, params_start_position)
-            } else {
-                let params_start_position = next_token.span().start();
-                let param = BindingIdentifier::new(self.allow_yield, self.allow_await)
-                    .parse(cursor, interner)
-                    .set_context("arrow function")?;
-                (
-                    FormalParameterList::from(FormalParameter::new(
-                        Variable::from_identifier(param, None),
-                        false,
-                    )),
-                    params_start_position,
-                )
-            };
-
-        // Early Error: ArrowFormalParameters are UniqueFormalParameters.
-        if params.has_duplicates() {
-            return Err(Error::lex(LexError::Syntax(
-                "Duplicate parameter name not allowed in this context".into(),
-                params_start_position,
-            )));
-        }
-
-        // Early Error: It is a Syntax Error if ArrowParameters Contains YieldExpression is true.
-        if contains(&params, ContainsSymbol::YieldExpression) {
-            return Err(Error::lex(LexError::Syntax(
-                "Yield expression not allowed in this context".into(),
-                params_start_position,
-            )));
-        }
-
-        // Early Error: It is a Syntax Error if ArrowParameters Contains AwaitExpression is true.
-        if contains(&params, ContainsSymbol::AwaitExpression) {
-            return Err(Error::lex(LexError::Syntax(
-                "Await expression not allowed in this context".into(),
-                params_start_position,
-            )));
-        }
+        let token = cursor.peek(0, interner).or_abrupt()?;
+        let start_linear_span = token.linear_span();
+        let params_start_position = token.span().start();
+        let param = BindingIdentifier::new(self.allow_yield, self.allow_await)
+            .parse(cursor, interner)
+            .set_context("arrow function")?;
+        let params = FormalParameterList::from(FormalParameter::new(
+            Variable::from_identifier(param, None),
+            false,
+        ));
 
         cursor.peek_expect_no_lineterminator(0, "arrow function", interner)?;
 
@@ -131,15 +89,6 @@ where
         cursor.set_arrow(true);
         let body = ConciseBody::new(self.allow_in).parse(cursor, interner)?;
         cursor.set_arrow(arrow);
-
-        // Early Error: It is a Syntax Error if ConciseBodyContainsUseStrict of ConciseBody is true
-        // and IsSimpleParameterList of ArrowParameters is false.
-        if body.strict() && !params.is_simple() {
-            return Err(Error::lex(LexError::Syntax(
-                "Illegal 'use strict' directive in function with non-simple parameter list".into(),
-                params_start_position,
-            )));
-        }
 
         // It is a Syntax Error if any element of the BoundNames of ArrowParameters
         // also occurs in the LexicallyDeclaredNames of ConciseBody.

@@ -41,7 +41,8 @@ pub use async_generator::{AsyncGeneratorDeclaration, AsyncGeneratorExpression};
 use boa_interner::{Interner, ToIndentedString};
 pub use class::{
     ClassDeclaration, ClassElement, ClassElementName, ClassExpression, ClassFieldDefinition,
-    ClassMethodDefinition, PrivateFieldDefinition, PrivateName, StaticBlockBody,
+    ClassMethodDefinition, PrivateFieldDefinition, PrivateFieldDefinitionKind, PrivateName,
+    StaticBlockBody,
 };
 pub use generator::{GeneratorDeclaration, GeneratorExpression};
 pub use ordinary_function::{FunctionDeclaration, FunctionExpression};

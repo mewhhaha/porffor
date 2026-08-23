@@ -87,6 +87,14 @@ where
             interner,
         )?;
 
+        // Early Error: It is a Syntax Error if FormalParameters Contains AwaitExpression is true.
+        if contains(&params, ContainsSymbol::AwaitExpression) {
+            return Err(Error::lex(LexError::Syntax(
+                "await expression not allowed in async function expression parameters".into(),
+                params_start_position,
+            )));
+        }
+
         let body =
             FunctionBody::new(false, true, "async function expression").parse(cursor, interner)?;
 

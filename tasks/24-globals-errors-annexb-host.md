@@ -114,8 +114,31 @@ constructors are self-backed for call-without-`new` active identity. The older
 The durable fixture and structural gate are recorded in
 `docs/rust-rewrite/contracts/native-error-constructor-realm-prototypes.md`.
 This remains a static-only checkpoint: focused runtime, the complete
-NativeErrors leaf and current-pin verification are deferred, and
-AggregateError/SuppressedError construction is unchanged.
+NativeErrors leaf and current-pin verification are deferred. AggregateError now
+has the narrow construction-phase integration described next; SuppressedError
+construction is unchanged.
+
+`AggregateError` construction now has explicit prepared-object phases for its
+observable constructor and the two internal Promise.any origins. The constructor
+allocates and brands first, then installs optional `message` and `cause` before
+consuming the errors iterator; a private non-`Copy` token is the sole input to
+the final `errors` installer. Promise.any uses a separate narrow producer that
+performs no constructor message/options work and is called only for exhausted
+input and the last reject element. This shares branded-object finalization
+without routing Promise.any through the observable constructor or changing its
+settlement algorithm. The focused
+[`AggregateError` construction-phase contract](../docs/rust-rewrite/contracts/aggregate-error-construction-phases.md)
+is implemented, independently reviewed and focused-verified as of 2026-08-23.
+Under the shared eight-core and 22 GB cap, `cargo fmt --all -- --check`,
+`cargo xc` and `git diff --check` are green; the AggregateError structure suite
+passes `3/3`, the existing exact
+`error_prototype_to_string_has_typed_ordered_observable_phases` library witness
+passes `1/1`, and the constructor-properties and iterable-to-list CLI fixtures
+each pass `1/1`. Four pinned AggregateError leaves and two pinned Promise.any
+leaves pass both variants, for `12/12` Wasm-AOT executions with every failure
+bucket at zero under `--jobs 1 --threads 1`. This does not close either full
+tree, change Promise.any settlement semantics or change a published conformance
+count.
 
 Annex B `unescape` now materializes its result through one private UTF-16
 output coordinator. Previously, each `%uXXXX` was encoded independently, so a

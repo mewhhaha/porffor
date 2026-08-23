@@ -4724,7 +4724,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ObjectGetPrototypeOf => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Null)),
-                Some(Box::new(Self::empty_object_shape())),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ObjectSetPrototypeOf => (
@@ -4746,7 +4746,7 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
-                Some(Box::new(Self::empty_object_shape())),
+                Some(Self::generic_property_descriptor_shape()),
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ObjectGetOwnPropertyDescriptors => (
@@ -4766,7 +4766,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ObjectPrototypeProtoGetter => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Null)),
-                Some(Box::new(Self::empty_object_shape())),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ObjectPrototypeProtoSetter => (
@@ -4905,7 +4905,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ObjectPrototypeValueOf => (
                 ValueKind::Object,
                 Self::object_like_kind_set(),
-                Some(Box::new(Self::empty_object_shape())),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ObjectSeal
@@ -4919,13 +4919,13 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ProxyConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
-                Some(Box::new(Self::empty_object_shape())),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ProxyRevocable => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
-                Some(Box::new(Self::empty_object_shape())),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ProxyRevoke => (
@@ -4937,7 +4937,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ReflectConstruct => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
-                Some(Box::new(Self::empty_object_shape())),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ReflectApply => (
@@ -4955,7 +4955,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ReflectGetPrototypeOf => (
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Null)),
-                Some(Box::new(Self::empty_object_shape())),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ReflectSet => (

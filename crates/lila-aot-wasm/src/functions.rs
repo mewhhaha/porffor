@@ -626,6 +626,55 @@ mod bound_this_capture_tests {
     }
 }
 
+#[cfg(test)]
+mod auto_accessor_structure_tests {
+    #[test]
+    fn auto_accessor_backend_uses_paired_definitions_and_private_backing_fields() {
+        let source = include_str!("functions.rs");
+        let definitions = source
+            .rsplit_once("if let ClassElementDefinitionIr::AutoAccessor(accessor) = definition {")
+            .expect("auto-accessor definition arm should exist")
+            .1
+            .split_once("let (function_id, placement, kind, private_name_id)")
+            .expect("auto-accessor definition arm should remain bounded")
+            .0;
+        for marker in [
+            "accessor.computed_key",
+            "accessor.functions.getter()",
+            "accessor.functions.setter()",
+            "emit_object_define_accessor(",
+            "emit_private_getter_definition_add(",
+            "emit_private_setter_definition_add(",
+        ] {
+            assert!(
+                definitions.contains(marker),
+                "missing definition step: {marker}"
+            );
+        }
+
+        let static_initialization = source
+            .rsplit_once("ClassStaticElementIr::AutoAccessorBacking(accessor) => {")
+            .expect("static backing initialization arm should exist")
+            .1
+            .split_once("ClassStaticElementIr::Block(block) => {")
+            .expect("static backing initialization arm should remain bounded")
+            .0;
+        assert!(static_initialization.contains("emit_private_field_add("));
+        assert!(!static_initialization.contains("emit_object_define_enumerable_data("));
+
+        let instance_initialization = source
+            .rsplit_once("for element in plan.elements {")
+            .expect("ordered instance element loop should exist")
+            .1
+            .split_once("self.active_private_environment_locals.pop();")
+            .expect("ordered instance element loop should remain bounded")
+            .0;
+        assert!(instance_initialization
+            .contains("ClassInstanceElementIr::AutoAccessorBacking(accessor)"));
+        assert!(instance_initialization.contains("emit_private_field_add("));
+    }
+}
+
 impl RealmRecordLocal {
     pub(crate) const fn index(self) -> u32 {
         self.0
@@ -1668,6 +1717,30 @@ pub(crate) fn emit_function_object_alloc_helper_function(
 }
 
 impl<'a> FunctionBuilder<'a> {
+    fn emit_reject_static_class_prototype_definition(
+        &mut self,
+        key_local: u32,
+        prototype_key_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_property_key_payload_equality_i32(key_local, prototype_key_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            TYPE_ERROR_NAME,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        if let Some(target) = self.active_throw_target() {
+            self.emit_branch_to_target(target, function);
+        } else {
+            self.emit_return_current_completion(function);
+        }
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     pub(crate) fn compile_class_definition_payload(
         &mut self,
         class: &ClassDefinitionIr,
@@ -1704,6 +1777,10 @@ impl<'a> FunctionBuilder<'a> {
             .iter()
             .filter_map(|definition| match definition {
                 ClassElementDefinitionIr::ComputedFieldKey { slot, .. } => Some(*slot + 1),
+                ClassElementDefinitionIr::AutoAccessor(accessor) => match &accessor.key {
+                    ClassFieldKeyIr::ComputedPublic(slot) => Some(*slot + 1),
+                    ClassFieldKeyIr::Public(_) | ClassFieldKeyIr::Private(_) => None,
+                },
                 ClassElementDefinitionIr::PublicMethod(_)
                 | ClassElementDefinitionIr::PrivateMethod(_) => None,
             })
@@ -1715,16 +1792,16 @@ impl<'a> FunctionBuilder<'a> {
             .iter()
             .any(|element| match element {
                 ClassStaticElementIr::Field(field) => field.init_function_id.is_some(),
+                ClassStaticElementIr::AutoAccessorBacking(accessor) => {
+                    accessor.init_function_id.is_some()
+                }
                 ClassStaticElementIr::Block(_) => true,
             })
             .then(|| self.reserve_temp_local());
         let field_keys_local = (computed_field_key_count > 0).then(|| self.reserve_temp_local());
         let class_private_scope = class
-            .private_name_ids
-            .values()
-            .next()
-            .copied()
-            .map(PrivateNameId::class_scope);
+            .private_environment
+            .map(|environment| environment.class_scope());
         debug_assert!(class
             .private_name_ids
             .values()
@@ -1788,7 +1865,11 @@ impl<'a> FunctionBuilder<'a> {
             if let Some(class_private_scope) = class_private_scope {
                 self.emit_heap_alloc_const(
                     HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET
-                        + class.private_name_ids.len() as u64 * HEAP_PRIVATE_ENV_SLOT_SIZE,
+                        + class
+                            .private_environment
+                            .expect("class private scope must have an environment")
+                            .slot_count() as u64
+                            * HEAP_PRIVATE_ENV_SLOT_SIZE,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(private_environment_local));
@@ -1965,11 +2046,14 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
         }
-        self.emit_object_define_data(
+        self.emit_object_define_data_with_configurable(
             constructor_local,
             prototype_key_local,
             prototype_payload_local,
             prototype_tag_local,
+            false,
+            false,
+            false,
             function,
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
@@ -1988,6 +2072,138 @@ impl<'a> FunctionBuilder<'a> {
 
         let mut static_private_method_brands = BTreeSet::new();
         for definition in &class.element_plan.definitions {
+            if let ClassElementDefinitionIr::AutoAccessor(accessor) = definition {
+                if let Some(computed_key) = &accessor.computed_key {
+                    let ClassFieldKeyIr::ComputedPublic(slot) = accessor.key else {
+                        return Err(EmitError::unsupported(
+                            "auto-accessor computed key requires a computed key slot",
+                        ));
+                    };
+                    let field_keys_local =
+                        field_keys_local.expect("computed field key cache must be allocated");
+                    self.compile_object_key_to_locals(
+                        computed_key,
+                        key_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    self.store_i64_local_at_offset(
+                        field_keys_local,
+                        ENV_SLOT_BASE_OFFSET
+                            + slot as u64 * ENV_SLOT_SIZE
+                            + ENV_SLOT_PAYLOAD_OFFSET,
+                        key_local,
+                        function,
+                    );
+                    self.store_i64_local_at_offset(
+                        field_keys_local,
+                        ENV_SLOT_BASE_OFFSET + slot as u64 * ENV_SLOT_SIZE + ENV_SLOT_TAG_OFFSET,
+                        value_tag_local,
+                        function,
+                    );
+                }
+                match &accessor.key {
+                    ClassFieldKeyIr::Public(key) => {
+                        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+                        function.instruction(&Instruction::LocalSet(key_local));
+                    }
+                    ClassFieldKeyIr::ComputedPublic(slot) => {
+                        let field_keys_local =
+                            field_keys_local.expect("computed field key cache must be allocated");
+                        self.load_i64_to_local_from_offset(
+                            field_keys_local,
+                            ENV_SLOT_BASE_OFFSET
+                                + *slot as u64 * ENV_SLOT_SIZE
+                                + ENV_SLOT_PAYLOAD_OFFSET,
+                            key_local,
+                            function,
+                        );
+                    }
+                    ClassFieldKeyIr::Private(private_name_id) => {
+                        self.emit_private_name_token_to_local(
+                            *private_name_id,
+                            key_local,
+                            function,
+                        )?;
+                    }
+                }
+                let target_local = match accessor.placement {
+                    ClassMethodPlacementIr::Instance => prototype_payload_local,
+                    ClassMethodPlacementIr::Static => constructor_local,
+                };
+                let getter_meta = self
+                    .functions
+                    .get(accessor.functions.getter())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "unsupported in lila wasm-aot first slice: unknown auto-accessor getter `{}`",
+                            accessor.functions.getter()
+                        ))
+                    })?;
+                self.emit_class_function_value_payload(
+                    getter_meta,
+                    target_local,
+                    private_environment_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(value_payload_local));
+                let setter_payload_local = self.reserve_temp_local();
+                let setter_meta = self
+                    .functions
+                    .get(accessor.functions.setter())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "unsupported in lila wasm-aot first slice: unknown auto-accessor setter `{}`",
+                            accessor.functions.setter()
+                        ))
+                    })?;
+                self.emit_class_function_value_payload(
+                    setter_meta,
+                    target_local,
+                    private_environment_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(setter_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(value_tag_local));
+                if matches!(accessor.key, ClassFieldKeyIr::Private(_)) {
+                    self.emit_private_getter_definition_add(
+                        key_local,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    self.emit_private_setter_definition_add(
+                        key_local,
+                        setter_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    if accessor.placement == ClassMethodPlacementIr::Static {
+                        let ClassFieldKeyIr::Private(private_name_id) = accessor.key else {
+                            unreachable!()
+                        };
+                        static_private_method_brands.insert(private_name_id);
+                    }
+                } else {
+                    if accessor.placement == ClassMethodPlacementIr::Static {
+                        self.emit_reject_static_class_prototype_definition(
+                            key_local,
+                            prototype_key_local,
+                            function,
+                        )?;
+                    }
+                    self.emit_object_define_accessor(
+                        target_local,
+                        key_local,
+                        Some((value_payload_local, value_tag_local)),
+                        Some((setter_payload_local, value_tag_local)),
+                        function,
+                    )?;
+                }
+                self.release_temp_local(setter_payload_local);
+                continue;
+            }
             let (function_id, placement, kind, private_name_id) = match definition {
                 ClassElementDefinitionIr::PublicMethod(method) => {
                     let compiled_key_local =
@@ -2023,6 +2239,7 @@ impl<'a> FunctionBuilder<'a> {
                     );
                     continue;
                 }
+                ClassElementDefinitionIr::AutoAccessor(_) => unreachable!(),
             };
             let target_local = match placement {
                 ClassMethodPlacementIr::Instance => prototype_payload_local,
@@ -2042,6 +2259,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(value_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(value_tag_local));
+            if placement == ClassMethodPlacementIr::Static && private_name_id.is_none() {
+                self.emit_reject_static_class_prototype_definition(
+                    key_local,
+                    prototype_key_local,
+                    function,
+                )?;
+            }
             match kind {
                 ClassMethodKindIr::Method => {
                     if let Some(private_name_id) = private_name_id {
@@ -2201,6 +2425,11 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                     } else {
+                        self.emit_reject_static_class_prototype_definition(
+                            key_local,
+                            prototype_key_local,
+                            function,
+                        )?;
                         self.emit_object_define_enumerable_data(
                             constructor_local,
                             key_local,
@@ -2209,6 +2438,51 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                     }
+                }
+                ClassStaticElementIr::AutoAccessorBacking(accessor) => {
+                    if let Some(init_function_id) = &accessor.init_function_id {
+                        let meta = self.functions.get(init_function_id).ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "unsupported in lila wasm-aot first slice: unknown auto-accessor init `{init_function_id}`"
+                            ))
+                        })?;
+                        if meta.class_element_execution_kind
+                            != ClassElementExecutionKind::StaticFieldInitializer
+                        {
+                            return Err(EmitError::unsupported(format!(
+                                "unsupported in lila wasm-aot first slice: auto-accessor init `{init_function_id}` has invalid execution kind"
+                            )));
+                        }
+                        self.emit_direct_class_element_js_call(
+                            meta,
+                            class_element_context_local
+                                .expect("static initializer context must exist"),
+                            Some((constructor_local, Some(constructor_tag_local))),
+                            &[],
+                            value_payload_local,
+                            value_tag_local,
+                            function,
+                        )?;
+                    } else {
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(value_payload_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(value_tag_local));
+                    }
+                    self.emit_private_name_token_to_local(
+                        accessor.backing_name.private_name_id(),
+                        key_local,
+                        function,
+                    )?;
+                    self.emit_private_field_add(
+                        constructor_local,
+                        constructor_tag_local,
+                        key_local,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
                 }
                 ClassStaticElementIr::Block(block) => {
                     let meta = self.functions.get(&block.function_id).ok_or_else(|| {
@@ -6159,7 +6433,7 @@ impl<'a> FunctionBuilder<'a> {
             body_payload_local,
             body_tag_local,
             body_completion_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         self.emit_drain_async_generator_queue(activation_local, function)?;
@@ -6184,7 +6458,7 @@ impl<'a> FunctionBuilder<'a> {
             resolved_return_payload_local,
             resolved_return_tag_local,
             body_completion_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         self.emit_drain_async_generator_queue(activation_local, function)?;
@@ -6252,7 +6526,7 @@ impl<'a> FunctionBuilder<'a> {
             body_payload_local,
             body_tag_local,
             body_completion_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         self.emit_drain_async_generator_queue(activation_local, function)?;
@@ -7050,10 +7324,9 @@ impl<'a> FunctionBuilder<'a> {
                 OBJECT_INTERNAL_BRAND_GENERATOR,
                 function,
             );
-            self.store_i64_const_at_offset(
+            self.emit_store_generator_state(
                 payload_local,
-                HEAP_GENERATOR_STATE_OFFSET,
-                GENERATOR_STATE_SUSPENDED_START,
+                GeneratorState::SuspendedStart,
                 function,
             );
             self.store_i64_local_at_offset(
@@ -10304,14 +10577,17 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
 
-        for field in plan.fields {
-            self.emit_class_field_key_to_local(
-                &field.key,
-                class_context_local,
-                key_local,
-                function,
-            );
-            if let Some(init_function_id) = &field.init_function_id {
+        for element in plan.elements {
+            let (key, init_function_id, auto_accessor_backing) = match element {
+                ClassInstanceElementIr::Field(field) => (field.key, field.init_function_id, None),
+                ClassInstanceElementIr::AutoAccessorBacking(accessor) => (
+                    ClassFieldKeyIr::Private(accessor.backing_name.private_name_id()),
+                    accessor.init_function_id,
+                    Some(accessor.backing_name),
+                ),
+            };
+            self.emit_class_field_key_to_local(&key, class_context_local, key_local, function);
+            if let Some(init_function_id) = &init_function_id {
                 let initializer_meta = self.functions.get(init_function_id).cloned().ok_or_else(|| {
                     EmitError::unsupported(format!(
                         "unsupported in lila wasm-aot first slice: unknown class field init `{init_function_id}`"
@@ -10339,7 +10615,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::LocalSet(value_tag_local));
             }
-            if let ClassFieldKeyIr::Private(private_name_id) = field.key {
+            if let ClassFieldKeyIr::Private(private_name_id) = key {
+                debug_assert!(auto_accessor_backing
+                    .is_none_or(|backing| backing.private_name_id() == private_name_id));
                 self.emit_private_name_token_to_local(private_name_id, key_local, function)?;
                 self.emit_private_field_add(
                     receiver_payload_local,
@@ -11920,16 +12198,6 @@ impl<'a> FunctionBuilder<'a> {
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if matches!(name.as_str(), "trim" | "trimStart" | "trimLeft" | "trimEnd" | "trimRight"))
         {
-            let trim_start = matches!(
-                key,
-                PropertyKeyIr::StaticString(name)
-                    if matches!(name.as_str(), "trim" | "trimStart" | "trimLeft")
-            );
-            let trim_end = matches!(
-                key,
-                PropertyKeyIr::StaticString(name)
-                    if matches!(name.as_str(), "trim" | "trimEnd" | "trimRight")
-            );
             let receiver_payload_local = self.reserve_temp_local();
             let receiver_tag_local = self.reserve_temp_local();
             let string_local = self.reserve_temp_local();
@@ -11956,12 +12224,21 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             function.instruction(&Instruction::LocalSet(string_local));
-            self.emit_ecmascript_trim_payload_from_locals(
-                string_local,
-                trim_start,
-                trim_end,
-                function,
-            )?;
+            match key {
+                PropertyKeyIr::StaticString(name) => match name.as_str() {
+                    "trim" => {
+                        self.emit_ecmascript_trim_both_payload_from_locals(string_local, function)?
+                    }
+                    "trimStart" | "trimLeft" => {
+                        self.emit_ecmascript_trim_start_payload_from_locals(string_local, function)?
+                    }
+                    "trimEnd" | "trimRight" => {
+                        self.emit_ecmascript_trim_end_payload_from_locals(string_local, function)?
+                    }
+                    _ => unreachable!("trim fast path requires a recognized static method name"),
+                },
+                _ => unreachable!("trim fast path requires a static method name"),
+            }
             function.instruction(&Instruction::LocalSet(payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));

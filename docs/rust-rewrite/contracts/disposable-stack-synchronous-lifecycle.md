@@ -63,6 +63,15 @@ be object-like. `GetMethod(value, Symbol.dispose)` is performed once while the
 resource is registered; a missing, nullish, or non-callable result throws
 `TypeError`, and a later property mutation cannot replace the acquired method.
 
+Returning a value has one closed backend disposition. The early nullish
+`use()` path must return the current function immediately, while the completed
+`use()` and `adopt()` paths install the normal result and fall through. Callers
+select these two states through a private Rust enum consumed by an exhaustive
+match; every caller must name its route and cannot silently transpose an
+unlabeled Boolean or omit the choice. This is a local completion-routing
+invariant, not the T04
+tuple-completion-to-`exnref` redesign.
+
 `adopt` accepts every ECMAScript value but requires a callable `onDispose`.
 `defer` requires a callable `onDispose`. Validation completes before the entry
 length changes, so an abrupt validation or getter path cannot publish a partial
@@ -185,4 +194,8 @@ cargo test -p lila-cli --test cli wasm_disposable_stack --quiet
 ./target/debug/lila test262 run staging/explicit-resource-management/disposable-stack --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
-No pass count is claimed until those commands run on the integrated SHA.
+The narrower 2026-08-23 value-return routing change passed the capped
+workspace `cargo xc` gate, the exact structural lifecycle witness (`1/1`) and
+the existing exact CLI lifecycle fixture (`1/1`). That checkpoint proves the
+typed caller map and preserves the focused runtime behavior; it did not rerun
+the two broad Test262 directories or refresh the 76-file inventory above.

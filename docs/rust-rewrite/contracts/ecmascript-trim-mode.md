@@ -1,0 +1,133 @@
+# ECMAScript trim mode
+
+Status: normative for the Wasm-AOT ECMAScript string-trimming seam. The
+implementation and bounded structural guard are independently reviewed and
+focused-verified under the shared eight-core cap, 2026-08-23.
+
+## Specification boundary
+
+[ECMA-262 `TrimString`](https://tc39.es/ecma262/2026/multipage/text-processing.html#sec-trimstring)
+accepts exactly three values for its `where` argument: `start`, `end`, or
+`start+end`. `String.prototype.trim` selects `start+end`,
+`String.prototype.trimStart` selects `start`, and
+`String.prototype.trimEnd` selects `end`. The normative `trimLeft` and
+`trimRight` aliases reach the same start-only and end-only builtin functions.
+
+String-to-BigInt parsing also removes ECMAScript whitespace from both ends
+before interpreting the remaining source. That consumer therefore shares the
+`start+end` implementation but is not a String prototype method.
+
+There is no fourth, neither-end operation at this seam. Representing the
+domain as independent `trim_start` and `trim_end` Booleans admits
+`(false, false)`, which would silently return the original string and has no
+owner in the specification or current product callers.
+
+## Closed Rust policy
+
+The raw trimming core owns a private three-variant domain:
+
+```rust
+enum EcmaTrimMode {
+    Start,
+    End,
+    Both,
+}
+```
+
+The enum and raw core remain private to `operations.rs`. Sibling backend
+modules can reach the core only through three named wrappers that fix Start,
+End, or Both. The core projects the mode through exhaustive Rust matches with
+no `_` arm and no Boolean fallback. Adding a fourth mode must therefore fail to
+compile until both boundary scans state what it means, while passing the former
+Boolean pair must fail at the call boundary.
+
+This is an emitter-time policy. It does not add a runtime Wasm mode word or a
+runtime policy branch. The emitted start scan, end scan and final slice remain
+the existing algorithms in their existing order. Both mode performs the start
+scan first and the end scan second, so the end scan retains the start bound
+produced by the first scan.
+
+## Exact consumer ownership
+
+There are exactly three consumer families:
+
+1. `emit_string_to_bigint_locals` selects Both exactly once before unpacking
+   and parsing the trimmed source.
+2. The static String-method call fast path selects Both for `trim`, Start for
+   `trimStart` and `trimLeft`, and End for `trimEnd` and `trimRight`.
+3. The standard-builtin dispatcher selects Both for
+   `StringPrototypeTrim`, Start for `StringPrototypeTrimStart`, and End for
+   `StringPrototypeTrimEnd`. The intrinsic aliases already resolve to the
+   corresponding Start or End builtin identity and do not form additional raw
+   trim-core callers.
+
+This inventory is exact. A new trimming consumer must choose one of the three
+named operations and update this contract and its structural witness. No
+consumer may call or alias the private raw core directly.
+
+## Observable-order preservation
+
+The migration changes only the Rust policy carrier and emitter selection. It
+must preserve all existing observable and abrupt-completion order:
+
+- String method receivers are checked for null or undefined before `ToString`;
+- receiver `ToString` and its user hooks complete before trimming begins;
+- the static fast path and standard builtin retain their existing completion
+  routing around that coercion;
+- String-to-BigInt trims once before unpacking, sign/radix handling and digit
+  accumulation;
+- Both mode scans the start before the end; and
+- the same UTF-8 ECMAScript whitespace table, byte bounds and string-slice
+  emitter remain authoritative.
+
+No caller gains a new coercion, completion check, allocation, property access
+or runtime branch.
+
+## Durable mutation guard
+
+A bounded source-structure regression must require:
+
+- exactly the private `EcmaTrimMode::{Start, End, Both}` domain;
+- a private raw core with one typed mode parameter and no `trim_start: bool` or
+  `trim_end: bool` parameter;
+- exactly three named wrappers, each forwarding one distinct variant to the
+  raw core;
+- exhaustive, catch-all-free Start/End/Both projection for both boundary
+  scans, with Start excluded only from the end scan and End excluded only from
+  the start scan;
+- exactly the three consumer families and the mappings listed above;
+- the Both wrapper before BigInt source unpacking and the trim wrappers after
+  String receiver coercion in both String-method paths; and
+- no additional direct call, method-item reference, visibility escape,
+  Boolean-policy spelling or local reconstruction of the raw trim pair.
+
+The guard must fail if Start and End are inverted at any inventoried caller,
+if either alias moves to Both, if String-to-BigInt stops trimming both ends, if
+the raw core becomes visible, if a new bypass appears, or if either exhaustive
+match is weakened.
+
+## Focused verification
+
+Independent review accepted the implementation and tightened the mutation
+guard around scan roles, BigInt source ownership, receiver/coercion branches,
+standard-dispatch membership and created-Realm alias publication. The
+centralized capped lane then completed these checks:
+
+- `cargo xc` passed for the workspace;
+- `ecmascript_trim_mode_structure` passed `2/2`;
+- the exact `wasm_string_annexb_substr_trim_core.js` CLI witness passed `1/1`;
+  and
+- the exact arbitrary-precision BigInt string CLI witness passed `1/1`,
+  including ECMAScript whitespace around the parsed source.
+
+These are focused policy, String and BigInt witnesses. No Test262 cohort or
+aggregate status was refreshed, and no conformance movement is inferred from
+this policy-only migration.
+
+## Nonclaims
+
+This seam does not change the ECMAScript whitespace set, UTF-8 decoding,
+String allocation or slicing, receiver coercion, alias installation, BigInt
+grammar, radix/sign handling, error-Realm selection or completion ABI. It does
+not migrate other String algorithms, remove a Test262 rewrite, prove the full
+String or BigInt trees, change published counts, or complete T04.

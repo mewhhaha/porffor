@@ -1,6 +1,8 @@
 # ArrayBuffer slice source re-observation
 
-Status: normative for the Wasm AOT ArrayBuffer slice copy seam.
+Status: normative for the Wasm AOT ArrayBuffer slice copy seam; the
+`ArrayBufferSliceBound` invariant is implemented, independently reviewed, and
+focused-verified.
 
 ## Semantic boundary
 
@@ -41,6 +43,77 @@ Immutable ArrayBuffers proposal's `ArrayBuffer.prototype.sliceToImmutable`
 (25.1.6.8).
 
 ## Closed protocol
+
+### Bound role
+
+The normalized slice bound is one closed algorithm role, not an independently
+selected argument index and default policy. The backend representation is:
+
+```rust
+pub(super) enum ArrayBufferSliceBound {
+    Start,
+    End,
+}
+```
+
+Its complete projection is:
+
+- `Start` reads argument 0 and, when that argument is absent or `undefined`,
+  writes 0; and
+- `End` reads argument 1 and, when that argument is absent or `undefined`,
+  writes the byte length observed at method entry.
+
+The bound-consuming emitter accepts only `ArrayBufferSliceBound`. It derives
+the argument index internally and emits the missing-or-undefined default from
+exhaustive matches with no catch-all arm. It does not accept a caller-supplied
+integer index, a `default_to_length` Boolean, or a Boolean projection from the
+enum. Consequently the invalid pairings "argument 0 defaults to length" and
+"argument 1 defaults to zero", as well as arbitrary argument positions, are
+unrepresentable at the caller boundary.
+
+There are exactly two source calls, both in the one grouped standard-builtin
+body shared by `ArrayBuffer.prototype.slice`,
+`SharedArrayBuffer.prototype.slice`, and
+`ArrayBuffer.prototype.sliceToImmutable`: `Start` writes `start_local`, then
+`End` writes `end_local`. The durable ordering is:
+
+1. read the source byte length at method entry;
+2. normalize `Start`;
+3. normalize `End`;
+4. calculate the requested length; and
+5. perform species or target work before the policy-specific late source
+   re-observation and copy.
+
+The structural guard pins the exact two-variant domain, both exhaustive
+projections, the absence of the raw Boolean/integer pair, the two-call global
+inventory, each role-to-destination mapping, the three grouped builtin owners,
+and the ordering above. This prevents a variant swap or a new bypass from
+passing merely because the enum still exists.
+
+Focused runtime witnesses are the existing exact CLI species-capture fixture,
+whose no-argument `slice()` must request an eight-byte result, and the pinned
+Test262 leaves
+`built-ins/ArrayBuffer/prototype/slice/start-default-if-undefined.js` and
+`built-ins/ArrayBuffer/prototype/slice/end-default-if-absent.js`. The two
+Test262 leaves independently distinguish the Start default from the End
+default; the CLI fixture exercises both roles together through the production
+species path.
+
+The implementation and its strengthened structural guard were independently
+reviewed. The capped `cargo fmt --all -- --check` and `cargo xc` gates are green,
+`array_buffer_slice_bound_structure` passes `3/3`, and the exact
+`run_wasm_backend_succeeds_for_supported_arraybuffer_slice_species_capture_fixture`
+CLI witness passes `1/1`. Each Test262 leaf above was run as an exact path with
+`--jobs 1 --threads 1`; each passes `2/2` sloppy/strict Wasm-AOT executions,
+with every reported failure bucket at zero.
+
+This is an invariant-only migration. It does not replace the feature-local
+numeric normalization with the authoritative shared `ToIntegerOrInfinity`
+operation, change abrupt-completion routing, alter any slice copy policy, prove
+SharedArrayBuffer or immutable-slice behavior independently, refresh a broad
+ArrayBuffer/Test262 cohort, or establish a conformance gain.
+
+### Source and copy policy
 
 The builtin-facing domain is `ArrayBufferSliceKind`:
 
@@ -84,15 +157,14 @@ races or every growable-buffer edge case are closed.
 The existing SharedArrayBuffer grow-and-slice fixture continues to exercise
 the distinct shared branch.
 
-## Nonclaims and deferred gates
+## Remaining nonclaims and broad gates
 
 This seam does not establish complete ArrayBuffer, resizable/growable buffer,
 species, SharedArrayBuffer, TypedArray, DataView, Atomics, or shared-race
 correctness. It does not retire Test262 rewrites or change published
 conformance counts.
 
-Static freeze gates are `rustfmt --check` for the touched Rust files,
-`node --check` for the fixture, focused source searches, `git diff --check`, and
-manual local-lifetime review. Cargo, fixture execution, focused pinned Test262
-slice detachment/resize/species trees, and the broad batch ladder remain
-deferred until the frozen patch is independently reviewed.
+The completed focused gates are recorded above. No broader pinned Test262 slice
+detachment, resize, or species tree was refreshed, and the broad batch ladder
+remains deferred. The focused results do not establish a conformance gain or
+replace aggregate publication evidence.

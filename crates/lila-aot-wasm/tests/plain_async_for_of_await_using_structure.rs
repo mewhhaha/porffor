@@ -1,5 +1,5 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const FOR_OF_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_of.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
@@ -245,9 +245,9 @@ fn lowering_holds_the_iterator_roles_until_the_body_has_allocated_source_states(
     assert!(!statement.contains("ASYNC_ITERATOR_PROTOCOL"));
 
     let lower = bounded(
-        LOWERING_SOURCE,
+        FOR_OF_LOWERING_SOURCE,
         "fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {",
-        "fn lower_switch(&mut self, switch: &AstSwitch)",
+        "        ForOfLoweringIr::new(statement, body_kind, protocol)",
     );
     positions_in_order(
         lower,

@@ -24,6 +24,11 @@ struct DisposableStackDisposalLocals {
     error_tag: u32,
 }
 
+enum DisposableStackReturnDisposition {
+    ReturnCurrentFunction,
+    LeaveInCompletion,
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_disposable_stack_constructor(
         &mut self,
@@ -100,7 +105,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_disposable_stack_return_value(
             value_payload_local,
             value_tag_local,
-            true,
+            DisposableStackReturnDisposition::ReturnCurrentFunction,
             function,
         );
         function.instruction(&Instruction::End);
@@ -148,7 +153,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_disposable_stack_return_value(
             value_payload_local,
             value_tag_local,
-            false,
+            DisposableStackReturnDisposition::LeaveInCompletion,
             function,
         );
 
@@ -196,7 +201,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_disposable_stack_return_value(
             value_payload_local,
             value_tag_local,
-            false,
+            DisposableStackReturnDisposition::LeaveInCompletion,
             function,
         );
 
@@ -1060,7 +1065,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         payload_local: u32,
         tag_local: u32,
-        return_now: bool,
+        disposition: DisposableStackReturnDisposition,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::LocalGet(payload_local));
@@ -1068,8 +1073,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.set_completion_kind(CompletionKind::Normal, function);
-        if return_now {
-            self.emit_return_current_completion(function);
+        match disposition {
+            DisposableStackReturnDisposition::ReturnCurrentFunction => {
+                self.emit_return_current_completion(function);
+            }
+            DisposableStackReturnDisposition::LeaveInCompletion => {}
         }
     }
 

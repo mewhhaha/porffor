@@ -38,6 +38,10 @@ use rustc_hash::FxHashSet;
 #[derive(Debug)]
 enum ParsedForInitializer {
     Regular(ForLoopInitializer),
+    DeferredLexical {
+        declaration: ast::declaration::LexicalDeclaration,
+        keyword_position: Position,
+    },
 }
 
 /// For statement parsing
@@ -113,7 +117,8 @@ where
         };
 
         let mut init_is_async_of = false;
-        let init = match cursor.peek(0, interner).or_abrupt()?.kind().clone() {
+        let init_token = cursor.peek(0, interner).or_abrupt()?.clone();
+        let init = match init_token.kind().clone() {
                 TokenKind::Keyword((Keyword::Var, _)) => {
                     cursor.advance(interner);
                     Some(ParsedForInitializer::Regular(
@@ -125,27 +130,41 @@ where
                 TokenKind::Keyword((Keyword::Let, false))
                     if allowed_token_after_let(cursor.peek(1, interner)?) =>
                 {
-                    Some(ParsedForInitializer::Regular(
-                        LexicalDeclaration::new(false, self.allow_yield, self.allow_await, true)
-                            .parse(cursor, interner)?
-                            .into(),
-                    ))
+                    Some(ParsedForInitializer::DeferredLexical {
+                        declaration: LexicalDeclaration::for_head(
+                            false,
+                            self.allow_yield,
+                            self.allow_await,
+                        )
+                        .parse(cursor, interner)?,
+                        keyword_position: init_token.span().start(),
+                    })
                 }
-                TokenKind::Keyword((Keyword::Const, _)) => Some(ParsedForInitializer::Regular(
-                    LexicalDeclaration::new(false, self.allow_yield, self.allow_await, true)
-                        .parse(cursor, interner)?
-                        .into(),
-                )),
+                TokenKind::Keyword((Keyword::Const, _)) => {
+                    Some(ParsedForInitializer::DeferredLexical {
+                        declaration: LexicalDeclaration::for_head(
+                            false,
+                            self.allow_yield,
+                            self.allow_await,
+                        )
+                        .parse(cursor, interner)?,
+                        keyword_position: init_token.span().start(),
+                    })
+                }
                 TokenKind::IdentifierName(_)
                 | TokenKind::Keyword((Keyword::Await, false))
                     if using_declaration_kind(cursor, interner, self.allow_await.0, true)?
                         .is_some() =>
                 {
-                    Some(ParsedForInitializer::Regular(
-                        LexicalDeclaration::new(false, self.allow_yield, self.allow_await, true)
-                            .parse(cursor, interner)?
-                            .into(),
-                    ))
+                    Some(ParsedForInitializer::DeferredLexical {
+                        declaration: LexicalDeclaration::for_head(
+                            false,
+                            self.allow_yield,
+                            self.allow_await,
+                        )
+                        .parse(cursor, interner)?,
+                        keyword_position: init_token.span().start(),
+                    })
                 }
                 TokenKind::Keyword((Keyword::Async, false)) if !r#await => {
                     if matches!(
@@ -219,6 +238,28 @@ where
                     r#await,
                 );
             }
+            (
+                Some(ParsedForInitializer::DeferredLexical { declaration, .. }),
+                TokenKind::Keyword((kw @ (Keyword::In | Keyword::Of), false)),
+            ) => {
+                let in_loop = kw == &Keyword::In;
+                let init = initializer_to_iterable_loop_initializer(
+                    declaration.into(),
+                    position,
+                    cursor.strict(),
+                    in_loop,
+                )?;
+                return parse_iterable_loop_tail(
+                    cursor,
+                    interner,
+                    self.allow_yield,
+                    self.allow_await,
+                    self.allow_return,
+                    init,
+                    in_loop,
+                    r#await,
+                );
+            }
             (_, _) if r#await => {
                 return Err(Error::general(
                     "`await` can only be used in a `for await .. of` loop",
@@ -226,6 +267,23 @@ where
                 ));
             }
             (Some(ParsedForInitializer::Regular(init)), _) => Some(init),
+            (
+                Some(ParsedForInitializer::DeferredLexical {
+                    declaration,
+                    keyword_position,
+                }),
+                _,
+            ) => {
+                LexicalDeclaration::validate_bound_name_let(
+                    &declaration,
+                    keyword_position,
+                )?;
+                LexicalDeclaration::validate_duplicate_bound_names(
+                    &declaration,
+                    keyword_position,
+                )?;
+                Some(declaration.into())
+            }
             (None, _) => None,
         };
 

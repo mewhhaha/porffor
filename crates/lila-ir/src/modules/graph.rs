@@ -1596,6 +1596,470 @@ mod tests {
         crate::evaluation_components(graph)
     }
 
+    #[test]
+    fn rejected_delete_reference_dependencies_keep_typed_diagnostics_through_graph_build() {
+        for (index, source_text, expected) in [
+            (
+                0,
+                "export const x = 0; delete x;",
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                1,
+                "export class C { #x; m(o) { delete o.#x; } }",
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+        ] {
+            let dependency_key = format!("/root/delete-{index}.js");
+            let dependency = ModuleSourceIr::new(
+                ModuleKey::from_host(dependency_key.clone()),
+                source_text.to_string(),
+                format!("file://{dependency_key}"),
+            );
+            assert_eq!(
+                dependency.module_requests(),
+                None,
+                "the rejected parse must be retained rather than rescanned"
+            );
+
+            let diagnostics = build_graph(&ModuleGraphSources {
+                modules: vec![
+                    ModuleSourceIr::new(
+                        ModuleKey::from_host("/root/entry.js"),
+                        format!("import './delete-{index}.js';"),
+                        "file:///root/entry.js".to_string(),
+                    ),
+                    dependency,
+                ],
+                entry: 0,
+                resolutions: vec![(
+                    0,
+                    ModuleRequestKeyIr::plain(format!("./delete-{index}.js")),
+                    1,
+                )],
+            })
+            .expect_err("the retained rejected dependency must stop graph construction");
+            let [diagnostic] = diagnostics.as_slice() else {
+                panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+            };
+
+            assert_eq!(
+                diagnostic.kind,
+                IrDiagnosticKind::EarlyError,
+                "{source_text:?}"
+            );
+            assert_eq!(
+                diagnostic.phase(),
+                IrDiagnosticPhase::Early,
+                "{source_text:?}"
+            );
+            assert_eq!(diagnostic.code(), Some(expected), "{source_text:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source_text:?}"
+            );
+            assert!(diagnostic.span.is_some(), "{source_text:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn rejected_optional_chain_tagged_template_dependency_keeps_typed_diagnostic_through_graph_build(
+    ) {
+        let dependency_source = "export const value = null; value?.tag`x${1}`;";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/optional-template.js"),
+            dependency_source.to_string(),
+            "file:///root/optional-template.js".to_string(),
+        );
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './optional-template.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./optional-template.js"), 1)],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::OptionalChainTaggedTemplate)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained TemplateLiteral must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
+    #[test]
+    fn rejected_for_head_body_declaration_conflict_dependency_keeps_typed_diagnostic_through_graph_build(
+    ) {
+        let dependency_source = "for (let x of []) { var x; }";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/for-head-body-conflict.js"),
+            dependency_source.to_string(),
+            "file:///root/for-head-body-conflict.js".to_string(),
+        );
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './for-head-body-conflict.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(
+                0,
+                ModuleRequestKeyIr::plain("./for-head-body-conflict.js"),
+                1,
+            )],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ForHeadBodyDeclarationConflict)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained loop conflict must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
+    #[test]
+    fn rejected_for_declaration_duplicate_bound_name_dependency_keeps_typed_diagnostic_through_graph_build(
+    ) {
+        let dependency_source = "for (let [x, x] of []) {}";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/for-declaration-duplicate.js"),
+            dependency_source.to_string(),
+            "file:///root/for-declaration-duplicate.js".to_string(),
+        );
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './for-declaration-duplicate.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(
+                0,
+                ModuleRequestKeyIr::plain("./for-declaration-duplicate.js"),
+                1,
+            )],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ForDeclarationDuplicateBoundName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained duplicate loop binding must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
+    #[test]
+    fn rejected_lexical_bound_name_let_dependency_keeps_typed_diagnostic_through_graph_build() {
+        let dependency_source = "for (const { value: let } of []) {}";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/lexical-bound-name-let.js"),
+            dependency_source.to_string(),
+            "file:///root/lexical-bound-name-let.js".to_string(),
+        );
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected Module parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './lexical-bound-name-let.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(
+                0,
+                ModuleRequestKeyIr::plain("./lexical-bound-name-let.js"),
+                1,
+            )],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(diagnostic.code(), Some(EarlyErrorCode::LexicalBoundNameLet));
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained lexical binding must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
+    #[test]
+    fn rejected_top_level_super_dependency_keeps_its_module_code_through_graph_build() {
+        let dependency_source = "() => super.value;";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/top-level-super.js"),
+            dependency_source.to_string(),
+            "file:///root/top-level-super.js".to_string(),
+        );
+        assert_eq!(dependency.goal(), ParseGoal::Module);
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected Module parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './top-level-super.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./top-level-super.js"), 1)],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(diagnostic.code(), Some(EarlyErrorCode::ModuleTopLevelSuper));
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained Module failure must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
+    #[test]
+    fn rejected_class_owned_super_call_dependencies_keep_distinct_codes_through_graph_build() {
+        for (index, source_text, expected) in [
+            (
+                0,
+                "export default class { constructor() { super(); } }",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+            (
+                1,
+                "export default class { static { super(); } }",
+                EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+            ),
+        ] {
+            let dependency_key = format!("/root/class-super-{index}.js");
+            let dependency = ModuleSourceIr::new(
+                ModuleKey::from_host(dependency_key.clone()),
+                source_text.to_string(),
+                format!("file://{dependency_key}"),
+            );
+            assert_eq!(dependency.goal(), ParseGoal::Module);
+            let ModuleParse::Rejected { error, .. } = &dependency.parse else {
+                panic!("the class-owned early error must be retained as a rejected parse");
+            };
+            assert_eq!(
+                crate::modules::early::module_parse_failure_diagnostic(error).code(),
+                Some(expected),
+                "{source_text:?}"
+            );
+            assert_eq!(
+                dependency.module_requests(),
+                None,
+                "a rejected dependency must not be rescanned for requests"
+            );
+
+            let diagnostics = build_graph(&ModuleGraphSources {
+                modules: vec![
+                    ModuleSourceIr::new(
+                        ModuleKey::from_host("/root/entry.js"),
+                        format!("import './class-super-{index}.js';"),
+                        "file:///root/entry.js".to_string(),
+                    ),
+                    dependency,
+                ],
+                entry: 0,
+                resolutions: vec![(
+                    0,
+                    ModuleRequestKeyIr::plain(format!("./class-super-{index}.js")),
+                    1,
+                )],
+            })
+            .expect_err("the retained rejected dependency must stop graph construction");
+            let [diagnostic] = diagnostics.as_slice() else {
+                panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+            };
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source_text:?}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source_text:?}");
+            assert_eq!(diagnostic.code(), Some(expected), "{source_text:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source_text:?}"
+            );
+            let span = diagnostic
+                .span
+                .expect("the retained class rejection must keep its source span");
+            assert!(span.start < span.end, "{source_text:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_class_owned_super_dependency_builds_a_real_module_graph() {
+        let dependency_source = concat!(
+            "class Base {};\n",
+            "export class Derived extends Base {\n",
+            "  constructor() { super(); }\n",
+            "  method() { return () => super.value; }\n",
+            "  static { void super.value; }\n",
+            "}",
+        );
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/class-owned-super.js"),
+            dependency_source.to_string(),
+            "file:///root/class-owned-super.js".to_string(),
+        );
+        assert_eq!(dependency.goal(), ParseGoal::Module);
+        assert_eq!(
+            dependency.module_requests(),
+            Some(Vec::new()),
+            "valid class-owned super must remain a successfully parsed Module"
+        );
+
+        let graph = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './class-owned-super.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./class-owned-super.js"), 1)],
+        })
+        .expect("valid class-owned super must build a Module graph");
+        assert_eq!(graph.units.len(), 2);
+    }
+
+    #[test]
+    fn retained_import_meta_dependency_keeps_its_module_goal_through_graph_build() {
+        let dependency_source = concat!(
+            "export const direct = import.meta;\n",
+            "export function nested() { return import.meta; }",
+        );
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/import-meta.js"),
+            dependency_source.to_string(),
+            "file:///root/import-meta.js".to_string(),
+        );
+        assert_eq!(dependency.goal(), ParseGoal::Module);
+        assert_eq!(
+            dependency.module_requests(),
+            Some(Vec::new()),
+            "direct and nested ImportMeta must remain a successfully parsed Module"
+        );
+
+        let graph = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './import-meta.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./import-meta.js"), 1)],
+        })
+        .expect("a Module dependency containing ImportMeta must build without a parse rejection");
+
+        let dependency = &graph.units[unit_of(&graph, "/root/import-meta.js") as usize];
+        assert_eq!(dependency.source_text, dependency_source);
+        let import_meta_text: Vec<&str> = dependency
+            .record
+            .import_meta_sites
+            .iter()
+            .map(|site| &dependency.source_text[site.start..site.end])
+            .collect();
+        assert_eq!(import_meta_text, vec!["import.meta", "import.meta"]);
+    }
+
     /// The default: everything the entry reaches through an ordinary `import`
     /// evaluates inline, which is what an unphased graph has always done.
     #[test]

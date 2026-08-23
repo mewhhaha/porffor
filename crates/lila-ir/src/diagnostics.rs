@@ -127,7 +127,7 @@ impl IrDiagnostic {
     /// [`Self::rejected`] for a **parse-stage** producer.
     ///
     /// Same derivation, narrower door: the code must be a
-    /// [`ParseClassified`] — one the fragment table can actually yield — so a
+    /// [`ParseClassified`] — one the message-pattern table can actually yield — so a
     /// producer that runs while parsing cannot name a link-only condition such
     /// as `ModuleMissingExport` and have it reported at
     /// `IrDiagnosticPhase::Resolution` from a `ParseModule` stage. Assertion P7

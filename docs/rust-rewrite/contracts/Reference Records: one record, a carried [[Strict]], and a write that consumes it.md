@@ -674,7 +674,7 @@ product path so it is not dead code — §4.3 gives it one.
 
 **The return type was `Option<Strictness>` and it was too narrow — corrected at
 DISCREPANCY-FIXER stage.** Its product call site is `infer_expr_throw_info`
-(`lowering.rs`), which merges the throw shape of every node into
+(`lowering/throw_inference.rs`), which merges the throw shape of every node into
 `infer_catch_binding_info`'s inferred type for a `catch` binding. With a bare
 `Option<Strictness>` it attributed a **TypeError** instance to every node
 carrying `Strictness::Strict` — including the three global-write variants, whose

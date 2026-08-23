@@ -43,6 +43,50 @@ require_fixed_string_count() {
   fi
 }
 
+require_exact_line_count() {
+  file="$1"
+  line="$2"
+  expected="$3"
+  description="$4"
+  count="$(grep -Fxc "$line" "$file" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "$file must contain $expected exact $description lines (found $count)"
+  fi
+}
+
+require_regex_count() {
+  file="$1"
+  pattern="$2"
+  expected="$3"
+  description="$4"
+  count="$(grep -Ec "$pattern" "$file" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "$file must contain $expected $description lines (found $count)"
+  fi
+}
+
+require_text_regex_count() {
+  text="$1"
+  pattern="$2"
+  expected="$3"
+  description="$4"
+  count="$(printf '%s\n' "$text" | grep -Ec "$pattern" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "text must contain $expected $description lines (found $count)"
+  fi
+}
+
+require_tree_regex_count() {
+  root="$1"
+  pattern="$2"
+  expected="$3"
+  description="$4"
+  count="$({ grep -RhE --include='*.rs' "$pattern" "$root" || true; } | wc -l | tr -d '[:space:]')"
+  if [ "$count" -ne "$expected" ]; then
+    fail "$root must contain $expected $description declarations (found $count)"
+  fi
+}
+
 # Non-test CODE lines: everything before the crate's `#[cfg(test)]` block, minus
 # blank lines and minus whole-line comments (`//`, `///`, `//!` and lines inside
 # a whole-line `/* ... */` block).
@@ -160,6 +204,1279 @@ check_no_inline_legacy_includes "$ir_lib"
 ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
 require_file "$ir_builtin_shapes"
 require_module_decl "$ir_lowering" "builtin_shapes"
+# T02's assignment-expression boundary owns the exhaustive AssignOp/target
+# dispatch across identifier, property, private, destructuring, logical and
+# eager compound writes. Its specialized Reference lifecycles remain in their
+# typed child modules; the parent expression dispatcher cannot regrow a second
+# assignment implementation.
+ir_assignment_lowering="crates/lila-ir/src/lowering/assignment.rs"
+require_file "$ir_assignment_lowering"
+require_module_decl "$ir_lowering" "assignment"
+require_fixed_string_count \
+  "$ir_assignment_lowering" \
+  'pub(super) fn lower_assign(' \
+  1 \
+  'assignment-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_assign(' \
+  0 \
+  'assignment-expression lowering outside child module'
+check_no_inline_legacy_includes "$ir_assignment_lowering"
+# Measured after formatting the extraction: 716 raw lines. The margin is for
+# maintenance of this exhaustive dispatcher, not unrelated lowering.
+check_raw_line_budget "$ir_assignment_lowering" 770
+# T02's delete-expression boundary owns the complete target dispatch for
+# property, private, super, identifier and value deletion. The unary
+# dispatcher remains its sole caller and cannot regrow a second implementation.
+ir_delete_expression_lowering="crates/lila-ir/src/lowering/delete_expression.rs"
+require_file "$ir_delete_expression_lowering"
+require_module_decl "$ir_lowering" "delete_expression"
+require_fixed_string_count \
+  "$ir_delete_expression_lowering" \
+  'pub(super) fn lower_delete(' \
+  1 \
+  'delete-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_delete(' \
+  0 \
+  'delete-expression lowering outside child module'
+check_no_inline_legacy_includes "$ir_delete_expression_lowering"
+# Measured after formatting the extraction: 217 raw lines. The margin is for
+# maintenance of this exhaustive dispatcher, not unrelated lowering.
+check_raw_line_budget "$ir_delete_expression_lowering" 250
+# T02's new-expression boundary owns constructor target resolution, argument
+# lowering, builtin/user result typing, dynamic-source rejection and static
+# RegExp compilation. The parent expression dispatcher is its sole caller.
+ir_new_expression_lowering="crates/lila-ir/src/lowering/new_expression.rs"
+require_file "$ir_new_expression_lowering"
+require_module_decl "$ir_lowering" "new_expression"
+require_fixed_string_count \
+  "$ir_new_expression_lowering" \
+  'pub(super) fn lower_new(' \
+  1 \
+  'new-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_new(' \
+  0 \
+  'new-expression lowering outside child module'
+check_no_inline_legacy_includes "$ir_new_expression_lowering"
+# Measured after formatting the extraction: 248 raw lines. The margin is for
+# maintenance of constructor-expression lowering only.
+check_raw_line_budget "$ir_new_expression_lowering" 290
+# T02's statement boundary owns the exhaustive Statement dispatcher and its
+# resumable expression-statement specialization. Control-flow implementations
+# remain in their focused owners; the parent cannot regrow a second dispatcher.
+ir_statement_lowering="crates/lila-ir/src/lowering/statement.rs"
+require_file "$ir_statement_lowering"
+require_module_decl "$ir_lowering" "statement"
+require_fixed_string_count \
+  "$ir_statement_lowering" \
+  'pub(super) fn lower_statement(' \
+  1 \
+  'statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_statement(' \
+  0 \
+  'statement lowering outside child module'
+check_no_inline_legacy_includes "$ir_statement_lowering"
+# Measured after formatting the extraction: 259 raw lines. The margin is for
+# maintenance of the exhaustive dispatcher, not statement implementations.
+check_raw_line_budget "$ir_statement_lowering" 300
+# T02's for-in boundary owns the complete initializer/target/body lowering
+# family and its Test262-specific empty/non-enumerable recognizers. Only the
+# statement-facing wrapper crosses this private child boundary; environment,
+# TDZ, expression and static-analysis helpers remain in their shared owners.
+ir_for_in_lowering="crates/lila-ir/src/lowering/for_in.rs"
+require_file "$ir_for_in_lowering"
+require_exact_line_count "$ir_lowering" 'mod for_in;' 1 'private for-in module declaration'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+lower_for_in_loop[[:space:]]*\(' \
+  1 \
+  'for-in statement-facing owner'
+require_regex_count \
+  "$ir_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+lower_for_in_loop[[:space:]]*\(' \
+  0 \
+  'for-in lowerer outside child module'
+for private_owner in \
+  lower_for_in_initializer_prefix \
+  prepend_statement \
+  for_in_initializer_binding \
+  for_in_known_empty_target \
+  for_in_global_non_enumerable_guard_only \
+  for_in_builtin_non_enumerable_assert_only \
+  for_in_static_builtin_target \
+  for_in_initializer_name \
+  for_in_non_enumerable_guarded_assignment \
+  for_in_non_enumerable_guard_name \
+  for_in_not_same_value_guard_name \
+  statement_is_simple_false_assignment
+do
+  require_regex_count \
+    "$ir_for_in_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${private_owner}[[:space:]]*[<(]" \
+    1 \
+    "private ${private_owner} owner"
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${private_owner}[[:space:]]*[<(]" \
+    0 \
+    "${private_owner} outside child module"
+done
+# Twelve unmodified private methods plus the one reviewed pub(super) wrapper is
+# the whole child surface. The total accepts every Rust function modifier so a
+# new const/async/unsafe/extern helper cannot hide from the private-fn count.
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*fn[[:space:]]+' \
+  12 \
+  'private method'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+[[:alnum:]_]+' \
+  13 \
+  'total function declaration'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+for shared_parent_owner in \
+  lower_for_in_of_environment \
+  lower_for_head_expression_with_tdz \
+  for_in_global_target \
+  single_statement \
+  expr_is_identifier_named \
+  static_string_expression \
+  plain_async_entry_state \
+  lower_loop_body \
+  lower_web_compat_loop_assignment_target \
+  lower_var_declarator \
+  unwrap_parenthesized_expr \
+  is_known_non_enumerable_global \
+  is_known_non_enumerable_builtin_property
+do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    1 \
+    "parent-owned shared ${shared_parent_owner} helper"
+  require_regex_count \
+    "$ir_for_in_lowering" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_parent_owner} helper copied into for-in owner"
+done
+for shared_free_owner in supported_bound_names for_in_loop_binding_storage_name; do
+  require_regex_count \
+    "crates/lila-ir/src/lowering_helpers.rs" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${shared_free_owner}[[:space:]]*[<(]" \
+    1 \
+    "shared ${shared_free_owner} free-helper owner"
+  require_regex_count \
+    "$ir_for_in_lowering" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${shared_free_owner}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_free_owner} free helper copied into for-in owner"
+done
+# Boa's generic containment visitor is imported rather than locally owned, but
+# copying one into the child would fork the grammar predicate this family uses.
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+contains[[:space:]]*[<(]' \
+  0 \
+  'generic contains helper copied into for-in owner'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?(struct|enum|union|type)[[:space:]]+ForInOfEnvironmentIr([[:space:]]|<|\{|\(|=|;|:)' \
+  0 \
+  'shared for-in/of environment type declaration copied into for-in owner'
+require_tree_regex_count \
+  "crates/lila-ir/src" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?(struct|enum|union|type)[[:space:]]+ForInOfEnvironmentIr([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'shared for-in/of environment type'
+check_no_inline_legacy_includes "$ir_for_in_lowering"
+# Measured after formatting the extraction: 571 raw lines. The margin is for
+# maintenance of this closed family, not unrelated lowering or shared helpers.
+check_raw_line_budget "$ir_for_in_lowering" 650
+# T02's classic-for boundary owns the complete head/environment/resumption
+# lifecycle and the final For/GeneratorLoop choice. The statement dispatcher
+# remains its sole caller and the parent cannot regrow a second implementation.
+ir_for_loop_lowering="crates/lila-ir/src/lowering/for_loop.rs"
+require_file "$ir_for_loop_lowering"
+require_module_decl "$ir_lowering" "for_loop"
+require_fixed_string_count \
+  "$ir_for_loop_lowering" \
+  'pub(super) fn lower_for_loop(' \
+  1 \
+  'classic-for lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_for_loop(' \
+  0 \
+  'classic-for lowering outside child module'
+check_no_inline_legacy_includes "$ir_for_loop_lowering"
+# Measured after formatting the extraction: 213 raw lines. The margin is for
+# maintenance of the classic-for lifecycle, not unrelated loop lowering.
+check_raw_line_budget "$ir_for_loop_lowering" 250
+# T02's for-of boundary owns every specialization decision, the lowering-only
+# protocol carrier and the closed resumable array-walk classification. The
+# statement dispatcher is the sole caller; shared loop/environment helpers and
+# public statement/protocol IR remain in their existing owners.
+ir_for_of_lowering="crates/lila-ir/src/lowering/for_of.rs"
+require_file "$ir_for_of_lowering"
+require_exact_line_count "$ir_lowering" 'mod for_of;' 1 'private for-of module declaration'
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'pub(super) fn lower_for_of_loop(' \
+  1 \
+  'for-of statement-facing owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_for_of_loop(' \
+  0 \
+  'for-of lowering outside child module'
+for private_owner in lower_async_for_of_array_with_body_await lower_for_of_head; do
+  require_fixed_string_count \
+    "$ir_for_of_lowering" \
+    "fn ${private_owner}(" \
+    1 \
+    "private ${private_owner} owner"
+  require_fixed_string_count \
+    "$ir_lowering" \
+    "fn ${private_owner}(" \
+    0 \
+    "${private_owner} outside child module"
+done
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'enum AsyncForOfArrayWalkForm' \
+  1 \
+  'private resumable array-walk classification carrier'
+require_fixed_string_count \
+  "crates/lila-ir/src/lowering_helpers.rs" \
+  'enum AsyncForOfArrayWalkForm' \
+  0 \
+  'resumable array-walk carrier declarations in the former helper owner'
+require_tree_regex_count \
+  "crates/lila-ir/src" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?enum[[:space:]]+AsyncForOfArrayWalkForm([[:space:]]|\{)' \
+  1 \
+  'resumable array-walk carrier'
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'struct ForOfLoweringIr' \
+  1 \
+  'private for-of protocol carrier'
+require_fixed_string_count \
+  "crates/lila-ir/src/ir.rs" \
+  'struct ForOfLoweringIr' \
+  0 \
+  'for-of protocol carrier declarations in the former IR owner'
+require_tree_regex_count \
+  "crates/lila-ir/src" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?struct[[:space:]]+ForOfLoweringIr([[:space:]]|\{)' \
+  1 \
+  'for-of protocol carrier'
+# The statement-facing wrapper is the child's only Rust-visible item. This one
+# count makes leaking either carrier, any field or any helper fail closed.
+require_regex_count \
+  "$ir_for_of_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+for shared_helper in \
+  plain_async_entry_state \
+  split_resumable_loop_body \
+  lower_loop_body \
+  lower_for_in_of_environment \
+  lower_for_head_expression_with_tdz \
+  for_of_loop_binding_storage_name
+do
+  require_fixed_string_count \
+    "$ir_for_of_lowering" \
+    "fn ${shared_helper}(" \
+    0 \
+    "shared ${shared_helper} helper copied into for-of owner"
+done
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'fn generator_loop_has_unsupported_control' \
+  0 \
+  'shared generic generator_loop_has_unsupported_control helper copied into for-of owner'
+require_fixed_string_count \
+  "$ir_for_of_lowering" \
+  'enum LoweredForOfHeadKind' \
+  0 \
+  'async-disposable head-kind type copied into for-of owner'
+check_no_inline_legacy_includes "$ir_for_of_lowering"
+# Measured after formatting the extraction: 1,036 raw lines. The margin is for
+# maintenance of the complete for-of lowering family, not unrelated lowering.
+check_raw_line_budget "$ir_for_of_lowering" 1100
+# T02's if-statement boundary owns branch lowering, flow-fact joins and the
+# generator split/merge lifecycle. The shared static expression helpers remain
+# parent-owned and the parent cannot regrow a second if implementation.
+ir_if_statement_lowering="crates/lila-ir/src/lowering/if_statement.rs"
+require_file "$ir_if_statement_lowering"
+require_module_decl "$ir_lowering" "if_statement"
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'pub(super) fn lower_if_statement(' \
+  1 \
+  'if-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_if_statement(' \
+  0 \
+  'if-statement lowering outside child module'
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'fn split_generator_if_branch(' \
+  1 \
+  'generator if-branch split helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn split_generator_if_branch(' \
+  0 \
+  'generator if-branch split helper outside child module'
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'fn statement_completes_by_throw(' \
+  1 \
+  'if-branch abrupt-completion helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn statement_completes_by_throw(' \
+  0 \
+  'if-branch abrupt-completion helper outside child module'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn static_bool_expr(' \
+  1 \
+  'shared static boolean helper in parent'
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'fn static_bool_expr(' \
+  0 \
+  'static boolean helper copied into if-statement owner'
+check_no_inline_legacy_includes "$ir_if_statement_lowering"
+# Measured after formatting the extraction: 141 raw lines. The margin is for
+# maintenance of if-statement lowering only.
+check_raw_line_budget "$ir_if_statement_lowering" 180
+# T02's labelled-statement boundary owns nested label collection, target-kind
+# classification and final Labelled IR assembly. The active-label stack types
+# remain parent-owned because break/continue lowering also consumes them.
+ir_labelled_statement_lowering="crates/lila-ir/src/lowering/labelled_statement.rs"
+require_file "$ir_labelled_statement_lowering"
+require_module_decl "$ir_lowering" "labelled_statement"
+require_fixed_string_count \
+  "$ir_labelled_statement_lowering" \
+  'pub(super) fn lower_labelled(' \
+  1 \
+  'labelled-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_labelled(' \
+  0 \
+  'labelled-statement lowering outside child module'
+require_fixed_string_count \
+  "$ir_labelled_statement_lowering" \
+  'fn collect_labels' \
+  1 \
+  'nested-label collection helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn collect_labels' \
+  0 \
+  'nested-label collection helper outside child module'
+require_fixed_string_count \
+  "$ir_labelled_statement_lowering" \
+  'fn label_target_kind' \
+  1 \
+  'label target-kind helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn label_target_kind' \
+  0 \
+  'label target-kind helper outside child module'
+require_fixed_string_count "$ir_lowering" 'struct ActiveLabel' 1 'shared active-label type in parent'
+require_fixed_string_count "$ir_labelled_statement_lowering" 'struct ActiveLabel' 0 'active-label type copied into labelled owner'
+require_fixed_string_count "$ir_lowering" 'enum LabelTargetKind' 1 'shared label-target type in parent'
+require_fixed_string_count "$ir_labelled_statement_lowering" 'enum LabelTargetKind' 0 'label-target type copied into labelled owner'
+check_no_inline_legacy_includes "$ir_labelled_statement_lowering"
+# Measured after formatting the extraction: 72 raw lines. The margin is for
+# maintenance of labelled-statement lowering only.
+check_raw_line_budget "$ir_labelled_statement_lowering" 100
+# T02's abrupt loop-control boundary owns all labelled/unlabelled break and
+# continue validation plus final abrupt-control IR assembly. The active-label
+# types stay parent-owned because labelled_statement produces them while this
+# child consumes them.
+ir_break_continue_lowering="crates/lila-ir/src/lowering/break_continue.rs"
+require_file "$ir_break_continue_lowering"
+require_module_decl "$ir_lowering" "break_continue"
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'pub(super) fn lower_break(' \
+  1 \
+  'break lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_break(' \
+  0 \
+  'break lowering outside child module'
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'pub(super) fn lower_continue(' \
+  1 \
+  'continue lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_continue(' \
+  0 \
+  'continue lowering outside child module'
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'struct ActiveLabel' \
+  0 \
+  'active-label type copied into break/continue owner'
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'enum LabelTargetKind' \
+  0 \
+  'label-target type copied into break/continue owner'
+check_no_inline_legacy_includes "$ir_break_continue_lowering"
+# Measured after formatting the extraction: 45 raw lines. The margin is for
+# maintenance of break/continue lowering only.
+check_raw_line_budget "$ir_break_continue_lowering" 70
+# T02's while-family boundary owns ordinary/resumable while lowering and the
+# explicit do-while suspension refusal. Shared loop resumption helpers remain
+# parent-owned and the parent cannot regrow either loop implementation.
+ir_while_loop_lowering="crates/lila-ir/src/lowering/while_loop.rs"
+require_file "$ir_while_loop_lowering"
+require_module_decl "$ir_lowering" "while_loop"
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'pub(super) fn lower_while_loop(' \
+  1 \
+  'while-loop lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_while_loop(' \
+  0 \
+  'while-loop lowering outside child module'
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'pub(super) fn lower_do_while_loop(' \
+  1 \
+  'do-while lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_do_while_loop(' \
+  0 \
+  'do-while lowering outside child module'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn plain_async_entry_state(' \
+  1 \
+  'shared plain-async loop-state helper in parent'
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'fn plain_async_entry_state(' \
+  0 \
+  'plain-async loop-state helper copied into while owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn split_resumable_loop_body(' \
+  1 \
+  'shared resumable-loop split helper in parent'
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'fn split_resumable_loop_body(' \
+  0 \
+  'resumable-loop split helper copied into while owner'
+check_no_inline_legacy_includes "$ir_while_loop_lowering"
+# Measured after formatting the extraction: 106 raw lines. The margin is for
+# maintenance of while/do-while lowering only.
+check_raw_line_budget "$ir_while_loop_lowering" 130
+# T02's switch-statement boundary owns discriminant and selector evaluation,
+# the one shared CaseBlock lexical environment, case-body fact joins and final
+# Switch IR assembly. Statement-list and environment materialization helpers
+# stay parent-owned because other statement families consume them too.
+ir_switch_statement_lowering="crates/lila-ir/src/lowering/switch_statement.rs"
+require_file "$ir_switch_statement_lowering"
+require_module_decl "$ir_lowering" "switch_statement"
+require_fixed_string_count \
+  "$ir_switch_statement_lowering" \
+  'pub(super) fn lower_switch(' \
+  1 \
+  'switch-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_switch(' \
+  0 \
+  'switch-statement lowering outside child module'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_statement_items_without_function_initialization(' \
+  1 \
+  'shared statement-list helper in parent'
+require_fixed_string_count \
+  "$ir_switch_statement_lowering" \
+  'fn lower_statement_items_without_function_initialization(' \
+  0 \
+  'statement-list helper copied into switch owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_materialized_lexical_environment(' \
+  1 \
+  'shared lexical-environment materializer in parent'
+require_fixed_string_count \
+  "$ir_switch_statement_lowering" \
+  'fn lower_materialized_lexical_environment(' \
+  0 \
+  'lexical-environment materializer copied into switch owner'
+check_no_inline_legacy_includes "$ir_switch_statement_lowering"
+# Measured after formatting the extraction: 90 raw lines. The margin is for
+# maintenance of switch-statement lowering only.
+check_raw_line_budget "$ir_switch_statement_lowering" 120
+# T02's with-statement boundary owns the full Object Environment lifecycle:
+# outer object evaluation, hidden binding materialization, ordered chain entry
+# and exit, body lowering and lexical-block assembly. Shared allocation and
+# suspension helpers plus reference lifecycle types remain in their owners.
+ir_with_statement_lowering="crates/lila-ir/src/lowering/with_statement.rs"
+require_file "$ir_with_statement_lowering"
+require_module_decl "$ir_lowering" "with_statement"
+require_fixed_string_count \
+  "$ir_with_statement_lowering" \
+  'pub(super) fn lower_with_statement(' \
+  1 \
+  'with-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_with_statement(' \
+  0 \
+  'with-statement lowering outside child module'
+for shared_helper in object_like_kind_set alloc_temp_binding_name add_suspension_owned_binding; do
+  require_fixed_string_count \
+    "$ir_with_statement_lowering" \
+    "fn ${shared_helper}(" \
+    0 \
+    "shared ${shared_helper} helper copied into with-statement owner"
+done
+for reference_type in ObjectEnvironmentBindingObject CurrentScopeDepth OrderedWithEnvironmentChain; do
+  require_fixed_string_count \
+    "$ir_with_statement_lowering" \
+    "struct ${reference_type}" \
+    0 \
+    "shared ${reference_type} lifecycle type copied into with-statement owner"
+done
+require_fixed_string_count \
+  "$ir_with_statement_lowering" \
+  'with_environment_chain.enter_current(' \
+  1 \
+  'with-environment chain entry'
+require_fixed_string_count \
+  "$ir_with_statement_lowering" \
+  'with_environment_chain.leave_current();' \
+  1 \
+  'with-environment chain exit'
+check_no_inline_legacy_includes "$ir_with_statement_lowering"
+# Measured after formatting the extraction: 103 raw lines. The margin is for
+# maintenance of with-statement lowering only.
+check_raw_line_budget "$ir_with_statement_lowering" 130
+# T02's property-access boundary owns ordinary, private and super access
+# dispatch plus the primitive/exotic target-kind split. Keep that split
+# exhaustive so a future ValueKind cannot silently inherit Number's currently
+# unsupported behavior through a catch-all arm.
+ir_property_access_lowering="crates/lila-ir/src/lowering/property_access.rs"
+require_file "$ir_property_access_lowering"
+require_module_decl "$ir_lowering" "property_access"
+require_fixed_string_count \
+  "$ir_property_access_lowering" \
+  'pub(super) fn lower_property_access(' \
+  1 \
+  'property-access lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_property_access(' \
+  0 \
+  'property-access lowering outside child module'
+require_fixed_string_count \
+  "$ir_property_access_lowering" \
+  'ValueKind::Number => {' \
+  1 \
+  'explicit Number property-access arm'
+if grep -Fq '_ => self.unsupported_expr("property access on non-object target")' "$ir_property_access_lowering"; then
+  fail "$ir_property_access_lowering must exhaust ValueKind instead of hiding future variants behind a catch-all"
+fi
+check_no_inline_legacy_includes "$ir_property_access_lowering"
+# Measured after formatting the extraction: 223 raw lines. The margin is for
+# maintenance of property-access lowering only.
+check_raw_line_budget "$ir_property_access_lowering" 260
+# T02's call-expression boundary keeps direct-call recognition and lowering in
+# one child module. The parent owns expression dispatch and reusable helpers,
+# but cannot regrow a second implementation of its largest former method.
+ir_call_expression_lowering="crates/lila-ir/src/lowering/call_expression.rs"
+require_file "$ir_call_expression_lowering"
+require_module_decl "$ir_lowering" "call_expression"
+require_fixed_string_count \
+  "$ir_call_expression_lowering" \
+  'pub(super) fn lower_call(' \
+  1 \
+  'call-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_call(' \
+  0 \
+  'call-expression lowering body outside child module'
+check_no_inline_legacy_includes "$ir_call_expression_lowering"
+# Measured immediately after extraction: 3,144 raw lines. The margin is for
+# maintenance of the direct-call family, not unrelated lowering.
+check_raw_line_budget "$ir_call_expression_lowering" 3200
+# T02's builtin call-result boundary owns the exhaustive StandardBuiltinId
+# result analysis and its narrowly related observation updates. Construct,
+# direct-call, RegExp-literal and well-known-symbol routing remain consumers;
+# the parent orchestration file cannot regrow a second result table.
+ir_builtin_call_info_lowering="crates/lila-ir/src/lowering/builtin_call_info.rs"
+require_file "$ir_builtin_call_info_lowering"
+require_module_decl "$ir_lowering" "builtin_call_info"
+require_fixed_string_count \
+  "$ir_builtin_call_info_lowering" \
+  'pub(super) fn standard_builtin_call_info(' \
+  1 \
+  'builtin call-result analysis owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn standard_builtin_call_info(' \
+  0 \
+  'builtin call-result analysis outside child module'
+check_no_inline_legacy_includes "$ir_builtin_call_info_lowering"
+# Measured after formatting the extraction: 2,150 raw lines. The margin is for
+# maintenance of this exhaustive result table, not unrelated lowering.
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2250
+# T02's class-definition boundary keeps the complete element planning,
+# generated-function scheduling and typed ClassDefinitionIr construction in
+# one child module. The parent retains only declaration/expression
+# orchestration and cannot regrow a second copy of the implementation.
+ir_class_definition_lowering="crates/lila-ir/src/lowering/class_definition.rs"
+require_file "$ir_class_definition_lowering"
+require_module_decl "$ir_lowering" "class_definition"
+require_fixed_string_count \
+  "$ir_class_definition_lowering" \
+  'pub(super) fn lower_class_common_in_name_scope(' \
+  1 \
+  'class-definition lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_class_common_in_name_scope(' \
+  0 \
+  'class-definition lowering body outside child module'
+check_no_inline_legacy_includes "$ir_class_definition_lowering"
+# Measured immediately after extraction: 1,327 raw lines. The margin is for
+# maintenance of this class-definition family, not unrelated lowering.
+check_raw_line_budget "$ir_class_definition_lowering" 1400
+# T02's ordinary-function boundary keeps the nested-lowerer lifecycle,
+# parameter/body lowering, capture transfer, signature updates and final
+# FunctionIr assembly together. The parent owns the seven orchestration calls
+# and shared helpers used by generated iterators, class methods and object
+# methods, but cannot regrow a second ordinary-function implementation.
+ir_function_definition_lowering="crates/lila-ir/src/lowering/function_definition.rs"
+require_file "$ir_function_definition_lowering"
+require_module_decl "$ir_lowering" "function_definition"
+require_fixed_string_count \
+  "$ir_function_definition_lowering" \
+  'pub(super) fn lower_function(' \
+  1 \
+  'ordinary-function lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_function(' \
+  0 \
+  'ordinary-function lowering outside child module'
+check_no_inline_legacy_includes "$ir_function_definition_lowering"
+# Measured after formatting the extraction: 721 raw lines. The margin is for
+# maintenance of this lifecycle, not unrelated lowering.
+check_raw_line_budget "$ir_function_definition_lowering" 780
+# T02's try-statement boundary owns catch-parameter environment construction,
+# resumable entry/exit planning and final TryCatch/TryFinally IR assembly. The
+# catch and finally lifecycle records are named so their generator and async
+# states cannot be transposed through positional tuple access.
+ir_try_statement_lowering="crates/lila-ir/src/lowering/try_statement.rs"
+require_file "$ir_try_statement_lowering"
+require_module_decl "$ir_lowering" "try_statement"
+require_fixed_string_count \
+  "$ir_try_statement_lowering" \
+  'pub(super) fn lower_try(' \
+  1 \
+  'try-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_try(' \
+  0 \
+  'try-statement lowering outside child module'
+if ! grep -q '^struct LoweredCatchClause {' "$ir_try_statement_lowering" \
+  || ! grep -q '^struct LoweredFinallyClause {' "$ir_try_statement_lowering"; then
+  fail "$ir_try_statement_lowering must carry named catch/finally lifecycle records"
+fi
+if sed '/^[[:space:]]*\/\//d' "$ir_try_statement_lowering" | grep -Eq '\.[0-9]+'; then
+  fail "$ir_try_statement_lowering must not recover lifecycle state through tuple positions"
+fi
+check_no_inline_legacy_includes "$ir_try_statement_lowering"
+# Measured after formatting the extraction and named-record cleanup: 264 raw
+# lines. The margin is for maintenance of try-statement lowering only.
+check_raw_line_budget "$ir_try_statement_lowering" 320
+# T02's throw-inference boundary owns the complete recursive statement,
+# expression and property-key analysis closure. Only block inference crosses
+# the private boundary for try-statement lowering; shared value/type algebra
+# remains with its existing owners.
+ir_throw_inference_lowering="crates/lila-ir/src/lowering/throw_inference.rs"
+require_file "$ir_throw_inference_lowering"
+require_exact_line_count \
+  "$ir_lowering" \
+  'mod throw_inference;' \
+  1 \
+  'private throw-inference module declaration'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+infer_block_throw_info[[:space:]]*\(' \
+  1 \
+  'block throw-inference entry point'
+for private_owner in \
+  merge_optional_value_info \
+  infer_statement_throw_info \
+  infer_expr_throw_info \
+  infer_expr_operand_throw_info \
+  infer_property_key_throw_info
+do
+  require_regex_count \
+    "$ir_throw_inference_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${private_owner}[[:space:]]*[<(]" \
+    1 \
+    "private ${private_owner} owner"
+done
+for throw_owner in \
+  merge_optional_value_info \
+  infer_block_throw_info \
+  infer_statement_throw_info \
+  infer_expr_throw_info \
+  infer_expr_operand_throw_info \
+  infer_property_key_throw_info
+do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${throw_owner}[[:space:]]*[<(]" \
+    0 \
+    "${throw_owner} outside throw-inference child"
+done
+# Five private methods plus the reviewed pub(super) entry point are the entire
+# child method surface. Count modifier-qualified declarations as well, so a
+# const/async/unsafe/extern/default helper cannot evade the closed owner set.
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*fn[[:space:]]+' \
+  5 \
+  'private method'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  6 \
+  'total function declaration'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+require_fixed_string_count \
+  "$ir_try_statement_lowering" \
+  'infer_block_throw_info' \
+  1 \
+  'throw-inference identifier use'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'infer_block_throw_info' \
+  0 \
+  'throw-inference identifier use outside child module'
+while IFS= read -r caller; do
+  case "$caller" in
+    "$ir_throw_inference_lowering"|"$ir_try_statement_lowering") continue ;;
+  esac
+  if grep -Fq 'infer_block_throw_info' "$caller"; then
+    fail "unexpected infer_block_throw_info identifier use: $caller"
+  fi
+done < <(find crates/lila-ir/src/lowering -type f -name '*.rs' -print)
+for shared_parent_owner in \
+  merge_value_infos \
+  resolve_single_function_target \
+  object_like_kind_set
+do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    1 \
+    "parent-owned shared ${shared_parent_owner} helper"
+  require_regex_count \
+    "$ir_throw_inference_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_parent_owner} helper copied into throw-inference owner"
+done
+require_regex_count \
+  "$ir_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+unknown_runtime_value_info[[:space:]]*[<(]' \
+  1 \
+  'parent-owned unknown-runtime helper'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+unknown_runtime_value_info[[:space:]]*[<(]' \
+  0 \
+  'unknown-runtime helper copied into throw-inference owner'
+for shared_owner_spec in \
+  'crates/lila-ir/src/lowering/builtin_shapes.rs:standard_error_instance_info' \
+  'crates/lila-ir/src/reference.rs:carried_put_value_failure'
+do
+  shared_owner_file="${shared_owner_spec%%:*}"
+  shared_owner_name="${shared_owner_spec##*:}"
+  require_regex_count \
+    "$shared_owner_file" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_owner_name}[[:space:]]*[<(]" \
+    1 \
+    "shared ${shared_owner_name} helper owner"
+  require_regex_count \
+    "$ir_throw_inference_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${shared_owner_name}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_owner_name} helper copied into throw-inference owner"
+done
+require_regex_count \
+  "crates/lila-ir/src/reference.rs" \
+  '^[[:space:]]*pub[[:space:]]+enum[[:space:]]+PutValueFailure([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'closed PutValueFailure owner'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?((unsafe|auto)[[:space:]]+)*(struct|enum|union|type|trait)[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*([[:space:]]|<|\{|\(|=|;|:)' \
+  0 \
+  'local type or trait declaration'
+# This owner needs no textual runtime data. Keeping non-line-comment block
+# comments and string literals out also makes the executable shape checks below
+# immune to code-looking text in /* ... */ or raw/multiline strings.
+throw_non_line_comment_source="$(sed '/^[[:space:]]*\/\//d' "$ir_throw_inference_lowering")"
+if printf '%s\n' "$throw_non_line_comment_source" | grep -Eq '/\*|\*/|"'; then
+  fail "$ir_throw_inference_lowering must express throw analysis through typed values, not block comments or string literals"
+fi
+# A catch-all silently converts the closed IR/type algebra back into an open
+# domain. Inspect each match-arm prefix, including inline and parenthesized
+# arms, and every top-level or-pattern alternative. Guarded bindings are not
+# catch-alls; `true` and `false` are exhaustive values rather than bindings.
+throw_catch_all_arms="$(awk '
+  function trim(value) {
+    sub(/^[[:space:]]+/, "", value)
+    sub(/[[:space:]]+$/, "", value)
+    return value
+  }
+  function unparen(atom) {
+    atom = trim(atom)
+    while (atom ~ /^\(.*\)$/) {
+      atom = trim(substr(atom, 2, length(atom) - 2))
+    }
+    return atom
+  }
+  function is_binding(atom) {
+    atom = unparen(atom)
+    if (atom == "true" || atom == "false") {
+      return 0
+    }
+    return atom ~ /^(&[[:space:]]*(mut[[:space:]]+)?)?((ref[[:space:]]+mut|ref|mut)[[:space:]]+)?(r#)?[a-z][[:alnum:]_]*$/
+  }
+  function is_simple_catch_all(atom) {
+    atom = unparen(atom)
+    if (atom == "_" || atom == "..") {
+      return 1
+    }
+    return is_binding(atom)
+  }
+  function is_catch_all(atom, inner, parts, count, part_index, at, binding, pattern) {
+    atom = trim(atom)
+    if (atom ~ /^\(.*\)$/) {
+      inner = trim(substr(atom, 2, length(atom) - 2))
+      if (inner ~ /,/) {
+        count = split(inner, parts, /,/)
+        for (part_index = 1; part_index <= count; part_index += 1) {
+          if (!is_simple_catch_all(parts[part_index])) {
+            return 0
+          }
+        }
+        return count > 1
+      }
+      atom = inner
+    }
+    if ((at = index(atom, "@")) != 0) {
+      binding = trim(substr(atom, 1, at - 1))
+      pattern = unparen(substr(atom, at + 1))
+      if (!is_binding(binding)) {
+        return 0
+      }
+      count = split(pattern, parts, /\|/)
+      for (part_index = 1; part_index <= count; part_index += 1) {
+        if (is_simple_catch_all(parts[part_index])) {
+          return 1
+        }
+      }
+      return 0
+    }
+    count = split(atom, parts, /\|/)
+    for (part_index = 1; part_index <= count; part_index += 1) {
+      if (is_simple_catch_all(parts[part_index])) {
+        return 1
+      }
+    }
+    return 0
+  }
+  {
+    rest = $0
+    sub(/[[:space:]]*\/\/.*$/, "", rest)
+    while ((arrow = index(rest, "=>")) != 0) {
+      prefix = substr(rest, 1, arrow - 1)
+      start = 0
+      paren_depth = 0
+      bracket_depth = 0
+      brace_depth = 0
+      for (i = length(prefix); i >= 1; i -= 1) {
+        delimiter = substr(prefix, i, 1)
+        if (delimiter == ")") {
+          paren_depth += 1
+        } else if (delimiter == "(" && paren_depth > 0) {
+          paren_depth -= 1
+        } else if (delimiter == "]") {
+          bracket_depth += 1
+        } else if (delimiter == "[" && bracket_depth > 0) {
+          bracket_depth -= 1
+        } else if (delimiter == "}") {
+          brace_depth += 1
+        } else if (delimiter == "{" && brace_depth > 0) {
+          brace_depth -= 1
+        } else if (paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 \
+            && (delimiter == "{" || delimiter == ",")) {
+          start = i
+          break
+        }
+      }
+      arm = trim(substr(prefix, start + 1))
+      if (arm !~ /[[:space:]]if[[:space:]]/ && is_catch_all(arm)) {
+        print NR ":" arm
+      }
+      rest = substr(rest, arrow + 2)
+    }
+  }
+' "$ir_throw_inference_lowering")"
+if [ -n "$throw_catch_all_arms" ]; then
+  fail "$ir_throw_inference_lowering must keep every match exhaustive without catch-all arms"
+fi
+require_fixed_string_count \
+  "$ir_throw_inference_lowering" \
+  'unreachable!' \
+  0 \
+  'unreachable escape hatch'
+require_fixed_string_count \
+  "$ir_throw_inference_lowering" \
+  'macro_rules!' \
+  0 \
+  'local macro definition'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^(    )?(::[[:space:]]*)?((r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*::[[:space:]]*)*(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*!' \
+  0 \
+  'module-or-impl-level generated helper invocation'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*let[[:space:]]+strict_put_value_throw[[:space:]]*=[[:space:]]*match[[:space:]]+carried_put_value_failure\(&expr\.expr\)[[:space:]]*\{' \
+  1 \
+  'executable carried PutValue failure read'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*self\.infer_expr_operand_throw_info\(expr\),[[:space:]]*$' \
+  1 \
+  'executable wrapper-to-operand delegation'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*PutValueFailure::TypeErrorOnly[[:space:]]*=>[[:space:]]*type_error,[[:space:]]*$' \
+  1 \
+  'executable TypeError-only PutValue arm'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*PutValueFailure::TypeErrorOrReferenceError[[:space:]]*=>[[:space:]]*self\.merge_value_infos\([[:space:]]*$' \
+  1 \
+  'executable TypeError-or-ReferenceError PutValue arm'
+require_regex_count \
+  "$ir_throw_inference_lowering" \
+  '^[[:space:]]*Some\(\(Strictness::Sloppy, _\)\)[[:space:]]*\|[[:space:]]*None[[:space:]]*=>[[:space:]]*None,[[:space:]]*$' \
+  1 \
+  'executable sloppy-or-absent PutValue arm'
+check_no_inline_legacy_includes "$ir_throw_inference_lowering"
+# Measured after formatting the extraction: 895 raw lines. The margin is for
+# maintenance of this closed recursive analysis owner, not general lowering.
+check_raw_line_budget "$ir_throw_inference_lowering" 950
+# T02's static-JSON parse boundary owns only the static reviver specialization,
+# its static-string input recovery and the complete private parser. Dynamic
+# reviver target discovery/observation remains in the parent because the
+# ordinary JSON.parse path consumes it too.
+ir_static_json_parse_lowering="crates/lila-ir/src/lowering/static_json_parse.rs"
+require_file "$ir_static_json_parse_lowering"
+require_exact_line_count \
+  "$ir_lowering" \
+  'mod static_json_parse;' \
+  1 \
+  'private static-JSON parse module declaration'
+require_regex_count \
+  "$ir_lowering" \
+  '^(pub(\([^)]*\))?[[:space:]]+)?mod[[:space:]]+static_json_parse;' \
+  1 \
+  'total static-JSON parse module declaration'
+static_json_module_context="$(sed -n '/^mod statement;$/,+2p' "$ir_lowering")"
+if [ "$static_json_module_context" != $'mod statement;\nmod static_json_parse;\nmod super_property_mutation;' ]; then
+  fail "$ir_lowering must keep static_json_parse as one private module declaration between statement and super_property_mutation"
+fi
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  'use super::*;' \
+  1 \
+  'parent import'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+try_lower_static_json_parse_reviver[[:space:]]*\(' \
+  1 \
+  'static JSON.parse specialization entry point'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*fn[[:space:]]+static_json_parse_input[[:space:]]*\(' \
+  1 \
+  'private static JSON.parse input recovery'
+for moved_owner in try_lower_static_json_parse_reviver static_json_parse_input; do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${moved_owner}[[:space:]]*[<(]" \
+    0 \
+    "${moved_owner} outside static-JSON parse child"
+  require_tree_regex_count \
+    'crates/lila-ir/src' \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${moved_owner}[[:space:]]*[<(]" \
+    1 \
+    "sole ${moved_owner} owner"
+done
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  "^[[:space:]]*struct[[:space:]]+JsonStaticParser<'a>[[:space:]]*\\{" \
+  1 \
+  'private static-JSON parser type'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  "^[[:space:]]*impl<'a>[[:space:]]+JsonStaticParser<'a>[[:space:]]*\\{" \
+  1 \
+  'private static-JSON parser implementation'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  "^[[:space:]]*impl<'a>[[:space:]]+ScriptLowerer<'a>[[:space:]]*\\{" \
+  1 \
+  'ScriptLowerer static-JSON implementation'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*((default|const|unsafe)[[:space:]]+)*impl([[:space:]]|<)' \
+  2 \
+  'total inherent implementation block'
+static_json_lowerer_impl="$(sed -n "/^impl<'a> ScriptLowerer<'a> {$/,/^}$/p" "$ir_static_json_parse_lowering")"
+static_json_parser_impl="$(sed -n "/^impl<'a> JsonStaticParser<'a> {$/,/^}$/p" "$ir_static_json_parse_lowering")"
+require_text_regex_count \
+  "$static_json_lowerer_impl" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+try_lower_static_json_parse_reviver[[:space:]]*\(' \
+  1 \
+  'ScriptLowerer specialization entry point'
+require_text_regex_count \
+  "$static_json_lowerer_impl" \
+  '^[[:space:]]*fn[[:space:]]+static_json_parse_input[[:space:]]*\(' \
+  1 \
+  'ScriptLowerer static-input helper'
+require_text_regex_count \
+  "$static_json_lowerer_impl" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  2 \
+  'total ScriptLowerer function declaration'
+for parser_method in \
+  new \
+  parse \
+  parse_value \
+  parse_array \
+  parse_object \
+  parse_string_literal \
+  parse_number \
+  consume_keyword \
+  consume_byte \
+  peek_byte \
+  skip_ws
+do
+  require_text_regex_count \
+    "$static_json_parser_impl" \
+    "^[[:space:]]*fn[[:space:]]+${parser_method}[[:space:]]*[<(]" \
+    1 \
+    "private JsonStaticParser::${parser_method} method"
+done
+require_text_regex_count \
+  "$static_json_parser_impl" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  11 \
+  'total JsonStaticParser function declaration'
+# The static input helper plus eleven parser methods are private; the one
+# specialization entry point is the entire Rust-visible child surface. The
+# modifier-aware total prevents const/async/unsafe/extern/default additions
+# from evading the closed inventory.
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*fn[[:space:]]+' \
+  12 \
+  'private function'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  13 \
+  'total function declaration'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?((unsafe|auto)[[:space:]]+)*(struct|enum|union|type|trait)[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'local type or trait declaration'
+require_regex_count \
+  "$ir_lowering" \
+  "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?struct[[:space:]]+JsonStaticParser([[:space:]]|<|\\{|\\(|=|;|:)" \
+  0 \
+  'static-JSON parser type outside child'
+require_tree_regex_count \
+  'crates/lila-ir/src' \
+  "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?struct[[:space:]]+JsonStaticParser([[:space:]]|<|\\{|\\(|=|;|:)" \
+  1 \
+  'static-JSON parser type owner'
+require_tree_regex_count \
+  'crates/lila-ir/src' \
+  "^[[:space:]]*impl<'a>[[:space:]]+JsonStaticParser<'a>[[:space:]]*\\{" \
+  1 \
+  'static-JSON parser implementation owner'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?enum[[:space:]]+JsonStaticValueIr([[:space:]]|<|\{|\(|=|;|:)' \
+  0 \
+  'JsonStaticValueIr type copied into static-JSON parse child'
+require_tree_regex_count \
+  'crates/lila-ir/src' \
+  '^[[:space:]]*pub[[:space:]]+enum[[:space:]]+JsonStaticValueIr([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'shared JsonStaticValueIr owner'
+for retained_owner in known_json_parse_reviver_targets observe_json_parse_reviver_targets; do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${retained_owner}[[:space:]]*[<(]" \
+    1 \
+    "parent-owned ${retained_owner} helper"
+  require_regex_count \
+    "$ir_static_json_parse_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${retained_owner}[[:space:]]*[<(]" \
+    0 \
+    "${retained_owner} helper copied into static-JSON parse child"
+  require_tree_regex_count \
+    'crates/lila-ir/src' \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${retained_owner}[[:space:]]*[<(]" \
+    1 \
+    "${retained_owner} helper owner"
+done
+require_exact_line_count \
+  "$ir_lowering" \
+  '            let reviver_targets = self.known_json_parse_reviver_targets(&lowered_args);' \
+  1 \
+  'dynamic JSON.parse target discovery'
+require_exact_line_count \
+  "$ir_lowering" \
+  '            self.observe_json_parse_reviver_targets(reviver_targets);' \
+  1 \
+  'dynamic JSON.parse target observation'
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  '        let input = self.static_json_parse_input(&args[0])?;' \
+  1 \
+  'static JSON.parse input recovery'
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  '        let parsed_value = JsonStaticParser::new(&input).parse()?;' \
+  1 \
+  'static JSON.parse parser invocation'
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  '        if self.known_json_parse_reviver_targets(args).is_empty() {' \
+  1 \
+  'static JSON.parse known-target proof'
+require_fixed_string_count \
+  "$ir_static_json_parse_lowering" \
+  'observe_json_parse_reviver_targets' \
+  0 \
+  'dynamic target observation copied into static-JSON parse child'
+require_exact_line_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  '                        self.try_lower_static_json_parse_reviver(&function_id, &args)' \
+  1 \
+  'direct-function static JSON.parse sibling call'
+require_exact_line_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  '            self.try_lower_static_json_parse_reviver(&effective_function_id, &args)' \
+  1 \
+  'effective-function static JSON.parse sibling call'
+require_regex_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  '^[[:space:]]*self\.try_lower_static_json_parse_reviver[[:space:]]*\(' \
+  2 \
+  'total static JSON.parse sibling call'
+require_fixed_string_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  'try_lower_static_json_parse_reviver' \
+  2 \
+  'static JSON.parse sibling-call identifier use'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'try_lower_static_json_parse_reviver' \
+  0 \
+  'static JSON.parse specialization use outside child module'
+while IFS= read -r caller; do
+  case "$caller" in
+    "$ir_static_json_parse_lowering"|'crates/lila-ir/src/lowering/call_expression.rs') continue ;;
+  esac
+  if grep -Fq 'try_lower_static_json_parse_reviver' "$caller"; then
+    fail "unexpected static JSON.parse specialization use: $caller"
+  fi
+done < <(find crates/lila-ir/src/lowering -type f -name '*.rs' -print)
+require_fixed_string_count \
+  "$ir_static_json_parse_lowering" \
+  'macro_rules!' \
+  0 \
+  'local macro definition'
+static_json_compact_source="$(tr -d '[:space:]' < "$ir_static_json_parse_lowering")"
+case "$static_json_compact_source" in
+  *macro_rules\!*) fail "$ir_static_json_parse_lowering must not contain a whitespace-split macro_rules definition" ;;
+esac
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]{0,7}(::[[:space:]]*)?((r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*::[[:space:]]*)*(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*!' \
+  0 \
+  'module-or-impl-level generated helper invocation'
+check_no_inline_legacy_includes "$ir_static_json_parse_lowering"
+# Measured after formatting the exact extraction: 242 raw lines. The margin is
+# for maintenance of static JSON parsing only, not dynamic target analysis.
+check_raw_line_budget "$ir_static_json_parse_lowering" 280
 # T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
 # the ordinary and staged-generator walkers together in their child module so
 # the 32k-line orchestration boundary does not become the edit point again.
@@ -171,11 +1488,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured immediately after extraction: 31,979 raw lines. This deliberately
-# leaves only 21 lines of headroom; new builtin shape metadata belongs in the
-# child, and further lowering families should be extracted rather than growing
-# the remaining store again.
-check_raw_line_budget "$ir_lowering" 32000
+# Measured after formatting the static-JSON parse extraction: 20,748 raw lines.
+# This leaves modest orchestration headroom while preventing the former
+# 32k-line implementation store from regrowing.
+check_raw_line_budget "$ir_lowering" 21750
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.
@@ -338,7 +1654,7 @@ if [ -n "$global_section_constructor_escapes" ] \
   fail "production GlobalSection construction must stay in crates/lila-aot-wasm/src/module.rs: $global_section_constructor_escapes"
 fi
 
-for module in array bigint binary_data boolean bootstrap date errors function \
+for module in array atomics bigint binary_data boolean bootstrap date errors function \
               global_numeric host iterators json math number object proxy reflect \
               standard string symbol uri; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
@@ -351,8 +1667,8 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, Number, Function, global
-# numeric, URI, Error and JSON
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, Number, Function, Atomics,
+# global numeric, URI, Error and JSON
 # builtin body boundaries. The exhaustive StandardBuiltinId dispatch remains in
 # standard.rs, but family bodies are one-line delegates so unrelated builtin
 # work no longer collides with ~11k lines of Object descriptor/prototype
@@ -361,15 +1677,52 @@ fi
 # prototype implementation, Boolean's constructor and prototype receiver logic,
 # Number's constructor, predicates and prototype methods, Function's constructor,
 # four prototype methods and hidden bound-function invoker, the Error intrinsic
-# family, or JSON's
-# parse/stringify/raw-JSON wrappers. The two coercing global numeric predicates
+# family, the Atomics integer/wait family, or JSON's parse/stringify/raw-JSON
+# wrappers. The two coercing global numeric predicates
 # and the six global URI and Annex-B codec wrappers likewise stay out of the
 # shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured after the bound-function invoker extraction: 33,248 raw lines. This
-# leaves 212 lines of dispatch-maintenance headroom; substantive bodies belong
-# in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 33460
+# Measured after the Atomics extraction: 30,567 raw lines before formatting.
+# This margin is dispatch-maintenance headroom; substantive bodies belong in
+# family modules.
+check_raw_line_budget "$wasm_standard_builtins" 30800
+
+wasm_atomics_builtins="crates/lila-aot-wasm/src/builtins/atomics.rs"
+check_no_inline_legacy_includes "$wasm_atomics_builtins"
+if ! grep -q '^pub(super) enum AtomicsBuiltin' "$wasm_atomics_builtins" \
+  || ! grep -q '^enum AtomicsIntegerOperation' "$wasm_atomics_builtins" \
+  || ! grep -q '^enum AtomicsRmwOperation' "$wasm_atomics_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_atomics_builtins"; then
+  fail "$wasm_atomics_builtins must dispatch through the closed Atomics builtin/integer/RMW domains"
+fi
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  'self.emit_atomics_builtin(' \
+  14 \
+  'Atomics builtin delegate'
+require_fixed_string_count \
+  "$wasm_atomics_builtins" \
+  'pub(super) fn emit_atomics_bigint_element_kind_i32(' \
+  1 \
+  'cross-family TypedArray BigInt-kind predicate'
+require_fixed_string_count \
+  "$wasm_atomics_builtins" \
+  'pub(crate) fn emit_drain_atomics_wait_async_timeouts(' \
+  1 \
+  'event-loop Atomics waiter drain hook'
+require_fixed_string_count \
+  "$wasm_atomics_builtins" \
+  'pub(crate) fn emit_poll_atomics_wait_async_timeouts(' \
+  1 \
+  'promise-checkpoint Atomics waiter poll hook'
+if grep -q 'StandardBuiltinId::' "$wasm_atomics_builtins"; then
+  fail "$wasm_atomics_builtins must accept only its closed family domains, not StandardBuiltinId"
+fi
+if grep -Eq '^[[:space:]]*_ =>|unreachable!\(' "$wasm_atomics_builtins"; then
+  fail "$wasm_atomics_builtins must keep family matches exhaustive without catch-all arms"
+fi
+# Measured immediately after extraction: 2,767 raw lines before formatting.
+check_raw_line_budget "$wasm_atomics_builtins" 2850
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"

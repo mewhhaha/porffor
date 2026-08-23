@@ -1,5 +1,185 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 delete-reference amendment
+
+T07's current fixed-message batch splits the strict-mode delete early error
+by its two disjoint operand families:
+`StrictModeDeleteIdentifierReference` and
+`StrictModeDeletePrivateReference`. The normative source of truth is:
+
+`docs/rust-rewrite/contracts/delete-reference-early-errors.md`
+
+Pinned Boa has one adjacent producer for each complete rendered prefix,
+`cannot delete variables in strict mode at line` and
+`cannot delete private fields at line`. Review found that the private branch
+began by incorrectly omitting the shared strictness guard and the two
+current-spec OptionalChain private endings. The vendored repair keeps recursive
+parenthesis flattening, gates both families on strictness, and exhaustively
+classifies the final optional operation. The implementation extends the
+domain from **53** to **55** variants and the parse-failure table from **52** to
+**54** rows.
+
+The exact pinned cohorts contain 194 physical files: two `onlyStrict`
+identifier-reference files and 192 generated class files with no execution-mode
+flag. They expand to 386 Wasm-AOT executions. Permanent source
+witnesses additionally cover the current-spec optional-chain shapes absent from
+that pinned delete cohort. A rejected dependency retained by `ModuleSourceIr`
+is projected through `build_graph`. The capped serial front, early-module,
+retained-graph and focused IR gates pass `89/89`, `38/38`, `1/1` and `3/3`;
+`cargo xc` and the release CLI build are green; and the exact cohort passes
+`386/386` with every failure and non-success bucket at zero. There is no focused
+pre-change snapshot, so this is bounded no-regression rather than a pass-gain
+claim.
+
+## 2026-08-23 callable non-simple-parameters `ContainsUseStrict` amendment
+
+T07 now classifies the one shared callable early-error condition where a body's
+`ContainsUseStrict` result is true and its parameter list is non-simple. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/callable-non-simple-parameters-contain-use-strict-early-errors.md`
+
+Three landed parser-shape repairs make that classification honest: private
+getters require `()`, class setters accept exactly one non-rest parameter, and
+the binding-identifier arrow parser no longer retains an impossible non-simple
+list branch. The closed domain has **53** variants and the parse-failure table
+**52** rows. The exact 110-file cohort passes all **220** sloppy/strict Wasm-AOT
+executions; this is bounded no-regression evidence, not a measured pass gain.
+
+## 2026-08-23 callable-parameter containment closure amendment
+
+This batch completes the currently enumerated callable-parameter
+`Contains YieldExpression` / `Contains AwaitExpression` matrix with two shared
+arrow conditions and two repaired async callable conditions. The normative
+extensions are:
+
+- `docs/rust-rewrite/contracts/arrow-parameters-contain-yield-await-early-errors.md`
+- `docs/rust-rewrite/contracts/async-function-expression-and-method-parameters-contain-await-early-errors.md`
+
+The domain has **52** variants and the one parse-failure table has **51** rows.
+Three narrow vendored-parser repairs preserve async-arrow Yield grammar and add
+the missing async-function-expression / async-method Await containment checks.
+This is bounded matrix closure, not T07 or aggregate parser closure.
+
+## 2026-08-23 async-declaration parameter-await amendment
+
+T07 classifies Boa's exact shared fixed-message rejection when an async or
+async-generator declaration's FormalParameters Contains AwaitExpression. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/async-declaration-parameters-contain-await-early-errors.md`
+
+Together with the generator-method parameter-containment batch below, the
+domain has **48** variants and the one parse-failure table has **46** rows.
+Expression and method forms retain their distinct pinned producers.
+
+## 2026-08-23 generator-method parameter-containment amendment
+
+T07 classifies Boa's three exact fixed-message rejections for generator-method
+parameter `Contains YieldExpression` / `Contains AwaitExpression` conditions.
+The normative extension is:
+
+`docs/rust-rewrite/contracts/generator-method-parameters-contain-yield-await-early-errors.md`
+
+The method batch adds three distinct typed conditions: ordinary-generator
+yield, async-generator yield and async-generator await. Declaration and
+expression forms retain their own producer-owned codes.
+
+## 2026-08-23 async-generator-expression parameter-await amendment
+
+T07 now classifies Boa's exact fixed-message rejection when an async-generator
+expression's FormalParameters Contains AwaitExpression. The normative extension
+is:
+
+`docs/rust-rewrite/contracts/async-generator-expression-parameters-contain-await-early-errors.md`
+
+The domain has **44** variants and the one parse-failure table has **42** rows.
+The yield sibling, declaration forms and methods retain their distinct pinned
+producers.
+
+## 2026-08-23 async-generator-expression parameter-yield amendment
+
+T07 now classifies Boa's exact fixed-message rejection when an async-generator
+expression's FormalParameters Contains YieldExpression. The normative extension
+is:
+
+`docs/rust-rewrite/contracts/async-generator-expression-parameters-contain-yield-early-errors.md`
+
+The domain has **43** variants and the one parse-failure table has **41** rows.
+The adjacent AwaitExpression condition and other generator forms retain their
+distinct pinned producers.
+
+## 2026-08-23 generator-expression parameter-yield amendment
+
+T07 now classifies Boa's exact fixed-message rejection when an ordinary
+generator expression's FormalParameters Contains YieldExpression. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/generator-expression-parameters-contain-yield-early-errors.md`
+
+The domain has **42** variants and the one parse-failure table has **40** rows.
+Generator declarations, async-generator expressions and methods retain their
+distinct pinned producers.
+
+## 2026-08-23 generator-declaration parameter-yield amendment
+
+T07 now classifies Boa's exact fixed-message rejection when an ordinary or
+async generator declaration's FormalParameters Contains YieldExpression. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/generator-declaration-parameters-contain-yield-early-errors.md`
+
+The domain has **41** variants and the one parse-failure table has **39** rows.
+Generator expressions and methods remain separate because their pinned parser
+producers use distinct messages.
+
+## 2026-08-23 switch-clause using-declaration amendment
+
+T07 now classifies Boa's exact fixed-message rejection for a direct `using` or
+`await using` declaration in a CaseClause or DefaultClause StatementList. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/switch-clause-using-declaration-early-errors.md`
+
+The domain has **40** variants and the one parse-failure table has **38** rows.
+Nested declaration boundaries and direct `let`/`const` clause declarations stay
+parse-valid under both goals.
+
+## 2026-08-23 for-in using-declaration amendment
+
+T07 now classifies Boa's exact fixed-message rejection for `using` or
+`await using` in a `for-in` head. The normative extension is:
+
+`docs/rust-rewrite/contracts/for-in-using-declaration-early-errors.md`
+
+The domain has **39** variants and the one parse-failure table has **37** rows.
+The `for-of`, ordinary lexical `for-in`, and classic-for grammar siblings stay
+parse-valid under both goals.
+
+## 2026-08-23 Script top-level using-declaration amendment
+
+T07 now classifies Boa's exact fixed-position post-parse rejection for a
+top-level Script `using` declaration. The normative extension is:
+
+`docs/rust-rewrite/contracts/script-top-level-using-declaration-early-errors.md`
+
+The domain has **38** variants and the one parse-failure table has **36** rows.
+Nested Script statement-list boundaries and top-level Module declarations stay
+parse-valid. Pinned Boa's earlier ordinary parse rejection for top-level Script
+`await using` is deliberately not relabeled through the fragment classifier.
+
+## 2026-08-22 class-field `ContainsArguments` amendment
+
+T07 now classifies Boa's exact shared rejection for an `arguments` reference in
+a public/private, instance/static, or auto-accessor field initializer. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/class-field-contains-arguments-early-errors.md`
+
+The domain has **29** variants and the one parse-failure table has **27** rows.
+Source witnesses preserve traversal through arrows and the stop at ordinary
+function and method boundaries. Direct-eval source remains T13 debt.
+
 ## 2026-08-20 remaining class-constructor restriction amendment
 
 T07 now classifies the four exact Boa rejections for a non-static async method,

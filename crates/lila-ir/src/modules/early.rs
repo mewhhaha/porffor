@@ -36,7 +36,7 @@ use crate::*;
 /// link-only code here (`ModuleMissingExport`, say) fails to build rather than
 /// reporting a `resolution`-kind condition from a `ParseModule`-stage producer.
 /// That closes the call-site half of MC4 — assertion P7 constrains what the
-/// fragment table can yield, not what a producer can say.
+/// message-pattern table can yield, not what a producer can say.
 const DUPLICATE_EXPORT: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateExport);
 const UNDECLARED_EXPORT: ParseClassified =
@@ -116,7 +116,7 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
 /// Maps a retained failed module parse into an IR diagnostic.
 ///
 /// The classification itself is `lila_front::classify_parse_failure`, the
-/// **one** fragment table in this workspace. This module used to carry a second
+/// **one** message-pattern table in this workspace. This module used to carry a second
 /// copy of it, keyed to the same boa messages and maintained by hand alongside
 /// the copy in `lila-front`; the two had drifted in both directions by the
 /// time they were merged. See
@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(module_early_errors(&record), Vec::new());
     }
 
-    /// Every witness of every row of the one fragment table crosses the typed
+    /// Every witness of every row of the one message-pattern table crosses the typed
     /// front-end-to-IR diagnostic boundary without changing its condition.
     #[test]
     fn boa_static_semantics_messages_classify_as_syntax_errors() {
@@ -303,8 +303,28 @@ mod tests {
                 EarlyErrorCode::ObjectDuplicateProto,
             ),
             (
+                "invalid object literal in script statement list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
+                "invalid object literal in function statement list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
+                "invalid object literal in module item list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
+                "invalid object literal in class static block statement list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
                 "exported name `x` declared multiple times",
                 EarlyErrorCode::ModuleDuplicateExport,
+            ),
+            (
+                "duplicate import attribute key at line 1, col 1",
+                EarlyErrorCode::ModuleDuplicateImportAttributeKey,
             ),
             (
                 "could not find the exported binding `x` in the declared names of the module",
@@ -343,6 +363,10 @@ mod tests {
                 EarlyErrorCode::DuplicateFormalParameter,
             ),
             (
+                "Illegal 'use strict' directive in function with non-simple parameter list at line 1, col 1",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
                 "duplicate catch parameter identifier",
                 EarlyErrorCode::DuplicateCatchParameter,
             ),
@@ -375,8 +399,44 @@ mod tests {
                 EarlyErrorCode::ClassPrivateConstructorName,
             ),
             (
+                "class may not have static method definitions named 'prototype'",
+                EarlyErrorCode::ClassStaticMethodPrototypeName,
+            ),
+            (
+                "private identifier has already been declared",
+                EarlyErrorCode::ClassDuplicatePrivateName,
+            ),
+            (
+                "class may not have field definitions named 'constructor'",
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                "class may not have static field definitions named 'constructor' or 'prototype'",
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+            (
                 "'arguments' not allowed in class static block",
                 EarlyErrorCode::ClassStaticBlockContainsArguments,
+            ),
+            (
+                "invalid await usage at line 1, col 1",
+                EarlyErrorCode::ClassStaticBlockContainsAwait,
+            ),
+            (
+                "'arguments' not allowed in class field definition",
+                EarlyErrorCode::ClassFieldContainsArguments,
+            ),
+            (
+                "with statement not allowed in strict mode",
+                EarlyErrorCode::StrictModeWithStatement,
+            ),
+            (
+                "cannot delete variables in strict mode at line 1, col 1",
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                "cannot delete private fields at line 1, col 1",
+                EarlyErrorCode::StrictModeDeletePrivateReference,
             ),
             (
                 "module cannot contain `super` on the top-level",
@@ -385,6 +445,104 @@ mod tests {
             (
                 "module cannot contain `new.target` on the top-level",
                 EarlyErrorCode::ModuleTopLevelNewTarget,
+            ),
+            (
+                "invalid new.target usage at line 1, col 1",
+                EarlyErrorCode::ScriptTopLevelNewTarget,
+            ),
+            // Projection-only witness: this message is Script-owned. The real
+            // Module and retained-graph controls below keep ModuleTopLevelSuper.
+            (
+                "invalid super usage at line 1, col 1",
+                EarlyErrorCode::ScriptTopLevelSuper,
+            ),
+            (
+                "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
+                EarlyErrorCode::ScriptTopLevelUsingDeclaration,
+            ),
+            (
+                "For loop initializer declared in loop body at line 1, col 1",
+                EarlyErrorCode::ForHeadBodyDeclarationConflict,
+            ),
+            (
+                "For loop initializer cannot contain duplicate identifiers at line 1, col 1",
+                EarlyErrorCode::ForDeclarationDuplicateBoundName,
+            ),
+            (
+                "'let' is disallowed as a lexically bound name at line 1, col 1",
+                EarlyErrorCode::LexicalBoundNameLet,
+            ),
+            (
+                "Cannot use 'let' as a lexically bound name at line 1, col 1",
+                EarlyErrorCode::LexicalBoundNameLet,
+            ),
+            (
+                "using declarations are not allowed in for-in loop heads at line 1, col 1",
+                EarlyErrorCode::ForInUsingDeclaration,
+            ),
+            (
+                "`using` declarations are not allowed in this statement list at line 1, col 1",
+                EarlyErrorCode::SwitchClauseUsingDeclaration,
+            ),
+            (
+                "invalid yield usage in generator function parameters at line 1, col 1",
+                EarlyErrorCode::GeneratorDeclarationParametersContainYield,
+            ),
+            (
+                "invalid await usage in generator function parameters at line 1, col 1",
+                EarlyErrorCode::AsyncDeclarationParametersContainAwait,
+            ),
+            (
+                "generator expression cannot contain yield expression in parameters at line 1, col 1",
+                EarlyErrorCode::GeneratorExpressionParametersContainYield,
+            ),
+            (
+                "yield expression not allowed in async generator expression parameters at line 1, col 1",
+                EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield,
+            ),
+            (
+                "await expression not allowed in async generator expression parameters at line 1, col 1",
+                EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait,
+            ),
+            (
+                "yield expression not allowed in generator method definition parameters at line 1, col 1",
+                EarlyErrorCode::GeneratorMethodParametersContainYield,
+            ),
+            (
+                "yield expression not allowed in async generator method definition parameters at line 1, col 1",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainYield,
+            ),
+            (
+                "await expression not allowed in async generator method definition parameters at line 1, col 1",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
+            ),
+            (
+                "yield expression is not allowed in formal parameter list of arrow function at line 1, col 1",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "Yield expression not allowed in this context at line 1, col 1",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "Await expression not allowed in this context at line 1, col 1",
+                EarlyErrorCode::ArrowParametersContainAwait,
+            ),
+            (
+                "await expression not allowed in async function expression parameters at line 1, col 1",
+                EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait,
+            ),
+            (
+                "await expression not allowed in async method definition parameters at line 1, col 1",
+                EarlyErrorCode::AsyncMethodParametersContainAwait,
+            ),
+            (
+                "Invalid tagged template on optional chain at line 1, col 1",
+                EarlyErrorCode::OptionalChainTaggedTemplate,
+            ),
+            (
+                "invalid `import.meta` expression outside a module at line 1, col 1",
+                EarlyErrorCode::ImportMetaOutsideModule,
             ),
             (
                 "invalid private identifier usage",
@@ -511,6 +669,37 @@ mod tests {
     }
 
     #[test]
+    fn class_owned_super_call_module_parses_map_to_distinct_early_syntax_errors() {
+        for (source, code) in [
+            (
+                "class C { constructor() { super(); } }",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+            (
+                "class C { static { super(); } }",
+                EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("the class-owned SuperCall condition should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
+            assert_eq!(diagnostic.code(), Some(code), "{source:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source:?}"
+            );
+            let span = diagnostic
+                .span
+                .expect("the class-owned rejection must retain its source span");
+            assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
     fn class_constructor_generator_module_parse_maps_to_an_early_syntax_error() {
         let error = lila_front::parse(
             "class C { async *constructor() {} }",
@@ -566,6 +755,69 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_class_private_name_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export default class { #x; static #x() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a class may not declare the same private name twice");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassDuplicatePrivateName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_field_literal_name_module_parse_maps_to_early_syntax_errors() {
+        for (source, code) in [
+            (
+                r#"export default class { accessor "constructor"; }"#,
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                r#"export default class { static accessor "prototype" = 1; }"#,
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a forbidden literal class-field name should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
+            assert_eq!(diagnostic.code(), Some(code), "{source:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source:?}"
+            );
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn strict_mode_with_statement_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse("with ({}) {}", lila_front::ParseOptions::module())
+            .expect_err("Module code is strict without a directive");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::StrictModeWithStatement)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
     fn class_static_block_arguments_module_parse_maps_to_an_early_syntax_error() {
         let error = lila_front::parse(
             "class C { static { arguments; } }",
@@ -579,6 +831,72 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::ClassStaticBlockContainsArguments)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_static_block_await_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export async function outer() { class C { static { await 0; } } }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("an AwaitExpression in a class static block should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassStaticBlockContainsAwait)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_static_method_prototype_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export default class { static async *prototype() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a literal public static prototype method should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassStaticMethodPrototypeName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_static_method_prototype_positive_module_names_remain_valid() {
+        lila_front::parse(
+            "export default class { prototype() {} static ['prototype']() {} static #prototype() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect("instance, computed static and private static prototype names are parse-valid");
+    }
+
+    #[test]
+    fn class_field_arguments_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export default class { static accessor #value = () => arguments; }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("lexical arguments use in a class field should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassFieldContainsArguments)
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
@@ -600,6 +918,461 @@ mod tests {
             "{diagnostic:?}"
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+    }
+
+    #[test]
+    fn object_literal_cover_initialized_name_in_a_dependency_module_is_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; ({ a = 1 });",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained ObjectLiteral CoverInitializedName should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ObjectLiteralCoverInitializedName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn optional_chain_tagged_template_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; const value = null; value?.tag`x`;",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained optional-chain tagged template should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::OptionalChainTaggedTemplate)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the projected TemplateLiteral must retain its source span");
+        assert!(span.start < span.end, "{diagnostic:?}");
+    }
+
+    #[test]
+    fn for_head_body_declaration_conflict_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; for (let x of []) { var x; }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained for-head/body declaration conflict should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ForHeadBodyDeclarationConflict)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the conflicting loop declaration must retain its source span");
+        assert!(span.start < span.end, "{diagnostic:?}");
+    }
+
+    #[test]
+    fn for_declaration_duplicate_bound_name_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; for (const { a: x, b: x } of []) {}",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained duplicate ForDeclaration BoundName should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ForDeclarationDuplicateBoundName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the duplicate loop binding must retain its source span");
+        assert!(span.start < span.end, "{diagnostic:?}");
+    }
+
+    #[test]
+    fn lexical_bound_name_let_module_parses_project_to_one_ir_early_syntax_error() {
+        for source in [
+            "export {}; const { value: let } = {};",
+            "export {}; for (using let of []) {}",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a Module lexical BoundName equal to let should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::LexicalBoundNameLet),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            let span = diagnostic
+                .span
+                .expect("the rejected lexical binding must retain its source span");
+            assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn duplicate_import_attribute_key_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            r#"export * from "./dep.mjs" with { type: "json", "type": "css" };"#,
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a repeated static import-attribute key should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ModuleDuplicateImportAttributeKey)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_keep_their_distinct_super_goal_boundary() {
+        for source in [
+            "super.value;",
+            "() => super.value;",
+            "async (value = super()) => value;",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("top-level Module super should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::ModuleTopLevelSuper),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            let span = diagnostic
+                .span
+                .expect("the fixed Module position must retain a source span");
+            assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+        }
+
+        for source in [
+            "class Base {}; export class Derived extends Base { constructor() { super(); } }",
+            "class Base {}; export class Derived extends Base { method() { return () => super.value; } }",
+        ] {
+            lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect("method-owned super should remain valid Module syntax");
+        }
+    }
+
+    #[test]
+    fn retained_modules_keep_their_distinct_new_target_goal_boundary() {
+        let error = lila_front::parse("new.target;", lila_front::ParseOptions::module())
+            .expect_err("top-level Module new.target should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ModuleTopLevelNewTarget)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+
+        for source in [
+            "export function F() { return new.target; }",
+            "export function F() { return (() => new.target)(); }",
+        ] {
+            lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect("retained function boundaries should allow lexical new.target");
+        }
+    }
+
+    #[test]
+    fn retained_modules_allow_top_level_using_declarations() {
+        for source in [
+            "using x = null; export {};",
+            "await using x = null; export {};",
+        ] {
+            lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect("top-level using declarations are valid Module syntax");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_for_in_using_declarations() {
+        for source in [
+            "export {}; for (using x in {}) {}",
+            "export async function f() { for (await using x in {}) {} }",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained Module for-in using declaration should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::ForInUsingDeclaration),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_switch_clause_using_declarations() {
+        for source in [
+            "export {}; switch (0) { case 0: using x = null; }",
+            "export async function f() { switch (0) { default: await using x = null; } }",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained Module switch-clause using declaration should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::SwitchClauseUsingDeclaration),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_generator_declaration_parameter_yield() {
+        for source in [
+            "export function* g(x = yield) {}",
+            "export default async function* (x = yield) {}",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained generator declaration parameter yield should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::GeneratorDeclarationParametersContainYield),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_generator_expression_parameter_yield() {
+        let source = "export const g = function*(x = yield) {};";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("a retained generator expression parameter yield should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::GeneratorExpressionParametersContainYield),
+            "{source:?}: {diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_classify_async_generator_expression_parameter_yield() {
+        let source = "export const g = async function*(x = yield) {};";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("a retained async generator expression parameter yield should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield),
+            "{source:?}: {diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_classify_async_generator_expression_parameter_await() {
+        let source = "export const g = async function*(x = await 1) {};";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("a retained async generator expression parameter await should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait),
+            "{source:?}: {diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_classify_async_declaration_parameter_await() {
+        for source in [
+            "export async function f(x = await 1) {}",
+            "export default async function* g(x = await 1) {}",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained async declaration parameter await should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::AsyncDeclarationParametersContainAwait),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_generator_method_parameter_contains_errors() {
+        for (source, expected) in [
+            (
+                "export const o = { *m(x = yield) {} };",
+                EarlyErrorCode::GeneratorMethodParametersContainYield,
+            ),
+            (
+                "export const o = { async *m(x = yield) {} };",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainYield,
+            ),
+            (
+                "export const o = { async *m(x = await 1) {} };",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained generator-method parameter Contains error should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(expected),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_arrow_parameter_contains_errors() {
+        for (source, expected) in [
+            (
+                "export function* outer() { (x = yield) => x; }",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "export function* outer() { async (x = yield) => x; }",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "export async function outer() { (x = await 1) => x; }",
+                EarlyErrorCode::ArrowParametersContainAwait,
+            ),
+            (
+                "export const f = async (x = await 1) => x;",
+                EarlyErrorCode::ArrowParametersContainAwait,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained arrow parameter Contains error should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(expected),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_async_expression_and_method_parameter_await() {
+        for (source, expected) in [
+            (
+                "export const f = async function(x = await 1) {};",
+                EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait,
+            ),
+            (
+                "export const o = { async m(x = await 1) {} };",
+                EarlyErrorCode::AsyncMethodParametersContainAwait,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained async callable parameter await should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(expected),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_non_simple_parameters_with_use_strict() {
+        let source = "export function f(a = 0) { 'use strict'; }";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module()).expect_err(
+            "a retained callable with non-simple parameters and a directive should fail",
+        );
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::CallableNonSimpleParametersContainUseStrict),
+            "{source:?}: {diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
     }
 
     /// Drift B2, closed. The block, switch and scope-analysis wordings for a

@@ -86,10 +86,11 @@ enclosing `]`, checks range bounds and operators, and applies the negated-class
 early error.
 
 After those checks, a valid direct `\q` expression becomes a finite matcher
-atom. Unicode properties of strings and direct-`\q` expressions under `iv`
-remain distinct typed capability markers; they are not conflated with the
-finite atom or with one another. The exact finite algebra and matcher ordering
-are governed by `regexp-unicode-set-finite-string-algebra.md`.
+atom. Unicode properties of strings without exact finite tables and direct-`\q`
+expressions under `iv` remain distinct typed capability markers; they are not
+conflated with the finite atom or with one another. The exact finite algebra,
+the finite Unicode 17 `Emoji_Keycap_Sequence` table, and matcher ordering are
+governed by `regexp-unicode-set-finite-string-algebra.md`.
 
 Any remaining capability marker stays in the parsed term tree through the
 complete Pattern pass.
@@ -143,15 +144,18 @@ homogeneous chained intersections and homogeneous chained subtractions with
 exact resulting range sets, escaped `\&` operands, raw singleton punctuators,
 valid `\0`, and syntactically legal class-string expressions that become finite
 matcher atoms only after their enclosing class validates. Capability witnesses
-for Unicode properties of strings and direct-`\q` `iv` matching remain separate.
+for properties of strings without exact finite tables and direct-`\q` `iv`
+matching remain separate.
 
 ## Nonclaims and deferred gates
 
-This grammar seam does not itself define finite `\q` matching; that superseding
-producer contract is `regexp-unicode-set-finite-string-algebra.md`. Unicode
-properties of strings, direct-`\q` case folding under `iv`, arbitrary runtime
-pattern compilation, full UnicodeSets conformance, UTF-16 cursor behavior,
-`lastIndex`, and the RegExp object protocol remain outside this contract.
+This grammar seam does not itself define finite `\q` matching or finite
+property tables; that superseding producer contract is
+`regexp-unicode-set-finite-string-algebra.md`. Properties of strings other than
+its exact `Emoji_Keycap_Sequence` table, direct-`\q` case folding under `iv`,
+arbitrary runtime pattern compilation, full UnicodeSets conformance, UTF-16
+cursor behavior, `lastIndex`, and the RegExp object protocol remain outside
+this contract.
 
 Static freeze gates are `rustfmt --check` for the touched Rust files,
 `node --check` for the fixture, a focused source scan proving the raw string

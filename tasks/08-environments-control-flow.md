@@ -181,6 +181,91 @@ identifier/global/Object Environment, `with`, optional chains, suspended
 References and the broader update-expression subtree remain explicit
 nonclaims.
 
+Plain assignment through an ordinary property Reference now uses a focused
+staging seam. The private consuming producer plan owns one evaluated
+base/receiver, one raw referenced-name expression, the RHS and captured
+`[[Strict]]`. Its backend consumer preserves the exact lifecycle:
+base, raw key, RHS, nullish `ToObject` validation, exactly one
+`ToPropertyKey`, same-reference `[[Set]]`, strict-false routing and only then
+RHS-result publication. The durable CLI fixture makes each boundary observable
+with Proxy/accessor receiver identity, RHS-before-coercion key mutation,
+nullish and abrupt completion, exactly-once evaluation, strict and sloppy false
+Set results, and primitive receivers.
+
+The exact raw Test262 inventory is:
+
+- `language/expressions/assignment/target-member-computed-reference-null.js`;
+- `language/expressions/assignment/target-member-identifier-reference-null.js`;
+  and
+- `language/expressions/assignment/target-member-identifier-reference-undefined.js`.
+
+Each file has no explicit flags and therefore contributes sloppy and strict
+Script executions. At clean pre-batch head `eb32c63a`, the two null-base files
+were freshly `0/2` `Runtime/NotImplemented`; the undefined-base identifier file
+was `1/2`, with strict passing and sloppy reporting `Runtime/Bug`. The selected
+baseline is therefore `1/6`. The adjacent
+`target-member-computed-reference-undefined.js` and
+`target-member-computed-reference.js` controls were each `2/2`. No runner
+rewrite, matrix mask or known-failure entry owns the cohort. Post-batch
+verification is green: the workspace/all-target check in 15.18 seconds and
+cached `cargo xc` in 0.17 seconds; the focused IR invariant `1/1` in 6.85
+seconds after an 8.25-second build; the new structure executable `7/7` in 0.01
+seconds after a 20.76-second build; retained eager-compound and numeric
+structures `7/7` each in 0.22 and 0.02 seconds; and the exact Wasm CLI fixture
+`1/1` in 66.90 seconds. The selected three files now pass all `6/6` executions
+with zero unsupported, not-implemented, crash or bug outcomes, while both adjacent controls
+remain `4/4`. Focused runtime verification removed only the unsupported
+`(1).p` property-read assertion from the fixture; both primitive-assignment
+oracles remain. These focused results do not claim the broader assignment leaf.
+Destructuring assignment, `super`, private,
+identifier/global/Object Environment, `with`, optional-chain and resumable
+property References remain explicit nonclaims. The closed boundary is recorded in
+`docs/rust-rewrite/contracts/ordinary-property-plain-assignment-reference.md`.
+
+Ordinary-property `&&=`, `||=` and `??=` now have their own consuming
+Reference carrier rather than decomposing into an independent read and write.
+One lowered base/receiver and raw key flow through nullish validation, one
+`ToPropertyKey` and `[[Get]]`; the logical branch alone owns RHS evaluation and
+same-reference `[[Set]]`, and publishes the RHS only after PutValue completes
+normally. As a backend optimization, the shared state retains one boxed target
+`O` separately from the original receiver, so primitive getters and setters
+observe the primitive while Get and taken Set use the same object target and
+canonical key. Eager compound assignment and numeric update inherit that
+backend invariant through the shared GetValue transition. Possible writes also
+invalidate dependent global-property facts and Array prototype fast paths.
+
+At clean pre-batch commit `04e38f2ba`, the three exact strict
+`lgcl-{and,or,nullish}-assignment-operator-no-set-put.js` files measured `0/3`,
+all `Runtime/Bug` with `assert.throws expected an error object`. The three
+independent `lhs-before-rhs.js` files were already `6/6` across sloppy and
+strict execution. The complete selected post-batch inventory is green: all
+eight strict false-Set files pass `8/8`, the ordering controls remain `6/6`,
+and the three short-circuit controls pass `3/3`; every failure-kind and
+NotImplemented/Crash/Bug bucket is zero, with no exact runner rewrite or
+known-failure mask. Central verification passed workspace/all-target checking,
+the focused IR invariants `2/2`, the new structure executable `6/6`, the three
+affected retained structure executables `21/21`, and the Wasm lifecycle fixture
+`1/1` in `76.52s`. This is a fourteen-file, seventeen-execution Reference
+batch, not a claim that the complete logical-assignment directory or pinned
+matrix is green. The normative boundary is
+[`ordinary-property-logical-assignment-reference.md`](../docs/rust-rewrite/contracts/ordinary-property-logical-assignment-reference.md).
+
+After that checkpoint, source-only hardening widened implicit-call effect
+tracking across base, key, getter, RHS, reflective and Proxy paths; joined
+omitted hook formals with `undefined`; and replaced per-carrier copies of the
+complete source-function set with a shared immutable hook-target universe.
+The follow-up checkpoint ran under an eight-core, low-priority cgroup:
+workspace/all-target checking passed; the filtered ordinary-property IR suite
+is `49/49`; logical, plain, eager-compound and numeric-update structure suites
+are `27/27`; and the Wasm logical-assignment lifecycle fixture is `1/1`. The
+complete current logical-assignment leaf now passes `132/132`, with every
+failure phase and NotImplemented/Crash/Bug bucket at zero. One new test
+originally confused Number-or-Undefined numeric coercion with general
+string-capable addition, and one retained structure witness still expected
+alias invalidation outside the shared possible-write transaction; both tests
+were corrected to assert the actual contracts before their focused reruns
+passed.
+
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central

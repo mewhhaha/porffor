@@ -10,7 +10,7 @@ use crate::{
             AssignmentExpression, AsyncGeneratorMethod, AsyncMethod, BindingIdentifier,
             Expression as ExpressionParser, GeneratorMethod, LeftHandSideExpression, PropertyName,
         },
-        function::{FUNCTION_BREAK_TOKENS, FunctionBody, UniqueFormalParameters},
+        function::{FUNCTION_BREAK_TOKENS, FormalParameter, FunctionBody, UniqueFormalParameters},
         statement::StatementList,
     },
     source::ReadChar,
@@ -205,7 +205,7 @@ where
                 && contains(constructor, ContainsSymbol::SuperCall)
             {
                 return Err(Error::lex(LexError::Syntax(
-                    "invalid super usage".into(),
+                    "base class constructor cannot contain direct super call".into(),
                     body_start,
                 )));
             }
@@ -654,6 +654,10 @@ where
                     | Punctuator::Semicolon
             )
         );
+        let starts_constructor_method = matches!(
+            cursor.peek(1, interner).or_abrupt()?.kind(),
+            TokenKind::Punctuator(Punctuator::OpenParen)
+        );
 
         let token = cursor.peek(0, interner).or_abrupt()?.clone();
         let start_linear_span = token.linear_span();
@@ -662,7 +666,9 @@ where
 
         let position = token.span().start();
         let element = match token.kind() {
-            TokenKind::IdentifierName((Sym::CONSTRUCTOR, _)) if !r#static => {
+            TokenKind::IdentifierName((Sym::CONSTRUCTOR, _))
+                if !r#static && starts_constructor_method =>
+            {
                 cursor.advance(interner);
                 let strict = cursor.strict();
                 cursor.set_strict(true);
@@ -747,7 +753,10 @@ where
 
                     // It is a Syntax Error if ClassStaticBlockStatementList Contains SuperCall is true.
                     if contains(&statement_list, ContainsSymbol::SuperCall) {
-                        return Err(Error::general("invalid super usage", position));
+                        return Err(Error::general(
+                            "class static block cannot contain super call",
+                            position,
+                        ));
                     }
 
                     // It is a Syntax Error if ClassStaticBlockStatementList Contains await is true.
@@ -1017,7 +1026,7 @@ where
                                         function_name,
                                         Span::new((1234, 1234), (1234, 1234)),
                                     ));
-                                    let field = PrivateFieldDefinition::new(
+                                    let field = PrivateFieldDefinition::new_auto_accessor(
                                         PrivateName::new(name, name_span),
                                         Some(rhs),
                                     );
@@ -1029,7 +1038,7 @@ where
                                 }
                                 _ => {
                                     cursor.expect_semicolon("expected semicolon", interner)?;
-                                    let field = PrivateFieldDefinition::new(
+                                    let field = PrivateFieldDefinition::new_auto_accessor(
                                         PrivateName::new(name, name_span),
                                         None,
                                     );
@@ -1115,7 +1124,6 @@ where
             TokenKind::IdentifierName((Sym::GET, ContainsEscapeSequence(false))) if is_keyword => {
                 cursor.advance(interner);
                 let token = cursor.peek(0, interner).or_abrupt()?;
-                let start = token.span().start();
                 match token.kind() {
                     TokenKind::PrivateIdentifier(Sym::CONSTRUCTOR) => {
                         return Err(Error::general(
@@ -1127,26 +1135,17 @@ where
                         let name = *name;
                         let name_span = token.span();
                         cursor.advance(interner);
+                        cursor.expect(Punctuator::OpenParen, "class getter", interner)?;
+                        cursor.expect(Punctuator::CloseParen, "class getter", interner)?;
+
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let params =
-                            UniqueFormalParameters::new(false, false).parse(cursor, interner)?;
-                        let body = FunctionBody::new(false, false, "method definition")
+                        let body = FunctionBody::new(false, false, "class getter")
                             .parse(cursor, interner)?;
-
-                        // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
-                        // and IsSimpleParameterList of UniqueFormalParameters is false.
-                        if body.strict() && !params.is_simple() {
-                            return Err(Error::lex(LexError::Syntax(
-                            "Illegal 'use strict' directive in function with non-simple parameter list"
-                                .into(),
-                                start,
-                        )));
-                        }
                         cursor.set_strict(strict);
                         function::ClassElement::MethodDefinition(ClassMethodDefinition::new(
                             ClassElementName::PrivateName(PrivateName::new(name, name_span)),
-                            params,
+                            FormalParameterList::default(),
                             body,
                             MethodDefinitionKind::Get,
                             r#static,
@@ -1230,14 +1229,16 @@ where
                         cursor.advance(interner);
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let params =
-                            UniqueFormalParameters::new(false, false).parse(cursor, interner)?;
+                        cursor.expect(Punctuator::OpenParen, "class setter", interner)?;
+                        let param = FormalParameter::new(false, false).parse(cursor, interner)?;
+                        cursor.expect(Punctuator::CloseParen, "class setter", interner)?;
+                        let params = FormalParameterList::from(param);
 
-                        let body = FunctionBody::new(false, false, "method definition")
+                        let body = FunctionBody::new(false, false, "class setter")
                             .parse(cursor, interner)?;
 
                         // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
-                        // and IsSimpleParameterList of UniqueFormalParameters is false.
+                        // and IsSimpleParameterList of PropertySetParameterList is false.
                         if body.strict() && !params.is_simple() {
                             return Err(Error::lex(LexError::Syntax(
                             "Illegal 'use strict' directive in function with non-simple parameter list"
@@ -1271,13 +1272,15 @@ where
                             .parse(cursor, interner)?;
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let params =
-                            UniqueFormalParameters::new(false, false).parse(cursor, interner)?;
-                        let body = FunctionBody::new(false, false, "method definition")
+                        cursor.expect(Punctuator::OpenParen, "class setter", interner)?;
+                        let param = FormalParameter::new(false, false).parse(cursor, interner)?;
+                        cursor.expect(Punctuator::CloseParen, "class setter", interner)?;
+                        let params = FormalParameterList::from(param);
+                        let body = FunctionBody::new(false, false, "class setter")
                             .parse(cursor, interner)?;
 
                         // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
-                        // and IsSimpleParameterList of UniqueFormalParameters is false.
+                        // and IsSimpleParameterList of PropertySetParameterList is false.
                         if body.strict() && !params.is_simple() {
                             return Err(Error::lex(LexError::Syntax(
                             "Illegal 'use strict' directive in function with non-simple parameter list"

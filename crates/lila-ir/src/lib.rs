@@ -2793,14 +2793,20 @@ mod tests {
         let program = lower_script("let value = 0; value ||= 2; value &&= 3; value ??= 4;");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        for statement in &script.body.statements[1..] {
+        for (statement, expected_op) in script.body.statements[1..].iter().zip([
+            LogicalBinaryOp::Or,
+            LogicalBinaryOp::And,
+            LogicalBinaryOp::Coalesce,
+        ]) {
             let StatementIr::Expression(expr) = statement else {
                 panic!("expected logical assignment expression statement");
             };
-            let ExprIr::AssignIdentifier { value, .. } = &expr.expr else {
-                panic!("expected identifier assignment");
+            let ExprIr::LogicalShortCircuit { op, lhs, rhs } = &expr.expr else {
+                panic!("expected logical short circuit, got {:?}", expr.expr);
             };
-            assert!(matches!(value.expr, ExprIr::LogicalShortCircuit { .. }));
+            assert_eq!(*op, expected_op);
+            assert!(matches!(lhs.expr, ExprIr::Identifier(_)));
+            assert!(matches!(rhs.expr, ExprIr::AssignIdentifier { .. }));
         }
     }
 
@@ -5161,7 +5167,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_method_call_materializes_compound_receiver_before_property_read() {
+    fn ordinary_method_call_materializes_compound_receiver_before_reference_get() {
         let program = lower_script(
             "function make() { return { method() { return this; } }; } make().method();",
         );
@@ -5190,8 +5196,19 @@ mod tests {
         else {
             panic!("expected indirect method call body: {body:?}");
         };
-        let ExprIr::PropertyRead { target, .. } = &callee.expr else {
-            panic!("expected property read callee: {callee:?}");
+        // A proven shaped receiver uses the typed PropertyRead carrier. Once
+        // flow analysis has conservatively widened that shape, the same
+        // Reference get is represented by the canonical GetV operation. Both
+        // must consume the one materialized base before Call supplies `this`.
+        let target = match &callee.expr {
+            ExprIr::PropertyRead { target, .. } => target.as_ref(),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::GetV,
+                operands,
+            } => operands
+                .first()
+                .expect("GetV method reference should retain its base"),
+            _ => panic!("expected property reference get callee: {callee:?}"),
         };
         assert!(matches!(
             &target.expr,
@@ -5390,10 +5407,16 @@ mod tests {
         let StatementIr::Expression(write) = &script.body.statements[1] else {
             panic!("expected array property write");
         };
-        let ExprIr::PropertyWrite { key, .. } = &write.expr else {
-            panic!("expected property write, got {:?}", write.expr);
+        let ExprIr::OrdinaryPropertyAssignment(assignment) = &write.expr else {
+            panic!(
+                "expected ordinary property assignment, got {:?}",
+                write.expr
+            );
         };
-        assert_eq!(key, &PropertyKeyIr::StaticString("1.1".to_string()));
+        assert!(matches!(
+            assignment.referenced_name(),
+            PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number
+        ));
 
         let StatementIr::Expression(read) = &script.body.statements[2] else {
             panic!("expected array property read");
@@ -5424,12 +5447,16 @@ target[Symbol.asyncIterator];"#,
         let StatementIr::Expression(write) = &script.body.statements[1] else {
             panic!("expected property write");
         };
-        let ExprIr::PropertyWrite { key, .. } = &write.expr else {
-            panic!("expected property write, got {:?}", write.expr);
+        let ExprIr::OrdinaryPropertyAssignment(assignment) = &write.expr else {
+            panic!(
+                "expected ordinary property assignment, got {:?}",
+                write.expr
+            );
         };
         assert!(
-            matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol),
-            "well-known Symbol write key must retain its Symbol kind, got {key:?}"
+            matches!(assignment.referenced_name(), PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol),
+            "well-known Symbol write key must retain its Symbol kind, got {:?}",
+            assignment.referenced_name()
         );
 
         let StatementIr::Expression(read) = &script.body.statements[2] else {
@@ -5630,12 +5657,16 @@ target[Symbol.iterator];"#,
             let StatementIr::Expression(write) = &script.body.statements[2] else {
                 panic!("expected array property write for {source}");
             };
-            let ExprIr::PropertyWrite { key, .. } = &write.expr else {
-                panic!("expected property write for {source}, got {:?}", write.expr);
+            let ExprIr::OrdinaryPropertyAssignment(assignment) = &write.expr else {
+                panic!(
+                    "expected ordinary property assignment for {source}, got {:?}",
+                    write.expr
+                );
             };
             assert!(
-                matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number),
-                "runtime numeric write key must use ToPropertyKey for {source}, got {key:?}"
+                matches!(assignment.referenced_name(), PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number),
+                "runtime numeric write key must retain its raw ToPropertyKey input for {source}, got {:?}",
+                assignment.referenced_name()
             );
 
             let StatementIr::Expression(read) = &script.body.statements[3] else {
@@ -6375,10 +6406,7 @@ target[Symbol.iterator];"#,
             .find(|function| function.name == "resume")
             .expect("async function should be registered");
 
-        assert_eq!(
-            function.protocol,
-            FunctionProtocolIr::ObjectMethod(FunctionExecutionKind::Async)
-        );
+        assert_eq!(function.protocol, FunctionProtocolIr::Async);
         assert!(!function.protocol.is_constructable());
         assert!(function.body.statements.iter().any(|statement| {
             matches!(
@@ -7436,7 +7464,7 @@ target[Symbol.iterator];"#,
         //
         // The last one is not that: it never miscompiled, it is refused. What
         // batch 7 changed is only the *reason* it is given — see
-        // `AsyncForOfArrayWalkForm` in `lowering_helpers.rs`.
+        // `AsyncForOfArrayWalkForm` in `lowering/for_of.rs`.
         for (source, message) in [
             (
                 "(async function(){ for (let i = 0; i < 2; i++) { try { await 0; } catch (e) {} } })();",
@@ -9685,9 +9713,9 @@ target[Symbol.iterator];"#,
                     matches!(
                         statement,
                         StatementIr::Expression(TypedExpr {
-                            expr: ExprIr::PropertyWrite { value, .. },
+                            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
                             ..
-                        }) if value.kind == ValueKind::Dynamic
+                        }) if assignment.rhs().kind == ValueKind::Dynamic
                     )
                 }));
             }
@@ -9901,18 +9929,26 @@ target[Symbol.iterator];"#,
             .expect("constructor should own its instance element plan");
         let execution_ids =
             instance_plan
-                .fields
+                .elements
                 .iter()
-                .filter_map(|field| field.init_function_id.clone())
+                .filter_map(|element| match element {
+                    ClassInstanceElementIr::Field(field) => field.init_function_id.clone(),
+                    ClassInstanceElementIr::AutoAccessorBacking(accessor) => {
+                        accessor.init_function_id.clone()
+                    }
+                })
                 .chain(class.element_plan.static_elements.iter().filter_map(
                     |element| match element {
                         ClassStaticElementIr::Field(field) => field.init_function_id.clone(),
+                        ClassStaticElementIr::AutoAccessorBacking(accessor) => {
+                            accessor.init_function_id.clone()
+                        }
                         ClassStaticElementIr::Block(block) => Some(block.function_id.clone()),
                     },
                 ))
                 .collect::<BTreeSet<_>>();
 
-        assert_eq!(instance_plan.fields.len(), 2);
+        assert_eq!(instance_plan.elements.len(), 2);
         assert_eq!(class.element_plan.static_elements.len(), 2);
         assert_eq!(execution_ids.len(), 4);
     }
@@ -9987,12 +10023,96 @@ target[Symbol.iterator];"#,
             .as_ref()
             .expect("constructor should own its instance element plan");
         assert!(matches!(
-            instance_plan.fields.as_slice(),
-            [public, private]
+            instance_plan.elements.as_slice(),
+            [ClassInstanceElementIr::Field(public), ClassInstanceElementIr::Field(private)]
                 if matches!(&public.key, ClassFieldKeyIr::Public(key) if key == "publicInstance")
                     && matches!(&private.key, ClassFieldKeyIr::Private(_))
         ));
         assert_eq!(instance_plan.private_method_brands.len(), 1);
+    }
+
+    #[test]
+    fn class_auto_accessors_have_distinct_exposed_and_backing_plans() {
+        let program = lower_script(
+            "class C {
+                accessor publicValue = 1;
+                static accessor staticValue;
+                accessor #privateValue = 2;
+                static accessor #privateStatic = 3;
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let class = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical {
+                    init:
+                        TypedExpr {
+                            expr: ExprIr::ClassDefinition(class),
+                            ..
+                        },
+                    ..
+                } => Some(class.as_ref()),
+                _ => None,
+            })
+            .expect("class definition should be lowered");
+        let private_environment = class
+            .private_environment
+            .expect("auto-accessors require a class private environment");
+        assert_eq!(class.private_name_ids.len(), 2);
+        assert_eq!(private_environment.slot_count(), 6);
+
+        let accessors = class
+            .element_plan
+            .definitions
+            .iter()
+            .filter_map(|definition| match definition {
+                ClassElementDefinitionIr::AutoAccessor(accessor) => Some(accessor),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(accessors.len(), 4);
+        let backing_names = accessors
+            .iter()
+            .map(|accessor| accessor.backing_name.private_name_id())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(backing_names.len(), 4);
+        assert!(backing_names.iter().all(|backing| !class
+            .private_name_ids
+            .values()
+            .any(|visible| visible == backing)));
+        for accessor in accessors {
+            let getter = script
+                .functions
+                .iter()
+                .find(|function| &function.id == accessor.functions.getter())
+                .expect("generated getter should exist");
+            let setter = script
+                .functions
+                .iter()
+                .find(|function| &function.id == accessor.functions.setter())
+                .expect("generated setter should exist");
+            assert_eq!(getter.protocol, FunctionProtocolIr::ClassGetter);
+            assert_eq!(setter.protocol, FunctionProtocolIr::ClassSetter);
+            assert!(getter.strict && setter.strict);
+            assert!(getter.params.is_empty());
+            assert_eq!(setter.params.len(), 1);
+        }
+
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.id == class.constructor_function_id)
+            .expect("class constructor should be lowered");
+        let instance_plan = constructor
+            .class_instance_element_plan
+            .as_ref()
+            .expect("instance backing initializers should be planned");
+        assert_eq!(instance_plan.elements.len(), 2);
+        assert_eq!(class.element_plan.static_elements.len(), 2);
     }
 
     #[test]
@@ -10037,11 +10157,11 @@ target[Symbol.iterator];"#,
             .as_ref()
             .expect("constructor should own its instance field plan");
         assert!(matches!(
-            instance_plan.fields.as_slice(),
-            [ClassFieldInitIr {
+            instance_plan.elements.as_slice(),
+            [ClassInstanceElementIr::Field(ClassFieldInitIr {
                 key: ClassFieldKeyIr::ComputedPublic(0),
                 ..
-            }]
+            })]
         ));
         assert!(matches!(
             class.element_plan.static_elements.as_slice(),
@@ -10147,7 +10267,10 @@ target[Symbol.iterator];"#,
             .class_instance_element_plan
             .as_ref()
             .expect("constructor should own its instance element plan");
-        for field in &instance_plan.fields {
+        for field in &instance_plan.elements {
+            let ClassInstanceElementIr::Field(field) = field else {
+                panic!("expected an ordinary field")
+            };
             let initializer_id = field
                 .init_function_id
                 .as_ref()
@@ -10170,7 +10293,9 @@ target[Symbol.iterator];"#,
             .iter()
             .filter_map(|element| match element {
                 ClassStaticElementIr::Field(field) => Some(field),
-                ClassStaticElementIr::Block(_) => None,
+                ClassStaticElementIr::AutoAccessorBacking(_) | ClassStaticElementIr::Block(_) => {
+                    None
+                }
             })
         {
             let initializer_id = field
@@ -10196,7 +10321,9 @@ target[Symbol.iterator];"#,
             .iter()
             .find_map(|element| match element {
                 ClassStaticElementIr::Block(block) => Some(&block.function_id),
-                ClassStaticElementIr::Field(_) => None,
+                ClassStaticElementIr::Field(_) | ClassStaticElementIr::AutoAccessorBacking(_) => {
+                    None
+                }
             })
             .expect("static block should be planned");
         let static_block = script
@@ -10973,18 +11100,21 @@ target[Symbol.iterator];"#,
             .find(|function| function.name == "reviver")
             .expect("reviver should be lowered");
         let StatementIr::Expression(TypedExpr {
-            expr: ExprIr::PropertyWrite { target, key, .. },
+            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
             ..
         }) = &reviver.body.statements[0]
         else {
             panic!("expected reviver holder write");
         };
-        assert_eq!(target.kind, ValueKind::Dynamic);
+        assert_eq!(assignment.base_and_receiver().kind, ValueKind::Dynamic);
         assert_eq!(
-            target.possible_kinds,
+            assignment.base_and_receiver().possible_kinds,
             KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Array))
         );
-        assert!(matches!(key, PropertyKeyIr::ArrayIndex(_)));
+        assert!(matches!(
+            assignment.referenced_name(),
+            PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number
+        ));
     }
 
     #[test]
@@ -14280,7 +14410,7 @@ target[Symbol.iterator];"#,
             );
         };
         assert_eq!(head.mode, BindingMode::Let);
-        assert!(head.name.starts_with("$forof.access."));
+        assert!(head.name.starts_with("$forof.access"));
         assert!(matches!(
             body.as_ref(),
             StatementIr::Block(BlockIr { statements, .. })

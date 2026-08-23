@@ -26,9 +26,11 @@ pub mod reference;
 
 pub use reference::{
     carried_put_value_failure, IdentifierWriteDisposition, IdentifierWriteErrorIr,
-    IdentifierWriteReferenceIr, OrdinaryPropertyEagerCompoundAssignmentIr,
-    OrdinaryPropertyNumericUpdateIr, PutValueFailure, Strictness, SuperPropertyMutationIr,
-    SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
+    IdentifierWriteReferenceIr, OrdinaryPropertyAssignmentIr,
+    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyLogicalAssignmentIr,
+    OrdinaryPropertyNumericUpdateIr, PropertyHookTargets, PutValueFailure, Strictness,
+    SuperPropertyMutationIr, SuperPropertyMutationOperationIr, SuspendedPropertyReferenceIr,
+    SuspendedPropertyReferenceUse,
 };
 
 /// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
@@ -807,10 +809,74 @@ pub struct ClassFieldInitIr {
     pub init_function_id: Option<FunctionId>,
 }
 
+/// The unspellable private name allocated for one auto-accessor's backing slot.
+///
+/// This wrapper deliberately cannot be constructed outside `lila-ir`: source
+/// private-name lookup accepts [`PrivateNameId`], while an auto-accessor backing
+/// reaches the backend only through the closed class-element plans below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AutoAccessorBackingNameIr(PrivateNameId);
+
+impl AutoAccessorBackingNameIr {
+    pub(crate) const fn new(private_name_id: PrivateNameId) -> Self {
+        Self(private_name_id)
+    }
+
+    pub const fn private_name_id(self) -> PrivateNameId {
+        self.0
+    }
+}
+
+/// The generated getter/setter identities owned by one auto-accessor.
+///
+/// Both functions are allocated together and consumers can only project the
+/// two required sides; a half-pair is not representable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoAccessorFunctionPairIr {
+    getter: FunctionId,
+    setter: FunctionId,
+}
+
+impl AutoAccessorFunctionPairIr {
+    pub(crate) fn new(getter: FunctionId, setter: FunctionId) -> Self {
+        Self { getter, setter }
+    }
+
+    pub fn getter(&self) -> &FunctionId {
+        &self.getter
+    }
+
+    pub fn setter(&self) -> &FunctionId {
+        &self.setter
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassAutoAccessorIr {
+    pub key: ClassFieldKeyIr,
+    pub computed_key: Option<PropertyKeyIr>,
+    pub backing_name: AutoAccessorBackingNameIr,
+    pub functions: AutoAccessorFunctionPairIr,
+    pub init_function_id: Option<FunctionId>,
+    pub placement: ClassMethodPlacementIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassAutoAccessorBackingInitIr {
+    pub backing_name: AutoAccessorBackingNameIr,
+    pub init_function_id: Option<FunctionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassInstanceElementIr {
+    Field(ClassFieldInitIr),
+    AutoAccessorBacking(ClassAutoAccessorBackingInitIr),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassInstanceElementPlanIr {
     pub private_method_brands: Vec<PrivateNameId>,
-    pub fields: Vec<ClassFieldInitIr>,
+    pub elements: Vec<ClassInstanceElementIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -823,11 +889,13 @@ pub enum ClassElementDefinitionIr {
     PublicMethod(ClassPublicMethodIr),
     PrivateMethod(ClassPrivateMethodIr),
     ComputedFieldKey { slot: u32, key: PropertyKeyIr },
+    AutoAccessor(ClassAutoAccessorIr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClassStaticElementIr {
     Field(ClassFieldInitIr),
+    AutoAccessorBacking(ClassAutoAccessorBackingInitIr),
     Block(ClassStaticBlockIr),
 }
 
@@ -843,6 +911,39 @@ pub struct ClassNameBindingIr {
     pub environment: LexicalEnvironmentIr,
 }
 
+/// The allocation facts for one class private environment.
+///
+/// `slot_count` includes both source-visible private names and hidden
+/// auto-accessor backing names. Keeping it next to the class scope prevents a
+/// public-only auto-accessor class from masquerading as a class with no private
+/// environment merely because its visible-name map is empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassPrivateEnvironmentIr {
+    class_scope: u32,
+    slot_count: u32,
+}
+
+impl ClassPrivateEnvironmentIr {
+    pub(crate) const fn new(class_scope: u32, slot_count: u32) -> Self {
+        assert!(
+            slot_count > 0,
+            "a class private environment must own a slot"
+        );
+        Self {
+            class_scope,
+            slot_count,
+        }
+    }
+
+    pub const fn class_scope(self) -> u32 {
+        self.class_scope
+    }
+
+    pub const fn slot_count(self) -> u32 {
+        self.slot_count
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassDefinitionIr {
     pub name: Option<String>,
@@ -853,6 +954,7 @@ pub struct ClassDefinitionIr {
     pub heritage: Option<Box<TypedExpr>>,
     pub element_plan: ClassElementPlanIr,
     pub private_name_ids: BTreeMap<String, PrivateNameId>,
+    pub private_environment: Option<ClassPrivateEnvironmentIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1769,6 +1871,8 @@ pub enum ExprIr {
         /// when it is true.
         strictness: Strictness,
     },
+    OrdinaryPropertyAssignment(OrdinaryPropertyAssignmentIr),
+    OrdinaryPropertyLogicalAssignment(OrdinaryPropertyLogicalAssignmentIr),
     OrdinaryPropertyNumericUpdate(OrdinaryPropertyNumericUpdateIr),
     OrdinaryPropertyEagerCompoundAssignment(OrdinaryPropertyEagerCompoundAssignmentIr),
     UpdateIdentifier {
@@ -2954,97 +3058,6 @@ impl StatementIr {
     }
 }
 
-/// What lowering a `for`-`of` head produced: the statement, the kind its body
-/// evaluates to, and the witness saying how that statement discharged the four
-/// 7.4 obligations.
-///
-/// Attaching the witness to the three `ForOf*` variants alone was not enough.
-/// There is already a **fourth** for-of specialization that is not spelled as a
-/// `ForOf*` variant: `for (x of arr) { … await … }` inside a plain async
-/// function is desugared to `StatementIr::GeneratorLoop` with an explicit
-/// `index < PropertyKeyIr::ArrayLength` test and `PropertyKeyIr::ArrayIndex`
-/// element reads — an index walk resting on all the array premises, which no
-/// `protocol` field on a `ForOf*` variant could have demanded.
-///
-/// So the obligation is attached to the *lowering of the head* instead. Every
-/// path out of `ScriptLowerer::lower_for_of_head` returns one of these, the
-/// only constructor takes a witness, and there is no `Default`. A new
-/// desugaring target therefore cannot be added without naming its premises,
-/// and the `ForOf*` `protocol` field becomes a consumer of that value rather
-/// than the only place it is demanded.
-///
-/// The witness is dropped at the boundary back to `lower_statement`; its work
-/// is done at the type level by then. Spread, `yield*` and array destructuring
-/// reach the protocol by other routes and are named as `EmissionSite`s instead
-/// — see ledger L6.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ForOfLoweringIr {
-    statement: StatementIr,
-    result_kind: ValueKind,
-    protocol: IteratorProtocolWitness,
-}
-
-impl ForOfLoweringIr {
-    pub fn new(
-        statement: StatementIr,
-        result_kind: ValueKind,
-        protocol: IteratorProtocolWitness,
-    ) -> Self {
-        Self {
-            statement,
-            result_kind,
-            protocol,
-        }
-    }
-
-    /// The head did not lower to an iteration: an unsupported form was reported
-    /// and the statement is `StatementIr::Empty`.
-    pub fn no_iteration() -> Self {
-        Self::new(
-            StatementIr::Empty,
-            ValueKind::Undefined,
-            IteratorProtocolWitness::NO_ITERATION,
-        )
-    }
-
-    /// The statement and the kind its body evaluates to. The witness is dropped
-    /// here — its work is done by the time the head has lowered — but it is
-    /// *read* on the way out rather than silently discarded.
-    ///
-    /// The `protocol()` accessor this replaces had **zero callers anywhere in
-    /// the workspace** and was `pub`, so no `dead_code` warning fired: the
-    /// "survival by `pub`" shape ledger row I7 exists to delete, one file over
-    /// from where this area diagnoses it. The two conditions below are its
-    /// replacement, and each names a real mistake:
-    ///
-    /// * A head that lowered to *nothing* must carry the bail-out witness.
-    ///   Returning `StatementIr::Empty` with, say,
-    ///   `SYNC_ITERATOR_PROTOCOL` would credit `compile_for_of_iterator` with
-    ///   emitting four obligations for a statement that never runs, which is
-    ///   exactly the attribution K1 and J10 exist to keep honest.
-    /// * A head that lowered to a real for-of specialization must *not* carry
-    ///   it: `NO_ITERATION` says every obligation is vacuous because nothing
-    ///   runs, and one of the three `ForOf*` statements is not nothing.
-    pub fn into_statement_and_kind(self) -> (StatementIr, ValueKind) {
-        debug_assert!(
-            !matches!(self.statement, StatementIr::Empty)
-                || self.protocol == IteratorProtocolWitness::NO_ITERATION,
-            "a for-of head that lowered to no statement must carry the NO_ITERATION witness",
-        );
-        debug_assert!(
-            !matches!(
-                self.statement,
-                StatementIr::ForOfArray { .. }
-                    | StatementIr::ForOfString { .. }
-                    | StatementIr::ForOfIterator { .. }
-            ) || self.protocol != IteratorProtocolWitness::NO_ITERATION,
-            "a for-of head that lowered to a real specialization must not claim that no \
-             iteration was lowered",
-        );
-        (self.statement, self.result_kind)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockIr {
     pub statements: Vec<StatementIr>,
@@ -3590,11 +3603,16 @@ struct IrSummaryCounts {
 impl IrSummaryCounts {
     fn visit_function(&mut self, function: &FunctionIr) {
         if let Some(plan) = &function.class_instance_element_plan {
-            self.class_fields += plan.fields.len();
+            self.class_fields += plan.elements.len();
             self.private_elements += plan
-                .fields
+                .elements
                 .iter()
-                .filter(|field| matches!(&field.key, ClassFieldKeyIr::Private(_)))
+                .filter(|element| match element {
+                    ClassInstanceElementIr::Field(field) => {
+                        matches!(&field.key, ClassFieldKeyIr::Private(_))
+                    }
+                    ClassInstanceElementIr::AutoAccessorBacking(_) => true,
+                })
                 .count();
         }
         if function.is_nested {
@@ -4111,6 +4129,28 @@ impl IrSummaryCounts {
                 self.visit_property_key(key);
                 self.visit_expr(value);
             }
+            ExprIr::OrdinaryPropertyAssignment(assignment) => {
+                self.property_writes += 1;
+                if matches!(assignment.referenced_name(), PropertyKeyIr::StaticString(name) if name == "prototype")
+                {
+                    self.prototype_writes += 1;
+                }
+                self.visit_expr(assignment.base_and_receiver());
+                self.visit_property_key(assignment.referenced_name());
+                self.visit_expr(assignment.rhs());
+            }
+            ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
+                self.property_reads += 1;
+                self.property_writes += 1;
+                self.compound_assignments += 1;
+                if matches!(assignment.referenced_name(), PropertyKeyIr::StaticString(name) if name == "prototype")
+                {
+                    self.prototype_writes += 1;
+                }
+                self.visit_expr(assignment.base_and_receiver());
+                self.visit_property_key(assignment.referenced_name());
+                self.visit_expr(assignment.rhs());
+            }
             ExprIr::OrdinaryPropertyNumericUpdate(update) => {
                 self.property_reads += 1;
                 self.property_writes += 1;
@@ -4381,6 +4421,10 @@ impl IrSummaryCounts {
                             self.private_elements +=
                                 usize::from(matches!(&field.key, ClassFieldKeyIr::Private(_)));
                         }
+                        ClassStaticElementIr::AutoAccessorBacking(_) => {
+                            self.class_fields += 1;
+                            self.private_elements += 1;
+                        }
                         ClassStaticElementIr::Block(_) => self.static_blocks += 1,
                     }
                 }
@@ -4396,10 +4440,20 @@ impl IrSummaryCounts {
                     self.visit_expr(heritage);
                 }
                 for definition in &class.element_plan.definitions {
-                    let ClassElementDefinitionIr::PublicMethod(method) = definition else {
-                        continue;
-                    };
-                    self.visit_property_key(&method.key);
+                    match definition {
+                        ClassElementDefinitionIr::PublicMethod(method) => {
+                            self.visit_property_key(&method.key);
+                        }
+                        ClassElementDefinitionIr::AutoAccessor(accessor) => {
+                            if let Some(key) = &accessor.computed_key {
+                                self.visit_property_key(key);
+                            }
+                            self.private_elements +=
+                                usize::from(matches!(accessor.key, ClassFieldKeyIr::Private(_)));
+                        }
+                        ClassElementDefinitionIr::PrivateMethod(_)
+                        | ClassElementDefinitionIr::ComputedFieldKey { .. } => {}
+                    }
                 }
             }
             ExprIr::CallMethod {
