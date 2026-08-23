@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 35] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 36] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -175,6 +175,10 @@ early_error_codes! {
     /// 13.2.5.1 ObjectLiteral early errors: `PropertyNameList of
     /// PropertyDefinitionList` contains two or more `"__proto__"` entries.
     ObjectDuplicateProto => "E_OBJECT_DUPLICATE_PROTO";
+    /// 13.2.5.1 ObjectLiteral early errors: a CoverInitializedName remains
+    /// after cover-grammar reinterpretation. Assignment/binding patterns and
+    /// arrow parameters are deliberately excluded.
+    ObjectLiteralCoverInitializedName => "E_OBJECT_LITERAL_COVER_INITIALIZED_NAME";
     /// 16.1.1 / 16.2.1.2 / 14.2.1 / 14.12.1 / 15.2.1 / 15.7.1. Any lexical
     /// redeclaration: `LexicallyDeclaredNames` with duplicates, or intersecting
     /// `VarDeclaredNames`, or a formal parameter name intersecting the body's
@@ -327,7 +331,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 33;
+const PARSE_FAILURE_RULE_COUNT: usize = 34;
 
 /// The one fragment table.
 ///
@@ -599,6 +603,20 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         fragments: &["illegal continue statement"],
         code: EarlyErrorCode::IllegalContinue,
         witnesses: &["illegal continue statement"],
+    },
+    // 34. boa_parser/src/parser/mod.rs:475-479, function/mod.rs:507-511,
+    //     statement/mod.rs:1005-1010 and class_decl/mod.rs:764-768. All four
+    //     fixed messages report the same surviving CoverInitializedName AST
+    //     condition in a different statement-list context.
+    ParseFailureRule {
+        fragments: &["invalid object literal in"],
+        code: EarlyErrorCode::ObjectLiteralCoverInitializedName,
+        witnesses: &[
+            "invalid object literal in script statement list at line 1, col 1",
+            "invalid object literal in function statement list at line 1, col 1",
+            "invalid object literal in module item list at line 1, col 1",
+            "invalid object literal in class static block statement list at line 1, col 1",
+        ],
     },
 ];
 

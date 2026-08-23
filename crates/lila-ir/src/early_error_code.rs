@@ -31,6 +31,7 @@ pub use lila_front::{EarlyErrorCode, ParseClassified};
 pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
     match code {
         EarlyErrorCode::ObjectDuplicateProto
+        | EarlyErrorCode::ObjectLiteralCoverInitializedName
         | EarlyErrorCode::DuplicateLexicalDeclaration
         | EarlyErrorCode::DuplicateFormalParameter
         | EarlyErrorCode::DuplicateCatchParameter

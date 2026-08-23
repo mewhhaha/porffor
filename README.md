@@ -374,6 +374,15 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- ObjectLiteral `CoverInitializedName` now has one typed early-error code across
+  Script, function-body, Module-item and class-static-block parser contexts.
+  Assignment/binding reinterpretations, arrow parameters, shorthand and data
+  properties remain parse-valid, and retained dependencies preserve the same
+  `Early`/`SyntaxError` diagnostic. The capped front gate passes `53/53`, the IR
+  early-error filter passes `3/3`, and the exact pinned witness passes `2/2`
+  sloppy/strict Wasm-AOT executions with every failure and non-success bucket
+  at zero. This is bounded classification, not broad ObjectLiteral or T07
+  closure.
 - Statement dispatch now lives in `lowering/statement.rs`: one exhaustive
   owner routes ordinary and resumable expression statements plus every
   control-flow/declaration form to its focused lowerer. The exact 255-line

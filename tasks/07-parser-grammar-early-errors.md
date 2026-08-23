@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,18 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+ObjectLiteral `CoverInitializedName` now has one closed condition across Boa's
+Script, function-body, Module-item and class-static-block producers. The typed
+code and retained-module projection report `Early`/`SyntaxError`, while
+assignment patterns, binding patterns, arrow parameters, shorthand and ordinary
+data properties remain parse-valid. The boundary is recorded in
+`docs/rust-rewrite/contracts/object-literal-cover-initialized-name-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `53/53`, the focused IR
+early-error gate passes `3/3`, and the exact pinned Test262 witness passes `2/2`
+sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
+This is bounded diagnostic classification, not general ObjectLiteral grammar,
+destructuring execution, T07 or aggregate closure.
 
 Duplicate formal parameters now have one closed diagnostic condition across
 entry and retained dependency parsing. The classifier follows pinned Boa's two

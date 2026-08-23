@@ -303,6 +303,22 @@ mod tests {
                 EarlyErrorCode::ObjectDuplicateProto,
             ),
             (
+                "invalid object literal in script statement list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
+                "invalid object literal in function statement list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
+                "invalid object literal in module item list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
+                "invalid object literal in class static block statement list at line 1, col 1",
+                EarlyErrorCode::ObjectLiteralCoverInitializedName,
+            ),
+            (
                 "exported name `x` declared multiple times",
                 EarlyErrorCode::ModuleDuplicateExport,
             ),
@@ -757,6 +773,25 @@ mod tests {
             "{diagnostic:?}"
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+    }
+
+    #[test]
+    fn object_literal_cover_initialized_name_in_a_dependency_module_is_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; ({ a = 1 });",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained ObjectLiteral CoverInitializedName should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ObjectLiteralCoverInitializedName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
     }
 
     /// Drift B2, closed. The block, switch and scope-analysis wordings for a

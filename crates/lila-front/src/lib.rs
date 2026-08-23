@@ -673,6 +673,52 @@ mod tests {
     }
 
     #[test]
+    fn object_literal_cover_initialized_name_rejections_cover_all_parser_contexts() {
+        for (source, options) in [
+            ("({ a = 1 });", ParseOptions::script()),
+            ("function f() { ({ a = 1 }); }", ParseOptions::script()),
+            ("function f() { ({ a = 1 }); }", ParseOptions::module()),
+            ("export {}; ({ a = 1 });", ParseOptions::module()),
+            (
+                "class C { static { ({ a = 1 }); } }",
+                ParseOptions::script(),
+            ),
+            (
+                "class C { static { ({ a = 1 }); } }",
+                ParseOptions::module(),
+            ),
+        ] {
+            let err = parse(source, options)
+                .expect_err("a surviving ObjectLiteral CoverInitializedName should fail");
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ObjectLiteralCoverInitializedName),
+                "{source:?}: {err:?}"
+            );
+            assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn object_literal_cover_initialized_name_reinterpretations_remain_valid() {
+        for source in [
+            "let target = {}; ({ a = 1 } = target);",
+            "let { a = 1 } = {};",
+            "const f = ({ a = 1 }) => a;",
+            "let a; ({ a });",
+            "({ a: 1 });",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "assignment/binding reinterpretations and ordinary properties are valid",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -1729,6 +1775,10 @@ switch (0) {
     #[test]
     fn only_parse_table_codes_are_parse_classified() {
         assert!(ParseClassified::from_early(EarlyErrorCode::ObjectDuplicateProto).is_some());
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ObjectLiteralCoverInitializedName)
+                .is_some()
+        );
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(
