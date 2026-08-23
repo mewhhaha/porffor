@@ -1,5 +1,17 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 generator-declaration parameter-yield amendment
+
+T07 now classifies Boa's exact fixed-message rejection when an ordinary or
+async generator declaration's FormalParameters Contains YieldExpression. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/generator-declaration-parameters-contain-yield-early-errors.md`
+
+The domain has **41** variants and the one parse-failure table has **39** rows.
+Generator expressions and methods remain separate because their pinned parser
+producers use distinct messages.
+
 ## 2026-08-23 switch-clause using-declaration amendment
 
 T07 now classifies Boa's exact fixed-message rejection for a direct `using` or

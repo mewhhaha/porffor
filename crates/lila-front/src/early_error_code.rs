@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 40] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 41] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -282,6 +282,10 @@ early_error_codes! {
     /// 14.12.1. A CaseClause or DefaultClause StatementList directly contains
     /// a `using` or `await using` declaration. Nested blocks are excluded.
     SwitchClauseUsingDeclaration => "E_SWITCH_CLAUSE_USING_DECLARATION";
+    /// 15.5.1 / 15.6.1. A GeneratorDeclaration or
+    /// AsyncGeneratorDeclaration's FormalParameters Contains YieldExpression.
+    /// Generator expressions and methods have distinct parser producers.
+    GeneratorDeclarationParametersContainYield => "E_GENERATOR_DECLARATION_PARAMETERS_CONTAIN_YIELD";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -345,7 +349,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 38;
+const PARSE_FAILURE_RULE_COUNT: usize = 39;
 
 /// The one fragment table.
 ///
@@ -671,6 +675,14 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         witnesses: &[
             "`using` declarations are not allowed in this statement list at line 1, col 1",
         ],
+    },
+    // 39. statement/declaration/hoistable/mod.rs:241-247. Ordinary and async
+    //     generator declarations opt into this shared fixed-message check.
+    //     Generator expressions and methods have distinct pinned wordings.
+    ParseFailureRule {
+        fragments: &["invalid yield usage in generator function parameters at line"],
+        code: EarlyErrorCode::GeneratorDeclarationParametersContainYield,
+        witnesses: &["invalid yield usage in generator function parameters at line 1, col 1"],
     },
 ];
 

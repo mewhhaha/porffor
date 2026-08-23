@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, generator-declaration parameter `Contains YieldExpression`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -97,6 +97,20 @@ early-error gate passes `3/3`, and the exact four-file pinned cohort passes
 `8/8` sloppy/strict Wasm-AOT executions with zero failure or non-success
 outcomes. This is bounded classification, not disposal execution, direct eval,
 all switch grammar, T07 or aggregate closure.
+
+Ordinary and async generator declarations whose own FormalParameters contain a
+`YieldExpression` now share one closed condition for Boa's sole fixed-message
+declaration producer. Script, Module and retained dependency parsing carry the
+same typed `Early`/`SyntaxError` diagnostic. Generator bodies and nested
+generator initializers remain valid containment boundaries, while generator
+expressions and methods keep their distinct pinned producers. The contract is
+recorded in
+`docs/rust-rewrite/contracts/generator-declaration-parameters-contain-yield-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `63/63`, the focused IR
+early-error gate passes `3/3`, and the exact one-file pinned cohort passes `2/2`
+sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
+This is bounded classification, not all generator grammar, direct eval, T07 or
+aggregate closure.
 
 Duplicate formal parameters now have one closed diagnostic condition across
 entry and retained dependency parsing. The classifier follows pinned Boa's two

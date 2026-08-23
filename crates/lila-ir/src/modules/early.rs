@@ -447,6 +447,10 @@ mod tests {
                 EarlyErrorCode::SwitchClauseUsingDeclaration,
             ),
             (
+                "invalid yield usage in generator function parameters at line 1, col 1",
+                EarlyErrorCode::GeneratorDeclarationParametersContainYield,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -882,6 +886,28 @@ mod tests {
             assert_eq!(
                 diagnostic.code(),
                 Some(EarlyErrorCode::SwitchClauseUsingDeclaration),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_generator_declaration_parameter_yield() {
+        for source in [
+            "export function* g(x = yield) {}",
+            "export default async function* (x = yield) {}",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained generator declaration parameter yield should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::GeneratorDeclarationParametersContainYield),
                 "{source:?}: {diagnostic:?}"
             );
             assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
