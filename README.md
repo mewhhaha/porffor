@@ -374,6 +374,13 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Classic `for` lowering now lives in `lowering/for_loop.rs`: one owner carries
+  head validation, lexical TDZ/environment setup, flow merging, resumable-state
+  construction and the final `For`/`GeneratorLoop` choice. The exact 209-line
+  method move reduces `lowering.rs` from 23,947 to 23,738 raw lines; the child
+  is 213 lines. Eight focused IR filters and three focused CLI filters pass.
+  Pre/post golden captures pass `2/2`, contain 635 artifacts each and are
+  byte-identical. No classic-for behavior or conformance change is claimed.
 - ScriptBody `Contains NewTarget` now has one typed early-error code for direct
   and top-level-arrow-carried `new.target`. Ordinary functions, their nested
   arrows, constructors, methods and class static blocks remain valid; retained

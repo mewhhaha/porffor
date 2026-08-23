@@ -17,6 +17,30 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: classic-for ownership
+
+`lila-ir/src/lowering/for_loop.rs` now owns the complete classic `for`
+lifecycle: async-disposable head validation, resumable-loop eligibility,
+lexical TDZ setup, initializer and per-iteration Environment Record selection,
+test/update/body lowering, flow-fact merging, suspension-state construction and
+the final `For` or `GeneratorLoop` IR choice. The statement dispatcher remains
+its sole caller; reusable loop, scope, flow and resumption helpers remain in the
+parent.
+
+This is an exact source move. The only method-body change is private-module
+visibility from `fn` to `pub(super) fn`; all 209 source lines compare exactly
+after normalizing that token. The extraction reduces `lowering.rs` from 23,947
+to 23,738 raw lines, and the child is 213 lines. The module audit requires the
+sole owner, forbids a second parent body or legacy `include!` assembly, budgets
+the parent and child separately, and fails its negative control when the child
+is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Eight focused IR lifecycle/refusal filters
+pass `8/8`; three focused CLI lexical-environment, async-disposable and
+throw-propagation filters pass `3/3`. No classic-for behavior or conformance
+improvement is claimed.
+
 ### Landed 2026-08-23: statement-dispatch ownership
 
 `lila-ir/src/lowering/statement.rs` now owns the exhaustive `Statement`
