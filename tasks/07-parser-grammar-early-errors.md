@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key and optional-chain tagged-template classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template and for-head/body declaration-conflict classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,47 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Focused-verified 2026-08-23: for-head/body declaration conflicts
+
+`ForHeadBodyDeclarationConflict`
+(`E_FOR_HEAD_BODY_DECLARATION_CONFLICT`) is the one closed condition shared by
+the edition-pinned ECMA-262 2026 14.7.4.1 and 14.7.5.1 `let`/`const` base,
+extended by the corresponding living-spec productions to `using` and
+`await using`: a classic `for` head's `LexicalDeclaration` or an iterable loop's
+`ForDeclaration` has a `BoundName` that also occurs in the body `Statement`'s
+`VarDeclaredNames`. Across every Rust source in pinned Boa there are exactly
+two producers with the fixed raw message
+`For loop initializer declared in loop body`, one for each specification
+production. The classifier has one `ParseFailurePattern::StartsWith` row for
+the complete rendered prefix ending in `at line`.
+
+The enum and parse-table counts are written as 58 and 57. Evaluated const
+assertions make the code parse-owned and require exactly one owning row with
+the complete independently spelled prefix. The exhaustive IR mapping owns the
+new variant. Eleven direct source shapes run under both Script and Module
+goals, including classic-`for` `using`, async classic-`for` `await using`, and
+async `for await (let x of [])` conflicts. A real failed Module parse exercises
+`module_parse_failure_diagnostic`, and a rejected dependency retained in
+`ModuleSourceIr` crosses `build_graph` with the code, `Early` phase,
+`SyntaxError` type and nonempty span.
+
+Positive controls preserve `var` heads plus nested function-expression and
+`FunctionDeclaration` `VarDeclaredNames` boundaries. A conflicting
+`for-in using` source remains owned by the existing `ForInUsingDeclaration`
+code. The vendored-source guard inventories the literal across every Rust
+source in the pinned Boa package, requires both copies to remain in
+`for_statement.rs`, and separately pins each surrounding `bound_names` /
+`var_declared_names` intersection rather than trusting a literal count alone.
+No vendor file changes.
+
+The exact eight-file, fifteen-variant pinned Test262 cohort is recorded in
+`docs/rust-rewrite/contracts/for-head-body-declaration-conflict-early-errors.md`.
+Under the shared eight-core cap, `cargo xc` is green, the full front-end library
+passes `101/101`, the focused IR early-module tests pass `41/41`, the exact
+retained graph witness passes `1/1`, and the eight Test262 files pass exactly
+`15/15` Wasm-AOT variants with `--jobs 1 --threads 1`. No new-pass, aggregate,
+broader iteration-grammar or T07-closure claim is made.
 
 ### Written 2026-08-23: optional-chain tagged-template early errors
 

@@ -828,6 +828,143 @@ mod tests {
     }
 
     #[test]
+    fn for_head_body_declaration_conflicts_reject_under_both_goals() {
+        for source in [
+            "for (let x; false;) { var x; }",
+            "for (const x = 0; false;) { var x; }",
+            "for (using x = null; false;) { var x; }",
+            "async function f() { for (await using x = null; false;) { var x; } }",
+            "for (let x in {}) { var x; }",
+            "for (const x in {}) { var x; }",
+            "for (let x of []) { var x; }",
+            "for (const x of []) { var x; }",
+            "for (using x of []) { var x; }",
+            "async function f() { for (await using x of []) { var x; } }",
+            "async function f() { for await (let x of []) { var x; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a lexical loop head must conflict with a body var declaration");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ForHeadBodyDeclarationConflict),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the conflicting loop declaration must retain its source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn var_heads_and_nested_function_var_declarations_remain_valid() {
+        for source in [
+            "for (var x; false;) { var x; }",
+            "for (var x in {}) { var x; }",
+            "for (var x of []) { var x; }",
+            "for (let x; false;) { (function () { var x; }); }",
+            "for (let x in {}) { (function () { var x; }); }",
+            "for (let x of []) { (function () { var x; }); }",
+            "for (let x; false;) { function nested() { var x; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "var heads and declarations across a nested function boundary stay valid",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn for_in_using_conflicts_keep_their_existing_early_error_owner() {
+        for source in [
+            "for (using x in {}) { var x; }",
+            "async function f() { for (await using x in {}) { var x; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("for-in using syntax must reject before body conflict analysis");
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ForInUsingDeclaration),
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn known_for_head_body_declaration_conflict_producers_stay_reviewed() {
+        fn count_message_in_rust_sources(root: &std::path::Path, message: &str) -> usize {
+            let entries = std::fs::read_dir(root)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()));
+            let mut count = 0;
+            for entry in entries {
+                let path = entry.expect("failed to read vendored Boa entry").path();
+                if path.is_dir() {
+                    count += count_message_in_rust_sources(&path, message);
+                } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                    let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                        panic!("failed to read {}: {error}", path.display())
+                    });
+                    count += source.matches(message).count();
+                }
+            }
+            count
+        }
+
+        const MESSAGE: &str = "For loop initializer declared in loop body";
+        const CLASSIC_INTERSECTION: &str = r#"if let Some(ForLoopInitializer::Lexical(initializer)) = &init {
+            let vars = var_declared_names(&body);
+            for name in bound_names(initializer.declaration()) {
+                if vars.contains(&name) {
+                    return Err(Error::general(
+                        "For loop initializer declared in loop body",
+"#;
+        const ITERABLE_INTERSECTION: &str = r#"if matches!(
+        &init,
+        IterableLoopInitializer::Const(_)
+            | IterableLoopInitializer::Let(_)
+            | IterableLoopInitializer::Using(_)
+            | IterableLoopInitializer::AwaitUsing(_)
+    ) {
+        let vars = var_declared_names(&body);
+        let mut names = FxHashSet::default();
+        for name in bound_names(&init) {
+            if name == Sym::LET {
+                return Err(Error::general(
+                    "Cannot use 'let' as a lexically bound name",
+                    position,
+                ));
+            }
+            if vars.contains(&name) {
+                return Err(Error::general(
+                    "For loop initializer declared in loop body",
+"#;
+        const FOR_STATEMENT_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/statement/iteration/for_statement.rs"
+        );
+
+        let boa_package_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
+        assert_eq!(count_message_in_rust_sources(&boa_package_root, MESSAGE), 2);
+        assert_eq!(FOR_STATEMENT_SOURCE.matches(MESSAGE).count(), 2);
+        assert_eq!(
+            FOR_STATEMENT_SOURCE.matches(CLASSIC_INTERSECTION).count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE.matches(ITERABLE_INTERSECTION).count(),
+            1
+        );
+    }
+
+    #[test]
     fn switch_clause_using_declarations_reject_under_both_goals() {
         for source in [
             "switch (0) { case 0: using x = null; }",
@@ -2838,6 +2975,9 @@ switch (0) {
         assert!(ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelNewTarget).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelUsingDeclaration).is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ForHeadBodyDeclarationConflict).is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ForInUsingDeclaration).is_some());
         assert!(

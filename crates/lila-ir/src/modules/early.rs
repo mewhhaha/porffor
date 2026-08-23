@@ -455,6 +455,10 @@ mod tests {
                 EarlyErrorCode::ScriptTopLevelUsingDeclaration,
             ),
             (
+                "For loop initializer declared in loop body at line 1, col 1",
+                EarlyErrorCode::ForHeadBodyDeclarationConflict,
+            ),
+            (
                 "using declarations are not allowed in for-in loop heads at line 1, col 1",
                 EarlyErrorCode::ForInUsingDeclaration,
             ),
@@ -901,6 +905,28 @@ mod tests {
         let span = diagnostic
             .span
             .expect("the projected TemplateLiteral must retain its source span");
+        assert!(span.start < span.end, "{diagnostic:?}");
+    }
+
+    #[test]
+    fn for_head_body_declaration_conflict_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; for (let x of []) { var x; }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained for-head/body declaration conflict should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ForHeadBodyDeclarationConflict)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the conflicting loop declaration must retain its source span");
         assert!(span.start < span.end, "{diagnostic:?}");
     }
 

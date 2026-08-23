@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 57] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 58] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -310,6 +310,10 @@ early_error_codes! {
     /// `using` or `await using`. Nested statement lists and the Module goal are
     /// deliberately excluded.
     ScriptTopLevelUsingDeclaration => "E_SCRIPT_TOP_LEVEL_USING_DECLARATION";
+    /// 14.7.4.1 / 14.7.5.1. A classic `for` head's `LexicalDeclaration` or an
+    /// iterable loop's `ForDeclaration` has a `BoundName` that also occurs in
+    /// the body `Statement`'s `VarDeclaredNames`.
+    ForHeadBodyDeclarationConflict => "E_FOR_HEAD_BODY_DECLARATION_CONFLICT";
     /// 14.7.5.1. A `for-in` head's lexical declaration is `using` or
     /// `await using`. The `for-of` sibling deliberately remains valid.
     ForInUsingDeclaration => "E_FOR_IN_USING_DECLARATION";
@@ -439,9 +443,11 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 56;
+const PARSE_FAILURE_RULE_COUNT: usize = 57;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
+const FOR_HEAD_BODY_DECLARATION_CONFLICT_PREFIX: &str =
+    "For loop initializer declared in loop body at line";
 
 /// The one message-pattern table.
 ///
@@ -949,6 +955,15 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::OptionalChainTaggedTemplate,
         witnesses: &["Invalid tagged template on optional chain at line 1, col 1"],
     },
+    // 57. statement/iteration/for_statement.rs:279-290,329-350. The classic-for
+    //     LexicalDeclaration and iterable-loop ForDeclaration producers compute
+    //     the same BoundNames / body VarDeclaredNames intersection and emit the
+    //     same fixed raw message.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(FOR_HEAD_BODY_DECLARATION_CONFLICT_PREFIX),
+        code: EarlyErrorCode::ForHeadBodyDeclarationConflict,
+        witnesses: &["For loop initializer declared in loop body at line 1, col 1"],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1168,6 +1183,8 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::OptionalChainTaggedTemplate);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ForHeadBodyDeclarationConflict);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
     code_is_owned_once_by_exact_starts_with(
@@ -1175,6 +1192,13 @@ const _: () = assert!(
         "Invalid tagged template on optional chain at line",
     ),
     "the optional-chain tagged-template code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::ForHeadBodyDeclarationConflict,
+        "For loop initializer declared in loop body at line",
+    ),
+    "the for-head/body declaration-conflict code must have one owner using its complete reviewed prefix"
 );
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
