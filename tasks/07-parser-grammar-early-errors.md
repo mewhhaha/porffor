@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -57,6 +57,20 @@ early-error gate passes `3/3`, and the exact two-file pinned cohort passes `4/4`
 sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
 This is bounded classification, not direct-eval, all-`new.target`, T07 or
 aggregate closure.
+
+ScriptBody top-level `using` now has one closed condition for Boa's sole
+fixed-position post-parse producer. Nested blocks, functions, loop heads and
+class static blocks remain valid Script boundaries, while retained Module
+sources keep both top-level `using` and `await using` valid. Pinned Boa rejects
+top-level Script `await using` earlier as an ordinary parse error, so that
+Test262 case remains an honest untyped parse-phase `SyntaxError` rather than a
+fabricated classifier match. The boundary is recorded in
+`docs/rust-rewrite/contracts/script-top-level-using-declaration-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `57/57`, the focused IR
+early-error gate passes `3/3`, and the exact two-file pinned cohort passes `4/4`
+sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
+This is bounded classification, not parser-reachability repair, disposal
+execution, direct eval, T07 or aggregate closure.
 
 Duplicate formal parameters now have one closed diagnostic condition across
 entry and retained dependency parsing. The classifier follows pinned Boa's two

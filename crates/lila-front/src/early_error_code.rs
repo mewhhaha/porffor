@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 37] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 38] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -272,6 +272,10 @@ early_error_codes! {
     /// Ordinary/async/generator functions are traversal boundaries; arrows
     /// inherit `new.target` lexically and are not.
     ScriptTopLevelNewTarget => "E_SCRIPT_TOP_LEVEL_NEW_TARGET";
+    /// ScriptBody early errors: an immediate top-level lexical declaration is
+    /// `using` or `await using`. Nested statement lists and the Module goal are
+    /// deliberately excluded.
+    ScriptTopLevelUsingDeclaration => "E_SCRIPT_TOP_LEVEL_USING_DECLARATION";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -335,7 +339,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 35;
+const PARSE_FAILURE_RULE_COUNT: usize = 36;
 
 /// The one fragment table.
 ///
@@ -629,6 +633,18 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         fragments: &["invalid new.target usage at line 1, col 1"],
         code: EarlyErrorCode::ScriptTopLevelNewTarget,
         witnesses: &["invalid new.target usage at line 1, col 1"],
+    },
+    // 36. boa_parser/src/parser/mod.rs:429-437. Lila's ordinary Script entry
+    //     selects this fixed branch and position; the sibling direct-eval
+    //     wording is a separate T13 boundary.
+    ParseFailureRule {
+        fragments: &[
+            "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
+        ],
+        code: EarlyErrorCode::ScriptTopLevelUsingDeclaration,
+        witnesses: &[
+            "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
+        ],
     },
 ];
 

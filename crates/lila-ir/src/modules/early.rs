@@ -435,6 +435,10 @@ mod tests {
                 EarlyErrorCode::ScriptTopLevelNewTarget,
             ),
             (
+                "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
+                EarlyErrorCode::ScriptTopLevelUsingDeclaration,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -819,6 +823,17 @@ mod tests {
         ] {
             lila_front::parse(source, lila_front::ParseOptions::module())
                 .expect("retained function boundaries should allow lexical new.target");
+        }
+    }
+
+    #[test]
+    fn retained_modules_allow_top_level_using_declarations() {
+        for source in [
+            "using x = null; export {};",
+            "await using x = null; export {};",
+        ] {
+            lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect("top-level using declarations are valid Module syntax");
         }
     }
 

@@ -1,5 +1,17 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 Script top-level using-declaration amendment
+
+T07 now classifies Boa's exact fixed-position post-parse rejection for a
+top-level Script `using` declaration. The normative extension is:
+
+`docs/rust-rewrite/contracts/script-top-level-using-declaration-early-errors.md`
+
+The domain has **38** variants and the one parse-failure table has **36** rows.
+Nested Script statement-list boundaries and top-level Module declarations stay
+parse-valid. Pinned Boa's earlier ordinary parse rejection for top-level Script
+`await using` is deliberately not relabeled through the fragment classifier.
+
 ## 2026-08-22 class-field `ContainsArguments` amendment
 
 T07 now classifies Boa's exact shared rejection for an `arguments` reference in

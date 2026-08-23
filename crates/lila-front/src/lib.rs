@@ -690,7 +690,11 @@ mod tests {
         ] {
             let err = parse(source, options)
                 .expect_err("a surviving ObjectLiteral CoverInitializedName should fail");
-            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(
+                err.diagnostic().phase(),
+                ParseDiagnosticPhase::Early,
+                "{source:?}: {err:?}"
+            );
             assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
             assert_eq!(
                 err.diagnostic().code,
@@ -745,6 +749,40 @@ mod tests {
                 parse(source, options)
                     .expect("function and class boundaries make new.target parse-valid");
             }
+        }
+    }
+
+    #[test]
+    fn script_top_level_using_declaration_rejects() {
+        let source = "using x = null;";
+        let err = parse(source, ParseOptions::script())
+            .expect_err("a top-level Script using declaration should fail");
+        assert_eq!(
+            err.diagnostic().phase(),
+            ParseDiagnosticPhase::Early,
+            "{source:?}: {err:?}"
+        );
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ScriptTopLevelUsingDeclaration),
+            "{source:?}: {err:?}"
+        );
+        assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+    }
+
+    #[test]
+    fn script_nested_using_declaration_boundaries_remain_valid() {
+        for source in [
+            "{ using x = null; }",
+            "function f() { using x = null; }",
+            "async function f() { await using x = null; }",
+            "for (using x = null;;) break;",
+            "for (using x of [null]) {}",
+            "class C { static { using x = null; } }",
+        ] {
+            parse(source, ParseOptions::script())
+                .expect("nested and loop-head using declarations should remain valid");
         }
     }
 
@@ -1810,6 +1848,9 @@ switch (0) {
                 .is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelNewTarget).is_some());
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelUsingDeclaration).is_some()
+        );
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(

@@ -374,6 +374,15 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- ScriptBody top-level `using` now has one typed early-error code for Boa's
+  fixed-position post-parse producer. Nested Script boundaries remain valid,
+  retained Modules allow both top-level `using` forms, and the earlier untyped
+  parser rejection for top-level Script `await using` remains honest rather
+  than being forced through a source-interpolating classifier. The capped front
+  gate passes `57/57`, the IR early-error filter passes `3/3`, and the exact
+  two-file cohort passes `4/4` sloppy/strict Wasm-AOT executions with every
+  failure and non-success bucket at zero. This is bounded classification, not
+  parser-reachability repair, disposal execution, or broad T07 closure.
 - Classic `for` lowering now lives in `lowering/for_loop.rs`: one owner carries
   head validation, lexical TDZ/environment setup, flow merging, resumable-state
   construction and the final `For`/`GeneratorLoop` choice. The exact 209-line
