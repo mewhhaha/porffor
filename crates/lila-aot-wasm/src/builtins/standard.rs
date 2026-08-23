@@ -396,42 +396,28 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             receiver_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             receiver_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             receiver_byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
             receiver_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
             receiver_bytes_per_element_local,
             function,
         );
-        self.emit_validate_typed_array_current_byte_length(
+        let receiver_view = TypedArrayViewLocals::new(
             receiver_payload_local,
-            receiver_tag_local,
             receiver_buffer_local,
             receiver_byte_offset_local,
             receiver_byte_length_local,
+            receiver_bytes_per_element_local,
+        );
+        self.emit_typed_array_witness(
+            &receiver_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local: receiver_length_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(receiver_byte_length_local));
-        function.instruction(&Instruction::LocalGet(receiver_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(receiver_length_local));
 
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_value_to_number_payload(argument_tag_local, argument_payload_local, function)?;
@@ -520,18 +506,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_validate_typed_array_current_byte_length(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_buffer_local,
-            receiver_byte_offset_local,
-            receiver_byte_length_local,
+        self.emit_typed_array_witness(
+            &receiver_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local: current_length_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(receiver_byte_length_local));
-        function.instruction(&Instruction::LocalGet(receiver_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(current_length_local));
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(available_local));
@@ -4767,10 +4748,9 @@ impl<'a> FunctionBuilder<'a> {
         generator_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.store_i64_const_at_offset(
+        self.emit_store_generator_state(
             generator_payload_local,
-            HEAP_GENERATOR_STATE_OFFSET,
-            GENERATOR_STATE_EXECUTING,
+            GeneratorState::Executing,
             function,
         );
         let callee_payload_local = self.reserve_temp_local();
@@ -4839,10 +4819,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
+        self.emit_store_generator_state(
             generator_payload_local,
-            HEAP_GENERATOR_STATE_OFFSET,
-            GENERATOR_STATE_SUSPENDED_YIELD,
+            GeneratorState::SuspendedYield,
             function,
         );
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
@@ -4862,10 +4841,9 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
+        self.emit_store_generator_state(
             generator_payload_local,
-            HEAP_GENERATOR_STATE_OFFSET,
-            GENERATOR_STATE_COMPLETED,
+            GeneratorState::Completed,
             function,
         );
         self.emit_return_current_completion_if_throw(function);
@@ -18423,7 +18401,7 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in lila wasm-aot first slice: missing Generator receiver tag",
                     )
                 })?;
-                let state_local = self.reserve_temp_local();
+                let brand_local = self.reserve_temp_local();
 
                 function.instruction(&Instruction::LocalGet(this_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -18432,10 +18410,10 @@ impl<'a> FunctionBuilder<'a> {
                 self.load_i64_to_local_from_offset(
                     this_payload_local,
                     HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                    state_local,
+                    brand_local,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(state_local));
+                function.instruction(&Instruction::LocalGet(brand_local));
                 function.instruction(&Instruction::I64Const(
                     OBJECT_INTERNAL_BRAND_GENERATOR as i64,
                 ));
@@ -18459,15 +18437,14 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
 
-                self.load_i64_to_local_from_offset(
-                    this_payload_local,
-                    HEAP_GENERATOR_STATE_OFFSET,
-                    state_local,
+                self.release_temp_local(brand_local);
+                let generator_state =
+                    self.emit_load_generator_state_strict(this_payload_local, function);
+                self.emit_generator_state_equals(
+                    &generator_state,
+                    GeneratorState::Executing,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(state_local));
-                function.instruction(&Instruction::I64Const(GENERATOR_STATE_EXECUTING as i64));
-                function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_current_function_realm_type_error(
                     "Generator is already running",
@@ -18478,11 +18455,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
 
-                function.instruction(&Instruction::LocalGet(state_local));
-                function.instruction(&Instruction::I64Const(
-                    GENERATOR_STATE_SUSPENDED_YIELD as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
+                self.emit_generator_state_equals(
+                    &generator_state,
+                    GeneratorState::SuspendedYield,
+                    function,
+                );
                 function.instruction(&Instruction::If(BlockType::Empty));
                 let abrupt_payload_local = self.reserve_temp_local();
                 let abrupt_tag_local = self.reserve_temp_local();
@@ -18522,9 +18499,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
 
                 if builtin == StandardBuiltinId::GeneratorPrototypeNext {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(GENERATOR_STATE_COMPLETED as i64));
-                    function.instruction(&Instruction::I64Eq);
+                    self.emit_generator_state_equals(
+                        &generator_state,
+                        GeneratorState::Completed,
+                        function,
+                    );
                     function.instruction(&Instruction::If(BlockType::Empty));
                     let value_payload_local = self.reserve_temp_local();
                     let value_tag_local = self.reserve_temp_local();
@@ -18546,11 +18525,11 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(value_payload_local);
                     function.instruction(&Instruction::End);
 
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(
-                        GENERATOR_STATE_SUSPENDED_YIELD as i64,
-                    ));
-                    function.instruction(&Instruction::I64Eq);
+                    self.emit_generator_state_equals(
+                        &generator_state,
+                        GeneratorState::SuspendedYield,
+                        function,
+                    );
                     function.instruction(&Instruction::If(BlockType::Empty));
                     let resume_payload_local = self.reserve_temp_local();
                     let resume_tag_local = self.reserve_temp_local();
@@ -18576,10 +18555,9 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(resume_payload_local);
                     function.instruction(&Instruction::End);
 
-                    self.store_i64_const_at_offset(
+                    self.emit_store_generator_state(
                         this_payload_local,
-                        HEAP_GENERATOR_STATE_OFFSET,
-                        GENERATOR_STATE_EXECUTING,
+                        GeneratorState::Executing,
                         function,
                     );
                     let callee_payload_local = self.reserve_temp_local();
@@ -18648,10 +18626,9 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Ne);
                     function.instruction(&Instruction::I32And);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.store_i64_const_at_offset(
+                    self.emit_store_generator_state(
                         this_payload_local,
-                        HEAP_GENERATOR_STATE_OFFSET,
-                        GENERATOR_STATE_SUSPENDED_YIELD,
+                        GeneratorState::SuspendedYield,
                         function,
                     );
                     function.instruction(&Instruction::LocalGet(self.completion_aux_local));
@@ -18671,10 +18648,9 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                     self.emit_return_current_completion(function);
                     function.instruction(&Instruction::End);
-                    self.store_i64_const_at_offset(
+                    self.emit_store_generator_state(
                         this_payload_local,
-                        HEAP_GENERATOR_STATE_OFFSET,
-                        GENERATOR_STATE_COMPLETED,
+                        GeneratorState::Completed,
                         function,
                     );
                     self.emit_return_current_completion_if_throw(function);
@@ -18703,10 +18679,9 @@ impl<'a> FunctionBuilder<'a> {
                         value_tag_local,
                         function,
                     );
-                    self.store_i64_const_at_offset(
+                    self.emit_store_generator_state(
                         this_payload_local,
-                        HEAP_GENERATOR_STATE_OFFSET,
-                        GENERATOR_STATE_COMPLETED,
+                        GeneratorState::Completed,
                         function,
                     );
                     if builtin == StandardBuiltinId::GeneratorPrototypeThrow {
@@ -18729,7 +18704,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(value_tag_local);
                     self.release_temp_local(value_payload_local);
                 }
-                self.release_temp_local(state_local);
+                self.release_loaded_generator_state(generator_state);
             }
             StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose => {
                 self.emit_async_iterator_prototype_async_dispose(function)?;

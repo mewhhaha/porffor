@@ -7324,10 +7324,9 @@ impl<'a> FunctionBuilder<'a> {
                 OBJECT_INTERNAL_BRAND_GENERATOR,
                 function,
             );
-            self.store_i64_const_at_offset(
+            self.emit_store_generator_state(
                 payload_local,
-                HEAP_GENERATOR_STATE_OFFSET,
-                GENERATOR_STATE_SUSPENDED_START,
+                GeneratorState::SuspendedStart,
                 function,
             );
             self.store_i64_local_at_offset(

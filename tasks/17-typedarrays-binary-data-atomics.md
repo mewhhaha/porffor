@@ -220,14 +220,31 @@ the callback is not called. The eight pinned detached, out-of-bounds, growth
 and shrink Test262 leaves each pass `2/2`, for `16/16` Wasm-AOT executions with
 every failure bucket at zero under `--jobs 1 --threads 1`.
 
-These migrations still do not cover `copyWithin`, `with`, `set`, `slice`,
+`%TypedArray%.prototype.copyWithin` now uses one immutable
+`TypedArrayViewLocals` record and exactly two validated-method-entry witnesses:
+the entry witness captures the range before coercion, while a second witness
+inside the positive-count branch reobserves the buffer after target, start and
+end coercion. The typed seam preserves fixed-view extent, whole-element
+flooring, current-length truncation and the zero-count rule that skips the
+second observation and all copy setup. Its structural guard pins coercion and
+clamping order, both length snapshots, branch containment, current-length
+caps, overlap direction and the byte-copy loop.
+
+The implementation and guard were independently reviewed and focused-verified
+on 2026-08-23. Under the shared eight-core, 22 GB cap, the structure suite
+passes `3/3`, the exact CLI fixture passes `1/1`, and the six exact Test262
+leaves pass `12/12` Wasm-AOT variants with every failure bucket at zero under
+`--jobs 1 --threads 1`. The source of truth is
+`docs/rust-rewrite/contracts/typed-array-copy-within-buffer-witness.md`.
+
+These migrations still do not cover `with`, `set`, `slice`,
 constructor validation or other remaining raw validators. They
 do not change the shared indexed `Get`, per-index integer-indexed behavior,
 result allocation, SharedArrayBuffer synchronization, Test262 rewrites or
-published counts. The toLocaleString and map/filter fixtures do not prove
-created-Realm buffer-error prototype identity at direct method entry; only the
-shared witness's current-function-Realm route is structurally owned for that
-case.
+published counts. The toLocaleString, map/filter and copyWithin fixtures do not
+prove created-Realm buffer-error prototype identity at direct method entry;
+only the shared witness's current-function-Realm route is structurally owned
+for that case.
 
 ## Objective
 

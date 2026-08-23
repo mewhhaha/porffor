@@ -349,7 +349,7 @@ pub(crate) const HEAP_OBJECT_INTERNAL_BRAND_OFFSET: u64 = 56;
 pub(crate) const HEAP_OBJECT_PROTOTYPE_TAG_OFFSET: u64 = 64;
 pub(crate) const HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 72;
 pub(crate) const HEAP_PROXY_HANDLER_TAG_OFFSET: u64 = 80;
-pub(crate) const HEAP_GENERATOR_STATE_OFFSET: u64 = 80;
+const HEAP_GENERATOR_STATE_OFFSET: u64 = 80;
 pub(crate) const HEAP_GENERATOR_FUNCTION_OFFSET: u64 = 88;
 pub(crate) const HEAP_GENERATOR_THIS_PAYLOAD_OFFSET: u64 = 96;
 pub(crate) const HEAP_GENERATOR_THIS_TAG_OFFSET: u64 = 104;
@@ -1802,10 +1802,45 @@ pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
 /// `[[DisposableState]]` is intentionally not the async brand. The five
 /// AsyncDisposableStack wrong-receiver witnesses depend on this distinction.
 pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;
-pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
-pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
-pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
-pub(crate) const GENERATOR_STATE_SUSPENDED_YIELD: u64 = 3;
+/// The closed `[[GeneratorState]]` domain persisted in a synchronous
+/// generator record.
+///
+/// The declaration order follows the stable heap words. The explicit
+/// projection, rather than a Rust discriminant, owns that representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeneratorState {
+    SuspendedStart,
+    Executing,
+    Completed,
+    SuspendedYield,
+}
+
+impl GeneratorState {
+    const ALL: [Self; 4] = [
+        Self::SuspendedStart,
+        Self::Executing,
+        Self::Completed,
+        Self::SuspendedYield,
+    ];
+
+    const fn word(self) -> u64 {
+        match self {
+            Self::SuspendedStart => 0,
+            Self::Executing => 1,
+            Self::Completed => 2,
+            Self::SuspendedYield => 3,
+        }
+    }
+}
+
+/// One strictly validated snapshot of a synchronous generator's state word.
+///
+/// The raw local is private and the token is deliberately non-`Copy`. State
+/// dispatch borrows it, then must consume it through the matching release
+/// boundary once every comparison has been emitted.
+#[must_use = "a loaded generator state must be compared and released"]
+pub(crate) struct LoadedGeneratorState(u32);
+
 pub(crate) const GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
 pub(crate) const GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
 pub(crate) const GENERATOR_RESUME_KIND_RETURN: u64 = 1;
@@ -5924,6 +5959,72 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) const fn align_heap_size(size: u64) -> u64 {
         (size + 7) & !7
+    }
+
+    /// Store one state from the closed synchronous-generator lifecycle.
+    pub(crate) fn emit_store_generator_state(
+        &self,
+        generator_payload_local: u32,
+        state: GeneratorState,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            generator_payload_local,
+            HEAP_GENERATOR_STATE_OFFSET,
+            state.word(),
+            function,
+        );
+    }
+
+    /// Load and strictly validate one snapshot of `[[GeneratorState]]`.
+    ///
+    /// An unknown word is an impossible generator record. Trap rather than
+    /// letting the builtin dispatcher mistake it for `SuspendedStart`.
+    pub(crate) fn emit_load_generator_state_strict(
+        &mut self,
+        generator_payload_local: u32,
+        function: &mut Function,
+    ) -> LoadedGeneratorState {
+        let state_word_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            generator_payload_local,
+            HEAP_GENERATOR_STATE_OFFSET,
+            state_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for state in GeneratorState::ALL {
+            function.instruction(&Instruction::LocalGet(state_word_local));
+            function.instruction(&Instruction::I64Const(state.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        LoadedGeneratorState(state_word_local)
+    }
+
+    /// Emit one comparison against a strictly loaded generator-state word.
+    pub(crate) fn emit_generator_state_equals(
+        &self,
+        loaded: &LoadedGeneratorState,
+        expected: GeneratorState,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Release the private local owned by a loaded generator-state snapshot.
+    pub(crate) fn release_loaded_generator_state(&mut self, loaded: LoadedGeneratorState) {
+        self.release_temp_local(loaded.0);
     }
 
     /// Initialize a Promise record in the sole valid non-terminal state.

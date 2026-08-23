@@ -15,6 +15,24 @@ materialization, and the README records unsupported suspended/control-flow
 families. General sync/async generator state machines, iterator-close coverage
 across all consumers and complete resource-management filters remain open.
 
+The synchronous generator heap word now has the closed
+`GeneratorState::{SuspendedStart, Executing, Completed, SuspendedYield}` domain.
+Its exhaustive private word projection is the sole integer encoding; a strict
+one-load decoder traps unknown words and returns a private non-`Copy` token, and
+typed store/compare/release helpers own every product access to the private heap
+offset. The bounded guard pins all allocation, resume and terminal owners plus
+their lifecycle ordering, so raw states, wrong-domain locals and unknown-word
+fallthroughs are structurally rejected.
+
+The implementation and guard were independently reviewed and focused-verified
+on 2026-08-23. Under the shared eight-core, 22 GB cap, the structure suite
+passes `4/4`, four exact CLI lifecycle/suspension/heap fixtures pass `4/4`, and
+the six exact generator-state Test262 leaves pass `12/12` Wasm-AOT variants
+with every failure bucket at zero under `--jobs 1 --threads 1`. This is a typed
+state-word boundary, not a claim that general continuation, generator, iterator
+or T15 closure is complete. The source of truth is
+`docs/rust-rewrite/contracts/generator-state-word.md`.
+
 Async-generator request settlement now carries the closed
 `AsyncGeneratorCompleteStepKind::{Yielded, Completed}` lifecycle state rather
 than an unlabeled Boolean. Its sole exhaustive projection lives at the

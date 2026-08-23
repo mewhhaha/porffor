@@ -91,7 +91,8 @@ Object.defineProperty(ignoresLength, "length", {
   }
 });
 ignoresLength.copyWithin(1, 0);
-assertSequence(ignoresLength, [5, 5], "internal length");
+assertSame(ignoresLength[0], 5, "internal length first value");
+assertSame(ignoresLength[1], 5, "internal length second value");
 
 var trackingBuffer = new ArrayBuffer(4, { maxByteLength: 8 });
 var tracking = new Uint8Array(trackingBuffer);
@@ -160,6 +161,38 @@ assertThrowsTypeError(function() {
     }
   });
 }, "detach during coercion");
+
+var detachDuringEndBuffer = new ArrayBuffer(4);
+var detachDuringEnd = new Uint8Array(detachDuringEndBuffer);
+var detachDuringEndCoercions = 0;
+assertThrowsTypeError(function() {
+  detachDuringEnd.copyWithin(0, 1, {
+    valueOf: function() {
+      detachDuringEndCoercions += 1;
+      detachDuringEndBuffer.transfer();
+      return 4;
+    }
+  });
+}, "detach during end coercion with positive count");
+assertSame(detachDuringEndCoercions, 1, "positive count coerces end once");
+assertSame(detachDuringEndBuffer.detached, true, "positive count detaches during end");
+
+var zeroCountBuffer = new ArrayBuffer(4);
+var zeroCount = new Uint8Array(zeroCountBuffer);
+var zeroCountEndCoercions = 0;
+assertSame(
+  zeroCount.copyWithin(4, 0, {
+    valueOf: function() {
+      zeroCountEndCoercions += 1;
+      zeroCountBuffer.transfer();
+      return 4;
+    }
+  }),
+  zeroCount,
+  "zero count skips post-coercion validation"
+);
+assertSame(zeroCountEndCoercions, 1, "zero count coerces end once");
+assertSame(zeroCountBuffer.detached, true, "zero count detaches during end");
 
 var invalidReceivers = [
   null,
