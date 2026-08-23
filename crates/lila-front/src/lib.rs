@@ -1230,6 +1230,142 @@ mod tests {
     }
 
     #[test]
+    fn lexical_bound_name_let_rejects_the_complete_parser_surface_under_both_goals() {
+        for source in [
+            "let let;",
+            "let [let] = [];",
+            "let { value: let } = {};",
+            "let { outer: [let] } = {};",
+            "const let = 0;",
+            "const [let] = [];",
+            "const { value: let } = {};",
+            "const [...let] = [];",
+            r#""use strict"; let [let] = [];"#,
+            "function f() { using let = null; }",
+            "async function f() { await using let = null; }",
+            "for (let let = 0; false;) {}",
+            "for (let [let] = []; false;) {}",
+            "for (let { value: let } = {}; false;) {}",
+            "for (let { outer: [...let] } = {}; false;) {}",
+            "for (const let = 0; false;) {}",
+            "for (const [let] = []; false;) {}",
+            "for (const { value: let } = {}; false;) {}",
+            "for (let let in {}) {}",
+            "for (const [let] in {}) {}",
+            "for (let { value: let } of []) {}",
+            "for (const { outer: [let] } of []) {}",
+            "for (const let of []) {}",
+            "async function f() { for await (let let of []) {} }",
+            "async function f() { for await (const [let] of []) {} }",
+            "for (using let of []) {}",
+            "async function f() { for (await using let of []) {} }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a lexical or ForDeclaration BoundName equal to let should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::LexicalBoundNameLet),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the forbidden lexical binding must retain its source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn lexical_bound_name_let_precedes_adjacent_declaration_errors() {
+        for source in [
+            "let [let, let] = [];",
+            "for (let [let, let] = []; ; ) {}",
+            "for (let [let, let] of []) {}",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the forbidden let binding should precede duplicate-name errors");
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::LexicalBoundNameLet),
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lexical_bound_name_let_positive_and_strict_identifier_boundaries_stay_distinct() {
+        for source in [
+            "let { let: x } = {};",
+            "const { let: x } = {};",
+            "let letter;",
+            "const letter = 0;",
+            "for (let letter = 0; false;) {}",
+            "for (const { let: x } = {}; false;) {}",
+            "for (let letter in {}) {}",
+            "for (const { let: x } of []) {}",
+            "async function f() { for await (let letter of []) {} }",
+            "for (using letter of []) {}",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("only an exact BoundName equal to let belongs to this condition");
+            }
+        }
+
+        parse("var let;", ParseOptions::script())
+            .expect("sloppy Script var let remains outside lexical BoundNames");
+
+        for (source, options) in [
+            (r#""use strict"; var let;"#, ParseOptions::script()),
+            (r#""use strict"; var [let] = [];"#, ParseOptions::script()),
+            ("var let;", ParseOptions::module()),
+            ("var { value: let } = {};", ParseOptions::module()),
+        ] {
+            let err = parse(source, options)
+                .expect_err("strict code should retain its existing identifier rejection");
+            assert_eq!(
+                err.diagnostic().code,
+                ParseCode::Malformed,
+                "{source:?}: {err:?}"
+            );
+            assert_ne!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::LexicalBoundNameLet),
+                "{source:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn user_export_names_cannot_forge_lexical_bound_name_let_classification() {
+        for exported_name in [
+            "'let' is disallowed as a lexically bound name at line",
+            "Cannot use 'let' as a lexically bound name at line",
+        ] {
+            let source = format!(
+                "const value = 0;\nexport {{ value as \"{exported_name}\" }};\nexport {{ value as \"{exported_name}\" }};"
+            );
+            let err = parse(&source, ParseOptions::module())
+                .expect_err("the user-chosen exported name is duplicated");
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ModuleDuplicateExport),
+                "{exported_name:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
     fn for_declaration_duplicate_bound_name_boundaries_remain_distinct() {
         for source in [
             "for (var [x, x] in {}) {}",
@@ -1293,10 +1429,7 @@ mod tests {
             );
         }
 
-        for source in [
-            "for (let let of []) {}",
-            "async function f() { for (await using [x, x] of []) {} }",
-        ] {
+        for source in ["async function f() { for (await using [x, x] of []) {} }"] {
             for options in [ParseOptions::script(), ParseOptions::module()] {
                 let err = parse(source, options)
                     .expect_err("an earlier non-ForDeclaration boundary should reject");
@@ -1376,6 +1509,10 @@ mod tests {
         const CONFLICT_MESSAGE: &str = "For loop initializer declared in loop body";
         const DUPLICATE_MESSAGE: &str = "For loop initializer cannot contain duplicate identifiers";
         const GENERIC_DUPLICATE_MESSAGE: &str = "lexical name declared multiple times";
+        const LEXICAL_BOUND_NAME_LET_MESSAGE: &str =
+            "'let' is disallowed as a lexically bound name";
+        const FOR_DECLARATION_BOUND_NAME_LET_MESSAGE: &str =
+            "Cannot use 'let' as a lexically bound name";
         const LEXICAL_CONTEXT: &str = r#"enum LexicalDeclarationContext {
     Statement,
     ForHead,
@@ -1386,6 +1523,20 @@ mod tests {
             Self::ForHead => true,
         }
     }"#;
+        const BINDING_IDENTIFIER_CONTEXT: &str = r#"enum BindingIdentifierContext {
+    General,
+    LexicalDeclaration,
+}"#;
+        const EXHAUSTIVE_BINDING_IDENTIFIER_CONTEXT_PROJECTION: &str = r#"fn allows_lexical_bound_name_let(self, identifier: Sym) -> bool {
+        match self {
+            Self::General => false,
+            Self::LexicalDeclaration => identifier == Sym::LET,
+        }
+    }"#;
+        const STRICT_RESERVED_LET_EXCEPTION: &str = r#"if cursor.strict()
+            && ident.is_strict_reserved_identifier()
+            && !context.allows_lexical_bound_name_let(ident)
+        {"#;
         const STATEMENT_CONTEXT_CONSTRUCTOR: &str = r#"pub(in crate::parser) fn statement<I, Y, A>(
         allow_in: I,
         allow_yield: Y,
@@ -1451,10 +1602,25 @@ mod tests {
         }
         Ok(())
     }"#;
+        const SHARED_BOUND_NAME_LET_VALIDATOR: &str = r#"pub(in crate::parser) fn validate_bound_name_let(
+        declaration: &ast::declaration::LexicalDeclaration,
+        position: Position,
+    ) -> ParseResult<()> {
+        for name in bound_names(declaration) {
+            if name == Sym::LET {
+                return Err(Error::general(
+                    "'let' is disallowed as a lexically bound name",
+                    position,
+                ));
+            }
+        }
+        Ok(())
+    }"#;
         const STATEMENT_TERMINATOR: &str = r#"if !self.context.is_for_head() {
             cursor.expect_semicolon("lexical declaration", interner)?;
         }"#;
         const ORDINARY_VALIDATION: &str = r#"if !self.context.is_for_head() {
+            Self::validate_bound_name_let(&lexical_declaration, tok.span().start())?;
             Self::validate_duplicate_bound_names(&lexical_declaration, tok.span().start())?;
         }"#;
         const FOR_HEAD_MISSING_INITIALIZER: &str = r#"if init_is_some || self.context.is_for_head() {
@@ -1470,6 +1636,10 @@ mod tests {
                 }),
                 _,
             ) => {
+                LexicalDeclaration::validate_bound_name_let(
+                    &declaration,
+                    keyword_position,
+                )?;
                 LexicalDeclaration::validate_duplicate_bound_names(
                     &declaration,
                     keyword_position,
@@ -1533,6 +1703,12 @@ mod tests {
         const DECLARATION_SOURCE: &str = include_str!(
             "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/mod.rs"
         );
+        const BINDING_PATTERN_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/parser/statement/mod.rs");
+        const BINDING_IDENTIFIER_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/parser/expression/identifiers.rs");
+        const VARIABLE_DECLARATION_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/parser/statement/variable/mod.rs");
 
         let boa_package_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
@@ -1547,6 +1723,25 @@ mod tests {
         assert_eq!(
             count_message_in_rust_sources(&boa_package_root, GENERIC_DUPLICATE_MESSAGE),
             6
+        );
+        assert_eq!(
+            count_message_in_rust_sources(&boa_package_root, LEXICAL_BOUND_NAME_LET_MESSAGE),
+            1
+        );
+        assert_eq!(
+            count_message_in_rust_sources(
+                &boa_package_root,
+                FOR_DECLARATION_BOUND_NAME_LET_MESSAGE,
+            ),
+            1
+        );
+        assert_eq!(
+            count_message_in_rust_sources(
+                &boa_package_root,
+                "BindingIdentifierContext::LexicalDeclaration",
+            ),
+            3,
+            "only lexical binding parsers may opt into deferring the let condition"
         );
         assert_eq!(FOR_STATEMENT_SOURCE.matches(CONFLICT_MESSAGE).count(), 2);
         assert_eq!(FOR_STATEMENT_SOURCE.matches(DUPLICATE_MESSAGE).count(), 1);
@@ -1564,7 +1759,37 @@ mod tests {
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
+                .matches(LEXICAL_BOUND_NAME_LET_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(FOR_DECLARATION_BOUND_NAME_LET_MESSAGE)
+                .count(),
+            0
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches(LEXICAL_BOUND_NAME_LET_MESSAGE)
+                .count(),
+            0
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches(FOR_DECLARATION_BOUND_NAME_LET_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
                 .matches(SHARED_DUPLICATE_VALIDATOR)
+                .count(),
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches(SHARED_BOUND_NAME_LET_VALIDATOR)
                 .count(),
             1
         );
@@ -1577,6 +1802,36 @@ mod tests {
                 .matches(EXHAUSTIVE_CONTEXT_PROJECTION)
                 .count(),
             1
+        );
+        assert_eq!(
+            BINDING_IDENTIFIER_SOURCE
+                .matches(BINDING_IDENTIFIER_CONTEXT)
+                .count(),
+            1
+        );
+        assert_eq!(
+            BINDING_IDENTIFIER_SOURCE
+                .matches(EXHAUSTIVE_BINDING_IDENTIFIER_CONTEXT_PROJECTION)
+                .count(),
+            1
+        );
+        assert_eq!(
+            BINDING_IDENTIFIER_SOURCE
+                .matches(STRICT_RESERVED_LET_EXCEPTION)
+                .count(),
+            1
+        );
+        assert_eq!(
+            BINDING_IDENTIFIER_SOURCE
+                .matches("context: BindingIdentifierContext::General")
+                .count(),
+            1
+        );
+        assert_eq!(
+            BINDING_PATTERN_SOURCE
+                .matches("binding_identifier_context: BindingIdentifierContext::General")
+                .count(),
+            2
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
@@ -1648,6 +1903,31 @@ mod tests {
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE.matches("Self::ForHead").count(),
             1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("BindingIdentifierContext::LexicalDeclaration")
+                .count(),
+            3
+        );
+        assert_eq!(
+            BINDING_PATTERN_SOURCE
+                .matches(".with_context(self.binding_identifier_context)")
+                .count(),
+            5
+        );
+        assert_eq!(
+            BINDING_PATTERN_SOURCE
+                .matches(".with_binding_identifier_context")
+                .count(),
+            6
+        );
+        assert_eq!(
+            VARIABLE_DECLARATION_SOURCE
+                .matches("BindingIdentifierContext")
+                .count(),
+            0,
+            "var declarations must retain the general strict-identifier path"
         );
         assert_eq!(
             DECLARATION_SOURCE
@@ -1722,6 +2002,12 @@ mod tests {
         assert_eq!(
             FOR_STATEMENT_SOURCE
                 .matches("LexicalDeclaration::validate_duplicate_bound_names(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            FOR_STATEMENT_SOURCE
+                .matches("LexicalDeclaration::validate_bound_name_let(")
                 .count(),
             1
         );
@@ -3766,6 +4052,7 @@ switch (0) {
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ForDeclarationDuplicateBoundName).is_some()
         );
+        assert!(ParseClassified::from_early(EarlyErrorCode::LexicalBoundNameLet).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ForInUsingDeclaration).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::SwitchClauseUsingDeclaration).is_some()

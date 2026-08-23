@@ -46,7 +46,7 @@ use crate::{
     lexer::{Error as LexError, InputElement, Token, TokenKind, token::EscapeSequence},
     parser::{
         AllowAwait, AllowReturn, AllowYield, Cursor, OrAbrupt, ParseResult, TokenParser,
-        expression::{BindingIdentifier, Initializer, PropertyName},
+        expression::{BindingIdentifier, BindingIdentifierContext, Initializer, PropertyName},
     },
     source::ReadChar,
 };
@@ -513,6 +513,7 @@ where
 pub(super) struct ObjectBindingPattern {
     allow_yield: AllowYield,
     allow_await: AllowAwait,
+    binding_identifier_context: BindingIdentifierContext,
 }
 
 impl ObjectBindingPattern {
@@ -525,7 +526,17 @@ impl ObjectBindingPattern {
         Self {
             allow_yield: allow_yield.into(),
             allow_await: allow_await.into(),
+            binding_identifier_context: BindingIdentifierContext::General,
         }
+    }
+
+    /// Propagates the binding grammar owner through nested patterns.
+    pub(super) const fn with_binding_identifier_context(
+        mut self,
+        context: BindingIdentifierContext,
+    ) -> Self {
+        self.binding_identifier_context = context;
+        self
     }
 }
 
@@ -573,6 +584,7 @@ where
                         interner,
                     )?;
                     let ident = BindingIdentifier::new(self.allow_yield, self.allow_await)
+                        .with_context(self.binding_identifier_context)
                         .parse(cursor, interner)?;
                     patterns.push(ObjectPatternElement::RestProperty { ident });
 
@@ -617,6 +629,9 @@ where
                             match peek_token.kind() {
                                 TokenKind::Punctuator(Punctuator::OpenBlock) => {
                                     let bindings = Self::new(self.allow_yield, self.allow_await)
+                                        .with_binding_identifier_context(
+                                            self.binding_identifier_context,
+                                        )
                                         .parse(cursor, interner)?;
 
                                     if let Some(peek_token) = cursor.peek(0, interner)? {
@@ -648,6 +663,9 @@ where
                                     let bindings = ArrayBindingPattern::new(
                                         self.allow_yield,
                                         self.allow_await,
+                                    )
+                                    .with_binding_identifier_context(
+                                        self.binding_identifier_context,
                                     )
                                     .parse(cursor, interner)?;
 
@@ -681,6 +699,7 @@ where
                                     //       Should parse https://tc39.es/ecma262/#prod-PropertyName
                                     let ident =
                                         BindingIdentifier::new(self.allow_yield, self.allow_await)
+                                            .with_context(self.binding_identifier_context)
                                             .parse(cursor, interner)?;
 
                                     if let Some(peek_token) = cursor.peek(0, interner)? {
@@ -713,6 +732,7 @@ where
                         }
                     } else {
                         let name = BindingIdentifier::new(self.allow_yield, self.allow_await)
+                            .with_context(self.binding_identifier_context)
                             .parse(cursor, interner)?;
                         match cursor.peek(0, interner)?.map(Token::kind) {
                             Some(TokenKind::Punctuator(Punctuator::Assign)) => {
@@ -772,6 +792,7 @@ where
 pub(super) struct ArrayBindingPattern {
     allow_yield: AllowYield,
     allow_await: AllowAwait,
+    binding_identifier_context: BindingIdentifierContext,
 }
 
 impl ArrayBindingPattern {
@@ -784,7 +805,17 @@ impl ArrayBindingPattern {
         Self {
             allow_yield: allow_yield.into(),
             allow_await: allow_await.into(),
+            binding_identifier_context: BindingIdentifierContext::General,
         }
+    }
+
+    /// Propagates the binding grammar owner through nested patterns.
+    pub(super) const fn with_binding_identifier_context(
+        mut self,
+        context: BindingIdentifierContext,
+    ) -> Self {
+        self.binding_identifier_context = context;
+        self
     }
 }
 
@@ -847,6 +878,9 @@ where
                         TokenKind::Punctuator(Punctuator::OpenBlock) => {
                             let bindings =
                                 ObjectBindingPattern::new(self.allow_yield, self.allow_await)
+                                    .with_binding_identifier_context(
+                                        self.binding_identifier_context,
+                                    )
                                     .parse(cursor, interner)?;
                             patterns.push(ArrayPatternElement::PatternRest {
                                 pattern: bindings.into(),
@@ -854,6 +888,7 @@ where
                         }
                         TokenKind::Punctuator(Punctuator::OpenBracket) => {
                             let bindings = Self::new(self.allow_yield, self.allow_await)
+                                .with_binding_identifier_context(self.binding_identifier_context)
                                 .parse(cursor, interner)?;
                             patterns.push(ArrayPatternElement::PatternRest {
                                 pattern: bindings.into(),
@@ -862,6 +897,7 @@ where
                         _ => {
                             let rest_property_name =
                                 BindingIdentifier::new(self.allow_yield, self.allow_await)
+                                    .with_context(self.binding_identifier_context)
                                     .parse(cursor, interner)?;
                             patterns.push(ArrayPatternElement::SingleNameRest {
                                 ident: rest_property_name,
@@ -887,6 +923,7 @@ where
                     last_elision_or_first = false;
 
                     let bindings = ObjectBindingPattern::new(self.allow_yield, self.allow_await)
+                        .with_binding_identifier_context(self.binding_identifier_context)
                         .parse(cursor, interner)?;
 
                     match cursor.peek(0, interner).or_abrupt()?.kind() {
@@ -910,8 +947,9 @@ where
                 TokenKind::Punctuator(Punctuator::OpenBracket) => {
                     last_elision_or_first = false;
 
-                    let bindings =
-                        Self::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
+                    let bindings = Self::new(self.allow_yield, self.allow_await)
+                        .with_binding_identifier_context(self.binding_identifier_context)
+                        .parse(cursor, interner)?;
 
                     match cursor.peek(0, interner).or_abrupt()?.kind() {
                         TokenKind::Punctuator(Punctuator::Assign) => {
@@ -935,6 +973,7 @@ where
                     last_elision_or_first = false;
 
                     let ident = BindingIdentifier::new(self.allow_yield, self.allow_await)
+                        .with_context(self.binding_identifier_context)
                         .parse(cursor, interner)?;
                     match cursor.peek(0, interner).or_abrupt()?.kind() {
                         TokenKind::Punctuator(Punctuator::Assign) => {

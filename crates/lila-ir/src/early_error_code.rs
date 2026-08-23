@@ -33,6 +33,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         EarlyErrorCode::ObjectDuplicateProto
         | EarlyErrorCode::ObjectLiteralCoverInitializedName
         | EarlyErrorCode::DuplicateLexicalDeclaration
+        | EarlyErrorCode::LexicalBoundNameLet
         | EarlyErrorCode::DuplicateFormalParameter
         | EarlyErrorCode::CallableNonSimpleParametersContainUseStrict
         | EarlyErrorCode::DuplicateCatchParameter

@@ -43,7 +43,7 @@ use boa_interner::{Interner, Sym};
 
 pub(super) use self::{assignment::AssignmentExpression, primary::Initializer};
 pub(in crate::parser) use {
-    identifiers::{BindingIdentifier, LabelIdentifier},
+    identifiers::{BindingIdentifier, BindingIdentifierContext, LabelIdentifier},
     left_hand_side::LeftHandSideExpression,
     primary::object_initializer::{
         AsyncGeneratorMethod, AsyncMethod, GeneratorMethod, PropertyName,

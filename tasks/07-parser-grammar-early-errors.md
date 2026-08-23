@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames and `import.meta` outside Module classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,42 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Focused-verified 2026-08-23: lexical bound-name `let`
+
+`LexicalBoundNameLet` (`E_LEXICAL_BOUND_NAME_LET`) now owns the shared
+ECMA-262 condition where a lexical declaration or iterable `ForDeclaration`
+has the exact name `let` in its `BoundNames`. One shared validator owns
+ordinary and classic lexical declarations, while the iterable tail retains its
+condition-specific producer. A closed
+`BindingIdentifierContext::{General, LexicalDeclaration}` lets only the exact
+name `let` cross pinned Boa's generic strict-reserved check in the three lexical
+root shapes; array/object recursion preserves that context until the completed
+declaration reaches the semantic owner. Every other binding consumer remains
+`General`, and other reserved names stay rejected by their existing owner.
+
+The closed front domain and classifier table now have `61/61` entries. Exactly
+two anchored rows own the two reachable fixed-message producers, and const
+assertions pin that ownership. The exhaustive IR map derives
+`Early` / `SyntaxError`; real failed Module parses and retained dependency graph
+nodes preserve the typed diagnostic. Direct tests cover both goals, nested and
+rest patterns, classic and iterable loops, resource spellings, precedence,
+positive boundaries, strict `var let` separation and diagnostic-text
+injection. The final vendored inventory records three lexical root opt-ins,
+five identifier-leaf propagations and six recursive pattern propagations.
+
+Independent reviews of the vendored repair and front/IR closure were clean.
+Under the shared eight-core, 22 GB cap, `cargo fmt --all -- --check`, `cargo xc`
+and `git diff --check` are green. The focused front group passes `4/4`, the
+exact source guard passes `1/1`, the complete front library passes `112/112`,
+the focused real-Module/graph witnesses pass `2/2`, and the complete IR
+module-early group passes `43/43`. The ten complete pinned Test262 leaves pass
+exactly `14/14` Wasm-AOT variants with every failure and non-success bucket at
+zero under `--jobs 1 --threads 1`. This is bounded diagnostic closure: no
+aggregate refresh, measured new-pass gain, broader resource/iteration grammar
+result, T07 closure or aggregate-conformance claim is made. The source of
+truth is
+`docs/rust-rewrite/contracts/lexical-bound-name-let-early-errors.md`.
 
 ### Focused-verified 2026-08-23: `import.meta` outside Module
 

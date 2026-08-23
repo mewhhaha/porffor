@@ -1816,6 +1816,54 @@ mod tests {
     }
 
     #[test]
+    fn rejected_lexical_bound_name_let_dependency_keeps_typed_diagnostic_through_graph_build() {
+        let dependency_source = "for (const { value: let } of []) {}";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/lexical-bound-name-let.js"),
+            dependency_source.to_string(),
+            "file:///root/lexical-bound-name-let.js".to_string(),
+        );
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected Module parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './lexical-bound-name-let.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(
+                0,
+                ModuleRequestKeyIr::plain("./lexical-bound-name-let.js"),
+                1,
+            )],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(diagnostic.code(), Some(EarlyErrorCode::LexicalBoundNameLet));
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained lexical binding must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
+    #[test]
     fn retained_import_meta_dependency_keeps_its_module_goal_through_graph_build() {
         let dependency_source = concat!(
             "export const direct = import.meta;\n",

@@ -9,12 +9,15 @@
 
 use crate::{
     Error,
-    lexer::{Error as LexError, Token, TokenKind},
+    lexer::{Token, TokenKind},
     parser::{
         AllowAwait, AllowIn, AllowYield, OrAbrupt, ParseResult, TokenParser,
         cursor::{Cursor, SemicolonResult},
         expression::Initializer,
-        statement::{ArrayBindingPattern, BindingIdentifier, ObjectBindingPattern},
+        statement::{
+            ArrayBindingPattern, BindingIdentifier, BindingIdentifierContext,
+            ObjectBindingPattern,
+        },
     },
     source::ReadChar,
 };
@@ -115,6 +118,26 @@ impl LexicalDeclaration {
             if !names.insert(name) {
                 return Err(Error::general(
                     "lexical name declared multiple times",
+                    position,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Applies the LexicalDeclaration BoundNames restriction shared by
+    /// ordinary declarations and classic-for lexical heads.
+    ///
+    /// Iterable heads use the ForDeclaration-specific producer after the
+    /// surrounding parser resolves the ambiguous for-head grammar.
+    pub(in crate::parser) fn validate_bound_name_let(
+        declaration: &ast::declaration::LexicalDeclaration,
+        position: Position,
+    ) -> ParseResult<()> {
+        for name in bound_names(declaration) {
+            if name == Sym::LET {
+                return Err(Error::general(
+                    "'let' is disallowed as a lexically bound name",
                     position,
                 ));
             }
@@ -281,20 +304,11 @@ where
             cursor.expect_semicolon("lexical declaration", interner)?;
         }
 
-        // It is a Syntax Error if the BoundNames of BindingList contains "let".
-        for name in bound_names(&lexical_declaration) {
-            if name == Sym::LET {
-                return Err(Error::general(
-                    "'let' is disallowed as a lexically bound name",
-                    tok.span().start(),
-                ));
-            }
-        }
-
         // A for-head remains ambiguous until the surrounding parser sees its
-        // delimiter. Classic heads call the generic validator after that
+        // delimiter. Classic heads call both generic validators after that
         // split; iterable heads have a distinct ForDeclaration producer.
         if !self.context.is_for_head() {
+            Self::validate_bound_name_let(&lexical_declaration, tok.span().start())?;
             Self::validate_duplicate_bound_names(&lexical_declaration, tok.span().start())?;
         }
 
@@ -531,11 +545,12 @@ where
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
         let peek_token = cursor.peek(0, interner).or_abrupt()?;
-        let position = peek_token.span().start();
-
         match peek_token.kind() {
             TokenKind::Punctuator(Punctuator::OpenBlock) => {
                 let bindings = ObjectBindingPattern::new(self.allow_yield, self.allow_await)
+                    .with_binding_identifier_context(
+                        BindingIdentifierContext::LexicalDeclaration,
+                    )
                     .parse(cursor, interner)?;
 
                 let init = if cursor
@@ -551,19 +566,13 @@ where
                     None
                 };
 
-                let declaration = bindings.into();
-
-                if bound_names(&declaration).contains(&Sym::LET) {
-                    return Err(Error::lex(LexError::Syntax(
-                        "'let' is disallowed as a lexically bound name".into(),
-                        position,
-                    )));
-                }
-
-                Ok(Variable::from_pattern(declaration, init))
+                Ok(Variable::from_pattern(bindings.into(), init))
             }
             TokenKind::Punctuator(Punctuator::OpenBracket) => {
                 let bindings = ArrayBindingPattern::new(self.allow_yield, self.allow_await)
+                    .with_binding_identifier_context(
+                        BindingIdentifierContext::LexicalDeclaration,
+                    )
                     .parse(cursor, interner)?;
 
                 let init = if cursor
@@ -579,27 +588,12 @@ where
                     None
                 };
 
-                let declaration = bindings.into();
-
-                if bound_names(&declaration).contains(&Sym::LET) {
-                    return Err(Error::lex(LexError::Syntax(
-                        "'let' is disallowed as a lexically bound name".into(),
-                        position,
-                    )));
-                }
-
-                Ok(Variable::from_pattern(declaration, init))
+                Ok(Variable::from_pattern(bindings.into(), init))
             }
             _ => {
                 let ident = BindingIdentifier::new(self.allow_yield, self.allow_await)
+                    .with_context(BindingIdentifierContext::LexicalDeclaration)
                     .parse(cursor, interner)?;
-
-                if ident == Sym::LET {
-                    return Err(Error::lex(LexError::Syntax(
-                        "'let' is disallowed as a lexically bound name".into(),
-                        position,
-                    )));
-                }
 
                 let init = if cursor
                     .peek(0, interner)?

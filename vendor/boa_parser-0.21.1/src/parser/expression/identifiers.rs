@@ -67,6 +67,26 @@ where
     }
 }
 
+/// The grammar owner that will validate a completed BindingIdentifier.
+///
+/// `LexicalDeclaration` does not make `let` valid. It lets that one strict
+/// reserved word survive shape parsing so the completed declaration's single
+/// BoundNames validator owns the rejection under both Script and Module goals.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::parser) enum BindingIdentifierContext {
+    General,
+    LexicalDeclaration,
+}
+
+impl BindingIdentifierContext {
+    fn allows_lexical_bound_name_let(self, identifier: Sym) -> bool {
+        match self {
+            Self::General => false,
+            Self::LexicalDeclaration => identifier == Sym::LET,
+        }
+    }
+}
+
 /// Binding identifier parsing.
 ///
 /// More information:
@@ -77,6 +97,7 @@ where
 pub(in crate::parser) struct BindingIdentifier {
     allow_yield: AllowYield,
     allow_await: AllowAwait,
+    context: BindingIdentifierContext,
 }
 
 impl BindingIdentifier {
@@ -90,7 +111,18 @@ impl BindingIdentifier {
         Self {
             allow_yield: allow_yield.into(),
             allow_await: allow_await.into(),
+            context: BindingIdentifierContext::General,
         }
+    }
+
+    /// Selects the closed grammar owner for this binding parse.
+    #[inline]
+    pub(in crate::parser) const fn with_context(
+        mut self,
+        context: BindingIdentifierContext,
+    ) -> Self {
+        self.context = context;
+        self
     }
 }
 
@@ -103,7 +135,7 @@ where
     /// Strict mode parsing as per <https://tc39.es/ecma262/#sec-identifiers-static-semantics-early-errors>.
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
         let span = cursor.peek(0, interner).or_abrupt()?.span();
-        let ident = Identifier.parse(cursor, interner)?;
+        let ident = Identifier.parse_with_context(cursor, interner, self.context)?;
         match ident.sym() {
             Sym::ARGUMENTS | Sym::EVAL if cursor.strict() => {
                 let name = interner
@@ -147,13 +179,16 @@ pub(in crate::parser) type LabelIdentifier = IdentifierReference;
 #[derive(Debug, Clone, Copy)]
 pub(in crate::parser) struct Identifier;
 
-impl<R> TokenParser<R> for Identifier
-where
-    R: ReadChar,
-{
-    type Output = AstIdentifier;
-
-    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
+impl Identifier {
+    fn parse_with_context<R>(
+        self,
+        cursor: &mut Cursor<R>,
+        interner: &mut Interner,
+        context: BindingIdentifierContext,
+    ) -> ParseResult<AstIdentifier>
+    where
+        R: ReadChar,
+    {
         let tok = cursor.next(interner).or_abrupt()?;
 
         let ident = match tok.kind() {
@@ -169,7 +204,10 @@ where
             }
         };
 
-        if cursor.strict() && ident.is_strict_reserved_identifier() {
+        if cursor.strict()
+            && ident.is_strict_reserved_identifier()
+            && !context.allows_lexical_bound_name_let(ident)
+        {
             return Err(Error::unexpected(
                 interner
                     .resolve_expect(ident)
@@ -200,5 +238,16 @@ where
         }
 
         Ok(AstIdentifier::new(ident, tok.span()))
+    }
+}
+
+impl<R> TokenParser<R> for Identifier
+where
+    R: ReadChar,
+{
+    type Output = AstIdentifier;
+
+    fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
+        self.parse_with_context(cursor, interner, BindingIdentifierContext::General)
     }
 }

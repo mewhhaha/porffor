@@ -463,6 +463,14 @@ mod tests {
                 EarlyErrorCode::ForDeclarationDuplicateBoundName,
             ),
             (
+                "'let' is disallowed as a lexically bound name at line 1, col 1",
+                EarlyErrorCode::LexicalBoundNameLet,
+            ),
+            (
+                "Cannot use 'let' as a lexically bound name at line 1, col 1",
+                EarlyErrorCode::LexicalBoundNameLet,
+            ),
+            (
                 "using declarations are not allowed in for-in loop heads at line 1, col 1",
                 EarlyErrorCode::ForInUsingDeclaration,
             ),
@@ -958,6 +966,31 @@ mod tests {
             .span
             .expect("the duplicate loop binding must retain its source span");
         assert!(span.start < span.end, "{diagnostic:?}");
+    }
+
+    #[test]
+    fn lexical_bound_name_let_module_parses_project_to_one_ir_early_syntax_error() {
+        for source in [
+            "export {}; const { value: let } = {};",
+            "export {}; for (using let of []) {}",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a Module lexical BoundName equal to let should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::LexicalBoundNameLet),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            let span = diagnostic
+                .span
+                .expect("the rejected lexical binding must retain its source span");
+            assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+        }
     }
 
     #[test]

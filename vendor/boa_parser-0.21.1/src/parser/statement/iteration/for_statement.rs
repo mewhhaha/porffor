@@ -274,6 +274,10 @@ where
                 }),
                 _,
             ) => {
+                LexicalDeclaration::validate_bound_name_let(
+                    &declaration,
+                    keyword_position,
+                )?;
                 LexicalDeclaration::validate_duplicate_bound_names(
                     &declaration,
                     keyword_position,

@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 60] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 61] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -205,6 +205,11 @@ early_error_codes! {
     /// `VarDeclaredNames`, or a formal parameter name intersecting the body's
     /// `LexicallyDeclaredNames`.
     DuplicateLexicalDeclaration => "E_DUPLICATE_LEXICAL_DECLARATION";
+    /// 14.3.1 / 14.7.5.1 in the frozen 2026 edition: a LexicalDeclaration or
+    /// ForDeclaration has a `BoundName` equal to the exact String value
+    /// `"let"`. Pinned Boa also applies the living-specification form of this
+    /// condition to its resource-declaration grammar.
+    LexicalBoundNameLet => "E_LEXICAL_BOUND_NAME_LET";
     /// Duplicate `BoundNames` in a non-simple formal-parameter list, strict
     /// function code, or a grammar production requiring
     /// `UniqueFormalParameters`. Sloppy ordinary functions with simple
@@ -452,7 +457,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 59;
+const PARSE_FAILURE_RULE_COUNT: usize = 61;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
 const IMPORT_META_OUTSIDE_MODULE_PREFIX: &str =
@@ -461,6 +466,9 @@ const FOR_HEAD_BODY_DECLARATION_CONFLICT_PREFIX: &str =
     "For loop initializer declared in loop body at line";
 const FOR_DECLARATION_DUPLICATE_BOUND_NAME_PREFIX: &str =
     "For loop initializer cannot contain duplicate identifiers at line";
+const LEXICAL_BOUND_NAME_LET_PREFIX: &str = "'let' is disallowed as a lexically bound name at line";
+const FOR_DECLARATION_BOUND_NAME_LET_PREFIX: &str =
+    "Cannot use 'let' as a lexically bound name at line";
 
 /// The one message-pattern table.
 ///
@@ -1004,6 +1012,23 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "For loop initializer cannot contain duplicate identifiers at line 1, col 1",
         ],
     },
+    // 60. statement/declaration/lexical.rs::
+    //     LexicalDeclaration::validate_bound_name_let. The shared validator
+    //     owns ordinary declarations and classic-for lexical heads after the
+    //     latter's delimiter resolves the ambiguous grammar.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(LEXICAL_BOUND_NAME_LET_PREFIX),
+        code: EarlyErrorCode::LexicalBoundNameLet,
+        witnesses: &["'let' is disallowed as a lexically bound name at line 1, col 1"],
+    },
+    // 61. statement/iteration/for_statement.rs::parse_iterable_loop_tail.
+    //     The distinct ForDeclaration producer runs before head/body conflict
+    //     and duplicate-BoundName validation.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(FOR_DECLARATION_BOUND_NAME_LET_PREFIX),
+        code: EarlyErrorCode::LexicalBoundNameLet,
+        witnesses: &["Cannot use 'let' as a lexically bound name at line 1, col 1"],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1211,6 +1236,43 @@ const fn code_is_owned_once_by_exact_starts_with(
     owners == 1
 }
 
+/// True only when exactly two independently spelled anchored rows own `code`,
+/// one for each complete reviewed prefix.
+const fn code_is_owned_twice_by_exact_starts_with(
+    code: EarlyErrorCode,
+    first_prefix: &str,
+    second_prefix: &str,
+) -> bool {
+    if str_eq(first_prefix, second_prefix) {
+        return false;
+    }
+
+    let mut owners = 0;
+    let mut first_owners = 0;
+    let mut second_owners = 0;
+    let mut i = 0;
+    while i < PARSE_FAILURE_RULES.len() {
+        let rule = &PARSE_FAILURE_RULES[i];
+        if code_eq(rule.code, code) {
+            owners += 1;
+            match rule.pattern {
+                ParseFailurePattern::StartsWith(prefix) => {
+                    if str_eq(prefix, first_prefix) {
+                        first_owners += 1;
+                    } else if str_eq(prefix, second_prefix) {
+                        second_owners += 1;
+                    } else {
+                        return false;
+                    }
+                }
+                ParseFailurePattern::ContainsAll(_) => return false,
+            }
+        }
+        i += 1;
+    }
+    owners == 2 && first_owners == 1 && second_owners == 1
+}
+
 // These conditions are intentionally parse-owned. Deleting any table row while
 // leaving its enum variant must fail during `cargo check`, not merely change a
 // retained dependency rejection from EarlyError back to Unsupported at run time.
@@ -1228,6 +1290,7 @@ const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ForHeadBodyDeclarationConflict);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ForDeclarationDuplicateBoundName);
+const _: ParseClassified = ParseClassified::from_parse_table(EarlyErrorCode::LexicalBoundNameLet);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
@@ -1257,6 +1320,14 @@ const _: () = assert!(
         "For loop initializer cannot contain duplicate identifiers at line",
     ),
     "the ForDeclaration duplicate-BoundName code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_twice_by_exact_starts_with(
+        EarlyErrorCode::LexicalBoundNameLet,
+        "'let' is disallowed as a lexically bound name at line",
+        "Cannot use 'let' as a lexically bound name at line",
+    ),
+    "the lexical BoundName let code must have exactly its two independently spelled anchored owners"
 );
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
@@ -1413,6 +1484,22 @@ const fn import_meta_outside_module_prefix_is_injection_safe() -> bool {
     )
 }
 
+/// P14: neither fixed lexical-BoundName wording can be forged by a
+/// user-controlled Module export name inside another diagnostic.
+const fn lexical_bound_name_let_prefixes_are_injection_safe() -> bool {
+    classified_is(
+        classify_parse_failure(
+            "exported name `'let' is disallowed as a lexically bound name at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    ) && classified_is(
+        classify_parse_failure(
+            "exported name `Cannot use 'let' as a lexically bound name at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
 /// P3: `ALL` is in discriminant order and complete, and `wire_name` round-trips
 /// through `from_wire_name` — so print and parse cannot diverge, and the round
 /// trip proves `wire_name` is injective.
@@ -1559,4 +1646,8 @@ const _: () = assert!(
 const _: () = assert!(
     import_meta_outside_module_prefix_is_injection_safe(),
     "P13: user-controlled export text can forge or shadow the anchored ImportMeta outside-Module classification"
+);
+const _: () = assert!(
+    lexical_bound_name_let_prefixes_are_injection_safe(),
+    "P14: user-controlled export text can forge or shadow an anchored lexical BoundName let classification"
 );
