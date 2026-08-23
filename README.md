@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Delete-expression lowering now lives in
+  `lowering/delete_expression.rs`: one exhaustive target dispatcher owns
+  ordinary/private/super property References, identifiers and non-Reference
+  values while reusable helpers remain in the parent. The exact 213-line
+  method move reduces `lowering.rs` from 25,123 to 24,910 raw lines and changes
+  only its private-module visibility. The capped workspace check is green;
+  serial delete coverage passes `7/7` CLI, `2/2` AOT-Wasm and `4/4` engine
+  tests. No delete behavior or conformance change is claimed.
 - Assignment-expression lowering now lives in `lowering/assignment.rs`: one
   exhaustive dispatcher owns identifier, property, private, destructuring,
   logical and eager compound assignment while specialized Reference carriers

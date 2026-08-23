@@ -17,6 +17,32 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: delete-expression ownership
+
+`lila-ir/src/lowering/delete_expression.rs` now owns the complete
+`lower_delete` target dispatcher across ordinary/private/super property
+References, identifier deletion and non-Reference values. The parent retains
+the sole unary-expression call and the reusable shape, strictness and property
+helpers consumed by the implementation.
+
+This is a semantic-free source move. All 213 method lines compare exactly to
+the pre-move implementation after normalizing only `fn` to `pub(super) fn`.
+The private child boundary reduces `lowering.rs` from 25,123 to 24,910 raw
+lines; the formatted child is 217 lines. The module audit requires the sole
+owner method, forbids a second parent body or legacy `include!` assembly, and
+budgets parent and child separately.
+
+The extraction does not combine the two currently duplicate computed-key
+branches. That cleanup can be reviewed separately after this exact move's
+behavioral checkpoint; this commit preserves the existing instruction and
+invalidation choices byte-for-byte at the Rust source level. No delete behavior
+or conformance improvement is claimed.
+
+The capped workspace/all-target check is green. Serial delete-focused coverage
+passes `7/7` in `lila-cli`, `2/2` in `lila-aot-wasm` and `4/4` in
+`lila-engine`. Formatting, exact source comparison, module-boundary and
+task-plan audits are green.
+
 ### Landed 2026-08-23: assignment-expression ownership
 
 `lila-ir/src/lowering/assignment.rs` now owns the complete exhaustive

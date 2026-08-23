@@ -182,6 +182,26 @@ check_no_inline_legacy_includes "$ir_assignment_lowering"
 # Measured after formatting the extraction: 716 raw lines. The margin is for
 # maintenance of this exhaustive dispatcher, not unrelated lowering.
 check_raw_line_budget "$ir_assignment_lowering" 770
+# T02's delete-expression boundary owns the complete target dispatch for
+# property, private, super, identifier and value deletion. The unary
+# dispatcher remains its sole caller and cannot regrow a second implementation.
+ir_delete_expression_lowering="crates/lila-ir/src/lowering/delete_expression.rs"
+require_file "$ir_delete_expression_lowering"
+require_module_decl "$ir_lowering" "delete_expression"
+require_fixed_string_count \
+  "$ir_delete_expression_lowering" \
+  'pub(super) fn lower_delete(' \
+  1 \
+  'delete-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_delete(' \
+  0 \
+  'delete-expression lowering outside child module'
+check_no_inline_legacy_includes "$ir_delete_expression_lowering"
+# Measured after formatting the extraction: 217 raw lines. The margin is for
+# maintenance of this exhaustive dispatcher, not unrelated lowering.
+check_raw_line_budget "$ir_delete_expression_lowering" 250
 # T02's call-expression boundary keeps direct-call recognition and lowering in
 # one child module. The parent owns expression dispatch and reusable helpers,
 # but cannot regrow a second implementation of its largest former method.
@@ -277,10 +297,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the assignment-expression extraction: 25,123 raw lines. This
-# leaves modest orchestration headroom while preventing the former 32k-line
-# implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 25400
+# Measured after formatting the delete-expression extraction: 24,910 raw
+# lines. This leaves modest orchestration headroom while preventing the former
+# 32k-line implementation store from regrowing.
+check_raw_line_budget "$ir_lowering" 25200
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.
