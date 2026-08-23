@@ -1,6 +1,6 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — major builtin ownership bottlenecks plus the for-of, for-in and throw-value inference owner splits; broader lowering/emitter seams remain
+**Status:** In progress — major builtin ownership bottlenecks plus the for-of, for-in, throw-value inference and static-JSON parse owner splits; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
@@ -16,6 +16,60 @@ seams and line budgets. The split remains partial: `lowering.rs`,
 still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
+
+### Landed 2026-08-23: static-JSON parse lowering ownership
+
+This ownership seam is deliberately narrower than the complete `JSON.parse`
+lowering family. `lila-ir/src/lowering/static_json_parse.rs` now owns the
+static-reviver specialization entry point, its static-string input
+recovery helper and the private `JsonStaticParser`. These are 236 source lines:
+two `ScriptLowerer` methods plus the parser type and its eleven methods. The
+exact formatted move produces a 242-line child and reduces `lowering.rs` from
+20,986 to 20,748 raw lines.
+
+Only `try_lower_static_json_parse_reviver` crosses the private child boundary,
+as `pub(super)`, for the two direct-call sites in `lowering/call_expression.rs`.
+`static_json_parse_input` and every parser operation remain private. The parent
+retains `known_json_parse_reviver_targets` and
+`observe_json_parse_reviver_targets`: the ordinary dynamic `JSON.parse` path
+also consumes that target/signature analysis, so moving or copying it would
+make the static filename a false owner. `JsonStaticValueIr`, `TypedExpr`,
+`ExprIr`, `ValueKind`, `KindSet`, builtin identity and every flow-fact field
+remain with their existing owners. No field, helper, type or public Rust API is
+widened.
+
+The move preserves the static admission sequence exactly: builtin identity,
+two-argument arity, reviver callable-kind proof, static input recovery, complete
+JSON parse and known nonempty reviver-target proof. The parser must retain full
+input consumption; source lexemes and parsed `f64` bits; rejection of leading
+zeroes and incomplete fraction/exponent forms; `serde_json` string decoding and
+raw control-byte rejection; recursive array/object behavior and trailing-comma
+rejection; and duplicate-object-key replacement without changing the first
+insertion position.
+
+The boundary audit requires the exact private module declaration, the exact
+thirteen-function inventory, exactly one Rust-visible child item, both sibling
+call sites, sole ownership of the moved entry/input/parser family, both shared
+target helpers in the parent, zero parent copies, no
+copied shared type, no local macro/generated helper or legacy `include!`/`#[path]`
+assembly, executable input-to-parser-to-target wiring, and measured parent/child
+line budgets. No new behavior test is justified for an exact ownership-only
+move.
+
+At clean parent `9a3ac9ad5`, the capped pre-move Wasm golden passes `2/2` in
+309.29 seconds; the post-move capture passes `2/2` in 314.61 seconds. Both
+record 633 fixtures in 635 artifacts and their recursive diff is empty. The
+236 moved source lines have the same normalized SHA-256 before and after the
+move, `edb11f2be0d0376cd042d5541572e08a236ac569a7a81575b322630ae027cd06`.
+Formatting, the all-target `lila-ir` check, `cargo xc`, the strengthened module
+boundary audit and both independent reviews pass. The moved static IR witness
+passes `1/1`, both engine witnesses pass `2/2`, and the three static plus one
+dynamic-control CLI witnesses pass `4/4`. The retained
+`dynamic_json_parse_observes_reviver_holder_kinds` IR control fails identically
+at the clean parent and moved tree, so the combined `json_parse` IR filter is
+unchanged at `1/2`. This is architecture and byte-identical no-regression
+evidence, not a JSON behavior change, T20 work, broad Test262 coverage or JSON
+conformance progress.
 
 ### Landed 2026-08-23: throw-value inference ownership
 

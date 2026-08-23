@@ -402,6 +402,18 @@ Recent focused progress through `2026-08-23`:
   at zero. This is typed diagnostic closure and bounded no-regression evidence,
   not a measured pass gain, dynamic-source support, runtime parameter
   semantics, T07 closure or aggregate Test262 progress.
+- Static `JSON.parse` reviver specialization now lives in the private 242-line
+  `lowering/static_json_parse.rs` owner. Only
+  `try_lower_static_json_parse_reviver` is visible to its two sibling call
+  sites; dynamic reviver-target discovery and observation remain in the
+  parent. The exact 236-source-line move reduces `lowering.rs` from 20,986 to
+  20,748 lines. Capped pre/post goldens cover 633 fixtures in 635 byte-identical
+  artifacts; the all-target `lila-ir` check and `cargo xc` are green; the moved
+  static IR witness, two engine witnesses and four CLI witnesses pass `1/1`,
+  `2/2` and `4/4`. The retained dynamic IR control fails identically at clean
+  parent `9a3ac9ad5` and the moved tree, leaving the combined filter unchanged
+  at `1/2`. The closed boundary audit and independent reviews pass. This is an
+  ownership result, not JSON behavior, T20 or conformance progress.
 - Recursive throw-value inference now lives in
   `lowering/throw_inference.rs`: six methods form one private 895-line owner,
   with only block inference visible to its sole consumer in
@@ -5516,18 +5528,19 @@ Existing developer artifacts are never cleaned automatically. If an old
 one-time cleanup explicitly with `cargo clean`; the next dependency build will
 be intentionally cold.
 
-### Backend byte-identity golden capture
+### Compiler byte-identity golden capture
 
-Pure refactors of the backend — splitting builtin registries, extracting
-intrinsic installation, flattening the standard-builtin dispatch — are poorly
-served by the existing suites, which assert on program output. A refactor that
-perturbs emission order, function index assignment, or property installation
-order can leave every one of those assertions green while changing the emitted
-module.
+Pure refactors of `lila-ir` lowering or the backend — extracting lowering
+families, splitting builtin registries, extracting intrinsic installation or
+flattening the standard-builtin dispatch — are poorly served by the existing
+suites, which assert on program output. A refactor that perturbs emission order,
+function index assignment or property installation order can leave every one
+of those assertions green while changing the emitted module.
 
 `crates/lila-aot-wasm/tests/emit_golden.rs` closes that gap. It runs the real
-`parse -> lower -> emit` pipeline over all 527 CLI fixtures and records the
-emitted byte length, a content hash, and the backend `debug_dump` per fixture.
+`parse -> lower -> emit` pipeline over every `.js` file in the current CLI
+fixture corpus and records the emitted byte length, a content hash, and the
+backend `debug_dump` per fixture.
 It is inert unless `LILA_GOLDEN_OUT` names an output directory, so it costs
 nothing in an ordinary `cargo test` run.
 

@@ -65,6 +65,17 @@ require_regex_count() {
   fi
 }
 
+require_text_regex_count() {
+  text="$1"
+  pattern="$2"
+  expected="$3"
+  description="$4"
+  count="$(printf '%s\n' "$text" | grep -Ec "$pattern" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "text must contain $expected $description lines (found $count)"
+  fi
+}
+
 require_tree_regex_count() {
   root="$1"
   pattern="$2"
@@ -1211,6 +1222,261 @@ check_no_inline_legacy_includes "$ir_throw_inference_lowering"
 # Measured after formatting the extraction: 895 raw lines. The margin is for
 # maintenance of this closed recursive analysis owner, not general lowering.
 check_raw_line_budget "$ir_throw_inference_lowering" 950
+# T02's static-JSON parse boundary owns only the static reviver specialization,
+# its static-string input recovery and the complete private parser. Dynamic
+# reviver target discovery/observation remains in the parent because the
+# ordinary JSON.parse path consumes it too.
+ir_static_json_parse_lowering="crates/lila-ir/src/lowering/static_json_parse.rs"
+require_file "$ir_static_json_parse_lowering"
+require_exact_line_count \
+  "$ir_lowering" \
+  'mod static_json_parse;' \
+  1 \
+  'private static-JSON parse module declaration'
+require_regex_count \
+  "$ir_lowering" \
+  '^(pub(\([^)]*\))?[[:space:]]+)?mod[[:space:]]+static_json_parse;' \
+  1 \
+  'total static-JSON parse module declaration'
+static_json_module_context="$(sed -n '/^mod statement;$/,+2p' "$ir_lowering")"
+if [ "$static_json_module_context" != $'mod statement;\nmod static_json_parse;\nmod super_property_mutation;' ]; then
+  fail "$ir_lowering must keep static_json_parse as one private module declaration between statement and super_property_mutation"
+fi
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  'use super::*;' \
+  1 \
+  'parent import'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+try_lower_static_json_parse_reviver[[:space:]]*\(' \
+  1 \
+  'static JSON.parse specialization entry point'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*fn[[:space:]]+static_json_parse_input[[:space:]]*\(' \
+  1 \
+  'private static JSON.parse input recovery'
+for moved_owner in try_lower_static_json_parse_reviver static_json_parse_input; do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${moved_owner}[[:space:]]*[<(]" \
+    0 \
+    "${moved_owner} outside static-JSON parse child"
+  require_tree_regex_count \
+    'crates/lila-ir/src' \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${moved_owner}[[:space:]]*[<(]" \
+    1 \
+    "sole ${moved_owner} owner"
+done
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  "^[[:space:]]*struct[[:space:]]+JsonStaticParser<'a>[[:space:]]*\\{" \
+  1 \
+  'private static-JSON parser type'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  "^[[:space:]]*impl<'a>[[:space:]]+JsonStaticParser<'a>[[:space:]]*\\{" \
+  1 \
+  'private static-JSON parser implementation'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  "^[[:space:]]*impl<'a>[[:space:]]+ScriptLowerer<'a>[[:space:]]*\\{" \
+  1 \
+  'ScriptLowerer static-JSON implementation'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*((default|const|unsafe)[[:space:]]+)*impl([[:space:]]|<)' \
+  2 \
+  'total inherent implementation block'
+static_json_lowerer_impl="$(sed -n "/^impl<'a> ScriptLowerer<'a> {$/,/^}$/p" "$ir_static_json_parse_lowering")"
+static_json_parser_impl="$(sed -n "/^impl<'a> JsonStaticParser<'a> {$/,/^}$/p" "$ir_static_json_parse_lowering")"
+require_text_regex_count \
+  "$static_json_lowerer_impl" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+try_lower_static_json_parse_reviver[[:space:]]*\(' \
+  1 \
+  'ScriptLowerer specialization entry point'
+require_text_regex_count \
+  "$static_json_lowerer_impl" \
+  '^[[:space:]]*fn[[:space:]]+static_json_parse_input[[:space:]]*\(' \
+  1 \
+  'ScriptLowerer static-input helper'
+require_text_regex_count \
+  "$static_json_lowerer_impl" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  2 \
+  'total ScriptLowerer function declaration'
+for parser_method in \
+  new \
+  parse \
+  parse_value \
+  parse_array \
+  parse_object \
+  parse_string_literal \
+  parse_number \
+  consume_keyword \
+  consume_byte \
+  peek_byte \
+  skip_ws
+do
+  require_text_regex_count \
+    "$static_json_parser_impl" \
+    "^[[:space:]]*fn[[:space:]]+${parser_method}[[:space:]]*[<(]" \
+    1 \
+    "private JsonStaticParser::${parser_method} method"
+done
+require_text_regex_count \
+  "$static_json_parser_impl" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  11 \
+  'total JsonStaticParser function declaration'
+# The static input helper plus eleven parser methods are private; the one
+# specialization entry point is the entire Rust-visible child surface. The
+# modifier-aware total prevents const/async/unsafe/extern/default additions
+# from evading the closed inventory.
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*fn[[:space:]]+' \
+  12 \
+  'private function'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
+  13 \
+  'total function declaration'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?((unsafe|auto)[[:space:]]+)*(struct|enum|union|type|trait)[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'local type or trait declaration'
+require_regex_count \
+  "$ir_lowering" \
+  "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?struct[[:space:]]+JsonStaticParser([[:space:]]|<|\\{|\\(|=|;|:)" \
+  0 \
+  'static-JSON parser type outside child'
+require_tree_regex_count \
+  'crates/lila-ir/src' \
+  "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?struct[[:space:]]+JsonStaticParser([[:space:]]|<|\\{|\\(|=|;|:)" \
+  1 \
+  'static-JSON parser type owner'
+require_tree_regex_count \
+  'crates/lila-ir/src' \
+  "^[[:space:]]*impl<'a>[[:space:]]+JsonStaticParser<'a>[[:space:]]*\\{" \
+  1 \
+  'static-JSON parser implementation owner'
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?enum[[:space:]]+JsonStaticValueIr([[:space:]]|<|\{|\(|=|;|:)' \
+  0 \
+  'JsonStaticValueIr type copied into static-JSON parse child'
+require_tree_regex_count \
+  'crates/lila-ir/src' \
+  '^[[:space:]]*pub[[:space:]]+enum[[:space:]]+JsonStaticValueIr([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'shared JsonStaticValueIr owner'
+for retained_owner in known_json_parse_reviver_targets observe_json_parse_reviver_targets; do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${retained_owner}[[:space:]]*[<(]" \
+    1 \
+    "parent-owned ${retained_owner} helper"
+  require_regex_count \
+    "$ir_static_json_parse_lowering" \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${retained_owner}[[:space:]]*[<(]" \
+    0 \
+    "${retained_owner} helper copied into static-JSON parse child"
+  require_tree_regex_count \
+    'crates/lila-ir/src' \
+    "^[[:space:]]*((pub(\\([^)]*\\))?|default|const|async|unsafe|extern|\"[^\"]*\")[[:space:]]+)*fn[[:space:]]+${retained_owner}[[:space:]]*[<(]" \
+    1 \
+    "${retained_owner} helper owner"
+done
+require_exact_line_count \
+  "$ir_lowering" \
+  '            let reviver_targets = self.known_json_parse_reviver_targets(&lowered_args);' \
+  1 \
+  'dynamic JSON.parse target discovery'
+require_exact_line_count \
+  "$ir_lowering" \
+  '            self.observe_json_parse_reviver_targets(reviver_targets);' \
+  1 \
+  'dynamic JSON.parse target observation'
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  '        let input = self.static_json_parse_input(&args[0])?;' \
+  1 \
+  'static JSON.parse input recovery'
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  '        let parsed_value = JsonStaticParser::new(&input).parse()?;' \
+  1 \
+  'static JSON.parse parser invocation'
+require_exact_line_count \
+  "$ir_static_json_parse_lowering" \
+  '        if self.known_json_parse_reviver_targets(args).is_empty() {' \
+  1 \
+  'static JSON.parse known-target proof'
+require_fixed_string_count \
+  "$ir_static_json_parse_lowering" \
+  'observe_json_parse_reviver_targets' \
+  0 \
+  'dynamic target observation copied into static-JSON parse child'
+require_exact_line_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  '                        self.try_lower_static_json_parse_reviver(&function_id, &args)' \
+  1 \
+  'direct-function static JSON.parse sibling call'
+require_exact_line_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  '            self.try_lower_static_json_parse_reviver(&effective_function_id, &args)' \
+  1 \
+  'effective-function static JSON.parse sibling call'
+require_regex_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  '^[[:space:]]*self\.try_lower_static_json_parse_reviver[[:space:]]*\(' \
+  2 \
+  'total static JSON.parse sibling call'
+require_fixed_string_count \
+  'crates/lila-ir/src/lowering/call_expression.rs' \
+  'try_lower_static_json_parse_reviver' \
+  2 \
+  'static JSON.parse sibling-call identifier use'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'try_lower_static_json_parse_reviver' \
+  0 \
+  'static JSON.parse specialization use outside child module'
+while IFS= read -r caller; do
+  case "$caller" in
+    "$ir_static_json_parse_lowering"|'crates/lila-ir/src/lowering/call_expression.rs') continue ;;
+  esac
+  if grep -Fq 'try_lower_static_json_parse_reviver' "$caller"; then
+    fail "unexpected static JSON.parse specialization use: $caller"
+  fi
+done < <(find crates/lila-ir/src/lowering -type f -name '*.rs' -print)
+require_fixed_string_count \
+  "$ir_static_json_parse_lowering" \
+  'macro_rules!' \
+  0 \
+  'local macro definition'
+static_json_compact_source="$(tr -d '[:space:]' < "$ir_static_json_parse_lowering")"
+case "$static_json_compact_source" in
+  *macro_rules\!*) fail "$ir_static_json_parse_lowering must not contain a whitespace-split macro_rules definition" ;;
+esac
+require_regex_count \
+  "$ir_static_json_parse_lowering" \
+  '^[[:space:]]{0,7}(::[[:space:]]*)?((r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*::[[:space:]]*)*(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*!' \
+  0 \
+  'module-or-impl-level generated helper invocation'
+check_no_inline_legacy_includes "$ir_static_json_parse_lowering"
+# Measured after formatting the exact extraction: 242 raw lines. The margin is
+# for maintenance of static JSON parsing only, not dynamic target analysis.
+check_raw_line_budget "$ir_static_json_parse_lowering" 280
 # T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
 # the ordinary and staged-generator walkers together in their child module so
 # the 32k-line orchestration boundary does not become the edit point again.
@@ -1222,10 +1488,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the throw-inference extraction: 20,986 raw lines.
+# Measured after formatting the static-JSON parse extraction: 20,748 raw lines.
 # This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 22000
+check_raw_line_budget "$ir_lowering" 21750
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

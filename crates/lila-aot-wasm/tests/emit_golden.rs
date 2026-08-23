@@ -236,7 +236,7 @@ fn capture_emit_golden() {
     // Cross-fixture size ranking. The per-fixture dump already carries the
     // largest emitted function, but the question a `Code for function is too
     // large` failure actually asks is "which function is biggest anywhere", and
-    // answering it should not require grepping 527 dumps by hand.
+    // answering it should not require grepping every fixture dump by hand.
     let mut largest_functions = lines
         .iter()
         .filter_map(|(_, _, largest)| largest.clone())
