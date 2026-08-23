@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Assignment-expression lowering now lives in `lowering/assignment.rs`: one
+  exhaustive dispatcher owns identifier, property, private, destructuring,
+  logical and eager compound assignment while specialized Reference carriers
+  remain in their typed modules. The exact 707-line method move reduces
+  `lowering.rs` from 25,830 to 25,123 raw lines and changes only its
+  private-module visibility. The capped workspace check and IR assignment
+  cohort (`34/34`) are green; CLI assignment remains `6/7` before and after the
+  move with the identical with-environment failure.
 - Ordinary function-definition lowering now lives in
   `lowering/function_definition.rs`: nested lowerer state, parameters, body,
   captures, signatures, resumable metadata and final `FunctionIr` assembly

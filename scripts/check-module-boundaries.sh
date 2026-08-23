@@ -160,6 +160,28 @@ check_no_inline_legacy_includes "$ir_lib"
 ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
 require_file "$ir_builtin_shapes"
 require_module_decl "$ir_lowering" "builtin_shapes"
+# T02's assignment-expression boundary owns the exhaustive AssignOp/target
+# dispatch across identifier, property, private, destructuring, logical and
+# eager compound writes. Its specialized Reference lifecycles remain in their
+# typed child modules; the parent expression dispatcher cannot regrow a second
+# assignment implementation.
+ir_assignment_lowering="crates/lila-ir/src/lowering/assignment.rs"
+require_file "$ir_assignment_lowering"
+require_module_decl "$ir_lowering" "assignment"
+require_fixed_string_count \
+  "$ir_assignment_lowering" \
+  'pub(super) fn lower_assign(' \
+  1 \
+  'assignment-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_assign(' \
+  0 \
+  'assignment-expression lowering outside child module'
+check_no_inline_legacy_includes "$ir_assignment_lowering"
+# Measured after formatting the extraction: 716 raw lines. The margin is for
+# maintenance of this exhaustive dispatcher, not unrelated lowering.
+check_raw_line_budget "$ir_assignment_lowering" 770
 # T02's call-expression boundary keeps direct-call recognition and lowering in
 # one child module. The parent owns expression dispatch and reusable helpers,
 # but cannot regrow a second implementation of its largest former method.
@@ -255,10 +277,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the ordinary-function extraction: 25,830 raw lines. This
+# Measured after formatting the assignment-expression extraction: 25,123 raw lines. This
 # leaves modest orchestration headroom while preventing the former 32k-line
 # implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 26100
+check_raw_line_budget "$ir_lowering" 25400
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

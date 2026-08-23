@@ -17,6 +17,28 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: assignment-expression ownership
+
+`lila-ir/src/lowering/assignment.rs` now owns the complete exhaustive
+`lower_assign` dispatcher across identifier, property, private, destructuring,
+logical and eager compound assignment. The parent expression match remains its
+single caller. Specialized ordinary-property and Object Environment Record
+Reference lifecycles remain in their existing typed child modules.
+
+This is a semantic-free source move. All 706 body lines compare exactly to the
+pre-move implementation; the signature changes only private-module visibility
+and rustfmt's multiline layout. The child boundary reduces `lowering.rs` from
+25,830 to 25,123 raw lines; the formatted child is 716 lines. The module audit
+requires the sole owner method, forbids a second parent body or legacy
+`include!` assembly, and budgets parent and child separately.
+
+The capped workspace/all-target check and serial IR `assignment` cohort
+(`34/34`) are green. The serial CLI `assignment` cohort reports `6/7` both
+before and after extraction; the same with-environment compound-assignment
+fixture fails with the same completion and error text. Formatting, exact body
+comparison, module-boundary and task-plan audits are green. No assignment
+behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: ordinary function-definition ownership
 
 `lila-ir/src/lowering/function_definition.rs` now owns the complete ordinary
