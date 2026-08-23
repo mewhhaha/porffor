@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- While-family lowering now lives in `lowering/while_loop.rs`: one owner
+  carries ordinary/resumable `while` construction and the deliberate
+  `do while` suspension refusal while shared loop-resumption helpers remain in
+  the parent. The exact 99-line family move reduces `lowering.rs` from 23,601
+  to 23,502 raw lines; the child is 106 lines. Five focused IR filters and
+  three focused CLI filters pass. Pre/post golden captures pass `2/2`, contain
+  635 artifacts each and are byte-identical. No while/do-while behavior or
+  conformance change is claimed.
 - If-statement lowering now lives in `lowering/if_statement.rs`: one owner
   carries static condition selection, branch-local var/global facts,
   post-branch joins, abrupt-completion result typing and generator yield-state

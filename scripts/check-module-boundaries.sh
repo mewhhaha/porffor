@@ -312,6 +312,56 @@ check_no_inline_legacy_includes "$ir_if_statement_lowering"
 # Measured after formatting the extraction: 141 raw lines. The margin is for
 # maintenance of if-statement lowering only.
 check_raw_line_budget "$ir_if_statement_lowering" 180
+# T02's while-family boundary owns ordinary/resumable while lowering and the
+# explicit do-while suspension refusal. Shared loop resumption helpers remain
+# parent-owned and the parent cannot regrow either loop implementation.
+ir_while_loop_lowering="crates/lila-ir/src/lowering/while_loop.rs"
+require_file "$ir_while_loop_lowering"
+require_module_decl "$ir_lowering" "while_loop"
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'pub(super) fn lower_while_loop(' \
+  1 \
+  'while-loop lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_while_loop(' \
+  0 \
+  'while-loop lowering outside child module'
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'pub(super) fn lower_do_while_loop(' \
+  1 \
+  'do-while lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_do_while_loop(' \
+  0 \
+  'do-while lowering outside child module'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn plain_async_entry_state(' \
+  1 \
+  'shared plain-async loop-state helper in parent'
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'fn plain_async_entry_state(' \
+  0 \
+  'plain-async loop-state helper copied into while owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn split_resumable_loop_body(' \
+  1 \
+  'shared resumable-loop split helper in parent'
+require_fixed_string_count \
+  "$ir_while_loop_lowering" \
+  'fn split_resumable_loop_body(' \
+  0 \
+  'resumable-loop split helper copied into while owner'
+check_no_inline_legacy_includes "$ir_while_loop_lowering"
+# Measured after formatting the extraction: 106 raw lines. The margin is for
+# maintenance of while/do-while lowering only.
+check_raw_line_budget "$ir_while_loop_lowering" 130
 # T02's property-access boundary owns ordinary, private and super access
 # dispatch plus the primitive/exotic target-kind split. Keep that split
 # exhaustive so a future ValueKind cannot silently inherit Number's currently
@@ -464,10 +514,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the if-statement extraction: 23,601 raw lines. This
+# Measured after formatting the while-family extraction: 23,502 raw lines. This
 # leaves modest orchestration headroom while preventing the former 32k-line
 # implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 24600
+check_raw_line_budget "$ir_lowering" 24500
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

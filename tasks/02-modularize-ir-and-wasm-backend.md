@@ -17,6 +17,30 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: while-family ownership
+
+`lila-ir/src/lowering/while_loop.rs` now owns ordinary and resumable `while`
+lowering plus the explicit `do while` suspension refusal. Condition/body order,
+loop flow-fact joins, async/generator resume-state selection and the final
+`While`, `DoWhile` or `GeneratorLoop` choice move together. The statement
+dispatcher remains their sole caller; shared loop-resumption helpers remain in
+the parent.
+
+This is an exact source move. All 99 source lines compare exactly after
+normalizing the two private-module visibility tokens and rustfmt's wrapped
+`lower_do_while_loop` signature. The extraction reduces `lowering.rs` from
+23,601 to 23,502 raw lines, and the child is 106 lines. The module audit
+requires both sole owners, rejects copies of `plain_async_entry_state` and
+`split_resumable_loop_body`, forbids legacy `include!` assembly, budgets parent
+and child separately, and fails its negative control when the child is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Five focused IR loop/resumption/refusal
+filters pass `5/5`; three focused CLI lexical-environment, abrupt-finally and
+iterator flat-map filters pass `3/3`. The all-target `lila-ir` and workspace
+checks are green. No while/do-while behavior or conformance improvement is
+claimed.
+
 ### Landed 2026-08-23: if-statement ownership
 
 `lila-ir/src/lowering/if_statement.rs` now owns the complete conditional
