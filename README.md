@@ -374,6 +374,15 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- New-expression lowering now lives in `lowering/new_expression.rs`: one owner
+  carries constructor target resolution, argument evaluation, result typing,
+  dynamic-source rejection and static RegExp compilation. The exact source
+  move reduces `lowering.rs` from 24,446 to 24,202 raw lines; the child is 248
+  lines. Five focused IR filters pass; the two Map/Set iterable-construction
+  shape assertions fail identically at parent `394e8fda7`. Five focused CLI
+  filters pass. Pre/post golden captures pass `2/2`, contain 635 artifacts each
+  and are byte-identical. No constructor behavior or conformance change is
+  claimed.
 - Property-access lowering now lives in `lowering/property_access.rs`: one
   dispatcher owns ordinary, private and super reads plus primitive/exotic
   routing and unknown-effect invalidation. Its target-kind match names

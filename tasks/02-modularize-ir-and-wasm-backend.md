@@ -17,6 +17,29 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: new-expression ownership
+
+`lila-ir/src/lowering/new_expression.rs` now owns the complete `lower_new`
+lifecycle: constructor target resolution, spread-aware argument evaluation,
+builtin and user-constructor result typing, Proxy trap-hint observation,
+dynamic-source rejection, instance-prototype inference and static RegExp
+compilation. The parent expression dispatcher remains its sole caller.
+
+This is an exact source move. The only source-body change is private-module
+visibility from `fn` to `pub(super) fn`; all constructor branches and emitted
+IR choices compare exactly. The extraction reduces `lowering.rs` from 24,446
+to 24,202 raw lines; the formatted child is 248 lines. The module audit
+requires the sole owner, forbids a second parent body or legacy `include!`
+assembly, and budgets parent and child separately.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. The all-target `lila-ir` and workspace checks
+are green. Five focused IR filters pass `2/2`, `1/1`, `1/1`, `1/1` and `1/1`;
+the Map/Set iterable-construction filter fails `0/2` both here and at untouched
+parent `394e8fda7` with the same shape assertions. Five focused CLI filters
+pass `1/1`, `2/2`, `1/1`, `1/1` and `1/1`. No constructor behavior or
+conformance improvement is claimed.
+
 ### Landed 2026-08-23: property-access ownership
 
 `lila-ir/src/lowering/property_access.rs` now owns the complete ordinary,

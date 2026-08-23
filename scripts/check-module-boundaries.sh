@@ -202,6 +202,26 @@ check_no_inline_legacy_includes "$ir_delete_expression_lowering"
 # Measured after formatting the extraction: 217 raw lines. The margin is for
 # maintenance of this exhaustive dispatcher, not unrelated lowering.
 check_raw_line_budget "$ir_delete_expression_lowering" 250
+# T02's new-expression boundary owns constructor target resolution, argument
+# lowering, builtin/user result typing, dynamic-source rejection and static
+# RegExp compilation. The parent expression dispatcher is its sole caller.
+ir_new_expression_lowering="crates/lila-ir/src/lowering/new_expression.rs"
+require_file "$ir_new_expression_lowering"
+require_module_decl "$ir_lowering" "new_expression"
+require_fixed_string_count \
+  "$ir_new_expression_lowering" \
+  'pub(super) fn lower_new(' \
+  1 \
+  'new-expression lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_new(' \
+  0 \
+  'new-expression lowering outside child module'
+check_no_inline_legacy_includes "$ir_new_expression_lowering"
+# Measured after formatting the extraction: 248 raw lines. The margin is for
+# maintenance of constructor-expression lowering only.
+check_raw_line_budget "$ir_new_expression_lowering" 290
 # T02's property-access boundary owns ordinary, private and super access
 # dispatch plus the primitive/exotic target-kind split. Keep that split
 # exhaustive so a future ValueKind cannot silently inherit Number's currently
@@ -354,7 +374,7 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the property-access extraction: 24,446 raw
+# Measured after formatting the new-expression extraction: 24,202 raw
 # lines. This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
 check_raw_line_budget "$ir_lowering" 25200
