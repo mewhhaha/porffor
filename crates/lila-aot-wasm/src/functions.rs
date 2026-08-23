@@ -1717,6 +1717,30 @@ pub(crate) fn emit_function_object_alloc_helper_function(
 }
 
 impl<'a> FunctionBuilder<'a> {
+    fn emit_reject_static_class_prototype_definition(
+        &mut self,
+        key_local: u32,
+        prototype_key_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_property_key_payload_equality_i32(key_local, prototype_key_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            TYPE_ERROR_NAME,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        if let Some(target) = self.active_throw_target() {
+            self.emit_branch_to_target(target, function);
+        } else {
+            self.emit_return_current_completion(function);
+        }
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     pub(crate) fn compile_class_definition_payload(
         &mut self,
         class: &ClassDefinitionIr,
@@ -2022,11 +2046,14 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
         }
-        self.emit_object_define_data(
+        self.emit_object_define_data_with_configurable(
             constructor_local,
             prototype_key_local,
             prototype_payload_local,
             prototype_tag_local,
+            false,
+            false,
+            false,
             function,
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
@@ -2159,6 +2186,13 @@ impl<'a> FunctionBuilder<'a> {
                         static_private_method_brands.insert(private_name_id);
                     }
                 } else {
+                    if accessor.placement == ClassMethodPlacementIr::Static {
+                        self.emit_reject_static_class_prototype_definition(
+                            key_local,
+                            prototype_key_local,
+                            function,
+                        )?;
+                    }
                     self.emit_object_define_accessor(
                         target_local,
                         key_local,
@@ -2225,6 +2259,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(value_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(value_tag_local));
+            if placement == ClassMethodPlacementIr::Static && private_name_id.is_none() {
+                self.emit_reject_static_class_prototype_definition(
+                    key_local,
+                    prototype_key_local,
+                    function,
+                )?;
+            }
             match kind {
                 ClassMethodKindIr::Method => {
                     if let Some(private_name_id) = private_name_id {
@@ -2384,6 +2425,11 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                     } else {
+                        self.emit_reject_static_class_prototype_definition(
+                            key_local,
+                            prototype_key_local,
+                            function,
+                        )?;
                         self.emit_object_define_enumerable_data(
                             constructor_local,
                             key_local,

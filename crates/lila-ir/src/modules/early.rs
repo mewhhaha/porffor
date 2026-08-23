@@ -379,6 +379,14 @@ mod tests {
                 EarlyErrorCode::ClassDuplicatePrivateName,
             ),
             (
+                "class may not have field definitions named 'constructor'",
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                "class may not have static field definitions named 'constructor' or 'prototype'",
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+            (
                 "'arguments' not allowed in class static block",
                 EarlyErrorCode::ClassStaticBlockContainsArguments,
             ),
@@ -594,6 +602,34 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_field_literal_name_module_parse_maps_to_early_syntax_errors() {
+        for (source, code) in [
+            (
+                r#"export default class { accessor "constructor"; }"#,
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                r#"export default class { static accessor "prototype" = 1; }"#,
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a forbidden literal class-field name should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
+            assert_eq!(diagnostic.code(), Some(code), "{source:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source:?}"
+            );
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
     }
 
     #[test]

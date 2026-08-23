@@ -425,6 +425,19 @@ Recent focused progress through `2026-08-23`:
   32-file pinned Test262 cohort passes `64/64` sloppy/strict Wasm-AOT
   executions with every failure bucket at zero. This is bounded parser
   evidence, not class-grammar or aggregate closure.
+- Public class-field literal-name restrictions now carry two typed early-error
+  codes: non-static fields/auto-accessors reject literal `constructor`, while
+  static forms reject literal `constructor` or `prototype`. All eight parser
+  branches share the Script, Module and retained-module boundary; computed
+  names and ordinary constructor methods remain valid. A narrow vendored
+  parser repair stops identifier `constructor` fields from being misrouted
+  into parameter parsing. Computed static `prototype` remains valid syntax but
+  now throws at class definition after the required field-initializer ordering;
+  methods, accessors and auto-accessors share that public-static guard, and the
+  class constructor's own `prototype` descriptor is all-false. The exact
+  18-file class-field cohort passes `36/36` executions, the adjacent nine-file
+  runtime/descriptor cohort passes `18/18`, and the durable Wasm class-element
+  fixture passes `1/1`.
 - Strict-mode `with` statements now carry one typed early-error code from the
   sole parser producer through retained Module diagnostics. Strict Script and
   function bodies, class methods and Modules reject, while sloppy Script and

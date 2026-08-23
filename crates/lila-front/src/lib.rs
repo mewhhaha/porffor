@@ -991,6 +991,87 @@ mod tests {
     }
 
     #[test]
+    fn class_field_literal_name_restrictions_cover_fields_accessors_forms_and_goals() {
+        for (source, code) in [
+            (
+                "class C { constructor = 1; }",
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                r#"let C = class { "constructor"; };"#,
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                "class C { accessor constructor = 1; }",
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                r#"let C = class { accessor "constructor"; };"#,
+                EarlyErrorCode::ClassFieldConstructorName,
+            ),
+            (
+                "class C { static constructor = 1; }",
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+            (
+                r#"let C = class { static "prototype"; };"#,
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+            (
+                "class C { static accessor constructor = 1; }",
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+            (
+                r#"let C = class { static accessor "prototype"; };"#,
+                EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "a forbidden literal class-field name should fail before evaluation",
+                );
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(
+                    err.diagnostic().error_type(),
+                    Some("SyntaxError"),
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_field_name_restrictions_preserve_computed_names_and_constructor_methods() {
+        for source in [
+            r#"class C {
+                constructor() {}
+                prototype;
+                accessor "prototype";
+                ["constructor"];
+                static ["constructor"];
+                static ["prototype"] = 1;
+            }"#,
+            r#"let C = class {
+                accessor ["constructor"] = 1;
+                static accessor ["constructor"];
+                static accessor ["prototype"] = 1;
+            };"#,
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "computed names, non-static prototype fields and constructor methods remain valid",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn strict_mode_with_statements_report_one_early_error_across_strict_contexts() {
         for source in [
             r#""use strict"; with ({}) {}"#,
@@ -1546,6 +1627,11 @@ switch (0) {
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorSetter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassPrivateConstructorName).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassDuplicatePrivateName).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassFieldConstructorName).is_some());
+        assert!(ParseClassified::from_early(
+            EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
+        )
+        .is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)
                 .is_some()

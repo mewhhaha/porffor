@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name restrictions, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name and class-field literal-name restrictions, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -117,6 +117,24 @@ early-error gate passes `3/3`, and the exact 32-file pinned cohort passes
 `64/64` Wasm-AOT executions with zero failure or non-success outcomes. This is
 bounded duplicate-private-name evidence, not class-grammar, T07 or aggregate
 closure.
+
+Public class-field literal-name restrictions now have two closed conditions.
+Non-static fields and auto-accessors reject literal `constructor`; static forms
+reject literal `constructor` or `prototype`. All eight Boa producer branches
+map through the same typed Script, Module and retained-module boundary, while
+computed names and ordinary constructor methods remain valid. The contract is
+recorded in
+`docs/rust-rewrite/contracts/class-field-literal-name-early-errors.md`. This is
+classification plus a narrow vendored parser dispatch repair: non-static
+identifier `constructor` enters constructor-method parsing only before `(`, so
+field prefixes ending in `;` or followed by `=` reach the existing field
+early-error producer. It does not change class-element lowering, private-name
+rules, or the remaining class grammar bucket. The computed static `prototype`
+positive syntax boundary exposed a separate Wasm class-definition bug: public
+static fields, methods/accessors and auto-accessors now reject that run-time key
+against the class constructor's non-configurable `prototype`, with field and
+auto-accessor initializer order preserved. This adjacent T09/T10 repair does
+not turn that run-time TypeError into an early error.
 
 Strict-mode `WithStatement` parsing now has one closed condition for Boa's sole
 exact wording. Strict Script directives, strict ordinary functions, class

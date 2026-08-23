@@ -132,6 +132,17 @@ fresh wrapper on each invocation. The boundary and its cross-realm nonclaim are
 recorded in
 `docs/rust-rewrite/contracts/bound-function-this-capture.md`.
 
+Class-definition installation now preserves the non-configurable constructor
+`prototype` invariant. Class constructors materialize their own `prototype`
+data property with all three attributes false. Computed public static
+`prototype` fields, methods/getters/setters and auto-accessors share one
+property-key guard; field initializers run before the resulting TypeError,
+while auto-accessor backing initialization remains after the failing accessor
+definition. The durable class-element fixture passes `1/1`, the three exact
+computed-field files pass `6/6`, and the adjacent nine-file
+method/accessor/descriptor cohort passes `18/18` Wasm-AOT executions. This is a
+bounded class-definition correction, not complete class closure.
+
 The closed thirteen-member family of non-generic Boolean, Number, BigInt, and
 String prototype methods now retains the acquired function object and the
 reference base as separate `CallIndirect` operands. Shape analysis may identify

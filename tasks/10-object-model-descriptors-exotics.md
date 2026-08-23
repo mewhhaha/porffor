@@ -152,6 +152,14 @@ the recursive Proxy descriptor-record protocol remains T11 work. The complete
 separate from the full `[[HasProperty]]` dispatcher. Proxy `[[Get]]` retains its
 older value-bearing invariant scan.
 
+Class constructors now install their own `prototype` data property with the
+class-specific all-false attribute tuple. Computed public static class elements
+use an explicit key guard before definition, because the current
+`Presence::Present` complete-descriptor paths intentionally omit the run-time
+step-4 compatibility checks and therefore cannot enforce that non-configurable
+entry by themselves. The exact descriptor witness passes `2/2` Wasm-AOT
+executions. This is a bounded T09 consumer correction and does not close LN10.
+
 This is still a foundation, not task closure. Array application paths,
 remaining arguments special/named descriptors, several builtin/exotic emitters and lowering shape
 facts still consume derived raw words or parallel positional forms. The

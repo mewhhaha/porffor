@@ -43,6 +43,8 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ClassPrivateConstructorName
         | EarlyErrorCode::ClassDuplicatePrivateName
         | EarlyErrorCode::ClassStaticBlockContainsArguments
+        | EarlyErrorCode::ClassFieldConstructorName
+        | EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName
         | EarlyErrorCode::ClassFieldContainsArguments
         | EarlyErrorCode::StrictModeWithStatement
         | EarlyErrorCode::DuplicateLabel

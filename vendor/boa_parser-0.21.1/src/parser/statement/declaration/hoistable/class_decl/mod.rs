@@ -654,6 +654,10 @@ where
                     | Punctuator::Semicolon
             )
         );
+        let starts_constructor_method = matches!(
+            cursor.peek(1, interner).or_abrupt()?.kind(),
+            TokenKind::Punctuator(Punctuator::OpenParen)
+        );
 
         let token = cursor.peek(0, interner).or_abrupt()?.clone();
         let start_linear_span = token.linear_span();
@@ -662,7 +666,9 @@ where
 
         let position = token.span().start();
         let element = match token.kind() {
-            TokenKind::IdentifierName((Sym::CONSTRUCTOR, _)) if !r#static => {
+            TokenKind::IdentifierName((Sym::CONSTRUCTOR, _))
+                if !r#static && starts_constructor_method =>
+            {
                 cursor.advance(interner);
                 let strict = cursor.strict();
                 cursor.set_strict(true);

@@ -146,6 +146,16 @@ class ComputedFields {
   [fieldKey("d")]() {}
 }
 
+const computedFieldsPrototypeDescriptor =
+  Object.getOwnPropertyDescriptor(ComputedFields, "prototype");
+if (
+  computedFieldsPrototypeDescriptor.writable ||
+  computedFieldsPrototypeDescriptor.enumerable ||
+  computedFieldsPrototypeDescriptor.configurable
+) {
+  throw "class prototype descriptor";
+}
+
 const firstComputedInstance = new ComputedFields();
 const secondComputedInstance = new ComputedFields();
 if (computedFieldOrder !== "abcdi") throw "computed field definition order";
@@ -154,6 +164,46 @@ if (firstComputedInstance.a !== 1 || secondComputedInstance.a !== 1) {
   throw "cached instance field key";
 }
 if (ComputedFields.c !== 3) throw "cached static field key";
+
+let computedStaticPrototypeFieldInitializerRan = false;
+let computedStaticPrototypeFieldThrew = false;
+try {
+  class ComputedStaticPrototypeField {
+    static ["prototype"] = (computedStaticPrototypeFieldInitializerRan = true, 1);
+  }
+} catch (error) {
+  computedStaticPrototypeFieldThrew = error.name === "TypeError";
+}
+if (!computedStaticPrototypeFieldInitializerRan || !computedStaticPrototypeFieldThrew) {
+  throw "computed static prototype field definition order";
+}
+
+let computedStaticPrototypeMethodThrew = false;
+try {
+  class ComputedStaticPrototypeMethod {
+    static ["prototype"]() {}
+  }
+} catch (error) {
+  computedStaticPrototypeMethodThrew = error.name === "TypeError";
+}
+if (!computedStaticPrototypeMethodThrew) throw "computed static prototype method";
+
+let computedStaticPrototypeAutoAccessorInitializerRan = false;
+let computedStaticPrototypeAutoAccessorThrew = false;
+try {
+  class ComputedStaticPrototypeAutoAccessor {
+    static accessor ["prototype"] =
+      (computedStaticPrototypeAutoAccessorInitializerRan = true, 1);
+  }
+} catch (error) {
+  computedStaticPrototypeAutoAccessorThrew = error.name === "TypeError";
+}
+if (
+  computedStaticPrototypeAutoAccessorInitializerRan ||
+  !computedStaticPrototypeAutoAccessorThrew
+) {
+  throw "computed static prototype auto-accessor definition order";
+}
 
 let inheritedStaticSetterCalls = 0;
 class StaticFieldBase {
