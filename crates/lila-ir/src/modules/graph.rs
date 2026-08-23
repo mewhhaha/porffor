@@ -1663,6 +1663,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rejected_optional_chain_tagged_template_dependency_keeps_typed_diagnostic_through_graph_build(
+    ) {
+        let dependency_source = "export const value = null; value?.tag`x${1}`;";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/optional-template.js"),
+            dependency_source.to_string(),
+            "file:///root/optional-template.js".to_string(),
+        );
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './optional-template.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./optional-template.js"), 1)],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::OptionalChainTaggedTemplate)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained TemplateLiteral must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
     /// The default: everything the entry reaches through an ordinary `import`
     /// evaluates inline, which is what an unphased graph has always done.
     #[test]

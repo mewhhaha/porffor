@@ -2270,6 +2270,84 @@ mod tests {
     }
 
     #[test]
+    fn optional_chain_tagged_templates_report_one_early_error_in_both_goals() {
+        for source in [
+            "const value = null; value?.`x`;",
+            "const value = null; value?.`x${1}`;",
+            "const value = null; value?.\n`x`;",
+            "const value = { tag() {} }; value?.tag`x`;",
+            "const value = { tag() {} }; value?.tag`x${1}`;",
+            "const value = { tag() {} }; value?.tag\n`x`;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a TemplateLiteral directly on an optional chain should fail");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::OptionalChainTaggedTemplate),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the rejected TemplateLiteral must retain its source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_tags_and_completed_optional_chains_remain_parse_valid() {
+        for source in [
+            "const tag = () => {}; tag`x`;",
+            "const tag = () => {}; tag`x${1}`;",
+            "const value = {}; value?.property;",
+            "const callable = () => 0; callable?.();",
+            "const value = { tag() {} }; (value?.tag)`x`;",
+            "const value = { tag() {} }; (value?.tag)`x${1}`;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "only a TemplateLiteral directly in the OptionalChain production is forbidden",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn user_export_names_cannot_forge_optional_chain_tagged_template_classification() {
+        let err = parse(
+            concat!(
+                "const value = 0;\n",
+                "export { value as \"Invalid tagged template on optional chain at line\" };\n",
+                "export { value as \"Invalid tagged template on optional chain at line\" };",
+            ),
+            ParseOptions::module(),
+        )
+        .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn known_optional_chain_tagged_template_message_producers_stay_reviewed() {
+        const MESSAGE: &str = "Invalid tagged template on optional chain";
+        const TEMPLATE_TOKEN_PAIR: &str =
+            "TokenKind::TemplateMiddle(_) | TokenKind::TemplateNoSubstitution(_)";
+        const OPTIONAL_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/expression/left_hand_side/optional/mod.rs"
+        );
+
+        assert_eq!(OPTIONAL_SOURCE.matches(MESSAGE).count(), 2);
+        assert_eq!(OPTIONAL_SOURCE.matches(TEMPLATE_TOKEN_PAIR).count(), 2);
+    }
+
+    #[test]
     fn duplicate_import_attribute_keys_report_one_module_early_error() {
         for source in [
             r#"import "./dep.mjs" with { type: "json", "type": "css" };"#,

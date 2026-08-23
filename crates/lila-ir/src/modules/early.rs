@@ -515,6 +515,10 @@ mod tests {
                 EarlyErrorCode::AsyncMethodParametersContainAwait,
             ),
             (
+                "Invalid tagged template on optional chain at line 1, col 1",
+                EarlyErrorCode::OptionalChainTaggedTemplate,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -876,6 +880,28 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn optional_chain_tagged_template_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            "export {}; const value = null; value?.tag`x`;",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a retained optional-chain tagged template should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::OptionalChainTaggedTemplate)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the projected TemplateLiteral must retain its source span");
+        assert!(span.start < span.end, "{diagnostic:?}");
     }
 
     #[test]

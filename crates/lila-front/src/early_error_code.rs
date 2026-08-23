@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 56] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 57] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -360,6 +360,10 @@ early_error_codes! {
     /// An AsyncMethod's UniqueFormalParameters Contains AwaitExpression.
     /// Object and class methods share the same parser producer.
     AsyncMethodParametersContainAwait => "E_ASYNC_METHOD_PARAMETERS_CONTAIN_AWAIT";
+    /// 13.3.1.1. Source text matches either `?. TemplateLiteral` or
+    /// `OptionalChain TemplateLiteral`. Parenthesizing a completed optional
+    /// expression before using it as a tag remains excluded.
+    OptionalChainTaggedTemplate => "E_OPTIONAL_CHAIN_TAGGED_TEMPLATE";
     /// 16.2.2.1. `WithClauseToAttributes` of one `WithClause` contains two
     /// different entries with the same `[[Key]]`. Dynamic-import option
     /// objects are deliberately excluded.
@@ -435,7 +439,9 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 55;
+const PARSE_FAILURE_RULE_COUNT: usize = 56;
+const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
+    "Invalid tagged template on optional chain at line";
 
 /// The one message-pattern table.
 ///
@@ -934,6 +940,15 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ModuleDuplicateImportAttributeKey,
         witnesses: &["duplicate import attribute key at line 1, col 1"],
     },
+    // 56. expression/left_hand_side/optional/mod.rs:130,163. The two
+    //     OptionalChain tagged-template productions share this complete raw
+    //     message. Anchoring prevents an interpolated Module export name from
+    //     injecting the wording into another Error::general diagnostic.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX),
+        code: EarlyErrorCode::OptionalChainTaggedTemplate,
+        witnesses: &["Invalid tagged template on optional chain at line 1, col 1"],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1114,6 +1129,33 @@ const fn code_is_owned_only_by_starts_with(code: EarlyErrorCode) -> bool {
     found
 }
 
+/// True only when exactly one row owns `code` and that row uses the complete
+/// reviewed prefix. This is stronger than checking the pattern variant: a
+/// shortened prefix can remain anchored while absorbing unrelated diagnostics.
+const fn code_is_owned_once_by_exact_starts_with(
+    code: EarlyErrorCode,
+    expected_prefix: &str,
+) -> bool {
+    let mut owners = 0;
+    let mut i = 0;
+    while i < PARSE_FAILURE_RULES.len() {
+        let rule = &PARSE_FAILURE_RULES[i];
+        if code_eq(rule.code, code) {
+            match rule.pattern {
+                ParseFailurePattern::StartsWith(prefix) => {
+                    if !str_eq(prefix, expected_prefix) {
+                        return false;
+                    }
+                    owners += 1;
+                }
+                ParseFailurePattern::ContainsAll(_) => return false,
+            }
+        }
+        i += 1;
+    }
+    owners == 1
+}
+
 // These conditions are intentionally parse-owned. Deleting any table row while
 // leaving its enum variant must fail during `cargo check`, not merely change a
 // retained dependency rejection from EarlyError back to Unsupported at run time.
@@ -1124,7 +1166,16 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::StrictModeDeletePrivateReference);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::OptionalChainTaggedTemplate);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::OptionalChainTaggedTemplate,
+        "Invalid tagged template on optional chain at line",
+    ),
+    "the optional-chain tagged-template code must have one owner using its complete reviewed prefix"
+);
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
     "the fixed duplicate import-attribute message must use anchored prefix matching"
@@ -1237,6 +1288,25 @@ const fn import_attribute_prefix_is_injection_safe() -> bool {
     classified_is(
         classify_parse_failure(
             "exported name `duplicate import attribute key at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
+/// P12: the fixed optional-chain wording remains unforgeable when a Module
+/// export name carries it inside a different `Error::general` diagnostic.
+const fn optional_chain_tagged_template_prefix_is_injection_safe() -> bool {
+    if !matches!(
+        classify_parse_failure(
+            "local referenced binding `Invalid tagged template on optional chain at line` cannot be a string literal at line 1, col 1",
+        ),
+        None
+    ) {
+        return false;
+    }
+    classified_is(
+        classify_parse_failure(
+            "exported name `Invalid tagged template on optional chain at line` declared multiple times",
         ),
         EarlyErrorCode::ModuleDuplicateExport,
     )
@@ -1380,4 +1450,8 @@ const _: () = assert!(
 const _: () = assert!(
     import_attribute_prefix_is_injection_safe(),
     "P11: user-controlled export text can forge or shadow the anchored duplicate import-attribute classification"
+);
+const _: () = assert!(
+    optional_chain_tagged_template_prefix_is_injection_safe(),
+    "P12: user-controlled export text can forge or shadow the anchored optional-chain tagged-template classification"
 );

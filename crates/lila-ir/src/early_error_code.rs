@@ -75,6 +75,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ArrowParametersContainAwait
         | EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait
         | EarlyErrorCode::AsyncMethodParametersContainAwait
+        | EarlyErrorCode::OptionalChainTaggedTemplate
         | EarlyErrorCode::ModuleDuplicateImportAttributeKey
         | EarlyErrorCode::ModuleDuplicateExport
         | EarlyErrorCode::ModuleUndeclaredExport

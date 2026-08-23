@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete and duplicate static import-attribute-key classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key and optional-chain tagged-template classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,44 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Written 2026-08-23: optional-chain tagged-template early errors
+
+`OptionalChainTaggedTemplate` (`E_OPTIONAL_CHAIN_TAGGED_TEMPLATE`) is the one
+closed condition for the two forbidden ECMA-262 productions
+`?. TemplateLiteral` and `OptionalChain TemplateLiteral`. Pinned Boa has two
+adjacent producer branches with the identical raw message
+`Invalid tagged template on optional chain`. The written classifier adds one
+`ParseFailurePattern::StartsWith` row for the complete rendered prefix ending
+in `at line`, so both producers share one typed identity without accepting the
+same phrase inside an interpolated Module export diagnostic.
+
+The enum and parse-table counts are written as 57 and 56. Evaluated const
+assertions make the new code parse-owned, require exactly one owning row with
+the complete reviewed prefix, and preserve `ModuleDuplicateExport` when a
+user-chosen export name contains the fixed phrase. The exhaustive IR mapping
+owns the new variant. A real failed Module parse exercises
+`module_parse_failure_diagnostic`, while a retained rejected
+`ModuleSourceIr` dependency crosses `build_graph` rather than relying only on a
+constructed message.
+
+Front-end witnesses cover both productions under Script and Module goals,
+substituted and unsubstituted templates, their line-terminator forms, and the
+valid ordinary-tag, optional-access, optional-call and parenthesized
+completed-chain boundaries. A source-count guard pins exactly two message
+occurrences and both template-token alternatives at both vendored
+optional-chain parser branches without changing vendor code. The exact
+eight-file pinned Test262 cohort is recorded in
+`docs/rust-rewrite/contracts/optional-chain-tagged-template-early-errors.md`.
+
+Independent adversarial review accepted the typed ownership and strengthened
+its exact-prefix, substituted-template and retained-graph witnesses. Under the
+shared eight-core cap, `cargo xc` is green, the full front library passes
+`97/97`, the focused retained-module group passes `40/40`, and the exact graph
+projection passes `1/1`. The eight-file pinned Test262 cohort passes `16/16`
+Wasm-AOT executions with all non-success buckets at zero under
+`--jobs 1 --threads 1`. No measured pass gain or broader parser-conformance
+result is claimed.
 
 ### Landed 2026-08-23: duplicate static import-attribute keys
 
