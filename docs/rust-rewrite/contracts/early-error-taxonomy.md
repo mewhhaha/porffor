@@ -1,5 +1,17 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 switch-clause using-declaration amendment
+
+T07 now classifies Boa's exact fixed-message rejection for a direct `using` or
+`await using` declaration in a CaseClause or DefaultClause StatementList. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/switch-clause-using-declaration-early-errors.md`
+
+The domain has **40** variants and the one parse-failure table has **38** rows.
+Nested declaration boundaries and direct `let`/`const` clause declarations stay
+parse-valid under both goals.
+
 ## 2026-08-23 for-in using-declaration amendment
 
 T07 now classifies Boa's exact fixed-message rejection for `using` or

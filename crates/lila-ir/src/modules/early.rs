@@ -443,6 +443,10 @@ mod tests {
                 EarlyErrorCode::ForInUsingDeclaration,
             ),
             (
+                "`using` declarations are not allowed in this statement list at line 1, col 1",
+                EarlyErrorCode::SwitchClauseUsingDeclaration,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -856,6 +860,28 @@ mod tests {
             assert_eq!(
                 diagnostic.code(),
                 Some(EarlyErrorCode::ForInUsingDeclaration),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_switch_clause_using_declarations() {
+        for source in [
+            "export {}; switch (0) { case 0: using x = null; }",
+            "export async function f() { switch (0) { default: await using x = null; } }",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained Module switch-clause using declaration should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::SwitchClauseUsingDeclaration),
                 "{source:?}: {diagnostic:?}"
             );
             assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));

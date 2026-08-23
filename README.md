@@ -374,6 +374,15 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Direct `using` or `await using` declarations in switch CaseClause and
+  DefaultClause StatementLists now share one typed early-error code across
+  Script, Module and retained dependency parsing. Nested blocks, loops,
+  functions and direct `let`/`const` declarations remain valid clause
+  boundaries. The capped front gate passes `61/61`, the IR early-error filter
+  passes `3/3`, and the exact four-file cohort passes `8/8` sloppy/strict
+  Wasm-AOT executions with every failure and non-success bucket at zero. This
+  is bounded classification, not disposal execution, direct eval, all switch
+  grammar, or broad T07 closure.
 - `for-in` heads using `using` or `await using` now share one typed early-error
   code across Script, Module and retained dependency parsing. `for-of`,
   ordinary `let`/`const` `for-in`, and initialized `using` in classic `for`

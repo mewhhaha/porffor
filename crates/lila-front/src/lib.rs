@@ -828,6 +828,51 @@ mod tests {
     }
 
     #[test]
+    fn switch_clause_using_declarations_reject_under_both_goals() {
+        for source in [
+            "switch (0) { case 0: using x = null; }",
+            "switch (0) { default: using x = null; }",
+            "async function f() { switch (0) { case 0: await using x = null; } }",
+            "async function f() { switch (0) { default: await using x = null; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a direct switch-clause using declaration should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::SwitchClauseUsingDeclaration),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn nested_switch_clause_using_declaration_boundaries_remain_valid() {
+        for source in [
+            "switch (0) { case 0: { using x = null; } }",
+            "async function f() { switch (0) { default: { await using x = null; } } }",
+            "switch (0) { case 0: let x; const y = null; }",
+            "switch (0) { case 0: for (using x = null;;) break; }",
+            "switch (0) { case 0: for (using x of []) {} }",
+            "switch (0) { case 0: function f() { using x = null; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "nested and ordinary lexical switch-clause siblings should remain valid",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -1893,6 +1938,9 @@ switch (0) {
             ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelUsingDeclaration).is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ForInUsingDeclaration).is_some());
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::SwitchClauseUsingDeclaration).is_some()
+        );
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(

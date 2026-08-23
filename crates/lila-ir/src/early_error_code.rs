@@ -59,6 +59,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ScriptTopLevelNewTarget
         | EarlyErrorCode::ScriptTopLevelUsingDeclaration
         | EarlyErrorCode::ForInUsingDeclaration
+        | EarlyErrorCode::SwitchClauseUsingDeclaration
         | EarlyErrorCode::ModuleDuplicateExport
         | EarlyErrorCode::ModuleUndeclaredExport
         | EarlyErrorCode::ModuleTopLevelSuper
