@@ -417,6 +417,14 @@ Recent focused progress through `2026-08-23`:
   32-file pinned Test262 cohort passes `64/64` sloppy/strict Wasm-AOT
   executions with every failure bucket at zero. This is bounded parser
   evidence, not class-grammar or aggregate closure.
+- Strict-mode `with` statements now carry one typed early-error code from the
+  sole parser producer through retained Module diagnostics. Strict Script and
+  function bodies, class methods and Modules reject, while sloppy Script and
+  function contexts remain valid. The capped serial front and focused IR gates
+  pass `44/44` and `3/3`; the exact seven-file pinned cohort passes `7/7`
+  Wasm-AOT executions with every failure bucket at zero. This is bounded
+  parser classification only; valid sloppy `with` runtime semantics are
+  unchanged.
 - Class-field `ContainsArguments` parser rejections now carry one typed early-
   error code across public/private, instance/static and auto-accessor
   initializers. The front-end preserves lexical traversal through arrows and

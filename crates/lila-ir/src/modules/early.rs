@@ -387,6 +387,10 @@ mod tests {
                 EarlyErrorCode::ClassFieldContainsArguments,
             ),
             (
+                "with statement not allowed in strict mode",
+                EarlyErrorCode::StrictModeWithStatement,
+            ),
+            (
                 "module cannot contain `super` on the top-level",
                 EarlyErrorCode::ModuleTopLevelSuper,
             ),
@@ -587,6 +591,22 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::ClassDuplicatePrivateName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn strict_mode_with_statement_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse("with ({}) {}", lila_front::ParseOptions::module())
+            .expect_err("Module code is strict without a directive");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::StrictModeWithStatement)
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");

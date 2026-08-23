@@ -991,6 +991,45 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_with_statements_report_one_early_error_across_strict_contexts() {
+        for source in [
+            r#""use strict"; with ({}) {}"#,
+            r#"function f() { "use strict"; with ({}) {} }"#,
+            "class C { method() { with ({}) {} } }",
+        ] {
+            let err = parse(source, ParseOptions::script())
+                .expect_err("with statements in strict Script code should fail before evaluation");
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::StrictModeWithStatement),
+                "{source:?}: {err:?}"
+            );
+            assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+        }
+
+        let err = parse("with ({}) {}", ParseOptions::module())
+            .expect_err("Module code is strict without a directive");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::StrictModeWithStatement),
+            "{err:?}"
+        );
+        assert!(err.diagnostic().span.is_some(), "{err:?}");
+    }
+
+    #[test]
+    fn sloppy_with_statements_remain_valid_without_a_strict_context() {
+        for source in ["with ({}) {}", "function f() { with ({}) {} }"] {
+            parse(source, ParseOptions::script())
+                .expect("sloppy Script code permits WithStatement");
+        }
+    }
+
+    #[test]
     fn class_static_block_arguments_rejections_cover_both_forms_and_goals() {
         for source in [
             r"class C { static { (class { [argument\u0073]() {} }); } }",
@@ -1512,6 +1551,7 @@ switch (0) {
                 .is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassFieldContainsArguments).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::StrictModeWithStatement).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());

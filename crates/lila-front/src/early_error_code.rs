@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 30] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 31] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -229,6 +229,10 @@ early_error_codes! {
     /// instance/static or auto-accessor initializer is true. Nested ordinary
     /// function and method bodies are boundaries; arrow functions are not.
     ClassFieldContainsArguments => "E_CLASS_FIELD_CONTAINS_ARGUMENTS";
+    /// WithStatement early errors: the source text matched by the production
+    /// is contained in strict-mode code. Modules and class methods are strict
+    /// without a directive; sloppy Script code remains excluded.
+    StrictModeWithStatement => "E_STRICT_MODE_WITH_STATEMENT";
     /// 14.13.1. `ContainsDuplicateLabels` with argument « » is `true`.
     DuplicateLabel => "E_DUPLICATE_LABEL";
     /// 14.13.1, applied by 16.1.1 / 16.2.1.2. `ContainsUndefinedBreakTarget`
@@ -307,7 +311,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 28;
+const PARSE_FAILURE_RULE_COUNT: usize = 29;
 
 /// The one fragment table.
 ///
@@ -493,25 +497,32 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassFieldContainsArguments,
         witnesses: &["'arguments' not allowed in class field definition"],
     },
-    // 21. boa_parser/src/parser/mod.rs:567
+    // 21. statement/with/mod.rs:61-67. The sole pinned producer uses this
+    //     complete, case-sensitive wording for WithStatement in strict code.
+    ParseFailureRule {
+        fragments: &["with statement not allowed in strict mode"],
+        code: EarlyErrorCode::StrictModeWithStatement,
+        witnesses: &["with statement not allowed in strict mode"],
+    },
+    // 22. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
         fragments: &["module cannot contain", "super"],
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
-    // 22. boa_parser/src/parser/mod.rs:575
+    // 23. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
         fragments: &["module cannot contain", "new.target"],
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
-    // 23. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
+    // 24. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
         fragments: &["invalid private identifier usage"],
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
-    // 24-28. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
+    // 25-29. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
         fragments: &["duplicate label"],
         code: EarlyErrorCode::DuplicateLabel,

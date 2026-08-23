@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name restrictions and class static-block/field `ContainsArguments` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name restrictions, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -117,6 +117,19 @@ early-error gate passes `3/3`, and the exact 32-file pinned cohort passes
 `64/64` Wasm-AOT executions with zero failure or non-success outcomes. This is
 bounded duplicate-private-name evidence, not class-grammar, T07 or aggregate
 closure.
+
+Strict-mode `WithStatement` parsing now has one closed condition for Boa's sole
+exact wording. Strict Script directives, strict ordinary functions, class
+methods and Module code reject with the same typed `Early`/`SyntaxError`
+diagnostic, while sloppy Scripts and sloppy ordinary functions remain valid.
+The boundary is recorded in
+`docs/rust-rewrite/contracts/strict-mode-with-statement-early-errors.md`. This
+is classification only: it does not change valid sloppy `with` lowering or
+Object Environment Record semantics, close adjacent strict-mode rules, or
+complete the statements grammar bucket. At `2026-08-23`, the capped serial
+front gate passes `44/44`, the focused IR early-error gate passes `3/3`, and the
+exact seven-file pinned cohort passes `7/7` Wasm-AOT executions with zero
+failure or non-success outcomes.
 
 ## Objective
 
