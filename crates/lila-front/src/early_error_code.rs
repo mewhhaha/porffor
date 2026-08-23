@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 61] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 62] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -311,6 +311,10 @@ early_error_codes! {
     /// Ordinary/async/generator functions are traversal boundaries; arrows
     /// inherit `new.target` lexically and are not.
     ScriptTopLevelNewTarget => "E_SCRIPT_TOP_LEVEL_NEW_TARGET";
+    /// 16.1.1. `StatementList Contains super` is `true` for a ScriptBody.
+    /// Ordinary and async arrows inherit `super` lexically; method and
+    /// constructor definitions establish their own `super` context.
+    ScriptTopLevelSuper => "E_SCRIPT_TOP_LEVEL_SUPER";
     /// ScriptBody early errors: an immediate top-level lexical declaration is
     /// `using` or `await using`. Nested statement lists and the Module goal are
     /// deliberately excluded.
@@ -434,6 +438,10 @@ enum ParseFailurePattern {
     /// append its source position, but user-controlled text before the wording
     /// cannot forge the condition.
     StartsWith(&'static str),
+    /// The complete rendered message must be byte-for-byte equal. Used when a
+    /// fixed position is already part of the reviewed wording and decimal
+    /// continuations such as `col 10` would make prefix matching too broad.
+    Exact(&'static str),
 }
 
 /// One `boa` static-semantics message shape, and the code it denotes.
@@ -457,7 +465,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 61;
+const PARSE_FAILURE_RULE_COUNT: usize = 62;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
 const IMPORT_META_OUTSIDE_MODULE_PREFIX: &str =
@@ -469,6 +477,7 @@ const FOR_DECLARATION_DUPLICATE_BOUND_NAME_PREFIX: &str =
 const LEXICAL_BOUND_NAME_LET_PREFIX: &str = "'let' is disallowed as a lexically bound name at line";
 const FOR_DECLARATION_BOUND_NAME_LET_PREFIX: &str =
     "Cannot use 'let' as a lexically bound name at line";
+const SCRIPT_TOP_LEVEL_SUPER_MESSAGE: &str = "invalid super usage at line 1, col 1";
 
 /// The one message-pattern table.
 ///
@@ -1029,6 +1038,15 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::LexicalBoundNameLet,
         witnesses: &["Cannot use 'let' as a lexically bound name at line 1, col 1"],
     },
+    // 62. boa_parser/src/parser/mod.rs::ScriptBody::parse. The sole Script
+    //     producer uses Error::general with a fixed Position::new(1, 1).
+    //     Exact matching is required: StartsWith would also absorb the other
+    //     raw-message producers when they report columns 10 through 19.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::Exact(SCRIPT_TOP_LEVEL_SUPER_MESSAGE),
+        code: EarlyErrorCode::ScriptTopLevelSuper,
+        witnesses: &["invalid super usage at line 1, col 1"],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1048,6 +1066,7 @@ const fn rule_matches(rule: &ParseFailureRule, message: &str) -> bool {
             true
         }
         ParseFailurePattern::StartsWith(prefix) => starts_with_sub(message, prefix),
+        ParseFailurePattern::Exact(expected) => str_eq(message, expected),
     }
 }
 
@@ -1155,8 +1174,8 @@ pub const fn classify_parse_failure(message: &str) -> Option<ParseClassified> {
     // ContainsAll patterns inspect messages Boa can build by interpolation.
     // Refuse to read a known shape that can carry user source text into that
     // oracle; `Malformed`/`Unsupported` is the honest answer there. StartsWith
-    // patterns additionally prevent source text later in a General diagnostic
-    // from forging a complete fixed message.
+    // and Exact patterns additionally prevent source text later in a General
+    // diagnostic from forging a complete fixed message.
     if message_interpolates_source_text(message) {
         return None;
     }
@@ -1228,7 +1247,34 @@ const fn code_is_owned_once_by_exact_starts_with(
                     }
                     owners += 1;
                 }
-                ParseFailurePattern::ContainsAll(_) => return false,
+                ParseFailurePattern::ContainsAll(_) | ParseFailurePattern::Exact(_) => {
+                    return false;
+                }
+            }
+        }
+        i += 1;
+    }
+    owners == 1
+}
+
+/// True only when exactly one row owns `code` and that row requires byte-for-
+/// byte equality with the independently reviewed complete message.
+const fn code_is_owned_once_by_exact_message(code: EarlyErrorCode, expected_message: &str) -> bool {
+    let mut owners = 0;
+    let mut i = 0;
+    while i < PARSE_FAILURE_RULES.len() {
+        let rule = &PARSE_FAILURE_RULES[i];
+        if code_eq(rule.code, code) {
+            match rule.pattern {
+                ParseFailurePattern::Exact(message) => {
+                    if !str_eq(message, expected_message) {
+                        return false;
+                    }
+                    owners += 1;
+                }
+                ParseFailurePattern::ContainsAll(_) | ParseFailurePattern::StartsWith(_) => {
+                    return false;
+                }
             }
         }
         i += 1;
@@ -1265,7 +1311,9 @@ const fn code_is_owned_twice_by_exact_starts_with(
                         return false;
                     }
                 }
-                ParseFailurePattern::ContainsAll(_) => return false,
+                ParseFailurePattern::ContainsAll(_) | ParseFailurePattern::Exact(_) => {
+                    return false;
+                }
             }
         }
         i += 1;
@@ -1291,6 +1339,7 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ForDeclarationDuplicateBoundName);
 const _: ParseClassified = ParseClassified::from_parse_table(EarlyErrorCode::LexicalBoundNameLet);
+const _: ParseClassified = ParseClassified::from_parse_table(EarlyErrorCode::ScriptTopLevelSuper);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
@@ -1330,6 +1379,13 @@ const _: () = assert!(
     "the lexical BoundName let code must have exactly its two independently spelled anchored owners"
 );
 const _: () = assert!(
+    code_is_owned_once_by_exact_message(
+        EarlyErrorCode::ScriptTopLevelSuper,
+        "invalid super usage at line 1, col 1",
+    ),
+    "the ScriptBody super code must have one owner using its complete reviewed message"
+);
+const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
     "the fixed duplicate import-attribute message must use anchored prefix matching"
 );
@@ -1343,9 +1399,10 @@ const _: () = assert!(
 ///
 /// An empty `ContainsAll` list matches every message, so one row would swallow
 /// every parse failure into a single code. An empty `StartsWith` prefix does the
-/// same. An empty `witnesses` list would exempt the row from P2, P6 and P10
-/// entirely. A single empty fragment also matches everything because
-/// `contains_sub` follows `str::contains` semantics.
+/// same; an empty `Exact` message cannot own a real diagnostic. An empty
+/// `witnesses` list would exempt the row from P2, P6 and P10 entirely. A single
+/// empty fragment also matches everything because `contains_sub` follows
+/// `str::contains` semantics.
 const fn every_row_is_populated() -> bool {
     let mut i = 0;
     while i < PARSE_FAILURE_RULES.len() {
@@ -1368,6 +1425,11 @@ const fn every_row_is_populated() -> bool {
             }
             ParseFailurePattern::StartsWith(prefix) => {
                 if prefix.is_empty() {
+                    return false;
+                }
+            }
+            ParseFailurePattern::Exact(message) => {
+                if message.is_empty() {
                     return false;
                 }
             }
@@ -1495,6 +1557,27 @@ const fn lexical_bound_name_let_prefixes_are_injection_safe() -> bool {
     ) && classified_is(
         classify_parse_failure(
             "exported name `Cannot use 'let' as a lexically bound name at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
+/// P15: the complete fixed ScriptBody message cannot be injected into another
+/// diagnostic, and decimal continuations of its final column do not compare
+/// equal to it.
+const fn script_top_level_super_message_is_exact_and_injection_safe() -> bool {
+    if !matches!(
+        classify_parse_failure("invalid super usage at line 1, col 2"),
+        None
+    ) || !matches!(
+        classify_parse_failure("invalid super usage at line 1, col 10"),
+        None
+    ) {
+        return false;
+    }
+    classified_is(
+        classify_parse_failure(
+            "exported name `invalid super usage at line 1, col 1` declared multiple times",
         ),
         EarlyErrorCode::ModuleDuplicateExport,
     )
@@ -1650,4 +1733,8 @@ const _: () = assert!(
 const _: () = assert!(
     lexical_bound_name_let_prefixes_are_injection_safe(),
     "P14: user-controlled export text can forge or shadow an anchored lexical BoundName let classification"
+);
+const _: () = assert!(
+    script_top_level_super_message_is_exact_and_injection_safe(),
+    "P15: the fixed ScriptBody super message can be forged or prefix-matches another source position"
 );

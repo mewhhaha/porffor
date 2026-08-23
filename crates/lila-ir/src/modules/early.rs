@@ -450,6 +450,12 @@ mod tests {
                 "invalid new.target usage at line 1, col 1",
                 EarlyErrorCode::ScriptTopLevelNewTarget,
             ),
+            // Projection-only witness: this message is Script-owned. The real
+            // Module and retained-graph controls below keep ModuleTopLevelSuper.
+            (
+                "invalid super usage at line 1, col 1",
+                EarlyErrorCode::ScriptTopLevelSuper,
+            ),
             (
                 "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
                 EarlyErrorCode::ScriptTopLevelUsingDeclaration,
@@ -1010,6 +1016,40 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_keep_their_distinct_super_goal_boundary() {
+        for source in [
+            "super.value;",
+            "() => super.value;",
+            "async (value = super()) => value;",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("top-level Module super should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::ModuleTopLevelSuper),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            let span = diagnostic
+                .span
+                .expect("the fixed Module position must retain a source span");
+            assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+        }
+
+        for source in [
+            "class Base {}; export class Derived extends Base { constructor() { super(); } }",
+            "class Base {}; export class Derived extends Base { method() { return () => super.value; } }",
+        ] {
+            lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect("method-owned super should remain valid Module syntax");
+        }
     }
 
     #[test]

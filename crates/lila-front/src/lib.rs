@@ -611,6 +611,28 @@ mod tests {
         ParseCode::Early(ParseClassified::from_parse_table(code))
     }
 
+    const SCRIPT_BODY_SUPER_SOURCES: [&str; 19] = [
+        "super();",
+        "super.value;",
+        r#""use strict"; super.value;"#,
+        "() => { super(); };",
+        "() => super.value;",
+        "async () => { super(); };",
+        "async () => super.value;",
+        "async (value = super()) => value;",
+        "async (value = super.value) => value;",
+        "() => () => super.value;",
+        "(value = super.value) => value;",
+        "class C extends super.value {}",
+        "(class extends super.value {});",
+        "class C { [super.value]() {} }",
+        "class C { [super.value]; }",
+        "class C { static [super.value]; }",
+        "({ [super.value]() {} });",
+        "({ get [super.value]() { return 0; } });",
+        "({ [super.value]: 0 });",
+    ];
+
     #[test]
     fn script_rejects_module_syntax() {
         let err = parse("export const value = 1;", ParseOptions::script())
@@ -720,6 +742,513 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn script_top_level_super_rejects_each_pinned_contains_boundary() {
+        for source in SCRIPT_BODY_SUPER_SOURCES {
+            let err = parse(source, ParseOptions::script())
+                .expect_err("ScriptBody Contains super should fail");
+            assert_eq!(
+                err.diagnostic().phase(),
+                ParseDiagnosticPhase::Early,
+                "{source:?}: {err:?}"
+            );
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ScriptTopLevelSuper),
+                "{source:?}: {err:?}"
+            );
+            let span = err
+                .diagnostic()
+                .span
+                .expect("the fixed ScriptBody position must retain a source span");
+            assert!(span.start < span.end, "{source:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn module_top_level_super_keeps_its_distinct_goal_owner() {
+        for source in SCRIPT_BODY_SUPER_SOURCES {
+            let err = parse(source, ParseOptions::module())
+                .expect_err("ModuleItemList Contains super should fail");
+            assert_eq!(
+                err.diagnostic().phase(),
+                ParseDiagnosticPhase::Early,
+                "{source:?}: {err:?}"
+            );
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ModuleTopLevelSuper),
+                "{source:?}: {err:?}"
+            );
+            let span = err
+                .diagnostic()
+                .span
+                .expect("the fixed Module position must retain a source span");
+            assert!(span.start < span.end, "{source:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn method_owned_super_forms_remain_valid_under_both_goals() {
+        for source in [
+            "class Base {}; class Derived extends Base { constructor() { super(); } }",
+            "class Base {}; class Derived extends Base { method() { return super.value; } }",
+            "class Base {}; class Derived extends Base { method() { return () => super.value; } }",
+            "class Base {}; class Derived extends Base { field = super.value; }",
+            "class Base {}; class Derived extends Base { static field = super.value; }",
+            "class Base {}; class Derived extends Base { static { void super.value; } }",
+            "({ method() { return super.value; } });",
+            "({ get value() { return super.value; } });",
+            "({ set value(input) { void super.value; } });",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("method-owned super references should remain parse-valid");
+            }
+        }
+    }
+
+    #[test]
+    fn adjacent_invalid_super_usage_producers_remain_unclassified_by_this_lane() {
+        for source in [
+            "function f() { super.value; }",
+            "class Base { constructor() { super(); } }",
+            "class C { field = super(); }",
+            "class C { static { super(); } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the adjacent callable or class condition should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Parse,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, ParseCode::Malformed);
+                assert_ne!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ScriptTopLevelSuper),
+                    "{source:?}: {err:?}"
+                );
+                assert_ne!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ModuleTopLevelSuper),
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn script_top_level_super_precedes_new_target_and_resists_message_injection() {
+        let err = parse("super.value; new.target;", ParseOptions::script())
+            .expect_err("the ScriptBody super check should run before NewTarget");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ScriptTopLevelSuper),
+            "{err:?}"
+        );
+
+        for message in [
+            "invalid super usage at line 1, col 2",
+            "invalid super usage at line 1, col 10",
+        ] {
+            assert_eq!(
+                classify_parse_failure(message),
+                None,
+                "a distinct source position must not acquire the ScriptBody code"
+            );
+        }
+
+        let err = parse(
+            concat!(
+                "const value = 0;\n",
+                "export { value as \"invalid super usage at line 1, col 1\" };\n",
+                "export { value as \"invalid super usage at line 1, col 1\" };",
+            ),
+            ParseOptions::module(),
+        )
+        .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn known_script_top_level_super_producer_stays_structurally_reviewed() {
+        fn count_in_rust_sources(root: &std::path::Path, fragment: &str) -> usize {
+            let entries = std::fs::read_dir(root)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()));
+            let mut count = 0;
+            for entry in entries {
+                let path = entry.expect("failed to read vendored Boa entry").path();
+                if path.is_dir() {
+                    count += count_in_rust_sources(&path, fragment);
+                } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                    let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                        panic!("failed to read {}: {error}", path.display())
+                    });
+                    count += source.matches(fragment).count();
+                }
+            }
+            count
+        }
+
+        let compact = |source: &str| {
+            source
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>()
+        };
+
+        const RAW_MESSAGE: &str = "invalid super usage";
+        const MODULE_MESSAGE: &str = "module cannot contain `super` on the top-level";
+        const SCRIPT_BRANCH: &str = r#"if contains(&body, ContainsSymbol::Super) {
+                return Err(Error::general("invalid super usage", Position::new(1, 1)));
+            }"#;
+        const MODULE_BRANCH: &str = r#"if contains(&module, ContainsSymbol::Super) {
+            return Err(Error::general(
+                "module cannot contain `super` on the top-level",
+                Position::new(1, 1),
+            ));
+        }"#;
+        const PARAMETER_POSITION: &str = r#""invalid super usage".into(),
+                params_start_position,"#;
+        const CLASS_BODY_POSITION: &str = r#""invalid super usage".into(),
+                    body_start,"#;
+        const CLASS_ELEMENT_POSITION: &str = r#""invalid super usage".into(),
+                            position,"#;
+        const CLASS_STATIC_BLOCK_POSITION: &str =
+            r#"Error::general("invalid super usage", position)"#;
+        const PARSER_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/parser/mod.rs");
+        const HOISTABLE_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/mod.rs"
+        );
+        const FUNCTION_EXPRESSION_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/function_expression/mod.rs"
+        );
+        const GENERATOR_EXPRESSION_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/generator_expression/mod.rs"
+        );
+        const ASYNC_FUNCTION_EXPRESSION_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/async_function_expression/mod.rs"
+        );
+        const ASYNC_GENERATOR_EXPRESSION_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/async_generator_expression/mod.rs"
+        );
+        const CLASS_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs"
+        );
+        const FRONT_SOURCE: &str = include_str!("lib.rs");
+
+        let boa_package_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
+        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 12);
+        assert_eq!(count_in_rust_sources(&boa_package_root, MODULE_MESSAGE), 1);
+
+        let script_start = PARSER_SOURCE
+            .find("impl<R> TokenParser<R> for ScriptBody")
+            .expect("the ScriptBody parser remains present");
+        let module_start = PARSER_SOURCE
+            .find("/// Parses a full module.")
+            .expect("the Module parser remains after ScriptBody");
+        let script_body = &PARSER_SOURCE[script_start..module_start];
+        assert_eq!(script_body.matches(RAW_MESSAGE).count(), 1);
+        assert_eq!(script_body.matches(SCRIPT_BRANCH).count(), 1);
+        assert_eq!(script_body.matches("if !self.direct_eval {").count(), 1);
+
+        let super_check = script_body
+            .find(SCRIPT_BRANCH)
+            .expect("the fixed ScriptBody super branch remains present");
+        let direct_eval_guard = script_body
+            .find("if !self.direct_eval {")
+            .expect("the direct-eval exclusion remains present");
+        let direct_eval_end = script_body[direct_eval_guard..]
+            .find("\n        }\n\n        if let Err(error) = check_labels(&body)")
+            .map(|offset| direct_eval_guard + offset)
+            .expect("the direct-eval guard must still enclose the Script checks");
+        assert_eq!(
+            script_body[direct_eval_guard..direct_eval_end]
+                .matches(SCRIPT_BRANCH)
+                .count(),
+            1,
+            "the Script super producer must remain inside the direct-eval exclusion"
+        );
+        let new_target_check = script_body
+            .find("if contains(&body, ContainsSymbol::NewTarget)")
+            .expect("the adjacent NewTarget check remains present");
+        let private_name_check = script_body
+            .find("if !all_private_identifiers_valid(&body, Vec::new())")
+            .expect("the adjacent private-name check remains present");
+        let label_check = script_body
+            .find("if let Err(error) = check_labels(&body)")
+            .expect("the adjacent label check remains present");
+        let cover_check = script_body
+            .find("if contains_invalid_object_literal(&body)")
+            .expect("the adjacent cover-grammar check remains present");
+        assert!(
+            direct_eval_guard < super_check
+                && super_check < new_target_check
+                && new_target_check < private_name_check
+                && private_name_check < label_check
+                && label_check < cover_check,
+            "the ScriptBody semantic-check order or direct-eval boundary changed"
+        );
+
+        let module_body = &PARSER_SOURCE[module_start..];
+        assert_eq!(module_body.matches(MODULE_MESSAGE).count(), 1);
+        assert_eq!(module_body.matches(MODULE_BRANCH).count(), 1);
+        assert!(
+            module_body
+                .find(MODULE_BRANCH)
+                .expect("the Module super branch remains present")
+                < module_body
+                    .find("if contains(&module, ContainsSymbol::NewTarget)")
+                    .expect("the Module NewTarget branch remains present"),
+            "Module must retain its separate super owner and ordering"
+        );
+
+        for source in [
+            HOISTABLE_SOURCE,
+            FUNCTION_EXPRESSION_SOURCE,
+            GENERATOR_EXPRESSION_SOURCE,
+            ASYNC_FUNCTION_EXPRESSION_SOURCE,
+            ASYNC_GENERATOR_EXPRESSION_SOURCE,
+        ] {
+            assert_eq!(source.matches(RAW_MESSAGE).count(), 1);
+            let compact_source = compact(source);
+            assert_eq!(
+                compact_source
+                    .matches(compact(PARAMETER_POSITION).as_str())
+                    .count(),
+                1,
+                "each callable owner must retain its parameter-start position"
+            );
+            assert_eq!(
+                source
+                    .matches(r#"Error::general("invalid super usage", Position::new(1, 1))"#,)
+                    .count(),
+                0
+            );
+        }
+
+        let compact_class = compact(CLASS_SOURCE);
+        assert_eq!(CLASS_SOURCE.matches(RAW_MESSAGE).count(), 6);
+        assert_eq!(
+            compact_class
+                .matches(compact(CLASS_BODY_POSITION).as_str())
+                .count(),
+            1
+        );
+        assert_eq!(
+            compact_class
+                .matches(compact(CLASS_ELEMENT_POSITION).as_str())
+                .count(),
+            4
+        );
+        assert_eq!(
+            compact_class
+                .matches(compact(CLASS_STATIC_BLOCK_POSITION).as_str())
+                .count(),
+            1
+        );
+        assert_eq!(
+            CLASS_SOURCE
+                .matches(r#"Error::general("invalid super usage", Position::new(1, 1))"#)
+                .count(),
+            0
+        );
+
+        let front_product = FRONT_SOURCE
+            .split_once("#[cfg(test)]\nmod tests {")
+            .map(|(product, _)| product)
+            .expect("the product/test boundary remains explicit");
+        let parser_new = ["Parser", "::new("].concat();
+        let parse_script = [".parse_", "script("].concat();
+        let parse_module = [".parse_", "module("].concat();
+        let classifier = ["classify_parse_", "failure(&err)"].concat();
+        assert_eq!(front_product.matches(parser_new.as_str()).count(), 2);
+        assert_eq!(front_product.matches(parse_script.as_str()).count(), 1);
+        assert_eq!(front_product.matches(parse_module.as_str()).count(), 1);
+        assert_eq!(front_product.matches(classifier.as_str()).count(), 1);
+
+        let front_source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        assert_eq!(
+            count_in_rust_sources(&front_source_root, parser_new.as_str()),
+            8,
+            "every direct Boa parser construction, including test-only probes, requires review"
+        );
+        assert_eq!(
+            count_in_rust_sources(&front_source_root, parse_script.as_str()),
+            7,
+            "every direct Script parse, including test-only probes, requires review"
+        );
+        assert_eq!(
+            count_in_rust_sources(&front_source_root, parse_module.as_str()),
+            1,
+            "only the product Module route may invoke Boa directly"
+        );
+
+        fn product_dependency_section(header: &str) -> bool {
+            header == "[dependencies]"
+                || header.starts_with("[dependencies.")
+                || (header.starts_with("[target.")
+                    && (header.contains(".dependencies]") || header.contains(".dependencies.")))
+        }
+
+        fn has_product_dependency(manifest: &str, dependency: &str) -> bool {
+            let mut in_product_dependencies = false;
+            for line in manifest.lines() {
+                let line = line.trim();
+                if line.starts_with('[') && line.ends_with(']') {
+                    in_product_dependencies = product_dependency_section(line);
+                    if in_product_dependencies && line.contains(dependency) {
+                        return true;
+                    }
+                } else if in_product_dependencies && line.contains(dependency) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        for manifest in [
+            "[dependencies]\nboa_parser = \"0.21.1\"",
+            "[dependencies.boa_parser]\nversion = \"0.21.1\"",
+            "[target.'cfg(unix)'.dependencies.parser]\npackage = \"boa_parser\"",
+        ] {
+            assert!(has_product_dependency(manifest, "boa_parser"));
+        }
+        assert!(!has_product_dependency(
+            "[dev-dependencies.boa_parser]\nversion = \"0.21.1\"",
+            "boa_parser"
+        ));
+
+        let crates_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("lila-front remains under the workspace crates directory");
+        let mut parser_dependency_owners = Vec::new();
+        for entry in std::fs::read_dir(crates_root).expect("failed to read workspace crates") {
+            let path = entry.expect("failed to read workspace crate entry").path();
+            let manifest_path = path.join("Cargo.toml");
+            if !manifest_path.is_file() {
+                continue;
+            }
+            let manifest = std::fs::read_to_string(&manifest_path).unwrap_or_else(|error| {
+                panic!("failed to read {}: {error}", manifest_path.display())
+            });
+            if has_product_dependency(&manifest, "boa_parser") {
+                parser_dependency_owners.push(
+                    path.file_name()
+                        .expect("workspace crate has a directory name")
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
+        }
+        parser_dependency_owners.sort();
+        assert_eq!(parser_dependency_owners, vec!["lila-front".to_string()]);
+    }
+
+    #[test]
+    fn pinned_contains_super_traversal_stays_structurally_reviewed() {
+        fn visitor_method<'a>(source: &'a str, signature: &str) -> &'a str {
+            let start = source
+                .find(signature)
+                .unwrap_or_else(|| panic!("missing visitor method {signature}"));
+            let end = source[start + signature.len()..]
+                .find("\n        fn ")
+                .map(|offset| start + signature.len() + offset)
+                .unwrap_or(source.len());
+            &source[start..end]
+        }
+
+        let compact = |source: &str| {
+            source
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>()
+        };
+
+        const OPERATIONS_SOURCE: &str =
+            include_str!("../../../vendor/boa_ast-0.21.1/src/operations/mod.rs");
+        const PROPERTY_SOURCE: &str =
+            include_str!("../../../vendor/boa_ast-0.21.1/src/property.rs");
+
+        for signature in [
+            "fn visit_function_expression(",
+            "fn visit_function_declaration(",
+            "fn visit_async_function_expression(",
+            "fn visit_async_function_declaration(",
+            "fn visit_generator_expression(",
+            "fn visit_generator_declaration(",
+            "fn visit_async_generator_expression(",
+            "fn visit_async_generator_declaration(",
+        ] {
+            let method = visitor_method(OPERATIONS_SOURCE, signature);
+            assert!(method.contains("self.visit_contains_eval(node.contains_direct_eval)?;"));
+            assert!(method.contains("ControlFlow::Continue(())"));
+            assert!(
+                !method.contains("node.visit_with(self)"),
+                "ordinary callable definitions must remain Contains boundaries: {signature}"
+            );
+        }
+
+        for signature in ["fn visit_arrow_function(", "fn visit_async_arrow_function("] {
+            let method = visitor_method(OPERATIONS_SOURCE, signature);
+            assert_eq!(method.matches("ContainsSymbol::Super,").count(), 1);
+            assert_eq!(method.matches("node.visit_with(self)").count(), 1);
+        }
+
+        for signature in ["fn visit_class_expression(", "fn visit_class_declaration("] {
+            let method = visitor_method(OPERATIONS_SOURCE, signature);
+            assert_eq!(method.matches("ContainsSymbol::ClassHeritage").count(), 1);
+            assert_eq!(method.matches("node.visit_with(self)").count(), 1);
+        }
+
+        let class_element = compact(visitor_method(OPERATIONS_SOURCE, "fn visit_class_element("));
+        assert!(class_element.contains(
+            "ClassElement::MethodDefinition(m)=>{ifself.0==ContainsSymbol::DirectEval{returnControlFlow::Continue(());}ifletClassElementName::PropertyName(name)=m.name(){name.visit_with(self)}else{ControlFlow::Continue(())}}"
+        ));
+        assert!(class_element.contains(
+            "ClassElement::FieldDefinition(field)|ClassElement::StaticFieldDefinition(field)=>field.name.visit_with(self)"
+        ));
+        assert_eq!(
+            class_element
+                .matches("_=>ControlFlow::Continue(())")
+                .count(),
+            1
+        );
+        assert!(
+            !class_element.contains("AccessorFieldDefinition"),
+            "public auto-accessor computed names remain explicit adjacent pinned-Boa debt"
+        );
+
+        let property_definition = compact(visitor_method(
+            OPERATIONS_SOURCE,
+            "fn visit_property_definition(",
+        ));
+        assert!(property_definition.contains("ifletPropertyDefinition::MethodDefinition(m)=node"));
+        assert!(property_definition.contains("returnm.name().visit_with(self);"));
+        assert!(property_definition.ends_with("node.visit_with(self)}"));
+
+        let property_visit_start = PROPERTY_SOURCE
+            .find("impl VisitWith for PropertyName")
+            .expect("PropertyName retains its VisitWith implementation");
+        let property_visit_end = PROPERTY_SOURCE[property_visit_start..]
+            .find("fn visit_with_mut")
+            .map(|offset| property_visit_start + offset)
+            .expect("PropertyName retains its mutable visitor after the shared visitor");
+        let property_visit = compact(&PROPERTY_SOURCE[property_visit_start..property_visit_end]);
+        assert!(property_visit.contains("Self::Computed(expr)=>visitor.visit_expression(expr)"));
     }
 
     #[test]
@@ -4042,6 +4571,7 @@ switch (0) {
                 .is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelNewTarget).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelSuper).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ImportMetaOutsideModule).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelUsingDeclaration).is_some()

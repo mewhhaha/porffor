@@ -1864,6 +1864,88 @@ mod tests {
     }
 
     #[test]
+    fn rejected_top_level_super_dependency_keeps_its_module_code_through_graph_build() {
+        let dependency_source = "() => super.value;";
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/top-level-super.js"),
+            dependency_source.to_string(),
+            "file:///root/top-level-super.js".to_string(),
+        );
+        assert_eq!(dependency.goal(), ParseGoal::Module);
+        assert_eq!(
+            dependency.module_requests(),
+            None,
+            "the rejected Module parse must be retained rather than rescanned"
+        );
+
+        let diagnostics = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './top-level-super.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./top-level-super.js"), 1)],
+        })
+        .expect_err("the retained rejected dependency must stop graph construction");
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+        };
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(diagnostic.code(), Some(EarlyErrorCode::ModuleTopLevelSuper));
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the retained Module failure must keep its source span");
+        assert!(
+            span.start < span.end,
+            "{dependency_source:?}: {diagnostic:?}"
+        );
+    }
+
+    #[test]
+    fn retained_method_owned_super_dependency_builds_a_real_module_graph() {
+        let dependency_source = concat!(
+            "class Base {};\n",
+            "export class Derived extends Base {\n",
+            "  constructor() { super(); }\n",
+            "  method() { return () => super.value; }\n",
+            "}",
+        );
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/method-owned-super.js"),
+            dependency_source.to_string(),
+            "file:///root/method-owned-super.js".to_string(),
+        );
+        assert_eq!(dependency.goal(), ParseGoal::Module);
+        assert_eq!(
+            dependency.module_requests(),
+            Some(Vec::new()),
+            "method-owned super must remain a successfully parsed Module"
+        );
+
+        let graph = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './method-owned-super.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./method-owned-super.js"), 1)],
+        })
+        .expect("valid method-owned super must build a Module graph");
+        assert_eq!(graph.units.len(), 2);
+    }
+
+    #[test]
     fn retained_import_meta_dependency_keeps_its_module_goal_through_graph_build() {
         let dependency_source = concat!(
             "export const direct = import.meta;\n",

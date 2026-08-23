@@ -61,6 +61,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::InvalidPrivateIdentifier
         | EarlyErrorCode::StrictModeDeletePrivateReference
         | EarlyErrorCode::ScriptTopLevelNewTarget
+        | EarlyErrorCode::ScriptTopLevelSuper
         | EarlyErrorCode::ScriptTopLevelUsingDeclaration
         | EarlyErrorCode::ForHeadBodyDeclarationConflict
         | EarlyErrorCode::ForDeclarationDuplicateBoundName

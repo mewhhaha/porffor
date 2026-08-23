@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,27 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Focused-verified 2026-08-23: Script top-level `super`
+
+`ScriptTopLevelSuper` (`E_SCRIPT_TOP_LEVEL_SUPER`) now owns the exact pinned-Boa
+ScriptBody condition whose `StatementList Contains super`. Its exact-message
+classifier cannot absorb the eleven adjacent callable and class producers that
+reuse the raw phrase, while the separate Module condition remains
+`ModuleTopLevelSuper`. The permanent source matrix follows lexical arrow,
+class-heritage and computed-name traversal and preserves method-owned stopping
+boundaries. Source guards also pin the single product Script/Module parse route
+and the workspace's sole normal Boa-parser dependency.
+
+Under the shared eight-core, 22 GB cap, the focused front group passes `4/4`,
+the traversal guard passes `1/1`, and the complete front library passes
+`119/119`. The complete relevant IR early and graph groups pass `44/44` and
+`41/41`, with their focused witnesses each passing `1/1`. The complete
+eight-file cohort passes exactly `16/16` Wasm-AOT variants with every failure
+bucket at zero under `--jobs 1 --threads 1`. A broader `lila-ir` run exposed two
+unrelated lowerer-test failures, confirmed by exact reruns, so no complete-IR or
+aggregate green claim is made. The source of truth is
+`docs/rust-rewrite/contracts/script-top-level-super-early-errors.md`.
 
 ### Focused-verified 2026-08-23: lexical bound-name `let`
 
