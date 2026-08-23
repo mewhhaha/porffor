@@ -109,6 +109,29 @@ open. The focused structure and CLI fixture pass on the current working tree.
 Remaining raw validators, the shared indexed `Get`, Test262 rewrites and full
 binary-data closure remain separate work.
 
+The `%TypedArray%.prototype.reverse` and `toReversed` compilers now use the
+same validated-method-entry buffer witness. Each method brand-checks its
+receiver, loads one immutable `TypedArrayViewLocals` record and consumes the
+element length produced by one `ValidatedMethodEntry` projection instead of
+calling the legacy raw validator and dividing byte length locally.
+`toReversed` retains its separate element-kind load and intrinsic same-kind
+allocation; both reversal loops and their indexed read/write order are
+unchanged. The focused
+[reverse-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-reverse-family-buffer-witness.md)
+and bounded source-structure regression record that ownership. Under the shared
+eight-core cap, `cargo xc` is green; the structural witness and the exact
+`reverse` and `toReversed` CLI fixtures each pass `1/1`. The pinned
+`reverse/resizable-buffer.js` and `toReversed/reverses.js` Test262 leaves each
+pass `2/2` Wasm-AOT executions with every non-success bucket at zero.
+
+This migration does not cover `copyWithin`, `sort`, `toSorted`, `with`, `set`,
+`slice` or other remaining raw validators. It does not change the shared
+indexed `Get`, per-index integer-indexed behavior, result allocation,
+SharedArrayBuffer synchronization, Test262 rewrites or published counts. The
+existing fixtures do not prove created-Realm error-prototype identity at
+runtime; only the shared witness's current-function-Realm route is structurally
+owned here.
+
 ## Objective
 
 Implement the complete binary-data stack, integer-indexed exotic semantics and real agent/Atomics behavior. Replace rejection-only SharedArrayBuffer behavior and harness simulations with general backing-store and host concurrency support.
