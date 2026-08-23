@@ -374,6 +374,17 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- For-in lowering now lives in `lowering/for_in.rs`: the sole statement-facing
+  lowerer and twelve owner-only helpers form one private 571-line module, while
+  shared for-in/of environment, TDZ, scope and analysis helpers remain with
+  their existing owners. The byte-exact extraction reduces `lowering.rs` from
+  22,444 to 21,877 lines. Capped pre/post goldens cover 633 fixtures in 635
+  byte-identical artifacts, both compile gates pass, and focused IR witnesses
+  pass `8/8`, `2/2`, `1/1` and `1/1`. CLI evidence is unchanged from the clean
+  parent at `4/7` for the `for_in_` filter and `2/3` supplemental exact
+  witnesses; the same four object-order/object-keys failures predate the move.
+  This is an ownership and no-regression result, not broad Test262,
+  full-workspace or for-in conformance progress.
 - For-of lowering now lives in `lowering/for_of.rs`: one owner carries every
   specialization decision plus the private `AsyncForOfArrayWalkForm` and
   `ForOfLoweringIr` proofs. The 1,026-line source-family move leaves a 1,036-line

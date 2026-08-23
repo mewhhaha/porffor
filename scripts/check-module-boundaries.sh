@@ -275,6 +275,125 @@ check_no_inline_legacy_includes "$ir_statement_lowering"
 # Measured after formatting the extraction: 259 raw lines. The margin is for
 # maintenance of the exhaustive dispatcher, not statement implementations.
 check_raw_line_budget "$ir_statement_lowering" 300
+# T02's for-in boundary owns the complete initializer/target/body lowering
+# family and its Test262-specific empty/non-enumerable recognizers. Only the
+# statement-facing wrapper crosses this private child boundary; environment,
+# TDZ, expression and static-analysis helpers remain in their shared owners.
+ir_for_in_lowering="crates/lila-ir/src/lowering/for_in.rs"
+require_file "$ir_for_in_lowering"
+require_exact_line_count "$ir_lowering" 'mod for_in;' 1 'private for-in module declaration'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+lower_for_in_loop[[:space:]]*\(' \
+  1 \
+  'for-in statement-facing owner'
+require_regex_count \
+  "$ir_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+lower_for_in_loop[[:space:]]*\(' \
+  0 \
+  'for-in lowerer outside child module'
+for private_owner in \
+  lower_for_in_initializer_prefix \
+  prepend_statement \
+  for_in_initializer_binding \
+  for_in_known_empty_target \
+  for_in_global_non_enumerable_guard_only \
+  for_in_builtin_non_enumerable_assert_only \
+  for_in_static_builtin_target \
+  for_in_initializer_name \
+  for_in_non_enumerable_guarded_assignment \
+  for_in_non_enumerable_guard_name \
+  for_in_not_same_value_guard_name \
+  statement_is_simple_false_assignment
+do
+  require_regex_count \
+    "$ir_for_in_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${private_owner}[[:space:]]*[<(]" \
+    1 \
+    "private ${private_owner} owner"
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${private_owner}[[:space:]]*[<(]" \
+    0 \
+    "${private_owner} outside child module"
+done
+# Twelve unmodified private methods plus the one reviewed pub(super) wrapper is
+# the whole child surface. The total accepts every Rust function modifier so a
+# new const/async/unsafe/extern helper cannot hide from the private-fn count.
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*fn[[:space:]]+' \
+  12 \
+  'private method'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*((pub(\([^)]*\))?|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+[[:alnum:]_]+' \
+  13 \
+  'total function declaration'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
+  1 \
+  'Rust-visible item'
+for shared_parent_owner in \
+  lower_for_in_of_environment \
+  lower_for_head_expression_with_tdz \
+  for_in_global_target \
+  single_statement \
+  expr_is_identifier_named \
+  static_string_expression \
+  plain_async_entry_state \
+  lower_loop_body \
+  lower_web_compat_loop_assignment_target \
+  lower_var_declarator \
+  unwrap_parenthesized_expr \
+  is_known_non_enumerable_global \
+  is_known_non_enumerable_builtin_property
+do
+  require_regex_count \
+    "$ir_lowering" \
+    "^[[:space:]]*fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    1 \
+    "parent-owned shared ${shared_parent_owner} helper"
+  require_regex_count \
+    "$ir_for_in_lowering" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${shared_parent_owner}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_parent_owner} helper copied into for-in owner"
+done
+for shared_free_owner in supported_bound_names for_in_loop_binding_storage_name; do
+  require_regex_count \
+    "crates/lila-ir/src/lowering_helpers.rs" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${shared_free_owner}[[:space:]]*[<(]" \
+    1 \
+    "shared ${shared_free_owner} free-helper owner"
+  require_regex_count \
+    "$ir_for_in_lowering" \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${shared_free_owner}[[:space:]]*[<(]" \
+    0 \
+    "shared ${shared_free_owner} free helper copied into for-in owner"
+done
+# Boa's generic containment visitor is imported rather than locally owned, but
+# copying one into the child would fork the grammar predicate this family uses.
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+contains[[:space:]]*[<(]' \
+  0 \
+  'generic contains helper copied into for-in owner'
+require_regex_count \
+  "$ir_for_in_lowering" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?(struct|enum|union|type)[[:space:]]+ForInOfEnvironmentIr([[:space:]]|<|\{|\(|=|;|:)' \
+  0 \
+  'shared for-in/of environment type declaration copied into for-in owner'
+require_tree_regex_count \
+  "crates/lila-ir/src" \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?(struct|enum|union|type)[[:space:]]+ForInOfEnvironmentIr([[:space:]]|<|\{|\(|=|;|:)' \
+  1 \
+  'shared for-in/of environment type'
+check_no_inline_legacy_includes "$ir_for_in_lowering"
+# Measured after formatting the extraction: 571 raw lines. The margin is for
+# maintenance of this closed family, not unrelated lowering or shared helpers.
+check_raw_line_budget "$ir_for_in_lowering" 650
 # T02's classic-for boundary owns the complete head/environment/resumption
 # lifecycle and the final For/GeneratorLoop choice. The statement dispatcher
 # remains its sole caller and the parent cannot regrow a second implementation.
@@ -812,10 +931,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the for-of extraction: 22,444 raw lines. This
+# Measured after formatting the for-in extraction: 21,877 raw lines. This
 # leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 23500
+check_raw_line_budget "$ir_lowering" 23000
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

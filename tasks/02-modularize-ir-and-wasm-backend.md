@@ -1,6 +1,6 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — major builtin ownership bottlenecks and the for-of lowering owner split; broader lowering/emitter seams remain
+**Status:** In progress — major builtin ownership bottlenecks plus the for-of and for-in lowering owner splits; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
@@ -16,6 +16,62 @@ seams and line budgets. The split remains partial: `lowering.rs`,
 still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
+
+### Landed 2026-08-23: for-in lowering ownership
+
+`lila-ir/src/lowering/for_in.rs` now owns the complete for-in lowering family:
+the sole statement-facing lowerer and its twelve owner-only helpers for Annex B
+initializer prefixes, closed initializer-name recovery, known-empty and
+non-enumerable Test262 guards, pattern/property body prefixes, target
+classification and final statement construction. The moved family was 564
+source lines across four parent blocks; removing their separator lines reduced
+`lowering.rs` from 22,444 to 21,877 raw lines and produced a
+571-line child. Only `lower_for_in_loop` crosses the private child boundary
+as `pub(super)`; all twelve helpers remain private. No IR type, public Rust API
+or compiler behavior moved with it.
+
+The statement dispatcher remains the only external caller. The parent retains
+the shared for-in/of environment and TDZ lowering, loop-body and declarator
+lowering, global-target recognition, single-statement and identifier matching,
+static-string analysis, async-entry-state query, expression/pattern/property
+lowering, scope/allocation/flow helpers, and the shared `contains`,
+`supported_bound_names` and `for_in_loop_binding_storage_name` free functions.
+`lowering/for_of.rs` continues to consume the shared environment helper, while
+`lowering/call_expression.rs` continues to consume `for_in_global_target`; the
+extraction copies neither owner and does not widen their visibility.
+
+The byte-exact move preserves the source order of every observable decision:
+refusing an awaiting body before lowering the head; retaining the Annex B
+initializer prefix on every supported early exit; evaluating a nullish head
+for effects; pattern-head TDZ scope push/pop; inferred-undefined parameter
+widening; dynamic/array/string/object/nullish/primitive target classification;
+access and pattern assignment prefixes; per-iteration lexical-environment
+storage; body scope teardown before var/global flow joins; and the final
+dynamic, array, string and object statement choice. The existing known-empty
+and non-enumerable shortcuts, diagnostics and specialization rules are copied
+exactly, not cleaned up or expanded in this batch.
+
+The module audit requires the exact private child declaration, all thirteen
+sole method owners, exactly one Rust-visible child item, zero parent copies,
+zero copied shared-helper definitions, no legacy `include!` assembly and
+measured parent/child line budgets. Negative controls reject a missing child,
+widened module or helper, copied shared or generic helper, copied type and an
+extra modifier-qualified function. Existing focused IR and CLI behavior
+witnesses remain the semantic contract; no new permanent test is justified
+solely by the filename move.
+
+At clean parent `fcb0a924b`, the fresh capped pre-move Wasm golden passes `2/2`,
+records 633 fixtures in 635 artifacts and is retained under
+`target/golden/for-in-before-fcb0a924b`. The capped post-move golden also passes
+`2/2` over the same 633 fixtures and 635 artifacts, and the recursive artifact
+diff is empty. `cargo check -p lila-ir --all-targets` and `cargo xc` pass; the
+focused IR witnesses pass `8/8`, `2/2`, `1/1` and `1/1`. The CLI `for_in_`
+filter is unchanged at `4/7` on both the clean parent and moved tree: array
+DefineProperty order, simple-object order and prototype order remain
+pre-existing failures. Supplemental exact CLI witnesses are likewise unchanged
+at `2/3`, with the object-keys primitive witness the pre-existing failure. This
+is architecture and no-regression evidence, not a for-in behavior or
+conformance improvement, broad Test262 run or full-workspace claim.
 
 ### Landed 2026-08-23: for-of lowering ownership
 
