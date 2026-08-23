@@ -10,7 +10,7 @@ use crate::{
             AssignmentExpression, AsyncGeneratorMethod, AsyncMethod, BindingIdentifier,
             Expression as ExpressionParser, GeneratorMethod, LeftHandSideExpression, PropertyName,
         },
-        function::{FUNCTION_BREAK_TOKENS, FunctionBody, UniqueFormalParameters},
+        function::{FUNCTION_BREAK_TOKENS, FormalParameter, FunctionBody, UniqueFormalParameters},
         statement::StatementList,
     },
     source::ReadChar,
@@ -1121,7 +1121,6 @@ where
             TokenKind::IdentifierName((Sym::GET, ContainsEscapeSequence(false))) if is_keyword => {
                 cursor.advance(interner);
                 let token = cursor.peek(0, interner).or_abrupt()?;
-                let start = token.span().start();
                 match token.kind() {
                     TokenKind::PrivateIdentifier(Sym::CONSTRUCTOR) => {
                         return Err(Error::general(
@@ -1133,26 +1132,17 @@ where
                         let name = *name;
                         let name_span = token.span();
                         cursor.advance(interner);
+                        cursor.expect(Punctuator::OpenParen, "class getter", interner)?;
+                        cursor.expect(Punctuator::CloseParen, "class getter", interner)?;
+
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let params =
-                            UniqueFormalParameters::new(false, false).parse(cursor, interner)?;
-                        let body = FunctionBody::new(false, false, "method definition")
+                        let body = FunctionBody::new(false, false, "class getter")
                             .parse(cursor, interner)?;
-
-                        // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
-                        // and IsSimpleParameterList of UniqueFormalParameters is false.
-                        if body.strict() && !params.is_simple() {
-                            return Err(Error::lex(LexError::Syntax(
-                            "Illegal 'use strict' directive in function with non-simple parameter list"
-                                .into(),
-                                start,
-                        )));
-                        }
                         cursor.set_strict(strict);
                         function::ClassElement::MethodDefinition(ClassMethodDefinition::new(
                             ClassElementName::PrivateName(PrivateName::new(name, name_span)),
-                            params,
+                            FormalParameterList::default(),
                             body,
                             MethodDefinitionKind::Get,
                             r#static,
@@ -1236,14 +1226,16 @@ where
                         cursor.advance(interner);
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let params =
-                            UniqueFormalParameters::new(false, false).parse(cursor, interner)?;
+                        cursor.expect(Punctuator::OpenParen, "class setter", interner)?;
+                        let param = FormalParameter::new(false, false).parse(cursor, interner)?;
+                        cursor.expect(Punctuator::CloseParen, "class setter", interner)?;
+                        let params = FormalParameterList::from(param);
 
-                        let body = FunctionBody::new(false, false, "method definition")
+                        let body = FunctionBody::new(false, false, "class setter")
                             .parse(cursor, interner)?;
 
                         // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
-                        // and IsSimpleParameterList of UniqueFormalParameters is false.
+                        // and IsSimpleParameterList of PropertySetParameterList is false.
                         if body.strict() && !params.is_simple() {
                             return Err(Error::lex(LexError::Syntax(
                             "Illegal 'use strict' directive in function with non-simple parameter list"
@@ -1277,13 +1269,15 @@ where
                             .parse(cursor, interner)?;
                         let strict = cursor.strict();
                         cursor.set_strict(true);
-                        let params =
-                            UniqueFormalParameters::new(false, false).parse(cursor, interner)?;
-                        let body = FunctionBody::new(false, false, "method definition")
+                        cursor.expect(Punctuator::OpenParen, "class setter", interner)?;
+                        let param = FormalParameter::new(false, false).parse(cursor, interner)?;
+                        cursor.expect(Punctuator::CloseParen, "class setter", interner)?;
+                        let params = FormalParameterList::from(param);
+                        let body = FunctionBody::new(false, false, "class setter")
                             .parse(cursor, interner)?;
 
                         // Early Error: It is a Syntax Error if FunctionBodyContainsUseStrict of FunctionBody is true
-                        // and IsSimpleParameterList of UniqueFormalParameters is false.
+                        // and IsSimpleParameterList of PropertySetParameterList is false.
                         if body.strict() && !params.is_simple() {
                             return Err(Error::lex(LexError::Syntax(
                             "Illegal 'use strict' directive in function with non-simple parameter list"

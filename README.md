@@ -374,6 +374,20 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Callable bodies containing a Use Strict Directive with non-simple parameters
+  now have one typed `Early`/`SyntaxError` condition across declarations,
+  expressions, methods, setters and arrows. Three narrow parser repairs make
+  the producer boundary grammar-honest: private getters require `()`, class
+  setters accept exactly one non-rest parameter, and the binding-identifier
+  arrow path no longer carries an impossible non-simple-list branch. The
+  closed domain has 53 variants, the parse classifier has 52 rows, and a source
+  inventory test pins all 16 remaining parser producers. The capped
+  serial front, retained-module and focused IR gates pass `85/85`, `38/38` and
+  `3/3`; `cargo xc` is green; and the exact 110-file cohort passes `220/220`
+  sloppy/strict Wasm-AOT executions with every failure and non-success bucket
+  at zero. This is typed diagnostic closure and bounded no-regression evidence,
+  not a measured pass gain, dynamic-source support, runtime parameter
+  semantics, T07 closure or aggregate Test262 progress.
 - Recursive throw-value inference now lives in
   `lowering/throw_inference.rs`: six methods form one private 895-line owner,
   with only block inference visible to its sole consumer in

@@ -359,6 +359,10 @@ mod tests {
                 EarlyErrorCode::DuplicateFormalParameter,
             ),
             (
+                "Illegal 'use strict' directive in function with non-simple parameter list at line 1, col 1",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
                 "duplicate catch parameter identifier",
                 EarlyErrorCode::DuplicateCatchParameter,
             ),
@@ -1133,6 +1137,25 @@ mod tests {
             assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
             assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
         }
+    }
+
+    #[test]
+    fn retained_modules_classify_non_simple_parameters_with_use_strict() {
+        let source = "export function f(a = 0) { 'use strict'; }";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module()).expect_err(
+            "a retained callable with non-simple parameters and a directive should fail",
+        );
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::CallableNonSimpleParametersContainUseStrict),
+            "{source:?}: {diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
     }
 
     /// Drift B2, closed. The block, switch and scope-analysis wordings for a

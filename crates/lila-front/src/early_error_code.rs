@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 52] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 53] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -189,6 +189,10 @@ early_error_codes! {
     /// `UniqueFormalParameters`. Sloppy ordinary functions with simple
     /// parameter lists are deliberately excluded.
     DuplicateFormalParameter => "E_DUPLICATE_FORMAL_PARAMETER";
+    /// Callable-production early errors: the callable's own body contains a
+    /// Use Strict Directive and its own parameter list is non-simple. Ambient
+    /// strictness and parameterless getters are deliberately excluded.
+    CallableNonSimpleParametersContainUseStrict => "E_CALLABLE_NON_SIMPLE_PARAMETERS_CONTAIN_USE_STRICT";
     /// TryStatement early errors: `BoundNames` of a `CatchParameter` contains
     /// duplicate elements. Unlike ordinary-function parameters, this condition
     /// has no sloppy simple-list exception.
@@ -389,7 +393,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 51;
+const PARSE_FAILURE_RULE_COUNT: usize = 52;
 
 /// The one fragment table.
 ///
@@ -852,6 +856,18 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "await expression not allowed in async method definition parameters at line 1, col 1",
         ],
     },
+    // 52. Sixteen spec-applicable, error-reachable parser sites share this
+    //     exact raw message. LexError::Syntax appends the source position;
+    //     `at line` admits it without broadening to a partial wording.
+    ParseFailureRule {
+        fragments: &[
+            "Illegal 'use strict' directive in function with non-simple parameter list at line",
+        ],
+        code: EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+        witnesses: &[
+            "Illegal 'use strict' directive in function with non-simple parameter list at line 1, col 1",
+        ],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1007,6 +1023,12 @@ impl EarlyErrorCode {
         false
     }
 }
+
+// This condition is intentionally parse-owned. Deleting its table row while
+// leaving the enum variant must fail during `cargo check`, not merely change a
+// retained dependency rejection from EarlyError back to Unsupported at run time.
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::CallableNonSimpleParametersContainUseStrict);
 
 // ---------------------------------------------------------------------------
 // Const assertions P1-P6. Each names the mistake it makes fail to build.

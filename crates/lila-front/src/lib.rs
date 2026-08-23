@@ -1298,6 +1298,173 @@ mod tests {
     }
 
     #[test]
+    fn callable_non_simple_parameters_with_use_strict_reject_at_every_producer() {
+        // One source per remaining fixed-message site. Shared declaration and
+        // method parsers need one caller here; the pinned cohort covers their
+        // other grammar forms without duplicating this source-level contract.
+        const PRODUCER_SOURCES: [&str; 16] = [
+            "function f(a = 0) { 'use strict'; }",
+            "(function(a = 0) { 'use strict'; });",
+            "(function*(a = 0) { 'use strict'; });",
+            "(async function(a = 0) { 'use strict'; });",
+            "(async function*(a = 0) { 'use strict'; });",
+            "(a = 0) => { 'use strict'; };",
+            "async (a = 0) => { 'use strict'; };",
+            "({ set x(a = 0) { 'use strict'; } });",
+            "({ x(a = 0) { 'use strict'; } });",
+            "({ *x(a = 0) { 'use strict'; } });",
+            "({ async *x(a = 0) { 'use strict'; } });",
+            "({ async x(a = 0) { 'use strict'; } });",
+            "class C { set #x(a = 0) { 'use strict'; } }",
+            "class C { set x({ a }) { 'use strict'; } }",
+            "class C { #x(a = 0) { 'use strict'; } }",
+            "class C { x(a = 0) { 'use strict'; } }",
+        ];
+        for source in PRODUCER_SOURCES {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("non-simple parameters plus an own directive should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::CallableNonSimpleParametersContainUseStrict),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn callable_use_strict_message_inventory_stays_at_sixteen_reviewed_sites() {
+        const MESSAGE: &str =
+            "Illegal 'use strict' directive in function with non-simple parameter list";
+        const SOURCES: [(&str, usize); 10] = [
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/mod.rs"
+                ),
+                1,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs"
+                ),
+                4,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/object_initializer/mod.rs"
+                ),
+                5,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/function_expression/mod.rs"
+                ),
+                1,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/generator_expression/mod.rs"
+                ),
+                1,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/async_function_expression/mod.rs"
+                ),
+                1,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/async_generator_expression/mod.rs"
+                ),
+                1,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/assignment/mod.rs"
+                ),
+                1,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/assignment/async_arrow_function.rs"
+                ),
+                1,
+            ),
+            (
+                include_str!(
+                    "../../../vendor/boa_parser-0.21.1/src/parser/expression/assignment/arrow_function.rs"
+                ),
+                0,
+            ),
+        ];
+
+        let mut total = 0;
+        for (source, expected) in SOURCES {
+            let count = source.matches(MESSAGE).count();
+            assert_eq!(count, expected);
+            total += count;
+        }
+        assert_eq!(total, 16);
+    }
+
+    #[test]
+    fn callable_use_strict_conjunction_and_containment_boundaries_remain_valid() {
+        for source in [
+            "function simple(a) { 'use strict'; }",
+            "function non_simple(a = 0) {}",
+            "a => { 'use strict'; };",
+            "(a = 0) => 0;",
+            "function nested(a = 0) { function inner() { 'use strict'; } }",
+            "function after_prologue(a = 0) { 0; 'use strict'; }",
+            "class C { method(a = 0) {} }",
+            "class C { get #x() { 'use strict'; } }",
+            "class C { set #x(a = 0) {} }",
+            "class C { set x({ a }) {} }",
+            "class C { set x(a) { 'use strict'; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "ambient strictness, one false conjunct, or a nested directive must remain valid",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn private_getter_and_class_setter_grammar_errors_stay_unclassified() {
+        for source in [
+            "class C { get #x(a = 0) { 'use strict'; } }",
+            "class C { set #x() {} }",
+            "class C { set #x(a, b) {} }",
+            "class C { set #x(a,) {} }",
+            "class C { set #x(...a) { 'use strict'; } }",
+            "class C { set x() {} }",
+            "class C { set x(a, b) {} }",
+            "class C { set x(a,) {} }",
+            "class C { set x(...a) { 'use strict'; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("getter/setter parameter grammar must reject before body analysis");
+                assert_eq!(
+                    err.diagnostic().code,
+                    ParseCode::Malformed,
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -2409,6 +2576,10 @@ switch (0) {
             ParseClassified::from_early(EarlyErrorCode::AsyncMethodParametersContainAwait)
                 .is_some()
         );
+        assert!(ParseClassified::from_early(
+            EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+        )
+        .is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(

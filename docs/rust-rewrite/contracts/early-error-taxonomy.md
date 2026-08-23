@@ -1,5 +1,20 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 callable non-simple-parameters `ContainsUseStrict` amendment
+
+T07 now classifies the one shared callable early-error condition where a body's
+`ContainsUseStrict` result is true and its parameter list is non-simple. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/callable-non-simple-parameters-contain-use-strict-early-errors.md`
+
+Three landed parser-shape repairs make that classification honest: private
+getters require `()`, class setters accept exactly one non-rest parameter, and
+the binding-identifier arrow parser no longer retains an impossible non-simple
+list branch. The closed domain has **53** variants and the parse-failure table
+**52** rows. The exact 110-file cohort passes all **220** sloppy/strict Wasm-AOT
+executions; this is bounded no-regression evidence, not a measured pass gain.
+
 ## 2026-08-23 callable-parameter containment closure amendment
 
 This batch completes the currently enumerated callable-parameter

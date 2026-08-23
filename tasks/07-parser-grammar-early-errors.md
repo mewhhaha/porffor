@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,42 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Landed 2026-08-23: callable non-simple parameters plus `ContainsUseStrict`
+
+One new `EarlyErrorCode::CallableNonSimpleParametersContainUseStrict` owns
+the common callable early error where the callable's own body contains a Use
+Strict Directive and its own parameter list is non-simple. The one wire name is
+`E_CALLABLE_NON_SIMPLE_PARAMETERS_CONTAIN_USE_STRICT`; the classifier uses
+Boa's complete fixed rendered prefix and the exhaustive IR map derives
+`Early`/`SyntaxError` for entry and retained dependency parsing. The closed
+domain has 53 variants and the one parse table has 52 rows. A const ownership
+witness makes deleting this parse-owned row while retaining the variant fail to
+compile.
+
+The pinned parser began with eighteen copies of the raw message, but those were
+not eighteen honest producers. The direct binding-identifier arrow parser could
+not receive a non-simple list, the private class-getter branch accepted
+parameters that its grammar forbids, and the two class-setter branches accepted
+unrestricted formal lists. Private getters now require `()`, class setters
+parse exactly one non-rest formal parameter, and the impossible direct-arrow
+check is gone. A source inventory pins the resulting sixteen executable,
+spec-conforming producer sites and the direct-arrow count of zero. The
+identical dynamic-`Function` engine message remains outside the AOT parser
+classifier.
+
+The durable source matrix exercises every remaining site under both goals,
+plus the conjunction, containment and getter/setter grammar boundaries. A real
+retained Module failure proves dependency projection. The exact pinned
+cohort is the 110 language tests containing `FunctionBodyContainsUseStrict` or
+`ContainsUseStrict`; with no mode flags they expand to 220 sloppy/strict
+Wasm-AOT executions. The capped serial front, retained-module and focused IR
+gates pass `85/85`, `38/38` and `3/3`; `cargo xc` is green; and the exact cohort
+passes `220/220` with every failure and non-success bucket at zero. No focused
+pre-change snapshot exists, so this is typed diagnostic closure and bounded
+no-regression evidence, not a pass gain, dynamic source support, runtime
+parameter semantics, T07 closure or aggregate conformance. The source of truth
+is `docs/rust-rewrite/contracts/callable-non-simple-parameters-contain-use-strict-early-errors.md`.
 
 ObjectLiteral `CoverInitializedName` now has one closed condition across Boa's
 Script, function-body, Module-item and class-static-block producers. The typed
