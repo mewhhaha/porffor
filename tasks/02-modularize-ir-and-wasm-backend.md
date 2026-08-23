@@ -17,6 +17,28 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: builtin call-result analysis ownership
+
+`lila-ir/src/lowering/builtin_call_info.rs` now owns the complete exhaustive
+`StandardBuiltinId` result analysis: return kinds and shapes, boxed-builtin
+accounting, callback parameter observations and the few result-dependent flow
+invalidations. Construct lowering, general resolved calls, RegExp literal
+lowering and well-known-symbol method routing remain its four consumers.
+
+This is a semantic-free source move. All 2,146 method lines compare exactly to
+the pre-move implementation after normalizing only `fn` to `pub(super) fn`.
+The private child boundary reduces `lowering.rs` from 28,693 to 26,547 raw
+lines; the formatted child is 2,150 lines. The module audit requires the sole
+owner method, forbids a second parent body or legacy `include!` assembly, and
+budgets parent and child separately.
+
+The capped workspace/all-target check and the serial CLI `call_` cohort (`6/6`)
+are green. The serial IR `call_` cohort reports `33/34`; its sole failure is the
+ordinary compound-receiver regression already present in the call-expression
+baseline recorded below. Formatting, exact source comparison, module-boundary
+and task-plan audits are green. No call behavior or conformance improvement is
+claimed.
+
 ### Landed 2026-08-23: Atomics backend ownership
 
 `lila-aot-wasm/src/builtins/atomics.rs` now owns all fourteen Atomics builtin

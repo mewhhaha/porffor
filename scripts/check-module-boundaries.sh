@@ -180,6 +180,27 @@ check_no_inline_legacy_includes "$ir_call_expression_lowering"
 # Measured immediately after extraction: 3,144 raw lines. The margin is for
 # maintenance of the direct-call family, not unrelated lowering.
 check_raw_line_budget "$ir_call_expression_lowering" 3200
+# T02's builtin call-result boundary owns the exhaustive StandardBuiltinId
+# result analysis and its narrowly related observation updates. Construct,
+# direct-call, RegExp-literal and well-known-symbol routing remain consumers;
+# the parent orchestration file cannot regrow a second result table.
+ir_builtin_call_info_lowering="crates/lila-ir/src/lowering/builtin_call_info.rs"
+require_file "$ir_builtin_call_info_lowering"
+require_module_decl "$ir_lowering" "builtin_call_info"
+require_fixed_string_count \
+  "$ir_builtin_call_info_lowering" \
+  'pub(super) fn standard_builtin_call_info(' \
+  1 \
+  'builtin call-result analysis owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn standard_builtin_call_info(' \
+  0 \
+  'builtin call-result analysis outside child module'
+check_no_inline_legacy_includes "$ir_builtin_call_info_lowering"
+# Measured after formatting the extraction: 2,150 raw lines. The margin is for
+# maintenance of this exhaustive result table, not unrelated lowering.
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2250
 # T02's class-definition boundary keeps the complete element planning,
 # generated-function scheduling and typed ClassDefinitionIr construction in
 # one child module. The parent retains only declaration/expression
@@ -212,10 +233,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after extracting call-expression lowering: 28,693 raw lines. This
-# leaves modest orchestration headroom while preventing the former 32k-line
-# implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 29000
+# Measured after formatting the builtin call-result extraction: 26,547 raw lines.
+# This leaves modest orchestration headroom while preventing the former
+# 32k-line implementation store from regrowing.
+check_raw_line_budget "$ir_lowering" 26850
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

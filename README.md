@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Builtin call-result analysis now lives in
+  `lowering/builtin_call_info.rs`: one exhaustive `StandardBuiltinId` table
+  owns return kinds and shapes plus its narrowly related observation updates,
+  while four lowering paths remain consumers. The exact 2,146-line method move
+  reduces `lowering.rs` from 28,693 to 26,547 raw lines and changes only its
+  private-module visibility. The capped workspace check and CLI `call_` cohort
+  (`6/6`) are green; IR `call_` reports `33/34`, retaining only the previously
+  documented ordinary compound-receiver regression.
 - Atomics backend ownership now lives in `builtins/atomics.rs`: all fourteen
   intrinsic bodies, integer/RMW domains, wait/notify state and atomic-memory
   helpers sit behind one closed `AtomicsBuiltin` dispatch. A six-case RMW type
