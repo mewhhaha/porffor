@@ -183,13 +183,29 @@ current-pin `every/return-abrupt-from-this-out-of-bounds.js` and
 `some/detached-buffer.js` Test262 leaves each pass `2/2`, for `4/4` Wasm-AOT
 executions with all failure buckets at zero under `--jobs 1 --threads 1`.
 
-These migrations still do not cover `toLocaleString`, `copyWithin`, `with`,
-`set`, `slice`, `map`, `filter`, constructor validation or other remaining raw
-validators. They do not change the shared indexed `Get`, per-index
-integer-indexed behavior, result allocation, SharedArrayBuffer synchronization,
-Test262 rewrites or published counts. The existing fixtures do not prove
-created-Realm error-prototype identity at runtime; only the shared witness's
-current-function-Realm route is structurally owned here.
+The direct `%TypedArray%.prototype.toLocaleString` entry now uses the same
+validated-method-entry witness after its receiver-brand check. One cached
+backing-store observation supplies the captured loop length, while the shared
+loop retains live per-index reads; the generic
+`Array.prototype.toLocaleString` branch keeps its distinct non-throwing
+`LengthOfArrayLike` policy. The focused
+[toLocaleString buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-to-locale-string-buffer-witness.md),
+companion invocation guard and bounded witness guard are implemented,
+independently reviewed and focused-verified as of 2026-08-23. Under the shared
+eight-core cap, `cargo fmt --all -- --check`, `cargo xc` and `git diff --check`
+are green; the companion structure suite passes `4/4`, the witness structure
+suite passes `3/3`, and the exact core and invocation CLI fixtures each pass
+`1/1`. The pinned out-of-bounds, detached-buffer, mid-invocation growth and
+mid-invocation shrink Test262 leaves each pass `2/2`, for `8/8` Wasm-AOT
+executions with all failure buckets at zero under `--jobs 1 --threads 1`.
+
+These migrations still do not cover `copyWithin`, `with`, `set`, `slice`,
+`map`, `filter`, constructor validation or other remaining raw validators. They
+do not change the shared indexed `Get`, per-index integer-indexed behavior,
+result allocation, SharedArrayBuffer synchronization, Test262 rewrites or
+published counts. The toLocaleString fixtures do not prove created-Realm
+buffer-error prototype identity at direct method entry; only the shared
+witness's current-function-Realm route is structurally owned for that case.
 
 ## Objective
 

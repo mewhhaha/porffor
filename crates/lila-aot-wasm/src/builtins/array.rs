@@ -24737,7 +24737,6 @@ impl<'a> FunctionBuilder<'a> {
         let joined_local = self.reserve_temp_local();
         let typed_receiver_local = self.reserve_temp_local();
         let typed_buffer_payload_local = self.reserve_temp_local();
-        let typed_buffer_tag_local = self.reserve_temp_local();
         let typed_brand_local = self.reserve_temp_local();
         let typed_byte_offset_local = self.reserve_temp_local();
         let typed_byte_length_local = self.reserve_temp_local();
@@ -24781,44 +24780,28 @@ impl<'a> FunctionBuilder<'a> {
 
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::LocalSet(typed_receiver_local));
-            self.load_i64_to_local_from_offset(
+            self.emit_load_typed_array_private_state(
                 receiver_payload_local,
-                HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
                 typed_buffer_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::LocalSet(typed_buffer_tag_local));
-            self.load_i64_to_local_from_offset(
-                receiver_payload_local,
-                HEAP_TYPED_ARRAY_BYTE_OFFSET,
                 typed_byte_offset_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                receiver_payload_local,
-                HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
                 typed_byte_length_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                receiver_payload_local,
-                HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
                 typed_bytes_per_element_local,
                 function,
             );
-            self.emit_validate_typed_array_current_byte_length(
+            let typed_view = TypedArrayViewLocals::new(
                 receiver_payload_local,
-                receiver_tag_local,
                 typed_buffer_payload_local,
                 typed_byte_offset_local,
                 typed_byte_length_local,
+                typed_bytes_per_element_local,
+            );
+            self.emit_typed_array_witness(
+                &typed_view,
+                TypedArrayWitnessUse::ValidatedMethodEntry {
+                    length_local: len_local,
+                },
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(typed_byte_length_local));
-            function.instruction(&Instruction::LocalGet(typed_bytes_per_element_local));
-            function.instruction(&Instruction::I64DivU);
-            function.instruction(&Instruction::LocalSet(len_local));
         } else {
             self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
             function.instruction(&Instruction::If(BlockType::Empty));
@@ -25075,7 +25058,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(typed_byte_length_local);
         self.release_temp_local(typed_byte_offset_local);
         self.release_temp_local(typed_brand_local);
-        self.release_temp_local(typed_buffer_tag_local);
         self.release_temp_local(typed_buffer_payload_local);
         self.release_temp_local(typed_receiver_local);
         self.release_temp_local(joined_local);
