@@ -1958,7 +1958,7 @@ mod tests {
             .split_once("fn emit_error_to_string_value_to_string_local(")
             .expect("Error.prototype.toString conversion boundary should exist")
             .1
-            .split_once("pub(crate) fn emit_install_error_cause_from_arg(")
+            .split_once("fn emit_install_error_cause_from_arg(")
             .expect("the conversion boundary should have a bounded body")
             .0;
 

@@ -5603,8 +5603,7 @@ impl<'a> FunctionBuilder<'a> {
             AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
         function.instruction(&Instruction::LocalSet(aggregate_prototype_local));
-        self.emit_alloc_aggregate_error_instance_from_locals(
-            None,
+        self.emit_promise_any_aggregate_error_from_locals(
             errors_payload_local,
             aggregate_prototype_local,
             aggregate_payload_local,
@@ -7754,8 +7753,7 @@ impl<'a> FunctionBuilder<'a> {
                 AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
             ));
             function.instruction(&Instruction::LocalSet(element_context_local));
-            self.emit_alloc_aggregate_error_instance_from_locals(
-                None,
+            self.emit_promise_any_aggregate_error_from_locals(
                 values_payload_local,
                 element_context_local,
                 next_value_payload_local,

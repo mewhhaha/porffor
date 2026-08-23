@@ -31,6 +31,26 @@ impl PreparedErrorNameLocal {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ErrorCauseOptionsArgument {
+    MessageError,
+    AggregateError,
+}
+
+impl ErrorCauseOptionsArgument {
+    fn index(self) -> usize {
+        match self {
+            Self::MessageError => 1,
+            Self::AggregateError => 2,
+        }
+    }
+}
+
+#[must_use = "the prepared AggregateError must be finalized with its errors list"]
+struct PreparedAggregateErrorLocal {
+    object: u32,
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(super) fn emit_error_builtin(
         &mut self,
@@ -74,7 +94,6 @@ impl<'a> FunctionBuilder<'a> {
                     let message_arg_payload_local = self.reserve_temp_local();
                     let message_arg_tag_local = self.reserve_temp_local();
                     let errors_payload_local = self.reserve_temp_local();
-                    let message_payload_local = self.reserve_temp_local();
                     let prototype_payload_local = self.reserve_temp_local();
                     self.emit_builtin_arg_to_locals(
                         0,
@@ -92,50 +111,26 @@ impl<'a> FunctionBuilder<'a> {
                         prototype_payload_local,
                         function,
                     )?;
-                    function.instruction(&Instruction::LocalGet(message_arg_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_aggregate_error_iterable_to_list_payload(
-                        errors_arg_payload_local,
-                        errors_arg_tag_local,
-                        errors_payload_local,
-                        function,
-                    )?;
-                    self.emit_alloc_aggregate_error_instance_from_locals(
-                        None,
-                        errors_payload_local,
+                    let prepared = self.emit_prepare_aggregate_error_instance(
                         prototype_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_install_error_cause_from_arg(self.result_local, 2, function)?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_value_to_string_payload(
                         message_arg_payload_local,
                         message_arg_tag_local,
                         function,
                     )?;
-                    function.instruction(&Instruction::LocalSet(message_payload_local));
                     self.emit_aggregate_error_iterable_to_list_payload(
                         errors_arg_payload_local,
                         errors_arg_tag_local,
                         errors_payload_local,
                         function,
                     )?;
-                    self.emit_alloc_aggregate_error_instance_from_locals(
-                        Some(message_payload_local),
+                    self.emit_finish_aggregate_error_instance(
+                        prepared,
                         errors_payload_local,
-                        prototype_payload_local,
                         self.result_local,
                         self.result_tag_local,
                         function,
                     )?;
-                    self.emit_install_error_cause_from_arg(self.result_local, 2, function)?;
-                    function.instruction(&Instruction::End);
                     self.release_temp_local(prototype_payload_local);
-                    self.release_temp_local(message_payload_local);
                     self.release_temp_local(errors_payload_local);
                     self.release_temp_local(message_arg_tag_local);
                     self.release_temp_local(message_arg_payload_local);
@@ -420,10 +415,10 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    pub(crate) fn emit_install_error_cause_from_arg(
+    fn emit_install_error_cause_from_arg(
         &mut self,
         error_object_local: u32,
-        options_arg_index: usize,
+        options_argument: ErrorCauseOptionsArgument,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let options_payload_local = self.reserve_temp_local();
@@ -434,7 +429,7 @@ impl<'a> FunctionBuilder<'a> {
         let cause_tag_local = self.reserve_temp_local();
 
         self.emit_builtin_arg_to_locals(
-            options_arg_index,
+            options_argument.index(),
             options_payload_local,
             options_tag_local,
             function,
@@ -488,16 +483,15 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_alloc_aggregate_error_instance_from_locals(
+    fn emit_prepare_aggregate_error_instance(
         &mut self,
-        message_payload_local: Option<u32>,
-        errors_payload_local: u32,
         prototype_payload_local: u32,
-        payload_local: u32,
-        tag_local: u32,
+        message_arg_payload_local: u32,
+        message_arg_tag_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<PreparedAggregateErrorLocal, EmitError> {
         let object_local = self.reserve_temp_local();
+        let message_payload_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
         self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
@@ -508,19 +502,76 @@ impl<'a> FunctionBuilder<'a> {
             OBJECT_INTERNAL_BRAND_ERROR,
             function,
         );
-        if let Some(message_payload_local) = message_payload_local {
-            function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_object_define_data(
-                object_local,
-                key_local,
-                message_payload_local,
-                value_tag_local,
-                function,
-            )?;
-        }
+
+        function.instruction(&Instruction::LocalGet(message_arg_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_value_to_string_payload(
+            message_arg_payload_local,
+            message_arg_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(message_payload_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("message")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_object_define_data(
+            object_local,
+            key_local,
+            message_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        self.emit_install_error_cause_from_arg(
+            object_local,
+            ErrorCauseOptionsArgument::AggregateError,
+            function,
+        )?;
+
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(message_payload_local);
+        Ok(PreparedAggregateErrorLocal {
+            object: object_local,
+        })
+    }
+
+    fn emit_prepare_promise_any_aggregate_error_instance(
+        &mut self,
+        prototype_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<PreparedAggregateErrorLocal, EmitError> {
+        let object_local = self.reserve_temp_local();
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_ERROR,
+            function,
+        );
+        Ok(PreparedAggregateErrorLocal {
+            object: object_local,
+        })
+    }
+
+    fn emit_finish_aggregate_error_instance(
+        &mut self,
+        prepared: PreparedAggregateErrorLocal,
+        errors_payload_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let PreparedAggregateErrorLocal {
+            object: object_local,
+        } = prepared;
+        let key_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload("errors")));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
@@ -540,6 +591,25 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(key_local);
         self.release_temp_local(object_local);
         Ok(())
+    }
+
+    pub(crate) fn emit_promise_any_aggregate_error_from_locals(
+        &mut self,
+        errors_payload_local: u32,
+        prototype_payload_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let prepared = self
+            .emit_prepare_promise_any_aggregate_error_instance(prototype_payload_local, function)?;
+        self.emit_finish_aggregate_error_instance(
+            prepared,
+            errors_payload_local,
+            payload_local,
+            tag_local,
+            function,
+        )
     }
 
     pub(crate) fn emit_alloc_suppressed_error_instance_from_locals(
