@@ -374,6 +374,16 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Atomics backend ownership now lives in `builtins/atomics.rs`: all fourteen
+  intrinsic bodies, integer/RMW domains, wait/notify state and atomic-memory
+  helpers sit behind one closed `AtomicsBuiltin` dispatch. A six-case RMW type
+  removes four runtime `unreachable!` fallbacks, while three checked hooks serve
+  the TypedArray, event-loop and Promise consumers. This reduces
+  `builtins/standard.rs` from 33,275 to 30,567 raw lines without changing the
+  emitted family bodies. Capped serial focused coverage passes `2/2` AOT-Wasm
+  and `5/5` engine tests; the CLI cohort passes `12/13`, with its remaining
+  `Atomics.isLockFree` core-fixture failure reproduced unchanged at the parent
+  commit.
 - Duplicate class private names now carry one typed early-error code across
   fields, methods, accessors and static/instance conflicts. Script, Module and
   retained-module paths agree on `Early`/`SyntaxError`; valid getter/setter

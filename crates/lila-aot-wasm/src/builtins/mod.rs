@@ -2,6 +2,7 @@ mod array;
 mod array_from_async;
 mod async_disposable_stack;
 mod async_iterator;
+mod atomics;
 mod bigint;
 mod binary_data;
 mod boolean;

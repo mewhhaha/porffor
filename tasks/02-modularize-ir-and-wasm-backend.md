@@ -17,6 +17,38 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: Atomics backend ownership
+
+`lila-aot-wasm/src/builtins/atomics.rs` now owns all fourteen Atomics builtin
+bodies, the shared integer-operation machinery, synchronous and asynchronous
+wait/notify state transitions, host-agent calls, and atomic memory access
+helpers. The flat catalog dispatch retains one typed delegate per builtin
+through the closed `AtomicsBuiltin` domain; the family file cannot accept an
+unrelated `StandardBuiltinId`.
+
+The extraction also replaces the old RMW helper's broad nine-case operation
+parameter and four `unreachable!` catch-alls with a six-case
+`AtomicsRmwOperation`. Load, store and compare-exchange can no longer reach an
+RMW opcode selector. Only three methods cross the family boundary: the BigInt
+element-kind predicate shared with `TypedArray.prototype.with`, the event-loop
+waiter-drain checkpoint, and the Promise-job waiter-poll checkpoint.
+
+The moved emitter bodies and their instruction sequences are source-identical
+to the pre-move implementation. The non-emitting structural changes are the
+typed family dispatch, the narrower RMW carrier and one deliberate visibility
+change. The `Atomics.isLockFree` body is unchanged apart from becoming a
+private family method. `standard.rs` falls from 33,275 to 30,567 raw lines;
+the formatted family file is 2,805 lines. The boundary audit requires the
+module, all fourteen typed delegates, the three closed domains, the three
+reviewed cross-family hooks, exhaustive matches and separate line budgets for
+parent and child.
+
+The capped workspace/all-target check is green. Focused serial Atomics coverage
+passes `2/2` in `lila-aot-wasm` and `5/5` in `lila-engine`; the CLI cohort passes
+`12/13`. Its remaining `Atomics.isLockFree` core-fixture failure reproduces at
+the untouched parent commit, so this structural extraction neither owns nor
+claims to fix it. Formatting, module-boundary and task-plan audits are green.
+
 ### Landed 2026-08-23: call-expression lowering ownership
 
 `lila-ir/src/lowering/call_expression.rs` now owns the complete `lower_call`
@@ -205,6 +237,12 @@ Fourteen previously coupled builtin stores now have separate owners:
   remain implementation details rather than pretend namespace members. Four
   typed delegates preserve the flat catalog dispatch, and `standard.rs` fell
   from 34,948 to 34,461 lines.
+- `lila-aot-wasm/src/builtins/atomics.rs` owns all fourteen Atomics bodies,
+  integer/RMW operation domains, wait queues, host-agent calls and atomic
+  memory helpers. Fourteen typed delegates preserve the catalog dispatch;
+  three explicitly checked helpers remain visible to the TypedArray,
+  event-loop and Promise consumers. `standard.rs` fell from 33,275 to 30,567
+  lines.
 
 The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
 and `lila-intl`, and the focused builtin catalog tests pass for the moves that

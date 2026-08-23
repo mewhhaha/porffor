@@ -378,7 +378,7 @@ if [ -n "$global_section_constructor_escapes" ] \
   fail "production GlobalSection construction must stay in crates/lila-aot-wasm/src/module.rs: $global_section_constructor_escapes"
 fi
 
-for module in array bigint binary_data boolean bootstrap date errors function \
+for module in array atomics bigint binary_data boolean bootstrap date errors function \
               global_numeric host iterators json math number object proxy reflect \
               standard string symbol uri; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
@@ -391,8 +391,8 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, Number, Function, global
-# numeric, URI, Error and JSON
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, Number, Function, Atomics,
+# global numeric, URI, Error and JSON
 # builtin body boundaries. The exhaustive StandardBuiltinId dispatch remains in
 # standard.rs, but family bodies are one-line delegates so unrelated builtin
 # work no longer collides with ~11k lines of Object descriptor/prototype
@@ -401,15 +401,52 @@ fi
 # prototype implementation, Boolean's constructor and prototype receiver logic,
 # Number's constructor, predicates and prototype methods, Function's constructor,
 # four prototype methods and hidden bound-function invoker, the Error intrinsic
-# family, or JSON's
-# parse/stringify/raw-JSON wrappers. The two coercing global numeric predicates
+# family, the Atomics integer/wait family, or JSON's parse/stringify/raw-JSON
+# wrappers. The two coercing global numeric predicates
 # and the six global URI and Annex-B codec wrappers likewise stay out of the
 # shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured after the bound-function invoker extraction: 33,248 raw lines. This
-# leaves 212 lines of dispatch-maintenance headroom; substantive bodies belong
-# in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 33460
+# Measured after the Atomics extraction: 30,567 raw lines before formatting.
+# This margin is dispatch-maintenance headroom; substantive bodies belong in
+# family modules.
+check_raw_line_budget "$wasm_standard_builtins" 30800
+
+wasm_atomics_builtins="crates/lila-aot-wasm/src/builtins/atomics.rs"
+check_no_inline_legacy_includes "$wasm_atomics_builtins"
+if ! grep -q '^pub(super) enum AtomicsBuiltin' "$wasm_atomics_builtins" \
+  || ! grep -q '^enum AtomicsIntegerOperation' "$wasm_atomics_builtins" \
+  || ! grep -q '^enum AtomicsRmwOperation' "$wasm_atomics_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_atomics_builtins"; then
+  fail "$wasm_atomics_builtins must dispatch through the closed Atomics builtin/integer/RMW domains"
+fi
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  'self.emit_atomics_builtin(' \
+  14 \
+  'Atomics builtin delegate'
+require_fixed_string_count \
+  "$wasm_atomics_builtins" \
+  'pub(super) fn emit_atomics_bigint_element_kind_i32(' \
+  1 \
+  'cross-family TypedArray BigInt-kind predicate'
+require_fixed_string_count \
+  "$wasm_atomics_builtins" \
+  'pub(crate) fn emit_drain_atomics_wait_async_timeouts(' \
+  1 \
+  'event-loop Atomics waiter drain hook'
+require_fixed_string_count \
+  "$wasm_atomics_builtins" \
+  'pub(crate) fn emit_poll_atomics_wait_async_timeouts(' \
+  1 \
+  'promise-checkpoint Atomics waiter poll hook'
+if grep -q 'StandardBuiltinId::' "$wasm_atomics_builtins"; then
+  fail "$wasm_atomics_builtins must accept only its closed family domains, not StandardBuiltinId"
+fi
+if grep -Eq '^[[:space:]]*_ =>|unreachable!\(' "$wasm_atomics_builtins"; then
+  fail "$wasm_atomics_builtins must keep family matches exhaustive without catch-all arms"
+fi
+# Measured immediately after extraction: 2,767 raw lines before formatting.
+check_raw_line_budget "$wasm_atomics_builtins" 2850
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
