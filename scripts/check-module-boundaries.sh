@@ -222,6 +222,28 @@ check_no_inline_legacy_includes "$ir_class_definition_lowering"
 # Measured immediately after extraction: 1,327 raw lines. The margin is for
 # maintenance of this class-definition family, not unrelated lowering.
 check_raw_line_budget "$ir_class_definition_lowering" 1400
+# T02's ordinary-function boundary keeps the nested-lowerer lifecycle,
+# parameter/body lowering, capture transfer, signature updates and final
+# FunctionIr assembly together. The parent owns the seven orchestration calls
+# and shared helpers used by generated iterators, class methods and object
+# methods, but cannot regrow a second ordinary-function implementation.
+ir_function_definition_lowering="crates/lila-ir/src/lowering/function_definition.rs"
+require_file "$ir_function_definition_lowering"
+require_module_decl "$ir_lowering" "function_definition"
+require_fixed_string_count \
+  "$ir_function_definition_lowering" \
+  'pub(super) fn lower_function(' \
+  1 \
+  'ordinary-function lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_function(' \
+  0 \
+  'ordinary-function lowering outside child module'
+check_no_inline_legacy_includes "$ir_function_definition_lowering"
+# Measured after formatting the extraction: 721 raw lines. The margin is for
+# maintenance of this lifecycle, not unrelated lowering.
+check_raw_line_budget "$ir_function_definition_lowering" 780
 # T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
 # the ordinary and staged-generator walkers together in their child module so
 # the 32k-line orchestration boundary does not become the edit point again.
@@ -233,10 +255,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the builtin call-result extraction: 26,547 raw lines.
-# This leaves modest orchestration headroom while preventing the former
-# 32k-line implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 26850
+# Measured after formatting the ordinary-function extraction: 25,830 raw lines. This
+# leaves modest orchestration headroom while preventing the former 32k-line
+# implementation store from regrowing.
+check_raw_line_budget "$ir_lowering" 26100
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

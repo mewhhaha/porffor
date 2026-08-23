@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Ordinary function-definition lowering now lives in
+  `lowering/function_definition.rs`: nested lowerer state, parameters, body,
+  captures, signatures, resumable metadata and final `FunctionIr` assembly
+  move together, while shared helpers remain in the parent. The exact 717-line
+  method move reduces `lowering.rs` from 26,547 to 25,830 raw lines and changes
+  only its private-module visibility. Capped serial IR function coverage passes
+  `61/61`; CLI function coverage reports `45/49`, with all four failures
+  reproduced at the exact parent commit.
 - Builtin call-result analysis now lives in
   `lowering/builtin_call_info.rs`: one exhaustive `StandardBuiltinId` table
   owns return kinds and shapes plus its narrowly related observation updates,

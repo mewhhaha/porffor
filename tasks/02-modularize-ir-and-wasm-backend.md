@@ -17,6 +17,29 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: ordinary function-definition ownership
+
+`lila-ir/src/lowering/function_definition.rs` now owns the complete ordinary
+`lower_function` lifecycle: nested lowerer creation, analysis-state transfer,
+parameter and body lowering, capture/lexical-environment planning, signature
+updates, resumable metadata and final `FunctionIr` construction. The seven
+top-level orchestration calls remain in the parent; parameter helpers shared
+with generated iterators, class methods and object methods also remain there.
+
+This is a semantic-free source move. All 717 method lines compare exactly to
+the pre-move implementation after normalizing only `fn` to `pub(super) fn`.
+The private child boundary reduces `lowering.rs` from 26,547 to 25,830 raw
+lines; the formatted child is 721 lines. The module audit requires the sole
+owner method, forbids a second parent body or legacy `include!` assembly, and
+budgets parent and child separately.
+
+The capped workspace/all-target check and serial IR `function_` cohort
+(`61/61`) are green. The serial CLI `functions::` cohort reports `45/49`; both
+inspect-shape assertions and both mapped-arguments semantics fixtures reproduce
+at the exact pre-extraction commit `bda775dfc`. Formatting, exact source
+comparison, module-boundary and task-plan audits are green. No function
+behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: builtin call-result analysis ownership
 
 `lila-ir/src/lowering/builtin_call_info.rs` now owns the complete exhaustive
