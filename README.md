@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- If-statement lowering now lives in `lowering/if_statement.rs`: one owner
+  carries static condition selection, branch-local var/global facts,
+  post-branch joins, abrupt-completion result typing and generator yield-state
+  splitting/merging. The exact 137-line family move reduces `lowering.rs` from
+  23,738 to 23,601 raw lines; the child is 141 lines. Six focused IR filters
+  and four focused CLI filters pass. Pre/post golden captures pass `2/2`,
+  contain 635 artifacts each and are byte-identical. No if-statement behavior
+  or conformance change is claimed.
 - ScriptBody top-level `using` now has one typed early-error code for Boa's
   fixed-position post-parse producer. Nested Script boundaries remain valid,
   retained Modules allow both top-level `using` forms, and the earlier untyped

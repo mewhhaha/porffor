@@ -262,6 +262,56 @@ check_no_inline_legacy_includes "$ir_for_loop_lowering"
 # Measured after formatting the extraction: 213 raw lines. The margin is for
 # maintenance of the classic-for lifecycle, not unrelated loop lowering.
 check_raw_line_budget "$ir_for_loop_lowering" 250
+# T02's if-statement boundary owns branch lowering, flow-fact joins and the
+# generator split/merge lifecycle. The shared static expression helpers remain
+# parent-owned and the parent cannot regrow a second if implementation.
+ir_if_statement_lowering="crates/lila-ir/src/lowering/if_statement.rs"
+require_file "$ir_if_statement_lowering"
+require_module_decl "$ir_lowering" "if_statement"
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'pub(super) fn lower_if_statement(' \
+  1 \
+  'if-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_if_statement(' \
+  0 \
+  'if-statement lowering outside child module'
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'fn split_generator_if_branch(' \
+  1 \
+  'generator if-branch split helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn split_generator_if_branch(' \
+  0 \
+  'generator if-branch split helper outside child module'
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'fn statement_completes_by_throw(' \
+  1 \
+  'if-branch abrupt-completion helper'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn statement_completes_by_throw(' \
+  0 \
+  'if-branch abrupt-completion helper outside child module'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn static_bool_expr(' \
+  1 \
+  'shared static boolean helper in parent'
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'fn static_bool_expr(' \
+  0 \
+  'static boolean helper copied into if-statement owner'
+check_no_inline_legacy_includes "$ir_if_statement_lowering"
+# Measured after formatting the extraction: 141 raw lines. The margin is for
+# maintenance of if-statement lowering only.
+check_raw_line_budget "$ir_if_statement_lowering" 180
 # T02's property-access boundary owns ordinary, private and super access
 # dispatch plus the primitive/exotic target-kind split. Keep that split
 # exhaustive so a future ValueKind cannot silently inherit Number's currently
@@ -414,10 +464,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the classic-for extraction: 23,738 raw lines. This
+# Measured after formatting the if-statement extraction: 23,601 raw lines. This
 # leaves modest orchestration headroom while preventing the former 32k-line
 # implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 24750
+check_raw_line_budget "$ir_lowering" 24600
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

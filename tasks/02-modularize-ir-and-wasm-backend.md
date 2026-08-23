@@ -17,6 +17,28 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: if-statement ownership
+
+`lila-ir/src/lowering/if_statement.rs` now owns the complete conditional
+lifecycle: condition lowering and static selection, branch-local var/global
+facts, post-branch joins, abrupt-completion result typing and generator
+yield-state splitting/merging. The statement dispatcher remains its sole
+caller; shared static-expression helpers remain in the parent.
+
+This is an exact source move. All 137 method/helper lines compare exactly after
+normalizing only `fn` to `pub(super) fn` on the owner method. The extraction
+reduces `lowering.rs` from 23,738 to 23,601 raw lines, and the child is 141
+lines. The module audit requires the sole owner and both private lifecycle
+helpers, rejects a copied `static_bool_expr`, forbids legacy `include!`
+assembly, budgets parent and child separately, and fails its negative control
+when the child is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Six focused IR branch/flow/resumption filters
+pass `6/6`; four focused CLI inspect, Wasm, async-generator and finally filters
+pass `4/4`. The all-target `lila-ir` and workspace checks are green. No
+if-statement behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: classic-for ownership
 
 `lila-ir/src/lowering/for_loop.rs` now owns the complete classic `for`
