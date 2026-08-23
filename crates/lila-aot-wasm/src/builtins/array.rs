@@ -13197,42 +13197,28 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             receiver_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             receiver_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             receiver_byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
             receiver_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
             receiver_bytes_per_element_local,
             function,
         );
-        self.emit_validate_typed_array_current_byte_length(
+        let receiver_view = TypedArrayViewLocals::new(
             receiver_payload_local,
-            receiver_tag_local,
             receiver_buffer_local,
             receiver_byte_offset_local,
             receiver_byte_length_local,
+            receiver_bytes_per_element_local,
+        );
+        self.emit_typed_array_witness(
+            &receiver_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local: len_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(receiver_byte_length_local));
-        function.instruction(&Instruction::LocalGet(receiver_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(len_local));
 
         self.emit_builtin_arg_to_locals(0, callback_payload_local, callback_tag_local, function);
         self.emit_is_callable_i32(callback_tag_local, callback_payload_local, function)?;

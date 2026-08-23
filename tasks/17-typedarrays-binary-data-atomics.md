@@ -168,13 +168,28 @@ green, the structural guard passes `4/4`, the exact
 with `--jobs 1 --threads 1`. No new-pass, baseline or published-count change is
 claimed.
 
-These migrations still do not cover `every`, `some`, `toLocaleString`,
-`copyWithin`, `with`, `set`, `slice`, `map`, `filter`, constructor validation or
-other remaining raw validators. They do not change the shared indexed `Get`,
-per-index integer-indexed behavior, result allocation, SharedArrayBuffer
-synchronization, Test262 rewrites or published counts. The existing fixtures do
-not prove created-Realm error-prototype identity at runtime; only the shared
-witness's current-function-Realm route is structurally owned here.
+The `%TypedArray%.prototype.every` and `some` quantifier family now uses one
+validated-method-entry witness after its receiver-brand check and before callback
+validation. The shared compiler consumes the witness-produced snapshot length
+without a raw validator, private-slot reconstruction or local byte-length
+division, while retaining live indexed reads, callback ordering and the closed
+`Every`/`Some` short-circuit polarities. The focused
+[quantifier-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-quantifier-family-buffer-witness.md)
+and `3/3` structural guard are implemented, independently reviewed and
+focused-verified as of 2026-08-23. Under the shared eight-core cap,
+`cargo fmt --all -- --check` and `cargo xc` are green; the exact
+`wasm_typedarray_every_some.js` CLI fixture passes `1/1`, and the exact
+current-pin `every/return-abrupt-from-this-out-of-bounds.js` and
+`some/detached-buffer.js` Test262 leaves each pass `2/2`, for `4/4` Wasm-AOT
+executions with all failure buckets at zero under `--jobs 1 --threads 1`.
+
+These migrations still do not cover `toLocaleString`, `copyWithin`, `with`,
+`set`, `slice`, `map`, `filter`, constructor validation or other remaining raw
+validators. They do not change the shared indexed `Get`, per-index
+integer-indexed behavior, result allocation, SharedArrayBuffer synchronization,
+Test262 rewrites or published counts. The existing fixtures do not prove
+created-Realm error-prototype identity at runtime; only the shared witness's
+current-function-Realm route is structurally owned here.
 
 ## Objective
 
