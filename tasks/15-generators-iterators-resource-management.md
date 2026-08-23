@@ -15,6 +15,28 @@ materialization, and the README records unsupported suspended/control-flow
 families. General sync/async generator state machines, iterator-close coverage
 across all consumers and complete resource-management filters remain open.
 
+Async-generator request settlement now carries the closed
+`AsyncGeneratorCompleteStepKind::{Yielded, Completed}` lifecycle state rather
+than an unlabeled Boolean. Its sole exhaustive projection lives at the
+iterator-result materializer: the one yield-completion owner selects
+`Yielded -> done: false`, while the ten terminal body, queue-drain,
+awaited-return and already-completed owners select `Completed -> done: true`.
+The focused
+[complete-step kind contract](../docs/rust-rewrite/contracts/async-generator-complete-step-kind.md)
+and owner/lifecycle guard are implemented, independently reviewed and
+focused-verified as of 2026-08-23. Under the shared eight-core, 22 GB cap,
+`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green; the
+structural guard passes `4/4`, and the exact
+`expression-yield-as-operand.js` Test262 leaf passes `2/2` Wasm-AOT variants
+with every failure bucket at zero.
+
+The existing broad resumable-loop CLI test still fails because later classic
+loop iterations and post-yield lexical state are lost. A detached unchanged
+`HEAD` worktree produces byte-identical output, while all observed yielded and
+terminal `done` bits remain correct. That is explicit pre-existing general
+suspension debt in this task, not a regression hidden by the typed settlement
+seam, and the red `0/1` run is not counted as passing evidence.
+
 The complete synchronous `%DisposableStack%` lifecycle now extends the real
 constructor/brand foundation. `DisposableStackState::{Pending, Disposed}` and
 `DisposableStackEntryKind::{Use, Adopt, Defer}` are distinct closed heap-word

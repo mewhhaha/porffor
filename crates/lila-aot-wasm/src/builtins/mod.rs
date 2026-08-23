@@ -25,6 +25,7 @@ mod math;
 mod number;
 mod object;
 mod promise;
+pub(crate) use promise::AsyncGeneratorCompleteStepKind;
 mod proxy;
 mod reflect;
 mod regexp;

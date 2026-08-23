@@ -6433,7 +6433,7 @@ impl<'a> FunctionBuilder<'a> {
             body_payload_local,
             body_tag_local,
             body_completion_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         self.emit_drain_async_generator_queue(activation_local, function)?;
@@ -6458,7 +6458,7 @@ impl<'a> FunctionBuilder<'a> {
             resolved_return_payload_local,
             resolved_return_tag_local,
             body_completion_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         self.emit_drain_async_generator_queue(activation_local, function)?;
@@ -6526,7 +6526,7 @@ impl<'a> FunctionBuilder<'a> {
             body_payload_local,
             body_tag_local,
             body_completion_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         self.emit_drain_async_generator_queue(activation_local, function)?;

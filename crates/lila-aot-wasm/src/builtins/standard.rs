@@ -18969,7 +18969,7 @@ impl<'a> FunctionBuilder<'a> {
                             undefined_payload_local,
                             undefined_tag_local,
                             completion_kind_local,
-                            true,
+                            AsyncGeneratorCompleteStepKind::Completed,
                             function,
                         )?;
                         self.release_temp_local(undefined_tag_local);
@@ -18980,7 +18980,7 @@ impl<'a> FunctionBuilder<'a> {
                             argument_payload_local,
                             argument_tag_local,
                             completion_kind_local,
-                            true,
+                            AsyncGeneratorCompleteStepKind::Completed,
                             function,
                         )?;
                     }
@@ -19076,7 +19076,7 @@ impl<'a> FunctionBuilder<'a> {
                             argument_payload_local,
                             argument_tag_local,
                             completion_kind_local,
-                            true,
+                            AsyncGeneratorCompleteStepKind::Completed,
                             function,
                         )?;
                         self.release_temp_local(completion_kind_local);

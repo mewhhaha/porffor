@@ -60,6 +60,16 @@ enum AsyncAwaitContinuation {
     AsyncGeneratorYieldReturn,
 }
 
+/// Whether an async-generator request publishes a yielded or terminal result.
+///
+/// The state is projected to the iterator-result `done` Boolean only by
+/// `emit_complete_async_generator_step`, so callers cannot transpose the two
+/// lifecycle meanings with an unlabelled Boolean.
+pub(crate) enum AsyncGeneratorCompleteStepKind {
+    Yielded,
+    Completed,
+}
+
 /// The original completion restored after a `finally` cleanup resolves.
 ///
 /// This is deliberately distinct from Promise record settlement and reaction
@@ -2922,7 +2932,7 @@ impl<'a> FunctionBuilder<'a> {
         value_payload_local: u32,
         value_tag_local: u32,
         completion_kind_local: u32,
-        done: bool,
+        kind: AsyncGeneratorCompleteStepKind,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let request_local = self.reserve_temp_local();
@@ -2983,6 +2993,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        let done = match kind {
+            AsyncGeneratorCompleteStepKind::Yielded => false,
+            AsyncGeneratorCompleteStepKind::Completed => true,
+        };
         self.emit_iterator_result_object_from_locals(
             value_payload_local,
             value_tag_local,
@@ -3076,7 +3090,7 @@ impl<'a> FunctionBuilder<'a> {
             undefined_payload_local,
             undefined_tag_local,
             completion_kind_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3089,7 +3103,7 @@ impl<'a> FunctionBuilder<'a> {
             completion_payload_local,
             completion_tag_local,
             completion_kind_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3117,7 +3131,7 @@ impl<'a> FunctionBuilder<'a> {
             resolved_promise_payload_local,
             resolved_promise_tag_local,
             completion_kind_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -3336,7 +3350,7 @@ impl<'a> FunctionBuilder<'a> {
             argument_payload_local,
             argument_tag_local,
             completion_kind_local,
-            true,
+            AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         self.emit_drain_async_generator_queue(activation_local, function)?;
@@ -3548,7 +3562,7 @@ impl<'a> FunctionBuilder<'a> {
             yield_payload_local,
             yield_tag_local,
             completion_kind_local,
-            false,
+            AsyncGeneratorCompleteStepKind::Yielded,
             function,
         )?;
         self.load_i64_to_local_from_offset(

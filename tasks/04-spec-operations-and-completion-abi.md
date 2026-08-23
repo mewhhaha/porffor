@@ -160,6 +160,29 @@ verifies only the typed inner-lifecycle selection and preserved outer-close
 order; it does not claim a flatMap algorithm change, broader Iterator/Test262
 refresh, conformance gain, or completion of T04 or T15.
 
+The async-generator request-settlement seam now carries the crate-private,
+closed `AsyncGeneratorCompleteStepKind::{Yielded, Completed}` lifecycle state
+instead of an unlabeled `done: bool`. Only
+`emit_complete_async_generator_step` projects that state through an exhaustive
+match: `Yielded` becomes `false`, while `Completed` becomes `true`. The exact
+owner census is fixed at eleven product calls: the sole yield-completion owner
+selects `Yielded`, and all ten terminal body, queue-drain, awaited-return and
+already-completed owners select `Completed`. The existing active-request,
+capability, dequeue, active-clear, reject/resolve and temporary-lifetime order
+is unchanged.
+
+The focused
+[complete-step kind contract](../docs/rust-rewrite/contracts/async-generator-complete-step-kind.md)
+and swap-resistant source guard are implemented, independently reviewed and
+focused-verified as of 2026-08-23. Under the shared eight-core, 22 GB cap,
+`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green; the
+structural guard passes `4/4`, and the exact
+`expression-yield-as-operand.js` Test262 leaf passes `2/2` Wasm-AOT variants
+with every failure bucket at zero. The broader resumable-loop CLI candidate
+remains red with byte-identical output on unchanged `HEAD` and this lane; its
+lost loop/lexical continuation state is pre-existing T15 debt, not a
+complete-step-kind regression or a passing result.
+
 The earlier Proxy `Call` and primitive `ToNumber` migrations are likewise
 invariant-only rewrites. Their former boolean selections already chose the
 correct policies, all existing public wrapper call sites are unchanged, and the
