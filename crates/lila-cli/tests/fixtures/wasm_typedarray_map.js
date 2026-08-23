@@ -69,6 +69,23 @@ if (detachedResult[0] !== 4 || detachedResult[1] !== 0 || detachedResult[2] !== 
   throw "detached mapped values";
 }
 
+let entryDetached = new Uint8Array([1]);
+let entryDetachedCallbackCalled = false;
+__lilaDetachArrayBuffer(entryDetached.buffer);
+__lilaAssertThrows(TypeError, function () {
+  entryDetached.map(function () { entryDetachedCallbackCalled = true; });
+});
+if (entryDetachedCallbackCalled) throw "detached entry callback";
+
+let entryOobBuffer = new ArrayBuffer(4, { maxByteLength: 4 });
+let entryOob = new Uint8Array(entryOobBuffer, 2, 2);
+let entryOobCallbackCalled = false;
+entryOobBuffer.resize(1);
+__lilaAssertThrows(TypeError, function () {
+  entryOob.map(function () { entryOobCallbackCalled = true; });
+});
+if (entryOobCallbackCalled) throw "out-of-bounds entry callback";
+
 let shrinkBuffer = new ArrayBuffer(4, { maxByteLength: 4 });
 let shrinkSource = new Uint8Array(shrinkBuffer);
 shrinkSource[0] = 1;

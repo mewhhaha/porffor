@@ -199,13 +199,35 @@ suite passes `3/3`, and the exact core and invocation CLI fixtures each pass
 mid-invocation shrink Test262 leaves each pass `2/2`, for `8/8` Wasm-AOT
 executions with all failure buckets at zero under `--jobs 1 --threads 1`.
 
+The `%TypedArray%.prototype.map` and `filter` compilers now use that same
+validated-method-entry witness after their receiver-brand guards and before
+callback validation. Each loads one immutable `TypedArrayViewLocals` record
+and consumes its witness-produced snapshot length without a raw validator,
+private-slot reconstruction or local byte-length division. The migration keeps
+the algorithms' distinct allocation order: `map` performs species construction
+before its callback loop, while `filter` completes callback collection before
+species construction and selected-value writes. Live per-index reads and the
+existing callback `(value, index, receiver)` wiring remain unchanged.
+
+The focused
+[map/filter buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-map-filter-buffer-witness.md)
+and bounded source guard are implemented, independently reviewed and
+focused-verified as of 2026-08-23. Under the shared eight-core, 22 GB cap,
+`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green; the
+structural guard passes `3/3`, and the exact `map` and `filter` CLI fixtures
+each pass `1/1`, including detached and out-of-bounds entry controls that prove
+the callback is not called. The eight pinned detached, out-of-bounds, growth
+and shrink Test262 leaves each pass `2/2`, for `16/16` Wasm-AOT executions with
+every failure bucket at zero under `--jobs 1 --threads 1`.
+
 These migrations still do not cover `copyWithin`, `with`, `set`, `slice`,
-`map`, `filter`, constructor validation or other remaining raw validators. They
+constructor validation or other remaining raw validators. They
 do not change the shared indexed `Get`, per-index integer-indexed behavior,
 result allocation, SharedArrayBuffer synchronization, Test262 rewrites or
-published counts. The toLocaleString fixtures do not prove created-Realm
-buffer-error prototype identity at direct method entry; only the shared
-witness's current-function-Realm route is structurally owned for that case.
+published counts. The toLocaleString and map/filter fixtures do not prove
+created-Realm buffer-error prototype identity at direct method entry; only the
+shared witness's current-function-Realm route is structurally owned for that
+case.
 
 ## Objective
 
