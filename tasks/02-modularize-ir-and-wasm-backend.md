@@ -17,6 +17,32 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: switch-statement ownership
+
+`lila-ir/src/lowering/switch_statement.rs` now owns discriminant and selector
+evaluation, the one shared CaseBlock lexical environment, hoisted and Annex B
+function selection, case-body lowering, flow-fact joins, breakable-depth
+lifecycle and final `Switch` IR assembly. The statement dispatcher remains its
+sole caller; reusable statement-list, function, environment and flow helpers
+remain parent-owned.
+
+This is an exact source move. All 86 method lines compare exactly after
+normalizing only `fn lower_switch` to private-module visibility. The extraction
+reduces `lowering.rs` from 23,434 to 23,348 raw lines, and the child is 90
+lines. The module audit requires the sole owner, rejects copied shared
+statement-list and environment-materialization helpers, forbids legacy
+`include!` assembly, budgets parent and child separately, and fails its
+missing-child negative control. Two for-of structural tests now end their
+source slice at the adjacent `lower_for_init` owner instead of depending on the
+old location of `lower_switch`.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Six focused IR CaseBlock, TDZ, Annex B,
+capture and label witnesses pass `6/6`; two focused CLI inspect and throwing
+property-read witnesses pass `2/2`; the two affected for-of structural targets
+pass `5/5` each. The all-target `lila-ir` and workspace checks are green. No
+switch behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: labelled-statement ownership
 
 `lila-ir/src/lowering/labelled_statement.rs` now owns nested-label collection,

@@ -69,7 +69,7 @@ fn lowering_keeps_tdz_and_specialization_decisions_at_the_closed_head_boundary()
     let lowering = bounded(
         LOWERING_SOURCE,
         "    fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {",
-        "    fn lower_switch(&mut self, switch: &AstSwitch) -> (StatementIr, ValueKind) {",
+        "    fn lower_for_init(&mut self, init: &ForLoopInitializer) -> Option<ForInitIr> {",
     );
     for boundary in [
         "IterableLoopInitializer::Using(Binding::Identifier(identifier))",

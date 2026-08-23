@@ -247,7 +247,7 @@ fn lowering_holds_the_iterator_roles_until_the_body_has_allocated_source_states(
     let lower = bounded(
         LOWERING_SOURCE,
         "fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {",
-        "fn lower_switch(&mut self, switch: &AstSwitch)",
+        "fn lower_for_init(&mut self, init: &ForLoopInitializer)",
     );
     positions_in_order(
         lower,

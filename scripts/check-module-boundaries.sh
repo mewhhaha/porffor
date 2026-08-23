@@ -406,6 +406,47 @@ check_no_inline_legacy_includes "$ir_while_loop_lowering"
 # Measured after formatting the extraction: 106 raw lines. The margin is for
 # maintenance of while/do-while lowering only.
 check_raw_line_budget "$ir_while_loop_lowering" 130
+# T02's switch-statement boundary owns discriminant and selector evaluation,
+# the one shared CaseBlock lexical environment, case-body fact joins and final
+# Switch IR assembly. Statement-list and environment materialization helpers
+# stay parent-owned because other statement families consume them too.
+ir_switch_statement_lowering="crates/lila-ir/src/lowering/switch_statement.rs"
+require_file "$ir_switch_statement_lowering"
+require_module_decl "$ir_lowering" "switch_statement"
+require_fixed_string_count \
+  "$ir_switch_statement_lowering" \
+  'pub(super) fn lower_switch(' \
+  1 \
+  'switch-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_switch(' \
+  0 \
+  'switch-statement lowering outside child module'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_statement_items_without_function_initialization(' \
+  1 \
+  'shared statement-list helper in parent'
+require_fixed_string_count \
+  "$ir_switch_statement_lowering" \
+  'fn lower_statement_items_without_function_initialization(' \
+  0 \
+  'statement-list helper copied into switch owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_materialized_lexical_environment(' \
+  1 \
+  'shared lexical-environment materializer in parent'
+require_fixed_string_count \
+  "$ir_switch_statement_lowering" \
+  'fn lower_materialized_lexical_environment(' \
+  0 \
+  'lexical-environment materializer copied into switch owner'
+check_no_inline_legacy_includes "$ir_switch_statement_lowering"
+# Measured after formatting the extraction: 90 raw lines. The margin is for
+# maintenance of switch-statement lowering only.
+check_raw_line_budget "$ir_switch_statement_lowering" 120
 # T02's property-access boundary owns ordinary, private and super access
 # dispatch plus the primitive/exotic target-kind split. Keep that split
 # exhaustive so a future ValueKind cannot silently inherit Number's currently
@@ -558,7 +599,7 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the labelled-statement extraction: 23,434 raw
+# Measured after formatting the switch-statement extraction: 23,348 raw
 # lines. This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
 check_raw_line_budget "$ir_lowering" 24500
