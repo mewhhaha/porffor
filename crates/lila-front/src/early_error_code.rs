@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 62] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 64] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -232,6 +232,10 @@ early_error_codes! {
     /// one occurrence of `"constructor"`. Static and computed methods named
     /// `constructor` are not constructor definitions and remain excluded.
     DuplicateClassConstructor => "E_DUPLICATE_CLASS_CONSTRUCTOR";
+    /// 15.7.1. A class has no ClassHeritage, has a constructor, and
+    /// `HasDirectSuper` of that constructor is true. A present heritage,
+    /// including `extends null`, is deliberately excluded.
+    ClassBaseConstructorHasDirectSuper => "E_CLASS_BASE_CONSTRUCTOR_HAS_DIRECT_SUPER";
     /// ClassElement early errors: a non-static generator or async-generator
     /// method has the literal property name `"constructor"`. Static and
     /// computed generator methods named `constructor` remain excluded.
@@ -263,6 +267,11 @@ early_error_codes! {
     /// `ClassStaticBlockStatementList` is true. Nested ordinary function and
     /// method bodies are traversal boundaries; arrow functions are not.
     ClassStaticBlockContainsArguments => "E_CLASS_STATIC_BLOCK_CONTAINS_ARGUMENTS";
+    /// 15.7.1. A ClassStaticBlockStatementList `Contains SuperCall`.
+    /// Heritage is irrelevant. Ordinary callable bodies are traversal
+    /// boundaries, nested classes contribute only computed property names,
+    /// and ordinary and async arrows remain lexical traversal paths.
+    ClassStaticBlockContainsSuperCall => "E_CLASS_STATIC_BLOCK_CONTAINS_SUPER_CALL";
     /// ClassStaticBlockBody early errors: `ContainsAwait` of the
     /// `ClassStaticBlockStatementList` is true. Nested ordinary and arrow
     /// function bodies are traversal boundaries.
@@ -465,7 +474,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 62;
+const PARSE_FAILURE_RULE_COUNT: usize = 64;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
 const IMPORT_META_OUTSIDE_MODULE_PREFIX: &str =
@@ -478,6 +487,10 @@ const LEXICAL_BOUND_NAME_LET_PREFIX: &str = "'let' is disallowed as a lexically 
 const FOR_DECLARATION_BOUND_NAME_LET_PREFIX: &str =
     "Cannot use 'let' as a lexically bound name at line";
 const SCRIPT_TOP_LEVEL_SUPER_MESSAGE: &str = "invalid super usage at line 1, col 1";
+const CLASS_BASE_CONSTRUCTOR_DIRECT_SUPER_PREFIX: &str =
+    "base class constructor cannot contain direct super call at line";
+const CLASS_STATIC_BLOCK_SUPER_CALL_PREFIX: &str =
+    "class static block cannot contain super call at line";
 
 /// The one message-pattern table.
 ///
@@ -603,7 +616,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::DuplicateClassConstructor,
         witnesses: &["a class may only have one constructor"],
     },
-    // 13. statement/declaration/hoistable/class_decl/mod.rs:786-792,850-855.
+    // 13. statement/declaration/hoistable/class_decl/mod.rs:789-795,853-858.
     //     These are the two pinned producers, for generator and async-generator
     //     methods, and they share this complete, case-sensitive wording.
     ParseFailureRule {
@@ -611,29 +624,29 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassConstructorGeneratorMethod,
         witnesses: &["class constructor may not be a generator method"],
     },
-    // 14. statement/declaration/hoistable/class_decl/mod.rs:890-896. This is
+    // 14. statement/declaration/hoistable/class_decl/mod.rs:893-899. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be an async method"]),
         code: EarlyErrorCode::ClassConstructorAsyncMethod,
         witnesses: &["class constructor may not be an async method"],
     },
-    // 15. statement/declaration/hoistable/class_decl/mod.rs:1155-1161. This is
+    // 15. statement/declaration/hoistable/class_decl/mod.rs:1158-1164. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be a getter method"]),
         code: EarlyErrorCode::ClassConstructorGetter,
         witnesses: &["class constructor may not be a getter method"],
     },
-    // 16. statement/declaration/hoistable/class_decl/mod.rs:1257-1263. This is
+    // 16. statement/declaration/hoistable/class_decl/mod.rs:1260-1266. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be a setter method"]),
         code: EarlyErrorCode::ClassConstructorSetter,
         witnesses: &["class constructor may not be a setter method"],
     },
-    // 17. statement/declaration/hoistable/class_decl/mod.rs:810-816,
-    //     843-849,918-924,986-992,1119-1125,1220-1226,1316-1322. These seven
+    // 17. statement/declaration/hoistable/class_decl/mod.rs:813-819,
+    //     846-852,921-927,989-995,1122-1128,1223-1229,1319-1325. These seven
     //     pinned producers cover private fields and every private method form
     //     with one complete, case-sensitive wording.
     ParseFailureRule {
@@ -641,8 +654,8 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassPrivateConstructorName,
         witnesses: &["class constructor may not be a private method"],
     },
-    // 18. statement/declaration/hoistable/class_decl/mod.rs:806-812,871-879,
-    //     912-920,1194-1198,1295-1299,1447-1452. These six public static
+    // 18. statement/declaration/hoistable/class_decl/mod.rs:809-815,874-882,
+    //     915-923,1197-1201,1298-1302,1450-1455. These six public static
     //     method/accessor branches share one complete, case-sensitive wording.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["class may not have static method definitions named 'prototype'"]),
@@ -664,7 +677,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassStaticBlockContainsArguments,
         witnesses: &["'arguments' not allowed in class static block"],
     },
-    // 21. statement/declaration/hoistable/class_decl/mod.rs:759-761. The
+    // 21. statement/declaration/hoistable/class_decl/mod.rs:762-764. The
     //     adjacent `at line` fragment is part of Error::General's rendered
     //     message and excludes the distinct longer generator-parameter error.
     ParseFailureRule {
@@ -672,16 +685,16 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassStaticBlockContainsAwait,
         witnesses: &["invalid await usage at line 1, col 1"],
     },
-    // 22. statement/declaration/hoistable/class_decl/mod.rs:1062,1096,1418,
-    //     1502. These four pinned branches cover ordinary public fields and
+    // 22. statement/declaration/hoistable/class_decl/mod.rs:1065,1099,1421,
+    //     1505. These four pinned branches cover ordinary public fields and
     //     public auto-accessors, with and without initializers.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&["class may not have field definitions named 'constructor'"]),
         code: EarlyErrorCode::ClassFieldConstructorName,
         witnesses: &["class may not have field definitions named 'constructor'"],
     },
-    // 23. statement/declaration/hoistable/class_decl/mod.rs:1056,1090,1412,
-    //     1496. These four corresponding static branches share one complete,
+    // 23. statement/declaration/hoistable/class_decl/mod.rs:1059,1093,1415,
+    //     1499. These four corresponding static branches share one complete,
     //     case-sensitive wording for the two forbidden literal names.
     ParseFailureRule {
         pattern: ParseFailurePattern::ContainsAll(&[
@@ -692,7 +705,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "class may not have static field definitions named 'constructor' or 'prototype'",
         ],
     },
-    // 24. statement/declaration/hoistable/class_decl/mod.rs:1522-1558. The
+    // 24. statement/declaration/hoistable/class_decl/mod.rs:1525-1561. The
     //     exhaustive class-element match uses this one exact wording for
     //     public/private, instance/static and auto-accessor field initializers.
     ParseFailureRule {
@@ -752,7 +765,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         witnesses: &["illegal continue statement"],
     },
     // 34. boa_parser/src/parser/mod.rs:475-479, function/mod.rs:507-511,
-    //     statement/mod.rs:1005-1010 and class_decl/mod.rs:764-768. All four
+    //     statement/mod.rs:1005-1010 and class_decl/mod.rs:767-771. All four
     //     fixed messages report the same surviving CoverInitializedName AST
     //     condition in a different statement-list context.
     ParseFailureRule {
@@ -1047,6 +1060,28 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ScriptTopLevelSuper,
         witnesses: &["invalid super usage at line 1, col 1"],
     },
+    // 63. statement/declaration/hoistable/class_decl/mod.rs:203-211. The
+    //     absent-heritage / constructor-present / HasDirectSuper conjunction
+    //     is the sole owner of this complete fixed message body.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(
+            CLASS_BASE_CONSTRUCTOR_DIRECT_SUPER_PREFIX,
+        ),
+        code: EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+        witnesses: &[
+            "base class constructor cannot contain direct super call at line 2, col 1",
+        ],
+    },
+    // 64. statement/declaration/hoistable/class_decl/mod.rs:755-760. The
+    //     static-block statement-list Contains SuperCall branch is the sole
+    //     owner of this complete fixed message body.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(CLASS_STATIC_BLOCK_SUPER_CALL_PREFIX),
+        code: EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+        witnesses: &[
+            "class static block cannot contain super call at line 2, col 1",
+        ],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1168,7 +1203,9 @@ const fn message_interpolates_source_text(message: &str) -> bool {
 /// would dress a compiler gap up as a spec claim. Callers turn `None` into
 /// `Unsupported` / `Malformed`, never into a code.
 ///
-/// This is the only such function in the workspace. `lila-ir` calls this one.
+/// This is the only such function in the workspace. `lila-front::parse` calls
+/// it at the sole Boa parse boundary; downstream crates consume the retained
+/// typed code.
 #[must_use]
 pub const fn classify_parse_failure(message: &str) -> Option<ParseClassified> {
     // ContainsAll patterns inspect messages Boa can build by interpolation.
@@ -1341,6 +1378,10 @@ const _: ParseClassified =
 const _: ParseClassified = ParseClassified::from_parse_table(EarlyErrorCode::LexicalBoundNameLet);
 const _: ParseClassified = ParseClassified::from_parse_table(EarlyErrorCode::ScriptTopLevelSuper);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ClassBaseConstructorHasDirectSuper);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ClassStaticBlockContainsSuperCall);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
     code_is_owned_once_by_exact_starts_with(
@@ -1384,6 +1425,20 @@ const _: () = assert!(
         "invalid super usage at line 1, col 1",
     ),
     "the ScriptBody super code must have one owner using its complete reviewed message"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+        "base class constructor cannot contain direct super call at line",
+    ),
+    "the base-constructor direct-super code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+        "class static block cannot contain super call at line",
+    ),
+    "the class-static-block SuperCall code must have one owner using its complete reviewed prefix"
 );
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
@@ -1583,6 +1638,39 @@ const fn script_top_level_super_message_is_exact_and_injection_safe() -> bool {
     )
 }
 
+/// P16: the two class-owned SuperCall prefixes remain distinct from each
+/// other and from the adjacent generic Script/callable/method wordings. A
+/// user-controlled Module export name carrying either complete prefix must
+/// remain owned by the duplicate-export condition.
+const fn class_super_call_prefixes_are_distinct_and_injection_safe() -> bool {
+    if !classified_is(
+        classify_parse_failure(
+            "base class constructor cannot contain direct super call at line 2, col 1",
+        ),
+        EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+    ) || !classified_is(
+        classify_parse_failure("class static block cannot contain super call at line 2, col 1"),
+        EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+    ) || !matches!(
+        classify_parse_failure("invalid super call usage at line 1, col 1"),
+        None
+    ) {
+        return false;
+    }
+
+    classified_is(
+        classify_parse_failure(
+            "exported name `base class constructor cannot contain direct super call at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    ) && classified_is(
+        classify_parse_failure(
+            "exported name `class static block cannot contain super call at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
 /// P3: `ALL` is in discriminant order and complete, and `wire_name` round-trips
 /// through `from_wire_name` — so print and parse cannot diverge, and the round
 /// trip proves `wire_name` is injective.
@@ -1737,4 +1825,8 @@ const _: () = assert!(
 const _: () = assert!(
     script_top_level_super_message_is_exact_and_injection_safe(),
     "P15: the fixed ScriptBody super message can be forged or prefix-matches another source position"
+);
+const _: () = assert!(
+    class_super_call_prefixes_are_distinct_and_injection_safe(),
+    "P16: a class-owned SuperCall prefix is ambiguous, absorbs an adjacent message, or can be forged through Module export text"
 );

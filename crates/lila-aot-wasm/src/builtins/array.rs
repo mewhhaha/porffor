@@ -11746,7 +11746,7 @@ impl<'a> FunctionBuilder<'a> {
         let source_buffer_payload_local = self.reserve_temp_local();
         let source_buffer_pointer_local = self.reserve_temp_local();
         let source_byte_offset_local = self.reserve_temp_local();
-        let source_byte_length_local = self.reserve_temp_local();
+        let source_stored_byte_length_local = self.reserve_temp_local();
         let source_bytes_per_element_local = self.reserve_temp_local();
         let source_element_kind_local = self.reserve_temp_local();
         let source_length_local = self.reserve_temp_local();
@@ -11776,6 +11776,7 @@ impl<'a> FunctionBuilder<'a> {
         let target_element_kind_local = self.reserve_temp_local();
         let current_source_length_local = self.reserve_temp_local();
         let copied_element_count_local = self.reserve_temp_local();
+        let copied_byte_count_local = self.reserve_temp_local();
         let copy_index_local = self.reserve_temp_local();
         let source_address_local = self.reserve_temp_local();
         let target_address_local = self.reserve_temp_local();
@@ -11811,29 +11812,20 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             receiver_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             source_buffer_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             source_byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
-            source_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+            source_stored_byte_length_local,
             source_bytes_per_element_local,
             function,
+        );
+        let source_view = TypedArrayViewLocals::new(
+            receiver_payload_local,
+            source_buffer_payload_local,
+            source_byte_offset_local,
+            source_stored_byte_length_local,
+            source_bytes_per_element_local,
         );
         self.load_i64_to_local_from_offset(
             receiver_payload_local,
@@ -11841,18 +11833,13 @@ impl<'a> FunctionBuilder<'a> {
             source_element_kind_local,
             function,
         );
-        self.emit_validate_typed_array_current_byte_length(
-            receiver_payload_local,
-            receiver_tag_local,
-            source_buffer_payload_local,
-            source_byte_offset_local,
-            source_byte_length_local,
+        self.emit_typed_array_witness(
+            &source_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local: source_length_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(source_byte_length_local));
-        function.instruction(&Instruction::LocalGet(source_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(source_length_local));
 
         self.emit_builtin_arg_to_locals(0, start_payload_local, start_tag_local, function);
         self.emit_value_to_number_payload(start_tag_local, start_payload_local, function)?;
@@ -12067,18 +12054,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_validate_typed_array_current_byte_length(
-            receiver_payload_local,
-            receiver_tag_local,
-            source_buffer_payload_local,
-            source_byte_offset_local,
-            source_byte_length_local,
+        self.emit_typed_array_witness(
+            &source_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local: current_source_length_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(source_byte_length_local));
-        function.instruction(&Instruction::LocalGet(source_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(current_source_length_local));
         function.instruction(&Instruction::LocalGet(end_index_local));
         function.instruction(&Instruction::LocalGet(current_source_length_local));
         function.instruction(&Instruction::I64GtU);
@@ -12142,13 +12124,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(copied_element_count_local));
         function.instruction(&Instruction::LocalGet(source_bytes_per_element_local));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(copied_element_count_local));
+        function.instruction(&Instruction::LocalSet(copied_byte_count_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(copy_index_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(copy_index_local));
-        function.instruction(&Instruction::LocalGet(copied_element_count_local));
+        function.instruction(&Instruction::LocalGet(copied_byte_count_local));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
         function.instruction(&Instruction::LocalGet(target_address_local));
@@ -12220,6 +12202,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(target_address_local);
         self.release_temp_local(source_address_local);
         self.release_temp_local(copy_index_local);
+        self.release_temp_local(copied_byte_count_local);
         self.release_temp_local(copied_element_count_local);
         self.release_temp_local(current_source_length_local);
         self.release_temp_local(target_element_kind_local);
@@ -12249,7 +12232,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(source_length_local);
         self.release_temp_local(source_element_kind_local);
         self.release_temp_local(source_bytes_per_element_local);
-        self.release_temp_local(source_byte_length_local);
+        self.release_temp_local(source_stored_byte_length_local);
         self.release_temp_local(source_byte_offset_local);
         self.release_temp_local(source_buffer_pointer_local);
         self.release_temp_local(source_buffer_payload_local);

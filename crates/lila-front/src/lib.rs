@@ -813,12 +813,177 @@ mod tests {
     }
 
     #[test]
-    fn adjacent_invalid_super_usage_producers_remain_unclassified_by_this_lane() {
+    fn base_constructor_direct_super_rejections_cover_both_forms_inputs_arrows_and_goals() {
+        for source in [
+            "class C { constructor() { super(); } }",
+            "(class { constructor() { super(); } });",
+            "class C { constructor(value = super()) {} }",
+            "class C { constructor() { (() => super())(); } }",
+            "class C { constructor(value = (() => super())()) {} }",
+            "class C { constructor() { (() => () => super())()(); } }",
+            "class C { constructor() { (async () => super())(); } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a base constructor HasDirectSuper should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassBaseConstructorHasDirectSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the class-owned rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_static_block_super_call_rejections_cover_forms_heritage_arrows_and_goals() {
+        for source in [
+            "class C { static { super(); } }",
+            "(class { static { super(); } });",
+            "class B {}; class C extends B { static { super(); } }",
+            "class C { static { { super(); } } }",
+            "class C { static { (() => super())(); } }",
+            "class C { static { ((value = super()) => value)(); } }",
+            "class C { static { (() => () => super())()(); } }",
+            "class C { static { (async () => super())(); } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a class static block Contains SuperCall should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassStaticBlockContainsSuperCall),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the class-owned rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_super_call_positive_boundaries_remain_valid_under_both_goals() {
+        for source in [
+            "class C {}",
+            "class B {}; class C extends B { constructor() { super(); } }",
+            "class C extends null { constructor() { super(); } }",
+            "class C { constructor() { void super.value; } }",
+            "class C { constructor() { class D extends C { constructor() { super(); } } } }",
+            "class C { static {} }",
+            "class B {}; class C extends B { static { void super.value; } }",
+            "class C { static { class D extends C { constructor() { super(); } } } }",
+            "class C { static { const text = \"super()\"; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "heritage, SuperProperty and nested class ownership must stay distinct",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn class_super_call_precedence_preserves_pinned_boa_check_order() {
+        for (source, code) in [
+            (
+                "class C { constructor() { super(); } static { super(); } }",
+                EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+            ),
+            (
+                "class C { static { super(); } constructor() { super(); } }",
+                EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+            ),
+            (
+                "class C { static { arguments; super(); } }",
+                EarlyErrorCode::ClassStaticBlockContainsArguments,
+            ),
+            (
+                "class C { static { super(); await 0; } }",
+                EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+            ),
+            (
+                "class C { constructor() { super(); } constructor() {} }",
+                EarlyErrorCode::DuplicateClassConstructor,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the earlier pinned class check should own the rejection");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_super_call_classifier_rows_are_distinct_and_injection_safe() {
+        for (message, code) in [
+            (
+                "base class constructor cannot contain direct super call at line 2, col 1",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+            (
+                "class static block cannot contain super call at line 2, col 1",
+                EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+            ),
+        ] {
+            assert_eq!(
+                classify_parse_failure(message).map(ParseClassified::code),
+                Some(code)
+            );
+        }
+        for message in [
+            "invalid super usage at line 1, col 2",
+            "invalid super call usage at line 1, col 1",
+        ] {
+            assert_eq!(classify_parse_failure(message), None);
+        }
+
+        for exported_name in [
+            "base class constructor cannot contain direct super call at line",
+            "class static block cannot contain super call at line",
+        ] {
+            let source = format!(
+                "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
+            );
+            let err = parse(&source, ParseOptions::module())
+                .expect_err("the user-chosen exported name is duplicated");
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ModuleDuplicateExport),
+                "{err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn adjacent_invalid_super_producers_remain_unclassified_by_this_lane() {
         for source in [
             "function f() { super.value; }",
-            "class Base { constructor() { super(); } }",
             "class C { field = super(); }",
-            "class C { static { super(); } }",
+            "class C { method() { super(); } }",
         ] {
             for options in [ParseOptions::script(), ParseOptions::module()] {
                 let err = parse(source, options)
@@ -882,7 +1047,17 @@ mod tests {
     }
 
     #[test]
-    fn known_script_top_level_super_producer_stays_structurally_reviewed() {
+    fn known_script_and_class_super_producers_stay_structurally_reviewed() {
+        fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+            source
+                .split_once(start)
+                .unwrap_or_else(|| panic!("missing start marker: {start}"))
+                .1
+                .split_once(end)
+                .unwrap_or_else(|| panic!("missing end marker after: {start}"))
+                .0
+        }
+
         fn count_in_rust_sources(root: &std::path::Path, fragment: &str) -> usize {
             let entries = std::fs::read_dir(root)
                 .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()));
@@ -901,6 +1076,25 @@ mod tests {
             count
         }
 
+        fn collect_rust_sources(
+            root: &std::path::Path,
+            sources: &mut Vec<(std::path::PathBuf, String)>,
+        ) {
+            let entries = std::fs::read_dir(root)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()));
+            for entry in entries {
+                let path = entry.expect("failed to read workspace source entry").path();
+                if path.is_dir() {
+                    collect_rust_sources(&path, sources);
+                } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                    let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                        panic!("failed to read {}: {error}", path.display())
+                    });
+                    sources.push((path, source));
+                }
+            }
+        }
+
         let compact = |source: &str| {
             source
                 .chars()
@@ -909,6 +1103,10 @@ mod tests {
         };
 
         const RAW_MESSAGE: &str = "invalid super usage";
+        const METHOD_MESSAGE: &str = "invalid super call usage";
+        const BASE_CONSTRUCTOR_MESSAGE: &str =
+            "base class constructor cannot contain direct super call";
+        const STATIC_BLOCK_MESSAGE: &str = "class static block cannot contain super call";
         const MODULE_MESSAGE: &str = "module cannot contain `super` on the top-level";
         const SCRIPT_BRANCH: &str = r#"if contains(&body, ContainsSymbol::Super) {
                 return Err(Error::general("invalid super usage", Position::new(1, 1)));
@@ -921,12 +1119,81 @@ mod tests {
         }"#;
         const PARAMETER_POSITION: &str = r#""invalid super usage".into(),
                 params_start_position,"#;
-        const CLASS_BODY_POSITION: &str = r#""invalid super usage".into(),
+        const BASE_CONSTRUCTOR_BRANCH: &str = r#"if super_ref.is_none()
+                && let Some(constructor) = &constructor
+                && contains(constructor, ContainsSymbol::SuperCall)
+            {
+                return Err(Error::lex(LexError::Syntax(
+                    "base class constructor cannot contain direct super call".into(),
                     body_start,"#;
         const CLASS_ELEMENT_POSITION: &str = r#""invalid super usage".into(),
                             position,"#;
-        const CLASS_STATIC_BLOCK_POSITION: &str =
-            r#"Error::general("invalid super usage", position)"#;
+        const FIELD_NODE_SUPER_BRANCH: &str = r#"if let Some(node) = field.initializer()
+                        && contains(node, ContainsSymbol::SuperCall)
+                    {
+                        return Err(Error::lex(LexError::Syntax(
+                            "invalid super usage".into(),
+                            position,
+                        )));
+                    }"#;
+        const FIELD_SUPER_BRANCH: &str = r#"if let Some(field) = field.initializer()
+                        && contains(field, ContainsSymbol::SuperCall)
+                    {
+                        return Err(Error::lex(LexError::Syntax(
+                            "invalid super usage".into(),
+                            position,
+                        )));
+                    }"#;
+        const CLASS_METHOD_NAME_SUPER_BRANCH: &str =
+            r#"if let ClassElementName::PropertyName(name) = m.name()
+                        && contains(name, ContainsSymbol::SuperCall)
+                    {
+                        return Err(Error::lex(LexError::Syntax(
+                            "invalid super call usage".into(),
+                            position,
+                        )));
+                    }"#;
+        const CLASS_METHOD_BODY_SUPER_BRANCH: &str =
+            r#"if contains(m.parameters(), ContainsSymbol::SuperCall)
+                        || contains(m.body(), ContainsSymbol::SuperCall)
+                    {
+                        return Err(Error::lex(LexError::Syntax(
+                            "invalid super call usage".into(),
+                            position,
+                        )));
+                    }"#;
+        const OBJECT_METHOD_POSITION_SUPER_BRANCH: &str =
+            r#"if has_direct_super_new(&params, &body) {
+                    return Err(Error::lex(LexError::Syntax(
+                        "invalid super call usage".into(),
+                        position,
+                    )));
+                }"#;
+        const OBJECT_GETTER_SUPER_BRANCH: &str =
+            r#"if has_direct_super_new(&FormalParameterList::default(), &body) {
+                    return Err(Error::lex(LexError::Syntax(
+                        "invalid super call usage".into(),
+                        position,
+                    )));
+                }"#;
+        const OBJECT_METHOD_PARAMS_SUPER_BRANCH: &str =
+            r#"if has_direct_super_new(&params, &body) {
+                    return Err(Error::lex(LexError::Syntax(
+                        "invalid super call usage".into(),
+                        params_start_position,
+                    )));
+                }"#;
+        const OBJECT_METHOD_BODY_SUPER_BRANCH: &str =
+            r#"if has_direct_super_new(&params, &body) {
+            return Err(Error::lex(LexError::Syntax(
+                "invalid super call usage".into(),
+                body_start,
+            )));
+        }"#;
+        const STATIC_BLOCK_BRANCH: &str = r#"if contains(&statement_list, ContainsSymbol::SuperCall) {
+                        return Err(Error::general(
+                            "class static block cannot contain super call",
+                            position,"#;
         const PARSER_SOURCE: &str =
             include_str!("../../../vendor/boa_parser-0.21.1/src/parser/mod.rs");
         const HOISTABLE_SOURCE: &str = include_str!(
@@ -944,6 +1211,9 @@ mod tests {
         const ASYNC_GENERATOR_EXPRESSION_SOURCE: &str = include_str!(
             "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/async_generator_expression/mod.rs"
         );
+        const OBJECT_INITIALIZER_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/expression/primary/object_initializer/mod.rs"
+        );
         const CLASS_SOURCE: &str = include_str!(
             "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs"
         );
@@ -951,7 +1221,16 @@ mod tests {
 
         let boa_package_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
-        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 12);
+        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 10);
+        assert_eq!(count_in_rust_sources(&boa_package_root, METHOD_MESSAGE), 11);
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, BASE_CONSTRUCTOR_MESSAGE),
+            1
+        );
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, STATIC_BLOCK_MESSAGE),
+            1
+        );
         assert_eq!(count_in_rust_sources(&boa_package_root, MODULE_MESSAGE), 1);
 
         let script_start = PARSER_SOURCE
@@ -1041,10 +1320,14 @@ mod tests {
         }
 
         let compact_class = compact(CLASS_SOURCE);
-        assert_eq!(CLASS_SOURCE.matches(RAW_MESSAGE).count(), 6);
+        assert_eq!(CLASS_SOURCE.matches(RAW_MESSAGE).count(), 4);
+        assert_eq!(CLASS_SOURCE.matches(METHOD_MESSAGE).count(), 2);
+        assert_eq!(OBJECT_INITIALIZER_SOURCE.matches(METHOD_MESSAGE).count(), 9);
+        assert_eq!(CLASS_SOURCE.matches(BASE_CONSTRUCTOR_MESSAGE).count(), 1);
+        assert_eq!(CLASS_SOURCE.matches(STATIC_BLOCK_MESSAGE).count(), 1);
         assert_eq!(
             compact_class
-                .matches(compact(CLASS_BODY_POSITION).as_str())
+                .matches(compact(BASE_CONSTRUCTOR_BRANCH).as_str())
                 .count(),
             1
         );
@@ -1054,9 +1337,80 @@ mod tests {
                 .count(),
             4
         );
+
+        let class_elements = bounded(
+            CLASS_SOURCE,
+            "match &element {",
+            "            elements.push(element);",
+        );
+        let private_field = bounded(
+            class_elements,
+            "function::ClassElement::PrivateFieldDefinition(field) => {",
+            "function::ClassElement::PrivateStaticFieldDefinition(field) => {",
+        );
+        let private_static_field = bounded(
+            class_elements,
+            "function::ClassElement::PrivateStaticFieldDefinition(field) => {",
+            "function::ClassElement::FieldDefinition(field)",
+        );
+        let grouped_public_fields = bounded(
+            class_elements,
+            "function::ClassElement::FieldDefinition(field)",
+            "function::ClassElement::StaticAccessorFieldDefinition(field) => {",
+        );
+        let static_accessor_field = bounded(
+            class_elements,
+            "function::ClassElement::StaticAccessorFieldDefinition(field) => {",
+            "function::ClassElement::StaticBlock(_) => {}",
+        );
+        let compact_node_field_branch = compact(FIELD_NODE_SUPER_BRANCH);
+        let compact_field_branch = compact(FIELD_SUPER_BRANCH);
+        for (owner, branch) in [
+            (private_field, compact_node_field_branch.as_str()),
+            (private_static_field, compact_node_field_branch.as_str()),
+            (grouped_public_fields, compact_field_branch.as_str()),
+            (static_accessor_field, compact_field_branch.as_str()),
+        ] {
+            assert_eq!(owner.matches(RAW_MESSAGE).count(), 1);
+            assert_eq!(compact(owner).matches(branch).count(), 1);
+            assert_eq!(owner.matches(METHOD_MESSAGE).count(), 0);
+        }
+
         assert_eq!(
             compact_class
-                .matches(compact(CLASS_STATIC_BLOCK_POSITION).as_str())
+                .matches(compact(CLASS_METHOD_NAME_SUPER_BRANCH).as_str())
+                .count(),
+            1
+        );
+        assert_eq!(
+            compact_class
+                .matches(compact(CLASS_METHOD_BODY_SUPER_BRANCH).as_str())
+                .count(),
+            1
+        );
+        let compact_object_initializer = compact(OBJECT_INITIALIZER_SOURCE);
+        for (branch, count) in [
+            (OBJECT_METHOD_POSITION_SUPER_BRANCH, 3),
+            (OBJECT_GETTER_SUPER_BRANCH, 1),
+            (OBJECT_METHOD_PARAMS_SUPER_BRANCH, 2),
+            (OBJECT_METHOD_BODY_SUPER_BRANCH, 3),
+        ] {
+            assert_eq!(
+                compact_object_initializer
+                    .matches(compact(branch).as_str())
+                    .count(),
+                count
+            );
+        }
+        assert_eq!(
+            CLASS_SOURCE.matches(METHOD_MESSAGE).count()
+                + OBJECT_INITIALIZER_SOURCE.matches(METHOD_MESSAGE).count(),
+            count_in_rust_sources(&boa_package_root, METHOD_MESSAGE),
+            "all eleven method-message producers must remain in the two reviewed parser owners"
+        );
+        assert_eq!(
+            compact_class
+                .matches(compact(STATIC_BLOCK_BRANCH).as_str())
                 .count(),
             1
         );
@@ -1066,6 +1420,52 @@ mod tests {
                 .count(),
             0
         );
+
+        let class_tail_start = CLASS_SOURCE
+            .find("impl<R> TokenParser<R> for ClassTail")
+            .expect("the ClassTail parser remains present");
+        let class_heritage_start = CLASS_SOURCE[class_tail_start..]
+            .find("/// `ClassHeritage` parsing.")
+            .map(|offset| class_tail_start + offset)
+            .expect("ClassHeritage remains after ClassTail");
+        let class_tail = &CLASS_SOURCE[class_tail_start..class_heritage_start];
+        let class_body_parse = class_tail
+            .find("ClassBody::new(self.name, self.allow_yield, self.allow_await)")
+            .expect("ClassTail must parse one complete ClassBody");
+        let base_constructor_check = class_tail
+            .find("if super_ref.is_none()")
+            .expect("the absent-heritage constructor check remains present");
+        assert!(class_body_parse < base_constructor_check);
+        assert_eq!(class_tail.matches(BASE_CONSTRUCTOR_MESSAGE).count(), 1);
+        assert_eq!(class_tail.matches("body_start").count(), 2);
+
+        let static_block_start = CLASS_SOURCE
+            .find("TokenKind::Punctuator(Punctuator::OpenBlock) if r#static => {")
+            .expect("the class static-block parser remains present");
+        let static_block_end = CLASS_SOURCE[static_block_start..]
+            .find("function::ClassElement::StaticBlock(")
+            .map(|offset| static_block_start + offset)
+            .expect("the class static-block AST construction remains after validation");
+        let static_block = &CLASS_SOURCE[static_block_start..static_block_end];
+        let arguments_check = static_block
+            .find("if contains_arguments(&statement_list)")
+            .expect("ContainsArguments remains the first adjacent static-block check");
+        let super_call_check = static_block
+            .find("if contains(&statement_list, ContainsSymbol::SuperCall)")
+            .expect("the static-block Contains SuperCall check remains present");
+        let await_check = static_block
+            .find("if contains(&statement_list, ContainsSymbol::AwaitExpression)")
+            .expect("the static-block Contains AwaitExpression check remains present");
+        let object_literal_check = static_block
+            .find("if contains_invalid_object_literal(&statement_list)")
+            .expect("the static-block cover-grammar check remains present");
+        assert!(
+            arguments_check < super_call_check
+                && super_call_check < await_check
+                && await_check < object_literal_check,
+            "the class static-block early-error ordering changed"
+        );
+        assert_eq!(static_block.matches(STATIC_BLOCK_MESSAGE).count(), 1);
 
         let front_product = FRONT_SOURCE
             .split_once("#[cfg(test)]\nmod tests {")
@@ -1156,6 +1556,157 @@ mod tests {
         }
         parser_dependency_owners.sort();
         assert_eq!(parser_dependency_owners, vec!["lila-front".to_string()]);
+
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("lila-front remains two levels below the workspace root");
+        let mut workspace_sources = Vec::new();
+        collect_rust_sources(&workspace_root.join("crates"), &mut workspace_sources);
+
+        fn identifier_mentions(source: &str, identifier: &str) -> usize {
+            let is_identifier_continue = |character: Option<char>| {
+                character.is_some_and(|character| character.is_alphanumeric() || character == '_')
+            };
+
+            source
+                .match_indices(identifier)
+                .filter(|(start, _)| {
+                    let end = *start + identifier.len();
+                    !is_identifier_continue(source[..*start].chars().next_back())
+                        && !is_identifier_continue(source[end..].chars().next())
+                })
+                .count()
+        }
+
+        let classifier_identifier = ["classify_parse_", "failure"].concat();
+        let classifier_call = ["classify_parse_", "failure("].concat();
+        let classifier_definition = ["pub const fn classify_parse_", "failure("].concat();
+        let product_parse_call = ["classify_parse_", "failure(&err)"].concat();
+        let dependency_test_helper_call =
+            ["lila_front::classify_parse_", "failure(message)"].concat();
+        let classifier_reexport = [
+            "pubuseearly_error_code::{classify_parse_",
+            "failure,EarlyErrorCode,ParseClassified,NO_EARLY_ERROR_CODE,};",
+        ]
+        .concat();
+        let front_glob_import = ["lila_front", "::*"].concat();
+        let classifier_module_glob_import = ["early_error_code", "::*"].concat();
+        let mut all_classifier_identifier_owners = Vec::new();
+        let mut product_classifier_definitions = Vec::new();
+        let mut product_classifier_calls = Vec::new();
+        let mut product_parse_call_owners = Vec::new();
+        let mut dependency_test_helper_owners = Vec::new();
+        let mut classifier_reexport_owners = Vec::new();
+        let mut classifier_glob_import_owners = Vec::new();
+        for (path, source) in workspace_sources {
+            let relative = path
+                .strip_prefix(workspace_root)
+                .expect("workspace Rust source must remain below the workspace root")
+                .to_string_lossy()
+                .into_owned();
+            let all_count = identifier_mentions(&source, &classifier_identifier);
+            if all_count != 0 {
+                all_classifier_identifier_owners.push((relative.clone(), all_count));
+            }
+
+            let (product, tests) = source
+                .split_once("#[cfg(test)]")
+                .map_or((source.as_str(), ""), |(product, tests)| (product, tests));
+            let definition_count = product
+                .matches(classifier_definition.as_str())
+                .count();
+            if definition_count != 0 {
+                product_classifier_definitions.push((relative.clone(), definition_count));
+            }
+            let call_count = product.matches(classifier_call.as_str()).count() - definition_count;
+            if call_count != 0 {
+                product_classifier_calls.push((relative.clone(), call_count));
+            }
+            let product_parse_call_count = product.matches(product_parse_call.as_str()).count();
+            if product_parse_call_count != 0 {
+                product_parse_call_owners.push((relative.clone(), product_parse_call_count));
+            }
+            let dependency_test_helper_count = tests
+                .matches(dependency_test_helper_call.as_str())
+                .count();
+            if dependency_test_helper_count != 0 {
+                dependency_test_helper_owners
+                    .push((relative.clone(), dependency_test_helper_count));
+            }
+            let reexport_count = compact(product)
+                .matches(classifier_reexport.as_str())
+                .count();
+            if reexport_count != 0 {
+                classifier_reexport_owners.push((relative.clone(), reexport_count));
+            }
+            let compact_source = compact(&source);
+            let glob_count = compact_source.matches(front_glob_import.as_str()).count()
+                + compact_source
+                    .matches(classifier_module_glob_import.as_str())
+                    .count();
+            if glob_count != 0 {
+                classifier_glob_import_owners.push((relative, glob_count));
+            }
+        }
+        all_classifier_identifier_owners.sort();
+        product_classifier_definitions.sort();
+        product_classifier_calls.sort();
+        product_parse_call_owners.sort();
+        dependency_test_helper_owners.sort();
+        classifier_reexport_owners.sort();
+        classifier_glob_import_owners.sort();
+        assert_eq!(
+            all_classifier_identifier_owners,
+            vec![
+                (
+                    "crates/lila-front/src/early_error_code.rs".to_string(),
+                    22,
+                ),
+                ("crates/lila-front/src/lib.rs".to_string(), 10),
+                ("crates/lila-ir/src/modules/early.rs".to_string(), 2),
+            ],
+            "every classifier identifier, including imports, re-exports and aliases, requires review"
+        );
+        assert_eq!(
+            product_classifier_definitions,
+            vec![(
+                "crates/lila-front/src/early_error_code.rs".to_string(),
+                1,
+            )],
+            "the workspace must retain one classifier definition"
+        );
+        assert_eq!(
+            product_classifier_calls,
+            vec![
+                (
+                    "crates/lila-front/src/early_error_code.rs".to_string(),
+                    17,
+                ),
+                ("crates/lila-front/src/lib.rs".to_string(), 1),
+            ],
+            "only classifier self-proofs and the product parse boundary may call the classifier"
+        );
+        assert_eq!(
+            classifier_reexport_owners,
+            vec![("crates/lila-front/src/lib.rs".to_string(), 1)],
+            "the public classifier surface must remain the one reviewed lila-front re-export"
+        );
+        assert_eq!(
+            classifier_glob_import_owners,
+            Vec::<(String, usize)>::new(),
+            "workspace glob imports must not expose or alias the classifier without naming it"
+        );
+        assert_eq!(
+            product_parse_call_owners,
+            vec![("crates/lila-front/src/lib.rs".to_string(), 1)],
+            "the sole product classifier consumer must remain lila-front's direct Boa parse boundary"
+        );
+        assert_eq!(
+            dependency_test_helper_owners,
+            vec![("crates/lila-ir/src/modules/early.rs".to_string(), 1)],
+            "only the retained lila-ir test helper may call the exported classifier directly"
+        );
     }
 
     #[test]
@@ -1171,6 +1722,21 @@ mod tests {
             &source[start..end]
         }
 
+        fn visit_with_method<'a>(source: &'a str, implementation: &str) -> &'a str {
+            let implementation_start = source
+                .find(implementation)
+                .unwrap_or_else(|| panic!("missing VisitWith implementation {implementation}"));
+            let method_start = source[implementation_start..]
+                .find("fn visit_with<'a, V>")
+                .map(|offset| implementation_start + offset)
+                .expect("VisitWith implementation must retain its shared visitor method");
+            let method_end = source[method_start..]
+                .find("\n    fn visit_with_mut")
+                .map(|offset| method_start + offset)
+                .expect("shared visitor method must remain before its mutable counterpart");
+            &source[method_start..method_end]
+        }
+
         let compact = |source: &str| {
             source
                 .chars()
@@ -1182,6 +1748,8 @@ mod tests {
             include_str!("../../../vendor/boa_ast-0.21.1/src/operations/mod.rs");
         const PROPERTY_SOURCE: &str =
             include_str!("../../../vendor/boa_ast-0.21.1/src/property.rs");
+        const CLASS_SOURCE: &str =
+            include_str!("../../../vendor/boa_ast-0.21.1/src/function/class.rs");
 
         for signature in [
             "fn visit_function_expression(",
@@ -1202,35 +1770,193 @@ mod tests {
             );
         }
 
-        for signature in ["fn visit_arrow_function(", "fn visit_async_arrow_function("] {
-            let method = visitor_method(OPERATIONS_SOURCE, signature);
-            assert_eq!(method.matches("ContainsSymbol::Super,").count(), 1);
-            assert_eq!(method.matches("node.visit_with(self)").count(), 1);
+        const ARROW_VISITOR: &str = r#"fn visit_arrow_function(
+            &mut self,
+            node: &'ast ArrowFunction,
+        ) -> ControlFlow<Self::BreakTy> {
+            if ![
+                ContainsSymbol::NewTarget,
+                ContainsSymbol::SuperProperty,
+                ContainsSymbol::SuperCall,
+                ContainsSymbol::Super,
+                ContainsSymbol::This,
+                ContainsSymbol::DirectEval,
+            ]
+            .contains(&self.0)
+            {
+                return ControlFlow::Continue(());
+            }
+
+            node.visit_with(self)
+        }"#;
+        const ASYNC_ARROW_VISITOR: &str = r#"fn visit_async_arrow_function(
+            &mut self,
+            node: &'ast AsyncArrowFunction,
+        ) -> ControlFlow<Self::BreakTy> {
+            if ![
+                ContainsSymbol::NewTarget,
+                ContainsSymbol::SuperProperty,
+                ContainsSymbol::SuperCall,
+                ContainsSymbol::Super,
+                ContainsSymbol::This,
+                ContainsSymbol::DirectEval,
+            ]
+            .contains(&self.0)
+            {
+                return ControlFlow::Continue(());
+            }
+
+            node.visit_with(self)
+        }"#;
+        for (signature, expected) in [
+            ("fn visit_arrow_function(", ARROW_VISITOR),
+            ("fn visit_async_arrow_function(", ASYNC_ARROW_VISITOR),
+        ] {
+            let method = compact(visitor_method(OPERATIONS_SOURCE, signature));
+            assert_eq!(
+                method,
+                compact(expected),
+                "lexical arrow traversal changed: {signature}"
+            );
+            assert_eq!(method.matches("returnControlFlow::Continue(())").count(), 1);
+            assert_eq!(method.matches("ContainsSymbol::SuperCall").count(), 1);
+            assert!(method.ends_with("node.visit_with(self)}"));
         }
 
-        for signature in ["fn visit_class_expression(", "fn visit_class_declaration("] {
-            let method = visitor_method(OPERATIONS_SOURCE, signature);
-            assert_eq!(method.matches("ContainsSymbol::ClassHeritage").count(), 1);
-            assert_eq!(method.matches("node.visit_with(self)").count(), 1);
+        const CLASS_EXPRESSION_VISITOR: &str = r#"fn visit_class_expression(
+            &mut self,
+            node: &'ast ClassExpression,
+        ) -> ControlFlow<Self::BreakTy> {
+            if !node.elements().is_empty() && self.0 == ContainsSymbol::ClassBody {
+                return ControlFlow::Break(());
+            }
+
+            if node.super_ref().is_some() && self.0 == ContainsSymbol::ClassHeritage {
+                return ControlFlow::Break(());
+            }
+
+            node.visit_with(self)
+        }"#;
+        const CLASS_DECLARATION_VISITOR: &str = r#"fn visit_class_declaration(
+            &mut self,
+            node: &'ast ClassDeclaration,
+        ) -> ControlFlow<Self::BreakTy> {
+            if !node.elements().is_empty() && self.0 == ContainsSymbol::ClassBody {
+                return ControlFlow::Break(());
+            }
+
+            if node.super_ref().is_some() && self.0 == ContainsSymbol::ClassHeritage {
+                return ControlFlow::Break(());
+            }
+
+            node.visit_with(self)
+        }"#;
+        for (signature, expected) in [
+            ("fn visit_class_expression(", CLASS_EXPRESSION_VISITOR),
+            ("fn visit_class_declaration(", CLASS_DECLARATION_VISITOR),
+        ] {
+            let method = compact(visitor_method(OPERATIONS_SOURCE, signature));
+            assert_eq!(
+                method,
+                compact(expected),
+                "class Contains boundary changed: {signature}"
+            );
+            assert!(
+                !method.contains("ContainsSymbol::SuperCall"),
+                "a nested class must not stop SuperCall before computed names are visited: {signature}"
+            );
+            assert!(method.ends_with("node.visit_with(self)}"));
         }
 
+        const CLASS_ELEMENT_VISITOR: &str = r#"fn visit_class_element(
+            &mut self,
+            node: &'ast ClassElement,
+        ) -> ControlFlow<Self::BreakTy> {
+            match node {
+                ClassElement::MethodDefinition(m) => {
+                    if self.0 == ContainsSymbol::DirectEval {
+                        return ControlFlow::Continue(());
+                    }
+
+                    if let ClassElementName::PropertyName(name) = m.name() {
+                        name.visit_with(self)
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                }
+                ClassElement::FieldDefinition(field)
+                | ClassElement::StaticFieldDefinition(field) => field.name.visit_with(self),
+                _ => ControlFlow::Continue(()),
+            }
+        }"#;
         let class_element = compact(visitor_method(OPERATIONS_SOURCE, "fn visit_class_element("));
-        assert!(class_element.contains(
-            "ClassElement::MethodDefinition(m)=>{ifself.0==ContainsSymbol::DirectEval{returnControlFlow::Continue(());}ifletClassElementName::PropertyName(name)=m.name(){name.visit_with(self)}else{ControlFlow::Continue(())}}"
-        ));
-        assert!(class_element.contains(
-            "ClassElement::FieldDefinition(field)|ClassElement::StaticFieldDefinition(field)=>field.name.visit_with(self)"
-        ));
-        assert_eq!(
-            class_element
-                .matches("_=>ControlFlow::Continue(())")
-                .count(),
-            1
-        );
-        assert!(
-            !class_element.contains("AccessorFieldDefinition"),
-            "public auto-accessor computed names remain explicit adjacent pinned-Boa debt"
-        );
+        assert_eq!(class_element, compact(CLASS_ELEMENT_VISITOR));
+        assert!(!class_element.contains("StaticBlock"));
+        assert!(!class_element.contains(".body"));
+        assert!(!class_element.contains("initializer"));
+
+        const CLASS_DECLARATION_VISIT_WITH: &str = r#"fn visit_with<'a, V>(
+            &'a self,
+            visitor: &mut V,
+        ) -> ControlFlow<V::BreakTy>
+        where
+            V: Visitor<'a>,
+        {
+            visitor.visit_identifier(&self.name)?;
+            for decorator in &*self.decorators {
+                visitor.visit_expression(decorator)?;
+            }
+            if let Some(expr) = &self.super_ref {
+                visitor.visit_expression(expr)?;
+            }
+            if let Some(func) = &self.constructor {
+                visitor.visit_function_expression(func)?;
+            }
+            for elem in &*self.elements {
+                visitor.visit_class_element(elem)?;
+            }
+            ControlFlow::Continue(())
+        }"#;
+        const CLASS_EXPRESSION_VISIT_WITH: &str = r#"fn visit_with<'a, V>(
+            &'a self,
+            visitor: &mut V,
+        ) -> ControlFlow<V::BreakTy>
+        where
+            V: Visitor<'a>,
+        {
+            if let Some(ident) = &self.name {
+                visitor.visit_identifier(ident)?;
+            }
+            for decorator in &*self.decorators {
+                visitor.visit_expression(decorator)?;
+            }
+            if let Some(expr) = &self.super_ref {
+                visitor.visit_expression(expr)?;
+            }
+            if let Some(func) = &self.constructor {
+                visitor.visit_function_expression(func)?;
+            }
+            for elem in &*self.elements {
+                visitor.visit_class_element(elem)?;
+            }
+            ControlFlow::Continue(())
+        }"#;
+        for (implementation, expected) in [
+            (
+                "impl VisitWith for ClassDeclaration",
+                CLASS_DECLARATION_VISIT_WITH,
+            ),
+            (
+                "impl VisitWith for ClassExpression",
+                CLASS_EXPRESSION_VISIT_WITH,
+            ),
+        ] {
+            assert_eq!(
+                compact(visit_with_method(CLASS_SOURCE, implementation)),
+                compact(expected),
+                "nested-class traversal changed: {implementation}"
+            );
+        }
 
         let property_definition = compact(visitor_method(
             OPERATIONS_SOURCE,
@@ -1240,15 +1966,29 @@ mod tests {
         assert!(property_definition.contains("returnm.name().visit_with(self);"));
         assert!(property_definition.ends_with("node.visit_with(self)}"));
 
-        let property_visit_start = PROPERTY_SOURCE
-            .find("impl VisitWith for PropertyName")
-            .expect("PropertyName retains its VisitWith implementation");
-        let property_visit_end = PROPERTY_SOURCE[property_visit_start..]
-            .find("fn visit_with_mut")
-            .map(|offset| property_visit_start + offset)
-            .expect("PropertyName retains its mutable visitor after the shared visitor");
-        let property_visit = compact(&PROPERTY_SOURCE[property_visit_start..property_visit_end]);
-        assert!(property_visit.contains("Self::Computed(expr)=>visitor.visit_expression(expr)"));
+        const PROPERTY_NAME_VISIT_WITH: &str = r#"fn visit_with<'a, V>(
+            &'a self,
+            visitor: &mut V,
+        ) -> ControlFlow<V::BreakTy>
+        where
+            V: Visitor<'a>,
+        {
+            match self {
+                Self::Literal(ident) => visitor.visit_sym(ident.sym_ref()),
+                Self::Computed(expr) => visitor.visit_expression(expr),
+            }
+        }"#;
+        let property_visit = compact(visit_with_method(
+            PROPERTY_SOURCE,
+            "impl VisitWith for PropertyName",
+        ));
+        assert_eq!(property_visit, compact(PROPERTY_NAME_VISIT_WITH));
+        assert!(
+            class_element.contains("m.name()")
+                && class_element.contains("field.name.visit_with(self)")
+                && property_visit.contains("Self::Computed(expr)=>visitor.visit_expression(expr)"),
+            "nested classes must traverse computed element names without traversing class bodies"
+        );
     }
 
     #[test]
@@ -4639,6 +5379,10 @@ switch (0) {
             ParseClassified::from_early(EarlyErrorCode::CatchBodyDeclarationConflict).is_some()
         );
         assert!(
+            ParseClassified::from_early(EarlyErrorCode::ClassBaseConstructorHasDirectSuper)
+                .is_some()
+        );
+        assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassConstructorGeneratorMethod).is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorAsyncMethod).is_some());
@@ -4656,6 +5400,10 @@ switch (0) {
         .is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)
+                .is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsSuperCall)
                 .is_some()
         );
         assert!(

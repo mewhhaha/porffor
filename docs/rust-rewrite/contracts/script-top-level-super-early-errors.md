@@ -97,28 +97,29 @@ The fixed `Position::new(1, 1)` is part of the current pin's classification
 boundary. It distinguishes this producer from the other reachable producers
 that reuse the raw literal `invalid super usage`.
 
-Across every Rust source in pinned `boa_parser-0.21.1`, that raw literal occurs
-exactly twelve times:
+After the separately typed class-super-call repair, across every Rust source in
+pinned `boa_parser-0.21.1` that raw literal occurs exactly ten times:
 
 | Parser owner | Raw occurrences | Position source | New code owns it |
 | --- | ---: | --- | --- |
 | `parser/mod.rs` ScriptBody check | 1 | fixed `Position::new(1, 1)` | yes |
 | shared hoistable-declaration parser | 1 | `params_start_position` | no |
 | ordinary/generator/async/async-generator expression parsers | 4 | each form's parameter-start position | no |
-| class parser constructor, field and static-block checks | 6 | `body_start` or class-element/static-block `position` | no |
+| class parser field-initializer checks | 4 | class-element `position` | no |
 
-The other eleven positions occur only after syntax that must precede the
-reported construct: a function head, class head, class element or static-block
-head. They cannot render line 1, column 1. They cover distinct callable,
-constructor, field and static-block conditions and must remain unclassified by
-this lane. A broad row for `invalid super usage at line` would falsely merge
-all twelve producers.
+The other nine positions occur only after syntax that must precede the
+reported construct: a function head or class field. They cannot render line 1,
+column 1. They cover distinct callable and field conditions and must remain
+unclassified by this lane. A broad row for `invalid super usage at line` would
+falsely merge all ten producers. The base-constructor and static-block
+`SuperCall` conditions now have their own unique raw messages and codes under
+`class-super-call-early-errors.md`.
 
-No vendor repair is required. The existing fixed-position Script message is
-already sufficient for an exact-message classifier row. A future change that
-makes another producer render the same 1:1 message would invalidate this
-contract and must fail the structural source guard before classification is
-broadened.
+No vendor repair is required for the Script producer. Its existing
+fixed-position message remains sufficient for an exact-message classifier row.
+A future change that makes another producer render the same 1:1 message would
+invalidate this contract and must fail the structural source guard before
+classification is broadened.
 
 Before this extension, the complete Script message matches no row in
 `lila-front`'s classifier. The source is therefore reported as
@@ -284,7 +285,7 @@ inventing an unreachable Module producer.
 A durable source guard must recursively inventory the pinned Boa parser and
 prove all of the following:
 
-- the raw literal `invalid super usage` occurs exactly twelve times across
+- the raw literal `invalid super usage` occurs exactly ten times across
   Rust sources;
 - exactly one occurrence is the ScriptBody call with the complete
   `Error::general(..., Position::new(1, 1))` shape;
@@ -292,8 +293,8 @@ prove all of the following:
   `contains(&body, ContainsSymbol::Super)` condition;
 - the Script super check remains before the adjacent NewTarget, private-name,
   label and cover-initialized-name checks;
-- the other eleven raw occurrences retain their reviewed parameter, class-body
-  or class-element position sources rather than acquiring the fixed 1:1
+- the other nine raw occurrences retain their reviewed parameter or
+  class-element position sources rather than acquiring the fixed 1:1
   coordinate;
 - pinned `boa_ast` keeps ordinary callable bodies as stopping boundaries,
   traverses ordinary and async arrows, class heritage and computed public
@@ -310,7 +311,7 @@ prove all of the following:
   dependency.
 
 The guard must inspect source structure as well as literal counts. A count of
-twelve alone would not detect moving the fixed position to the wrong producer
+ten alone would not detect moving the fixed position to the wrong producer
 or broadening the Script check to direct eval, changing the traversal boundary
 or adding a second product parse route.
 
@@ -385,7 +386,7 @@ debt, so this lane does not claim the complete `lila-ir` crate is green.
 The lane classifies a rejection pinned Boa already produces. It does not:
 
 - add or broaden `super` syntax;
-- classify the other eleven raw `invalid super usage` producers;
+- classify the other nine raw `invalid super usage` producers;
 - classify the eleven `invalid super call usage` producers;
 - repair token-level source location;
 - support direct eval or Function-family dynamic source;

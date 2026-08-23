@@ -3033,7 +3033,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let request_local = self.reserve_temp_local();
-        let completion_kind_local = self.reserve_temp_local();
+        let step_completion_kind_local = self.reserve_temp_local();
         let completion_payload_local = self.reserve_temp_local();
         let completion_tag_local = self.reserve_temp_local();
         let undefined_payload_local = self.reserve_temp_local();
@@ -3059,11 +3059,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(request_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::BrIf(1));
+        let request_completion_kind = self
+            .emit_load_async_generator_request_completion_kind_strict(request_local, function);
         for (offset, destination_local) in [
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET,
-                completion_kind_local,
-            ),
             (
                 HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET,
                 completion_payload_local,
@@ -3081,35 +3079,51 @@ impl<'a> FunctionBuilder<'a> {
             request_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(completion_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_request_completion_kind_equals(
+            &request_completion_kind,
+            AsyncGeneratorRequestCompletionKind::Normal,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_copy_async_generator_request_completion_kind_to_step_completion(
+            &request_completion_kind,
+            step_completion_kind_local,
+            function,
+        );
         self.emit_complete_async_generator_step(
             activation_local,
             undefined_payload_local,
             undefined_tag_local,
-            completion_kind_local,
+            step_completion_kind_local,
             AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(completion_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_request_completion_kind_equals(
+            &request_completion_kind,
+            AsyncGeneratorRequestCompletionKind::Throw,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_copy_async_generator_request_completion_kind_to_step_completion(
+            &request_completion_kind,
+            step_completion_kind_local,
+            function,
+        );
         self.emit_complete_async_generator_step(
             activation_local,
             completion_payload_local,
             completion_tag_local,
-            completion_kind_local,
+            step_completion_kind_local,
             AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(completion_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_request_completion_kind_equals(
+            &request_completion_kind,
+            AsyncGeneratorRequestCompletionKind::Return,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_async_generator_await_return_reactions(
             activation_local,
@@ -3124,13 +3138,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::LocalSet(completion_kind_local));
+        function.instruction(&Instruction::I64Const(CompletionKind::Throw.code()));
+        function.instruction(&Instruction::LocalSet(step_completion_kind_local));
         self.emit_complete_async_generator_step(
             activation_local,
             resolved_promise_payload_local,
             resolved_promise_tag_local,
-            completion_kind_local,
+            step_completion_kind_local,
             AsyncGeneratorCompleteStepKind::Completed,
             function,
         )?;
@@ -3138,8 +3152,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(stop_draining_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -3169,6 +3181,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::End);
 
+        self.release_loaded_async_generator_request_completion_kind(request_completion_kind);
         self.release_temp_local(stop_draining_local);
         self.release_temp_local(resolved_promise_tag_local);
         self.release_temp_local(resolved_promise_payload_local);
@@ -3176,7 +3189,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(undefined_payload_local);
         self.release_temp_local(completion_tag_local);
         self.release_temp_local(completion_payload_local);
-        self.release_temp_local(completion_kind_local);
+        self.release_temp_local(step_completion_kind_local);
         self.release_temp_local(request_local);
         Ok(())
     }
@@ -3550,7 +3563,6 @@ impl<'a> FunctionBuilder<'a> {
         let request_local = self.reserve_temp_local();
         let request_payload_local = self.reserve_temp_local();
         let request_tag_local = self.reserve_temp_local();
-        let request_completion_kind_local = self.reserve_temp_local();
         let resume_kind_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
@@ -3590,16 +3602,16 @@ impl<'a> FunctionBuilder<'a> {
                 HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_TAG_OFFSET,
                 request_tag_local,
             ),
-            (
-                HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET,
-                request_completion_kind_local,
-            ),
         ] {
             self.load_i64_to_local_from_offset(request_local, offset, destination_local, function);
         }
-        function.instruction(&Instruction::LocalGet(request_completion_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
-        function.instruction(&Instruction::I64Eq);
+        let request_completion_kind = self
+            .emit_load_async_generator_request_completion_kind_strict(request_local, function);
+        self.emit_async_generator_request_completion_kind_equals(
+            &request_completion_kind,
+            AsyncGeneratorRequestCompletionKind::Return,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_async_generator_yield_return_reactions(
             activation_local,
@@ -3638,9 +3650,11 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_RESUME_KIND_NORMAL as i64,
         ));
         function.instruction(&Instruction::LocalSet(resume_kind_local));
-        function.instruction(&Instruction::LocalGet(request_completion_kind_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_request_completion_kind_equals(
+            &request_completion_kind,
+            AsyncGeneratorRequestCompletionKind::Throw,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
             ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
@@ -3656,8 +3670,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_loaded_async_generator_request_completion_kind(request_completion_kind);
         self.release_temp_local(resume_kind_local);
-        self.release_temp_local(request_completion_kind_local);
         self.release_temp_local(request_tag_local);
         self.release_temp_local(request_payload_local);
         self.release_temp_local(request_local);

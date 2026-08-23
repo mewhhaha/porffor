@@ -39,6 +39,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::DuplicateCatchParameter
         | EarlyErrorCode::CatchBodyDeclarationConflict
         | EarlyErrorCode::DuplicateClassConstructor
+        | EarlyErrorCode::ClassBaseConstructorHasDirectSuper
         | EarlyErrorCode::ClassConstructorGeneratorMethod
         | EarlyErrorCode::ClassConstructorAsyncMethod
         | EarlyErrorCode::ClassConstructorGetter
@@ -47,6 +48,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ClassStaticMethodPrototypeName
         | EarlyErrorCode::ClassDuplicatePrivateName
         | EarlyErrorCode::ClassStaticBlockContainsArguments
+        | EarlyErrorCode::ClassStaticBlockContainsSuperCall
         | EarlyErrorCode::ClassStaticBlockContainsAwait
         | EarlyErrorCode::ClassFieldConstructorName
         | EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName

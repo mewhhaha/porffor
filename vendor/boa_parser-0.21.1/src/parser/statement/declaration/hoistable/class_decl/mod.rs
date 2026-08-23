@@ -205,7 +205,7 @@ where
                 && contains(constructor, ContainsSymbol::SuperCall)
             {
                 return Err(Error::lex(LexError::Syntax(
-                    "invalid super usage".into(),
+                    "base class constructor cannot contain direct super call".into(),
                     body_start,
                 )));
             }
@@ -753,7 +753,10 @@ where
 
                     // It is a Syntax Error if ClassStaticBlockStatementList Contains SuperCall is true.
                     if contains(&statement_list, ContainsSymbol::SuperCall) {
-                        return Err(Error::general("invalid super usage", position));
+                        return Err(Error::general(
+                            "class static block cannot contain super call",
+                            position,
+                        ));
                     }
 
                     // It is a Syntax Error if ClassStaticBlockStatementList Contains await is true.

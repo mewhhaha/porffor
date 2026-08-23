@@ -18815,21 +18815,21 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.emit_heap_alloc_const(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE, function)?;
                 function.instruction(&Instruction::LocalSet(request_local));
-                self.store_i64_const_at_offset(
+                let request_completion_kind = match builtin {
+                    StandardBuiltinId::AsyncGeneratorPrototypeNext => {
+                        AsyncGeneratorRequestCompletionKind::Normal
+                    }
+                    StandardBuiltinId::AsyncGeneratorPrototypeReturn => {
+                        AsyncGeneratorRequestCompletionKind::Return
+                    }
+                    StandardBuiltinId::AsyncGeneratorPrototypeThrow => {
+                        AsyncGeneratorRequestCompletionKind::Throw
+                    }
+                    _ => unreachable!(),
+                };
+                self.emit_store_async_generator_request_completion_kind(
                     request_local,
-                    HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET,
-                    match builtin {
-                        StandardBuiltinId::AsyncGeneratorPrototypeNext => {
-                            COMPLETION_KIND_NORMAL as u64
-                        }
-                        StandardBuiltinId::AsyncGeneratorPrototypeReturn => {
-                            COMPLETION_KIND_RETURN as u64
-                        }
-                        StandardBuiltinId::AsyncGeneratorPrototypeThrow => {
-                            COMPLETION_KIND_THROW as u64
-                        }
-                        _ => unreachable!(),
-                    },
+                    request_completion_kind,
                     function,
                 );
                 for (offset, source_local) in [

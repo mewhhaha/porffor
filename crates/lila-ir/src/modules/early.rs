@@ -669,6 +669,37 @@ mod tests {
     }
 
     #[test]
+    fn class_owned_super_call_module_parses_map_to_distinct_early_syntax_errors() {
+        for (source, code) in [
+            (
+                "class C { constructor() { super(); } }",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+            (
+                "class C { static { super(); } }",
+                EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("the class-owned SuperCall condition should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
+            assert_eq!(diagnostic.code(), Some(code), "{source:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source:?}"
+            );
+            let span = diagnostic
+                .span
+                .expect("the class-owned rejection must retain its source span");
+            assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
     fn class_constructor_generator_module_parse_maps_to_an_early_syntax_error() {
         let error = lila_front::parse(
             "class C { async *constructor() {} }",

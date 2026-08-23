@@ -132,6 +132,137 @@ assertThrows(TypeError, function() {
 }, "species resize makes fixed source out of bounds");
 assertSame(speciesResizableBuffer.byteLength, 2, "species constructor ran");
 
+var positiveDetachBuffer = new ArrayBuffer(4);
+var positiveDetachSource = new Uint8Array(positiveDetachBuffer);
+positiveDetachSource.set([1, 2, 3, 4]);
+var positiveDetachOrder = [];
+var positiveDetachArgumentCoercions = 0;
+var positiveDetachSpeciesCalls = 0;
+var positiveDetachTarget;
+positiveDetachSource.constructor = {};
+positiveDetachSource.constructor[Symbol.species] = function(length) {
+  positiveDetachOrder.push("species");
+  positiveDetachSpeciesCalls += 1;
+  assertSame(length, 2, "positive detach species length");
+  positiveDetachBuffer.transfer();
+  positiveDetachTarget = new Uint8Array(length);
+  return positiveDetachTarget;
+};
+assertThrows(TypeError, function() {
+  positiveDetachSource.slice(
+    {
+      valueOf: function() {
+        positiveDetachOrder.push("start");
+        positiveDetachArgumentCoercions += 1;
+        return 1;
+      }
+    },
+    {
+      valueOf: function() {
+        positiveDetachOrder.push("end");
+        positiveDetachArgumentCoercions += 1;
+        return 3;
+      }
+    }
+  );
+}, "positive count species detaches source");
+assertSame(positiveDetachArgumentCoercions, 2, "positive detach coercions");
+assertSame(positiveDetachSpeciesCalls, 1, "positive detach species calls");
+assertSame(
+  positiveDetachOrder.join(","),
+  "start,end,species",
+  "positive detach observable order"
+);
+assertSame(positiveDetachBuffer.byteLength, 0, "positive detach species ran");
+assertSame(positiveDetachTarget.length, 2, "positive detach target was constructed");
+
+var zeroDetachBuffer = new ArrayBuffer(4);
+var zeroDetachSource = new Uint8Array(zeroDetachBuffer);
+zeroDetachSource.set([5, 6, 7, 8]);
+var zeroDetachTarget = new Uint8Array([91, 92]);
+var zeroDetachOrder = [];
+var zeroDetachArgumentCoercions = 0;
+var zeroDetachSpeciesCalls = 0;
+zeroDetachSource.constructor = {};
+zeroDetachSource.constructor[Symbol.species] = function(length) {
+  zeroDetachOrder.push("species");
+  zeroDetachSpeciesCalls += 1;
+  assertSame(length, 0, "zero detach species length");
+  zeroDetachBuffer.transfer();
+  return zeroDetachTarget;
+};
+var zeroDetachResult = zeroDetachSource.slice(
+  {
+    valueOf: function() {
+      zeroDetachOrder.push("start");
+      zeroDetachArgumentCoercions += 1;
+      return 2;
+    }
+  },
+  {
+    valueOf: function() {
+      zeroDetachOrder.push("end");
+      zeroDetachArgumentCoercions += 1;
+      return 2;
+    }
+  }
+);
+assertSame(zeroDetachArgumentCoercions, 2, "zero detach coercions");
+assertSame(zeroDetachSpeciesCalls, 1, "zero detach species calls");
+assertSame(
+  zeroDetachOrder.join(","),
+  "start,end,species",
+  "zero detach observable order"
+);
+assertSame(zeroDetachBuffer.byteLength, 0, "zero detach species ran");
+assertSame(zeroDetachResult, zeroDetachTarget, "zero detach species result");
+assertSame(zeroDetachTarget[0], 91, "zero detach skips first target write");
+assertSame(zeroDetachTarget[1], 92, "zero detach skips last target write");
+
+var oddShrinkBuffer = new ArrayBuffer(8, { maxByteLength: 8 });
+var oddShrinkSource = new Uint16Array(oddShrinkBuffer);
+oddShrinkSource.set([11, 22, 33, 44]);
+var oddShrinkOrder = [];
+var oddShrinkArgumentCoercions = 0;
+var oddShrinkSpeciesCalls = 0;
+oddShrinkSource.constructor = {};
+oddShrinkSource.constructor[Symbol.species] = function(length) {
+  oddShrinkOrder.push("species");
+  oddShrinkSpeciesCalls += 1;
+  assertSame(length, 4, "odd shrink species length");
+  oddShrinkBuffer.resize(5);
+  return new Uint16Array(length);
+};
+var oddShrinkResult = oddShrinkSource.slice(
+  {
+    valueOf: function() {
+      oddShrinkOrder.push("start");
+      oddShrinkArgumentCoercions += 1;
+      return 0;
+    }
+  },
+  {
+    valueOf: function() {
+      oddShrinkOrder.push("end");
+      oddShrinkArgumentCoercions += 1;
+      return 4;
+    }
+  }
+);
+assertSame(oddShrinkArgumentCoercions, 2, "odd shrink coercions");
+assertSame(oddShrinkSpeciesCalls, 1, "odd shrink species calls");
+assertSame(
+  oddShrinkOrder.join(","),
+  "start,end,species",
+  "odd shrink observable order"
+);
+assertSame(oddShrinkBuffer.byteLength, 5, "odd shrink species resized source");
+assertSame(oddShrinkResult.length, 4, "odd shrink retains original target length");
+assertSame(oddShrinkResult[0], 11, "odd shrink copies first complete element");
+assertSame(oddShrinkResult[1], 22, "odd shrink copies second complete element");
+assertSame(oddShrinkResult[2], 0, "odd shrink leaves first target suffix zero");
+assertSame(oddShrinkResult[3], 0, "odd shrink leaves last target suffix zero");
+
 var bigintSource = new BigInt64Array([1n, -2n]);
 var bigintTarget = new BigUint64Array(2);
 bigintSource.constructor = {};
