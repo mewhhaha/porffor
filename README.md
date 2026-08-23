@@ -396,8 +396,9 @@ Recent focused progress through `2026-08-23`:
   while four lowering paths remain consumers. The exact 2,146-line method move
   reduces `lowering.rs` from 28,693 to 26,547 raw lines and changes only its
   private-module visibility. The capped workspace check and CLI `call_` cohort
-  (`6/6`) are green; IR `call_` reports `33/34`, retaining only the previously
-  documented ordinary compound-receiver regression.
+  (`6/6`) are green; current IR `call_` is green at `34/34` after its
+  materialized-receiver contract accepted canonical `GetV` alongside typed
+  `PropertyRead`. A Wasm-AOT witness completes with `boolean(true)`.
 - Atomics backend ownership now lives in `builtins/atomics.rs`: all fourteen
   intrinsic bodies, integer/RMW domains, wait/notify state and atomic-memory
   helpers sit behind one closed `AtomicsBuiltin` dispatch. A six-case RMW type

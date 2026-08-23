@@ -5167,7 +5167,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_method_call_materializes_compound_receiver_before_property_read() {
+    fn ordinary_method_call_materializes_compound_receiver_before_reference_get() {
         let program = lower_script(
             "function make() { return { method() { return this; } }; } make().method();",
         );
@@ -5196,8 +5196,19 @@ mod tests {
         else {
             panic!("expected indirect method call body: {body:?}");
         };
-        let ExprIr::PropertyRead { target, .. } = &callee.expr else {
-            panic!("expected property read callee: {callee:?}");
+        // A proven shaped receiver uses the typed PropertyRead carrier. Once
+        // flow analysis has conservatively widened that shape, the same
+        // Reference get is represented by the canonical GetV operation. Both
+        // must consume the one materialized base before Call supplies `this`.
+        let target = match &callee.expr {
+            ExprIr::PropertyRead { target, .. } => target.as_ref(),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::GetV,
+                operands,
+            } => operands
+                .first()
+                .expect("GetV method reference should retain its base"),
+            _ => panic!("expected property reference get callee: {callee:?}"),
         };
         assert!(matches!(
             &target.expr,

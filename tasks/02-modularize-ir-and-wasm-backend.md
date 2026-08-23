@@ -78,11 +78,11 @@ owner method, forbids a second parent body or legacy `include!` assembly, and
 budgets parent and child separately.
 
 The capped workspace/all-target check and the serial CLI `call_` cohort (`6/6`)
-are green. The serial IR `call_` cohort reports `33/34`; its sole failure is the
-ordinary compound-receiver regression already present in the call-expression
-baseline recorded below. Formatting, exact source comparison, module-boundary
-and task-plan audits are green. No call behavior or conformance improvement is
-claimed.
+are green. The current serial IR `call_` cohort is also green (`34/34`) after a
+follow-up contract refresh accepted both typed `PropertyRead` and canonical
+`GetV` as the same materialized method Reference read. Formatting, exact source
+comparison, module-boundary and task-plan audits are green. No call behavior or
+conformance improvement is claimed.
 
 ### Landed 2026-08-23: Atomics backend ownership
 
@@ -138,6 +138,14 @@ reports 35/36. All five failures reproduce unchanged at pre-extraction commit
 `f2309be48`: four primitive/ordinary method-call inference contracts and the
 `arguments.callee` CLI fixture. The module-boundary and task-plan audits are
 green. No call behavior or conformance improvement is claimed.
+
+A later contract refresh removed the last current IR `call_` false negative.
+Flow widening legitimately selects the canonical `GetV` carrier for an
+ordinary method read; the test now verifies that either `GetV` or the typed
+`PropertyRead` consumes the one materialized receiver before Call supplies the
+same value as `this`. The focused test and current serial IR cohort pass `1/1`
+and `34/34`; an independent Wasm-AOT witness completes with `boolean(true)`.
+Production lowering and emitted semantics are unchanged.
 
 ### Landed 2026-08-23: class-definition lowering ownership
 
