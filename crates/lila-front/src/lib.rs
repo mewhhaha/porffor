@@ -1155,6 +1155,51 @@ mod tests {
     }
 
     #[test]
+    fn class_static_block_await_rejections_cover_both_forms_and_goals() {
+        for source in [
+            "async function outer() { class C { static { await 0; } } }",
+            "async function outer() { const C = class { static { await 0; } }; }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("an AwaitExpression in a class static block should fail");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassStaticBlockContainsAwait),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn class_static_block_await_stops_at_nested_function_boundaries() {
+        let source = r#"class C {
+            static {
+                async function nested() { await 0; }
+                const arrow = async () => await 0;
+            }
+        }"#;
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            parse(source, options)
+                .expect("nested async ordinary and arrow functions own their AwaitExpressions");
+        }
+    }
+
+    #[test]
+    fn class_static_block_await_does_not_absorb_generator_parameter_errors() {
+        assert_eq!(
+            classify_parse_failure(
+                "invalid await usage in generator function parameters at line 1, col 1"
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn class_field_arguments_rejections_cover_all_field_forms_and_goals() {
         for source in [
             "class C { value = arguments; }",
@@ -1635,6 +1680,9 @@ switch (0) {
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)
                 .is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsAwait).is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassFieldContainsArguments).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::StrictModeWithStatement).is_some());

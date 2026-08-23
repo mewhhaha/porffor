@@ -374,6 +374,15 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Class-static-block `ContainsAwait` now has one typed pre-evaluation code
+  across Script, Module and retained dependency parsing. Its classifier uses
+  the adjacent rendered fragment `invalid await usage at line`, keeping Boa's
+  longer generator-parameter error distinct; positive tests preserve nested
+  async ordinary and arrow function bodies. The capped front gate passes
+  `49/49`, the IR early-error filter passes `3/3`, and the exact pinned
+  Test262 witness passes `2/2` Wasm-AOT executions with every failure and
+  non-success bucket at zero. This is bounded diagnostic classification, not
+  broad T07 closure.
 - New-expression lowering now lives in `lowering/new_expression.rs`: one owner
   carries constructor target resolution, argument evaluation, result typing,
   dynamic-source rejection and static RegExp compilation. The exact source

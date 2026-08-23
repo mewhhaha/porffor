@@ -391,6 +391,10 @@ mod tests {
                 EarlyErrorCode::ClassStaticBlockContainsArguments,
             ),
             (
+                "invalid await usage at line 1, col 1",
+                EarlyErrorCode::ClassStaticBlockContainsAwait,
+            ),
+            (
                 "'arguments' not allowed in class field definition",
                 EarlyErrorCode::ClassFieldContainsArguments,
             ),
@@ -662,6 +666,25 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::ClassStaticBlockContainsArguments)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_static_block_await_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export async function outer() { class C { static { await 0; } } }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("an AwaitExpression in a class static block should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassStaticBlockContainsAwait)
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");

@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name and class-field literal-name restrictions, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -104,6 +104,20 @@ recorded in
 At `2026-08-22`, the full front-end gate passes `40/40`, the focused IR early-
 error gate passes `3/3`, and the exact 60-file pinned cohort passes `120/120`
 Wasm-AOT executions with zero failure or non-success outcomes.
+
+Class static blocks whose statement lists have `ContainsAwait` now have one
+closed condition for Boa's sole exact producer. The classifier requires the
+adjacent rendered fragment `invalid await usage at line`, so it cannot absorb
+Boa's distinct longer generator-parameter message. Declaration and expression
+forms reject under both Script and Module goals; positive witnesses preserve
+`await` inside nested async ordinary and arrow function bodies. The boundary is
+recorded in
+`docs/rust-rewrite/contracts/class-static-block-contains-await-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `49/49`, the focused IR
+early-error gate passes `3/3`, and the exact pinned Test262 witness passes `2/2`
+Wasm-AOT executions with zero failure or non-success outcomes. This is typed
+classification and retained-module repair, not static-block execution or broad
+T07 closure.
 
 Duplicate class private names now have one closed condition for Boa's exact
 common wording across private fields, methods, accessors and static/instance
