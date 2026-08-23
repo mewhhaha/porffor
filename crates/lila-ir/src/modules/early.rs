@@ -451,6 +451,10 @@ mod tests {
                 EarlyErrorCode::GeneratorDeclarationParametersContainYield,
             ),
             (
+                "generator expression cannot contain yield expression in parameters at line 1, col 1",
+                EarlyErrorCode::GeneratorExpressionParametersContainYield,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -913,6 +917,24 @@ mod tests {
             assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
             assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
         }
+    }
+
+    #[test]
+    fn retained_modules_classify_generator_expression_parameter_yield() {
+        let source = "export const g = function*(x = yield) {};";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("a retained generator expression parameter yield should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::GeneratorExpressionParametersContainYield),
+            "{source:?}: {diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
     }
 
     /// Drift B2, closed. The block, switch and scope-analysis wordings for a

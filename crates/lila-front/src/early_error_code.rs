@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 41] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 42] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -286,6 +286,10 @@ early_error_codes! {
     /// AsyncGeneratorDeclaration's FormalParameters Contains YieldExpression.
     /// Generator expressions and methods have distinct parser producers.
     GeneratorDeclarationParametersContainYield => "E_GENERATOR_DECLARATION_PARAMETERS_CONTAIN_YIELD";
+    /// 15.5.1. A GeneratorExpression's FormalParameters Contains
+    /// YieldExpression. Declarations, async-generator expressions and methods
+    /// have distinct parser producers.
+    GeneratorExpressionParametersContainYield => "E_GENERATOR_EXPRESSION_PARAMETERS_CONTAIN_YIELD";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -349,7 +353,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 39;
+const PARSE_FAILURE_RULE_COUNT: usize = 40;
 
 /// The one fragment table.
 ///
@@ -683,6 +687,16 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         fragments: &["invalid yield usage in generator function parameters at line"],
         code: EarlyErrorCode::GeneratorDeclarationParametersContainYield,
         witnesses: &["invalid yield usage in generator function parameters at line 1, col 1"],
+    },
+    // 40. expression/primary/generator_expression/mod.rs:144-150. The
+    //     ordinary GeneratorExpression parser owns this sole fixed message;
+    //     declarations, async generators and methods use distinct wordings.
+    ParseFailureRule {
+        fragments: &["generator expression cannot contain yield expression in parameters at line"],
+        code: EarlyErrorCode::GeneratorExpressionParametersContainYield,
+        witnesses: &[
+            "generator expression cannot contain yield expression in parameters at line 1, col 1",
+        ],
     },
 ];
 

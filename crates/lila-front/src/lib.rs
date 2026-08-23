@@ -912,6 +912,44 @@ mod tests {
     }
 
     #[test]
+    fn generator_expression_parameter_yield_rejects_under_both_goals() {
+        for source in [
+            "0, function*(x = yield) {};",
+            "const g = function* named(x = yield) {};",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("YieldExpression in generator expression parameters should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::GeneratorExpressionParametersContainYield),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn generator_expression_parameter_yield_boundaries_remain_valid() {
+        for source in [
+            "const g = function*(x = 1) { yield x; };",
+            "const outer = function*(x = function*(){ yield 1; }) {};",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("generator bodies and nested generators are Contains boundaries");
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -1982,6 +2020,10 @@ switch (0) {
         );
         assert!(ParseClassified::from_early(
             EarlyErrorCode::GeneratorDeclarationParametersContainYield,
+        )
+        .is_some());
+        assert!(ParseClassified::from_early(
+            EarlyErrorCode::GeneratorExpressionParametersContainYield,
         )
         .is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
