@@ -516,6 +516,30 @@ semantics or IteratorClose coverage are complete. The seam is dry-written and
 statically checked; Cargo, runtime and pinned Test262 gates remain deferred to
 the central verifier.
 
+The flatMap-specific abrupt outer-close boundary now uses the private,
+exhaustive `IteratorFlatMapInnerState::{NotInstalled, Active}` domain instead
+of a raw `clear_inner_active` Boolean. The sole shared helper retains exactly
+eight calls in `IteratorFlatMapNext`: four `Active` calls for abrupt inner
+`next`, result-object validation, `done` access and `value` access, and four
+`NotInstalled` calls for abrupt or invalid inner-iterator acquisition before
+the unique installation sequence. Its existing observable order remains outer
+IteratorClose with the original throw preserved, `Done`, the state-selected
+inner-active clear, then `Executing`. The contract and swap-resistant lifecycle
+guard are independently reviewed. Under the shared eight-core cap,
+`cargo fmt --all -- --check`, `git diff --check`, and `cargo xc` are green; the
+`iterator_flat_map_inner_close_state_structure` executable passes `3/3`, the
+exact
+`iterator::run_wasm_backend_succeeds_for_iterator_prototype_flat_map_fixture`
+CLI lifecycle witness passes `1/1`, and the exact
+`staging/sm/Iterator/prototype/flatMap/close-iterator-when-inner-next-throws.js`
+and
+`staging/sm/Iterator/prototype/flatMap/throw-when-inner-not-iterable.js`
+Test262 leaves pass `4/4` Wasm-AOT variants in total with every failure bucket
+at zero under `--jobs 1 --threads 1`. This focused result verifies the typed
+lifecycle boundary only; it does not generalize to other helper families,
+close an inner iterator on these paths, refresh a broad Iterator cohort, claim
+a conformance gain, or complete T15.
+
 The `%Iterator%` constructor now selects its primitive
 `NewTarget.prototype` fallback through the closed
 `OrdinaryDefaultPrototype::Iterator` domain and the required resolved-Realm

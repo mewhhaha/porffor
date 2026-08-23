@@ -390,6 +390,14 @@ pub(crate) enum SyncIteratorErrorPolicy {
     MathSumPrecise,
 }
 
+/// Whether `Iterator.prototype.flatMap` has installed the mapped inner
+/// iterator when an abrupt completion closes the outer iterator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IteratorFlatMapInnerState {
+    NotInstalled,
+    Active,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SyncIteratorProtocolError {
     NotIterable,
@@ -12705,7 +12713,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         helper_payload_local: u32,
         close: IteratorCloseOnThrowLocals,
-        clear_inner_active: bool,
+        inner_state: IteratorFlatMapInnerState,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_iterator_close_preserving_current_throw(close, function)?;
@@ -12715,13 +12723,16 @@ impl<'a> FunctionBuilder<'a> {
             true,
             function,
         )?;
-        if clear_inner_active {
-            self.emit_object_define_bool_data(
-                helper_payload_local,
-                "$IteratorFlatMapInnerActive",
-                false,
-                function,
-            )?;
+        match inner_state {
+            IteratorFlatMapInnerState::NotInstalled => {}
+            IteratorFlatMapInnerState::Active => {
+                self.emit_object_define_bool_data(
+                    helper_payload_local,
+                    "$IteratorFlatMapInnerActive",
+                    false,
+                    function,
+                )?;
+            }
         }
         self.emit_object_define_bool_data(
             helper_payload_local,

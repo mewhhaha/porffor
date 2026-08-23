@@ -139,6 +139,27 @@ each pass `2/2` Wasm-AOT executions with all failure buckets zero under
 ArrayBuffer/Test262 refresh, shared-operation migration, copy-policy change, or
 conformance gain is claimed.
 
+The `Iterator.prototype.flatMap` outer-close helper now carries the private,
+closed `IteratorFlatMapInnerState::{NotInstalled, Active}` lifecycle state
+instead of `clear_inner_active: bool`. Its exhaustive projection preserves the
+existing order: close the outer iterator while retaining the current throw,
+mark the helper done, clear the inner-active marker only for `Active`, then
+clear the executing marker. All eight callers remain in the sole flatMap-next
+owner, with four active-inner step failures and four pre-installation failures;
+the unique inner installation still stores the iterator and next method before
+publishing the active marker and looping. The contract and swap-resistant
+caller/lifecycle guard are independently reviewed. Under the shared eight-core
+cap, `cargo fmt --all -- --check`, `git diff --check`, and `cargo xc` are green;
+`iterator_flat_map_inner_close_state_structure` passes `3/3`, the exact
+`iterator::run_wasm_backend_succeeds_for_iterator_prototype_flat_map_fixture`
+CLI lifecycle witness passes `1/1`, and the exact
+`close-iterator-when-inner-next-throws.js` and
+`throw-when-inner-not-iterable.js` Test262 leaves pass `4/4` Wasm-AOT variants
+in total with every failure bucket at zero under `--jobs 1 --threads 1`. This
+verifies only the typed inner-lifecycle selection and preserved outer-close
+order; it does not claim a flatMap algorithm change, broader Iterator/Test262
+refresh, conformance gain, or completion of T04 or T15.
+
 The earlier Proxy `Call` and primitive `ToNumber` migrations are likewise
 invariant-only rewrites. Their former boolean selections already chose the
 correct policies, all existing public wrapper call sites are unchanged, and the

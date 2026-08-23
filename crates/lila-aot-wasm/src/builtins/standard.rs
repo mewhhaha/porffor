@@ -21,6 +21,7 @@ use super::symbol::SymbolBuiltin as SymbolFn;
 use super::temporal::ZonedDateTimeField;
 use super::temporal_plain_date_time_methods::PlainDateTimeDifference;
 use super::uri::UriBuiltin;
+use crate::control_flow::IteratorFlatMapInnerState;
 use crate::functions::{
     FunctionRealmRevokedRoute, NewTargetPrototypeFallback, OrdinaryDefaultPrototype,
 };
@@ -15679,7 +15680,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    true,
+                    IteratorFlatMapInnerState::Active,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
@@ -15696,7 +15697,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    true,
+                    IteratorFlatMapInnerState::Active,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
@@ -15724,7 +15725,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    true,
+                    IteratorFlatMapInnerState::Active,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
@@ -15761,7 +15762,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    true,
+                    IteratorFlatMapInnerState::Active,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
@@ -16015,7 +16016,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    false,
+                    IteratorFlatMapInnerState::NotInstalled,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
@@ -16088,7 +16089,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    false,
+                    IteratorFlatMapInnerState::NotInstalled,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
@@ -16105,7 +16106,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    false,
+                    IteratorFlatMapInnerState::NotInstalled,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
@@ -16139,7 +16140,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_flat_map_close_outer_after_throw(
                     this_payload_local,
                     close_outer_on_throw,
-                    false,
+                    IteratorFlatMapInnerState::NotInstalled,
                     function,
                 )?;
                 self.emit_return_current_completion(function);
