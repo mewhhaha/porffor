@@ -40,7 +40,7 @@
 //! new code fails to build at every consumer). They do **not** buy oracle
 //! robustness: if boa rewords a message, one row goes dead and no compile error
 //! fires. The `witnesses` column is the mitigation — it keeps the byte strings
-//! boa actually emits beside the fragments that are supposed to select them, in
+//! boa actually emits beside the patterns that are supposed to select them, in
 //! one place, so a `vendor/` bump has exactly one file to re-read. See ledger
 //! entry L1 of
 //! `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
@@ -85,6 +85,27 @@ const fn contains_sub(haystack: &str, needle: &str) -> bool {
         start += 1;
     }
     false
+}
+
+/// Byte-wise prefix test usable in a `const` initializer.
+///
+/// This is deliberately separate from [`contains_sub`]: a fixed Boa message
+/// that is followed only by its source position must not also match when user
+/// source text embeds that message later inside another diagnostic.
+const fn starts_with_sub(haystack: &str, prefix: &str) -> bool {
+    let haystack = haystack.as_bytes();
+    let prefix = prefix.as_bytes();
+    if prefix.len() > haystack.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < prefix.len() {
+        if haystack[i] != prefix[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 /// Byte-wise `&str` equality usable in a `const` initializer. Private for the
@@ -132,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 55] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 56] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -339,6 +360,10 @@ early_error_codes! {
     /// An AsyncMethod's UniqueFormalParameters Contains AwaitExpression.
     /// Object and class methods share the same parser producer.
     AsyncMethodParametersContainAwait => "E_ASYNC_METHOD_PARAMETERS_CONTAIN_AWAIT";
+    /// 16.2.2.1. `WithClauseToAttributes` of one `WithClause` contains two
+    /// different entries with the same `[[Key]]`. Dynamic-import option
+    /// objects are deliberately excluded.
+    ModuleDuplicateImportAttributeKey => "E_MODULE_DUPLICATE_IMPORT_ATTRIBUTE_KEY";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -377,34 +402,42 @@ const fn code_eq(a: EarlyErrorCode, b: EarlyErrorCode) -> bool {
     a as u8 == b as u8
 }
 
+/// The closed ways a `boa` static-semantics message may be recognized.
+#[derive(Clone, Copy)]
+enum ParseFailurePattern {
+    /// Every fragment must occur, for a wording with invariant text separated
+    /// by parser-owned interpolation.
+    ContainsAll(&'static [&'static str]),
+    /// The complete fixed wording must begin the rendered message. Boa may
+    /// append its source position, but user-controlled text before the wording
+    /// cannot forge the condition.
+    StartsWith(&'static str),
+}
+
 /// One `boa` static-semantics message shape, and the code it denotes.
 ///
 /// Private, along with the table it populates: the classification is a function
 /// ([`classify_parse_failure`]), not a data structure callers walk themselves.
 struct ParseFailureRule {
-    /// Every fragment that must appear in boa's message for this rule to fire.
-    ///
-    /// Chosen to be the invariant part of boa's `format!`, never an interpolated
-    /// identifier. Never empty — assertion P1; an empty fragment list would
-    /// match *every* message, because `[].iter().all(_)` is `true`.
-    fragments: &'static [&'static str],
+    /// The match semantics and parser-owned text for this rule.
+    pattern: ParseFailurePattern,
     /// The condition this message shape denotes.
     code: EarlyErrorCode,
     /// Every message boa actually produces that this row must classify, copied
     /// verbatim from the cited source.
     ///
-    /// A **list**, because one fragment set legitimately covers several of boa's
-    /// wordings for one spec rule. Never empty — P1. Consumed by P2 and P6, so
-    /// it is not documentation: a row whose witnesses stop selecting it does not
-    /// compile.
+    /// A **list**, because one `ContainsAll` pattern legitimately covers
+    /// several of boa's wordings for one spec rule. Never empty — P1. Consumed
+    /// by P2 and P6, so it is not documentation: a row whose witnesses stop
+    /// selecting it does not compile.
     witnesses: &'static [&'static str],
 }
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 54;
+const PARSE_FAILURE_RULE_COUNT: usize = 55;
 
-/// The one fragment table.
+/// The one message-pattern table.
 ///
 /// Rows are keyed by boa's *message shape*; codes are keyed by the *spec rule*.
 /// That is why four rows (4, 5, 6, 7) carry [`EarlyErrorCode::DuplicateLexicalDeclaration`]:
@@ -417,19 +450,19 @@ const PARSE_FAILURE_RULE_COUNT: usize = 54;
 const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     // 1. boa_parser/src/parser/expression/primary/object_initializer/mod.rs:133
     ParseFailureRule {
-        fragments: &["Duplicate __proto__ fields"],
+        pattern: ParseFailurePattern::ContainsAll(&["Duplicate __proto__ fields"]),
         code: EarlyErrorCode::ObjectDuplicateProto,
         witnesses: &["Duplicate __proto__ fields are not allowed in object literals."],
     },
     // 2. boa_parser/src/parser/mod.rs:541
     ParseFailureRule {
-        fragments: &["exported name", "declared multiple times"],
+        pattern: ParseFailurePattern::ContainsAll(&["exported name", "declared multiple times"]),
         code: EarlyErrorCode::ModuleDuplicateExport,
         witnesses: &["exported name `x` declared multiple times"],
     },
     // 3. boa_parser/src/parser/mod.rs:556
     ParseFailureRule {
-        fragments: &["could not find the exported binding"],
+        pattern: ParseFailurePattern::ContainsAll(&["could not find the exported binding"]),
         code: EarlyErrorCode::ModuleUndeclaredExport,
         witnesses: &["could not find the exported binding `x` in the declared names of the module"],
     },
@@ -438,7 +471,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //        statement/switch/mod.rs:88; statement/declaration/lexical.rs:239;
     //        statement/declaration/hoistable/class_decl/mod.rs:712.
     ParseFailureRule {
-        fragments: &["lexical name", "declared multiple times"],
+        pattern: ParseFailurePattern::ContainsAll(&["lexical name", "declared multiple times"]),
         code: EarlyErrorCode::DuplicateLexicalDeclaration,
         witnesses: &[
             "lexical name `x` declared multiple times",
@@ -448,7 +481,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     // 5. W3: statement/block/mod.rs:122; class_decl/mod.rs:724.
     //    W4: statement/switch/mod.rs:101.
     ParseFailureRule {
-        fragments: &["lexical name declared in var"],
+        pattern: ParseFailurePattern::ContainsAll(&["lexical name declared in var"]),
         code: EarlyErrorCode::DuplicateLexicalDeclaration,
         witnesses: &[
             "lexical name declared in var names",
@@ -477,14 +510,14 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //    row and only this row, so an eval path added later classifies
     //    correctly with no edit here. Ledger L5's confirmed instance.
     ParseFailureRule {
-        fragments: &["duplicate lexical declaration"],
+        pattern: ParseFailurePattern::ContainsAll(&["duplicate lexical declaration"]),
         code: EarlyErrorCode::DuplicateLexicalDeclaration,
         witnesses: &["invalid scope analysis: duplicate lexical declaration"],
     },
     // 7. boa_parser/src/parser/mod.rs:614. 15.2.1: BoundNames of FormalParameters
     //    intersects LexicallyDeclaredNames of FunctionBody.
     ParseFailureRule {
-        fragments: &["formal parameter", "declared in lexically declared names"],
+        pattern: ParseFailurePattern::ContainsAll(&["formal parameter", "declared in lexically declared names"]),
         code: EarlyErrorCode::DuplicateLexicalDeclaration,
         witnesses: &["formal parameter `x` declared in lexically declared names"],
     },
@@ -492,7 +525,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //    for non-simple parameter lists and strict/context checks. See
     //    `duplicate-formal-parameter-early-errors.md` for the measured inventory.
     ParseFailureRule {
-        fragments: &["Duplicate parameter name not allowed in this context"],
+        pattern: ParseFailurePattern::ContainsAll(&["Duplicate parameter name not allowed in this context"]),
         code: EarlyErrorCode::DuplicateFormalParameter,
         witnesses: &["Duplicate parameter name not allowed in this context"],
     },
@@ -500,7 +533,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //    `UniqueFormalParameters` consumer. The lowercase `duplicate` is part
     //    of the pinned message contract.
     ParseFailureRule {
-        fragments: &["duplicate parameter name not allowed in unique formal parameters"],
+        pattern: ParseFailurePattern::ContainsAll(&["duplicate parameter name not allowed in unique formal parameters"]),
         code: EarlyErrorCode::DuplicateFormalParameter,
         witnesses: &["duplicate parameter name not allowed in unique formal parameters"],
     },
@@ -508,7 +541,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     pinned producer and exact, case-sensitive wording for duplicate
     //     `BoundNames` in a `CatchParameter`.
     ParseFailureRule {
-        fragments: &["duplicate catch parameter identifier"],
+        pattern: ParseFailurePattern::ContainsAll(&["duplicate catch parameter identifier"]),
         code: EarlyErrorCode::DuplicateCatchParameter,
         witnesses: &["duplicate catch parameter identifier"],
     },
@@ -516,14 +549,14 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     exact, case-sensitive wording covers both the lexical-declaration
     //     branch and the binding-pattern/var-declaration branch.
     ParseFailureRule {
-        fragments: &["catch parameter identifier declared in catch body"],
+        pattern: ParseFailurePattern::ContainsAll(&["catch parameter identifier declared in catch body"]),
         code: EarlyErrorCode::CatchBodyDeclarationConflict,
         witnesses: &["catch parameter identifier declared in catch body"],
     },
     // 12. statement/declaration/hoistable/class_decl/mod.rs:319-324. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["a class may only have one constructor"],
+        pattern: ParseFailurePattern::ContainsAll(&["a class may only have one constructor"]),
         code: EarlyErrorCode::DuplicateClassConstructor,
         witnesses: &["a class may only have one constructor"],
     },
@@ -531,28 +564,28 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     These are the two pinned producers, for generator and async-generator
     //     methods, and they share this complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["class constructor may not be a generator method"],
+        pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be a generator method"]),
         code: EarlyErrorCode::ClassConstructorGeneratorMethod,
         witnesses: &["class constructor may not be a generator method"],
     },
     // 14. statement/declaration/hoistable/class_decl/mod.rs:890-896. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["class constructor may not be an async method"],
+        pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be an async method"]),
         code: EarlyErrorCode::ClassConstructorAsyncMethod,
         witnesses: &["class constructor may not be an async method"],
     },
     // 15. statement/declaration/hoistable/class_decl/mod.rs:1155-1161. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["class constructor may not be a getter method"],
+        pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be a getter method"]),
         code: EarlyErrorCode::ClassConstructorGetter,
         witnesses: &["class constructor may not be a getter method"],
     },
     // 16. statement/declaration/hoistable/class_decl/mod.rs:1257-1263. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["class constructor may not be a setter method"],
+        pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be a setter method"]),
         code: EarlyErrorCode::ClassConstructorSetter,
         witnesses: &["class constructor may not be a setter method"],
     },
@@ -561,7 +594,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     pinned producers cover private fields and every private method form
     //     with one complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["class constructor may not be a private method"],
+        pattern: ParseFailurePattern::ContainsAll(&["class constructor may not be a private method"]),
         code: EarlyErrorCode::ClassPrivateConstructorName,
         witnesses: &["class constructor may not be a private method"],
     },
@@ -569,7 +602,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     912-920,1194-1198,1295-1299,1447-1452. These six public static
     //     method/accessor branches share one complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["class may not have static method definitions named 'prototype'"],
+        pattern: ParseFailurePattern::ContainsAll(&["class may not have static method definitions named 'prototype'"]),
         code: EarlyErrorCode::ClassStaticMethodPrototypeName,
         witnesses: &["class may not have static method definitions named 'prototype'"],
     },
@@ -577,14 +610,14 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     pinned branches use this exact, case-sensitive wording for duplicate
     //     private methods, accessors and fields.
     ParseFailureRule {
-        fragments: &["private identifier has already been declared"],
+        pattern: ParseFailurePattern::ContainsAll(&["private identifier has already been declared"]),
         code: EarlyErrorCode::ClassDuplicatePrivateName,
         witnesses: &["private identifier has already been declared"],
     },
     // 20. statement/declaration/hoistable/class_decl/mod.rs:740-745. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
-        fragments: &["'arguments' not allowed in class static block"],
+        pattern: ParseFailurePattern::ContainsAll(&["'arguments' not allowed in class static block"]),
         code: EarlyErrorCode::ClassStaticBlockContainsArguments,
         witnesses: &["'arguments' not allowed in class static block"],
     },
@@ -592,7 +625,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     adjacent `at line` fragment is part of Error::General's rendered
     //     message and excludes the distinct longer generator-parameter error.
     ParseFailureRule {
-        fragments: &["invalid await usage at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["invalid await usage at line"]),
         code: EarlyErrorCode::ClassStaticBlockContainsAwait,
         witnesses: &["invalid await usage at line 1, col 1"],
     },
@@ -600,7 +633,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     1502. These four pinned branches cover ordinary public fields and
     //     public auto-accessors, with and without initializers.
     ParseFailureRule {
-        fragments: &["class may not have field definitions named 'constructor'"],
+        pattern: ParseFailurePattern::ContainsAll(&["class may not have field definitions named 'constructor'"]),
         code: EarlyErrorCode::ClassFieldConstructorName,
         witnesses: &["class may not have field definitions named 'constructor'"],
     },
@@ -608,9 +641,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     1496. These four corresponding static branches share one complete,
     //     case-sensitive wording for the two forbidden literal names.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "class may not have static field definitions named 'constructor' or 'prototype'",
-        ],
+        ]),
         code: EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName,
         witnesses: &[
             "class may not have static field definitions named 'constructor' or 'prototype'",
@@ -620,58 +653,58 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     exhaustive class-element match uses this one exact wording for
     //     public/private, instance/static and auto-accessor field initializers.
     ParseFailureRule {
-        fragments: &["'arguments' not allowed in class field definition"],
+        pattern: ParseFailurePattern::ContainsAll(&["'arguments' not allowed in class field definition"]),
         code: EarlyErrorCode::ClassFieldContainsArguments,
         witnesses: &["'arguments' not allowed in class field definition"],
     },
     // 25. statement/with/mod.rs:61-67. The sole pinned producer uses this
     //     complete, case-sensitive wording for WithStatement in strict code.
     ParseFailureRule {
-        fragments: &["with statement not allowed in strict mode"],
+        pattern: ParseFailurePattern::ContainsAll(&["with statement not allowed in strict mode"]),
         code: EarlyErrorCode::StrictModeWithStatement,
         witnesses: &["with statement not allowed in strict mode"],
     },
     // 26. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
-        fragments: &["module cannot contain", "super"],
+        pattern: ParseFailurePattern::ContainsAll(&["module cannot contain", "super"]),
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
     // 27. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
-        fragments: &["module cannot contain", "new.target"],
+        pattern: ParseFailurePattern::ContainsAll(&["module cannot contain", "new.target"]),
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
     // 28. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
-        fragments: &["invalid private identifier usage"],
+        pattern: ParseFailurePattern::ContainsAll(&["invalid private identifier usage"]),
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
     // 29-33. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
-        fragments: &["duplicate label"],
+        pattern: ParseFailurePattern::ContainsAll(&["duplicate label"]),
         code: EarlyErrorCode::DuplicateLabel,
         witnesses: &["duplicate label: lbl"],
     },
     ParseFailureRule {
-        fragments: &["undefined break target"],
+        pattern: ParseFailurePattern::ContainsAll(&["undefined break target"]),
         code: EarlyErrorCode::UndefinedBreakTarget,
         witnesses: &["undefined break target: lbl"],
     },
     ParseFailureRule {
-        fragments: &["undefined continue target"],
+        pattern: ParseFailurePattern::ContainsAll(&["undefined continue target"]),
         code: EarlyErrorCode::UndefinedContinueTarget,
         witnesses: &["undefined continue target: lbl"],
     },
     ParseFailureRule {
-        fragments: &["illegal break statement"],
+        pattern: ParseFailurePattern::ContainsAll(&["illegal break statement"]),
         code: EarlyErrorCode::IllegalBreak,
         witnesses: &["illegal break statement"],
     },
     ParseFailureRule {
-        fragments: &["illegal continue statement"],
+        pattern: ParseFailurePattern::ContainsAll(&["illegal continue statement"]),
         code: EarlyErrorCode::IllegalContinue,
         witnesses: &["illegal continue statement"],
     },
@@ -680,7 +713,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     fixed messages report the same surviving CoverInitializedName AST
     //     condition in a different statement-list context.
     ParseFailureRule {
-        fragments: &["invalid object literal in"],
+        pattern: ParseFailurePattern::ContainsAll(&["invalid object literal in"]),
         code: EarlyErrorCode::ObjectLiteralCoverInitializedName,
         witnesses: &[
             "invalid object literal in script statement list at line 1, col 1",
@@ -693,7 +726,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     uses one raw message and the fixed Position::new(1, 1), so the full
     //     rendered text is stable and disjoint from the Module producer.
     ParseFailureRule {
-        fragments: &["invalid new.target usage at line 1, col 1"],
+        pattern: ParseFailurePattern::ContainsAll(&["invalid new.target usage at line 1, col 1"]),
         code: EarlyErrorCode::ScriptTopLevelNewTarget,
         witnesses: &["invalid new.target usage at line 1, col 1"],
     },
@@ -701,9 +734,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     selects this fixed branch and position; the sibling direct-eval
     //     wording is a separate T13 boundary.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
-        ],
+        ]),
         code: EarlyErrorCode::ScriptTopLevelUsingDeclaration,
         witnesses: &[
             "`using` declarations are not allowed at the top level of scripts at line 1, col 1",
@@ -714,7 +747,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     disjoint from Boa's other using restrictions without fixing a source
     //     coordinate.
     ParseFailureRule {
-        fragments: &["using declarations are not allowed in for-in loop heads at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["using declarations are not allowed in for-in loop heads at line"]),
         code: EarlyErrorCode::ForInUsingDeclaration,
         witnesses: &["using declarations are not allowed in for-in loop heads at line 1, col 1"],
     },
@@ -723,7 +756,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     The body is fixed and `at line` admits the declaration position
     //     without overlapping Boa's other using-declaration restrictions.
     ParseFailureRule {
-        fragments: &["`using` declarations are not allowed in this statement list at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["`using` declarations are not allowed in this statement list at line"]),
         code: EarlyErrorCode::SwitchClauseUsingDeclaration,
         witnesses: &[
             "`using` declarations are not allowed in this statement list at line 1, col 1",
@@ -733,7 +766,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     generator declarations opt into this shared fixed-message check.
     //     Generator expressions and methods have distinct pinned wordings.
     ParseFailureRule {
-        fragments: &["invalid yield usage in generator function parameters at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["invalid yield usage in generator function parameters at line"]),
         code: EarlyErrorCode::GeneratorDeclarationParametersContainYield,
         witnesses: &["invalid yield usage in generator function parameters at line 1, col 1"],
     },
@@ -741,7 +774,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     async-generator declarations opt into this shared fixed-message
     //     check. Expression forms and methods have distinct producers.
     ParseFailureRule {
-        fragments: &["invalid await usage in generator function parameters at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["invalid await usage in generator function parameters at line"]),
         code: EarlyErrorCode::AsyncDeclarationParametersContainAwait,
         witnesses: &["invalid await usage in generator function parameters at line 1, col 1"],
     },
@@ -749,7 +782,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     ordinary GeneratorExpression parser owns this sole fixed message;
     //     declarations, async generators and methods use distinct wordings.
     ParseFailureRule {
-        fragments: &["generator expression cannot contain yield expression in parameters at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["generator expression cannot contain yield expression in parameters at line"]),
         code: EarlyErrorCode::GeneratorExpressionParametersContainYield,
         witnesses: &[
             "generator expression cannot contain yield expression in parameters at line 1, col 1",
@@ -759,9 +792,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     async GeneratorExpression parser owns this sole fixed message; its
     //     adjacent AwaitExpression check and every other form are distinct.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "yield expression not allowed in async generator expression parameters at line",
-        ],
+        ]),
         code: EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield,
         witnesses: &[
             "yield expression not allowed in async generator expression parameters at line 1, col 1",
@@ -771,9 +804,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     async GeneratorExpression parser owns this sole fixed message;
     //     declaration forms and methods use distinct wordings.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "await expression not allowed in async generator expression parameters at line",
-        ],
+        ]),
         code: EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait,
         witnesses: &[
             "await expression not allowed in async generator expression parameters at line 1, col 1",
@@ -782,9 +815,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     // 44. expression/primary/object_initializer/mod.rs:779-786. One
     //     GeneratorMethod parser serves object literals and class elements.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "yield expression not allowed in generator method definition parameters at line",
-        ],
+        ]),
         code: EarlyErrorCode::GeneratorMethodParametersContainYield,
         witnesses: &[
             "yield expression not allowed in generator method definition parameters at line 1, col 1",
@@ -794,9 +827,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     AsyncGeneratorMethod parser serves object literals and class
     //     elements; its await sibling has a distinct fixed message.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "yield expression not allowed in async generator method definition parameters at line",
-        ],
+        ]),
         code: EarlyErrorCode::AsyncGeneratorMethodParametersContainYield,
         witnesses: &[
             "yield expression not allowed in async generator method definition parameters at line 1, col 1",
@@ -805,9 +838,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     // 46. expression/primary/object_initializer/mod.rs:879-885. The same
     //     AsyncGeneratorMethod parser owns this adjacent await condition.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "await expression not allowed in async generator method definition parameters at line",
-        ],
+        ]),
         code: EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
         witnesses: &[
             "await expression not allowed in async generator method definition parameters at line 1, col 1",
@@ -817,9 +850,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     expression into ordinary-arrow parameters rejects contained Yield
     //     before assignment/mod.rs can reach its sibling fixed message.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "yield expression is not allowed in formal parameter list of arrow function at line",
-        ],
+        ]),
         code: EarlyErrorCode::ArrowParametersContainYield,
         witnesses: &[
             "yield expression is not allowed in formal parameter list of arrow function at line 1, col 1",
@@ -830,7 +863,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     assignment/async_arrow_function.rs:114-119. This sibling wording
     //     maps to the same typed condition across arrow forms.
     ParseFailureRule {
-        fragments: &["Yield expression not allowed in this context at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["Yield expression not allowed in this context at line"]),
         code: EarlyErrorCode::ArrowParametersContainYield,
         witnesses: &["Yield expression not allowed in this context at line 1, col 1"],
     },
@@ -839,7 +872,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     assignment/async_arrow_function.rs:122-127. The uppercase fixed
     //     wording stays disjoint from generator-expression/method messages.
     ParseFailureRule {
-        fragments: &["Await expression not allowed in this context at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["Await expression not allowed in this context at line"]),
         code: EarlyErrorCode::ArrowParametersContainAwait,
         witnesses: &["Await expression not allowed in this context at line 1, col 1"],
     },
@@ -847,9 +880,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     vendored producer repairs the missing FormalParameters Contains
     //     AwaitExpression check before body parsing.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "await expression not allowed in async function expression parameters at line",
-        ],
+        ]),
         code: EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait,
         witnesses: &[
             "await expression not allowed in async function expression parameters at line 1, col 1",
@@ -859,7 +892,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     AsyncMethod producer repairs the corresponding UniqueFormalParameters
     //     check for object and class methods.
     ParseFailureRule {
-        fragments: &["await expression not allowed in async method definition parameters at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["await expression not allowed in async method definition parameters at line"]),
         code: EarlyErrorCode::AsyncMethodParametersContainAwait,
         witnesses: &[
             "await expression not allowed in async method definition parameters at line 1, col 1",
@@ -869,9 +902,9 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     //     exact raw message. LexError::Syntax appends the source position;
     //     `at line` admits it without broadening to a partial wording.
     ParseFailureRule {
-        fragments: &[
+        pattern: ParseFailurePattern::ContainsAll(&[
             "Illegal 'use strict' directive in function with non-simple parameter list at line",
-        ],
+        ]),
         code: EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
         witnesses: &[
             "Illegal 'use strict' directive in function with non-simple parameter list at line 1, col 1",
@@ -880,16 +913,26 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     // 53. expression/unary.rs:92-98. The sole pinned producer recursively
     //     uncovers parentheses and couples the identifier shape to strictness.
     ParseFailureRule {
-        fragments: &["cannot delete variables in strict mode at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["cannot delete variables in strict mode at line"]),
         code: EarlyErrorCode::StrictModeDeleteIdentifierReference,
         witnesses: &["cannot delete variables in strict mode at line 1, col 1"],
     },
     // 54. expression/unary.rs. Lila repairs the adjacent pinned producer to
     //     share the strictness guard and recognize private-ending optional chains.
     ParseFailureRule {
-        fragments: &["cannot delete private fields at line"],
+        pattern: ParseFailurePattern::ContainsAll(&["cannot delete private fields at line"]),
         code: EarlyErrorCode::StrictModeDeletePrivateReference,
         witnesses: &["cannot delete private fields at line 1, col 1"],
+    },
+    // 55. statement/declaration/import.rs:336 and export.rs:284. Static
+    //     import and export-from attributes share this complete raw message.
+    //     Anchoring both distinguishes the separate keyed lila-ir record error
+    //     and prevents a user-chosen local export name from injecting this text
+    //     into another Error::general diagnostic.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith("duplicate import attribute key at line"),
+        code: EarlyErrorCode::ModuleDuplicateImportAttributeKey,
+        witnesses: &["duplicate import attribute key at line 1, col 1"],
     },
 ];
 
@@ -898,14 +941,19 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
 const PARSE_FAILURE_RULES: &[ParseFailureRule] = &PARSE_FAILURE_RULE_TABLE;
 
 const fn rule_matches(rule: &ParseFailureRule, message: &str) -> bool {
-    let mut i = 0;
-    while i < rule.fragments.len() {
-        if !contains_sub(message, rule.fragments[i]) {
-            return false;
+    match rule.pattern {
+        ParseFailurePattern::ContainsAll(fragments) => {
+            let mut i = 0;
+            while i < fragments.len() {
+                if !contains_sub(message, fragments[i]) {
+                    return false;
+                }
+                i += 1;
+            }
+            true
         }
-        i += 1;
+        ParseFailurePattern::StartsWith(prefix) => starts_with_sub(message, prefix),
     }
-    true
 }
 
 /// The failure-detail token that names the **absence** of a code.
@@ -931,7 +979,7 @@ pub const NO_EARLY_ERROR_CODE: &str = "E_IR_DIAGNOSTIC";
 pub struct ParseClassified(EarlyErrorCode);
 
 impl ParseClassified {
-    /// The gate. `None` for a code no row of the fragment table carries — i.e.
+    /// The gate. `None` for a code no row of the message-pattern table carries — i.e.
     /// for a link-only condition, which a parse-stage producer must not claim.
     #[must_use]
     pub const fn from_early(code: EarlyErrorCode) -> Option<Self> {
@@ -976,8 +1024,8 @@ impl ParseClassified {
 /// `TokenKind::StringLiteral` renders as its raw contents
 /// (`boa_parser/src/lexer/token.rs:313`). So
 /// `var x = "illegal break statement" "y";` produces a message that contains a
-/// row's whole fragment set verbatim, and the string oracle would classify an
-/// ordinary syntax error as an early error. On the entry path that is
+/// `ContainsAll` row's whole fragment set verbatim, and the string oracle would
+/// classify an ordinary syntax error as an early error. On the entry path that is
 /// taxonomy-only (both report `parse`/`SyntaxError`); on the dependency path it
 /// converts an `IrDiagnostic::unsupported` into a spec rejection, which is a
 /// compiler gap wearing a spec claim.
@@ -1009,9 +1057,11 @@ const fn message_interpolates_source_text(message: &str) -> bool {
 /// This is the only such function in the workspace. `lila-ir` calls this one.
 #[must_use]
 pub const fn classify_parse_failure(message: &str) -> Option<ParseClassified> {
-    // The oracle is a substring test over a message boa built by interpolation.
-    // Refuse to read one of the two shapes that can carry user source text into
-    // it; `Malformed`/`Unsupported` is the honest answer there.
+    // ContainsAll patterns inspect messages Boa can build by interpolation.
+    // Refuse to read a known shape that can carry user source text into that
+    // oracle; `Malformed`/`Unsupported` is the honest answer there. StartsWith
+    // patterns additionally prevent source text later in a General diagnostic
+    // from forging a complete fixed message.
     if message_interpolates_source_text(message) {
         return None;
     }
@@ -1027,7 +1077,7 @@ pub const fn classify_parse_failure(message: &str) -> Option<ParseClassified> {
 }
 
 impl EarlyErrorCode {
-    /// True iff some row of the one fragment table can produce this code — i.e.
+    /// True iff some row of the one message-pattern table can produce this code — i.e.
     /// iff a boa **parse** failure can be classified as this condition.
     ///
     /// `pub` because its consumer is `lila_ir::early_error_code`'s assertion
@@ -1047,6 +1097,23 @@ impl EarlyErrorCode {
     }
 }
 
+/// True only when at least one row owns `code` and every such row is anchored.
+const fn code_is_owned_only_by_starts_with(code: EarlyErrorCode) -> bool {
+    let mut found = false;
+    let mut i = 0;
+    while i < PARSE_FAILURE_RULES.len() {
+        let rule = &PARSE_FAILURE_RULES[i];
+        if code_eq(rule.code, code) {
+            found = true;
+            if !matches!(rule.pattern, ParseFailurePattern::StartsWith(_)) {
+                return false;
+            }
+        }
+        i += 1;
+    }
+    found
+}
+
 // These conditions are intentionally parse-owned. Deleting any table row while
 // leaving its enum variant must fail during `cargo check`, not merely change a
 // retained dependency rejection from EarlyError back to Unsupported at run time.
@@ -1056,35 +1123,50 @@ const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::StrictModeDeleteIdentifierReference);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::StrictModeDeletePrivateReference);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
+const _: () = assert!(
+    code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
+    "the fixed duplicate import-attribute message must use anchored prefix matching"
+);
 
 // ---------------------------------------------------------------------------
 // Const assertions P1-P6. Each names the mistake it makes fail to build.
 // ---------------------------------------------------------------------------
 
-/// P1: no row has an empty `fragments` or `witnesses` list, **and no fragment
-/// or witness is the empty string**.
+/// P1: no row has an empty match pattern or `witnesses` list, **and no pattern
+/// component or witness is the empty string**.
 ///
-/// An empty `fragments` list matches every message, so one row would swallow
-/// every parse failure into a single code. An empty `witnesses` list would
-/// exempt the row from P2, P6 and P10 entirely. And a single empty *fragment*
-/// has the same effect as an empty list: `contains_sub` returns `true` for an
-/// empty needle (its length guard only rejects a needle **longer** than the
-/// haystack), so `fragments: &[""]` matches every message. That last case was
-/// caught only as a side effect of P2 — i.e. only because other rows happened
-/// to have witnesses that the empty row would then also match.
+/// An empty `ContainsAll` list matches every message, so one row would swallow
+/// every parse failure into a single code. An empty `StartsWith` prefix does the
+/// same. An empty `witnesses` list would exempt the row from P2, P6 and P10
+/// entirely. A single empty fragment also matches everything because
+/// `contains_sub` follows `str::contains` semantics.
 const fn every_row_is_populated() -> bool {
     let mut i = 0;
     while i < PARSE_FAILURE_RULES.len() {
         let rule = &PARSE_FAILURE_RULES[i];
-        if rule.fragments.is_empty() || rule.witnesses.is_empty() {
+        if rule.witnesses.is_empty() {
             return false;
         }
-        let mut f = 0;
-        while f < rule.fragments.len() {
-            if rule.fragments[f].is_empty() {
-                return false;
+        match rule.pattern {
+            ParseFailurePattern::ContainsAll(fragments) => {
+                if fragments.is_empty() {
+                    return false;
+                }
+                let mut f = 0;
+                while f < fragments.len() {
+                    if fragments[f].is_empty() {
+                        return false;
+                    }
+                    f += 1;
+                }
             }
-            f += 1;
+            ParseFailurePattern::StartsWith(prefix) => {
+                if prefix.is_empty() {
+                    return false;
+                }
+            }
         }
         let mut w = 0;
         while w < rule.witnesses.len() {
@@ -1103,8 +1185,8 @@ const fn every_row_is_populated() -> bool {
 /// This is the disjointness the old two-table code asserted in a comment
 /// ("the patterns are disjoint"). As a checked fact it does more than the
 /// comment did: it makes the table **order-independent**, so a row inserted
-/// above an existing one cannot silently shadow it, and a row whose fragments
-/// are a superset of another's cannot be silently unreachable.
+/// above an existing one cannot silently shadow it, and a row whose pattern is
+/// a superset of another's cannot be silently unreachable.
 const fn witnesses_select_their_own_row() -> bool {
     let mut row = 0;
     while row < PARSE_FAILURE_RULES.len() {
@@ -1138,6 +1220,26 @@ const fn classified_is(found: Option<ParseClassified>, expected: EarlyErrorCode)
         Some(classified) => code_eq(classified.code(), expected),
         None => false,
     }
+}
+
+/// P11: user-controlled text inside another `Error::general` cannot forge the
+/// fixed import-attribute condition, including where it overlaps the existing
+/// duplicate-export fragments.
+const fn import_attribute_prefix_is_injection_safe() -> bool {
+    if !matches!(
+        classify_parse_failure(
+            "local referenced binding `duplicate import attribute key at line` cannot be a string literal at line 1, col 1",
+        ),
+        None
+    ) {
+        return false;
+    }
+    classified_is(
+        classify_parse_failure(
+            "exported name `duplicate import attribute key at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
 }
 
 /// P3: `ALL` is in discriminant order and complete, and `wire_name` round-trips
@@ -1249,7 +1351,7 @@ const fn every_witness_classifies_to_its_own_code() -> bool {
 
 const _: () = assert!(
     every_row_is_populated(),
-    "P1: a PARSE_FAILURE_RULES row has an empty `fragments` (it would match every message) or an empty `witnesses`"
+    "P1: a PARSE_FAILURE_RULES row has an empty match pattern (it would match every message) or an empty `witnesses`"
 );
 const _: () = assert!(
     witnesses_select_their_own_row(),
@@ -1274,4 +1376,8 @@ const _: () = assert!(
 const _: () = assert!(
     every_witness_classifies_to_its_own_code(),
     "P10: a PARSE_FAILURE_RULES witness no longer classifies to its own code through classify_parse_failure — most likely an INTERPOLATING_MESSAGE_SHAPES guard now eats it"
+);
+const _: () = assert!(
+    import_attribute_prefix_is_injection_safe(),
+    "P11: user-controlled export text can forge or shadow the anchored duplicate import-attribute classification"
 );

@@ -1,7 +1,7 @@
 //! The `EarlyErrorCode` → rejection-stage map, and the assertions that tie the
 //! parse table in `lila-front` to it.
 //!
-//! The domain itself, the fragment table and the classifier live one crate down,
+//! The domain itself, the message-pattern table and the classifier live one crate down,
 //! in `lila_front::early_error_code`, because every entry and dependency parse
 //! is produced there and `lila-ir` depends on `lila-front`. This
 //! module holds only what needs a `lila-ir` type. There is no second copy of
@@ -75,6 +75,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ArrowParametersContainAwait
         | EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait
         | EarlyErrorCode::AsyncMethodParametersContainAwait
+        | EarlyErrorCode::ModuleDuplicateImportAttributeKey
         | EarlyErrorCode::ModuleDuplicateExport
         | EarlyErrorCode::ModuleUndeclaredExport
         | EarlyErrorCode::ModuleTopLevelSuper

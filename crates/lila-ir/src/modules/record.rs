@@ -2043,6 +2043,7 @@ mod tests {
         .expect_err("duplicate keys cannot inhabit the canonical list");
 
         assert_eq!(error.key(), "type");
+        assert_eq!(error.to_string(), "duplicate import attribute key: type");
     }
 
     #[test]

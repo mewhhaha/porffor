@@ -374,6 +374,16 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Duplicate static import-attribute keys now have the typed
+  `ModuleDuplicateImportAttributeKey` identity across import and export-from
+  declarations. A prefix-anchored parser pattern prevents user-controlled
+  export names from forging that classification, while a const ownership check
+  and the exhaustive IR map keep the closed domain at 56 variants and the
+  message-pattern table at 55 rows. Under the eight-core cap, `cargo xc` is
+  green; the front and module-early cohorts pass `93/93` and `39/39`; and the
+  exact Test262 duplicate-attribute filter passes `3/3` Wasm-AOT executions
+  with every non-success bucket at zero. This is bounded typed-diagnostic
+  evidence, not a measured pass gain, T07 closure or aggregate conformance.
 - Strict-mode `delete` early errors now have distinct typed identities for
   identifier and private-reference operands. A vendored Boa repair places both
   families beneath one strictness guard and exhaustively recognizes

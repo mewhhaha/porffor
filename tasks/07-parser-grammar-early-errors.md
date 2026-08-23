@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, and strict-mode `with`/delete classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete and duplicate static import-attribute-key classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,41 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Landed 2026-08-23: duplicate static import-attribute keys
+
+`ModuleDuplicateImportAttributeKey`
+(`E_MODULE_DUPLICATE_IMPORT_ATTRIBUTE_KEY`) now owns the one Module early-error
+condition where `WithClauseToAttributes` produces two entries with the same
+`[[Key]]`. Pinned Boa has exactly two fixed-message producers: its static import
+and export-from parsers each emit `duplicate import attribute key`. One
+`ParseFailurePattern::StartsWith` row requires Boa's rendered `duplicate import
+attribute key at line` prefix and owns both sites without accepting the same
+text inside an interpolated local-export diagnostic. A const ownership check
+requires every row for this code to remain anchored. This brings the closed
+domain to 56 variants and the parse table to 55 rows. The exhaustive IR map
+derives `Early` and `SyntaxError`, and a real failed export-from parse exercises
+the front-to-IR diagnostic projection.
+
+The source witnesses cover both declaration forms, identifier/string key
+equivalence, valid distinct keys and trailing commas, one reviewed occurrence
+in each known vendored producer file, and adversarial export-name collisions.
+The independent
+`ModuleRequestAttributesIr::try_new` invariant remains intact: its
+`DuplicateImportAttributeKeyIr` includes the duplicated key and is not a parse
+classification.
+
+Under the shared eight-core cap, `cargo xc` is green; the focused front and IR
+projection filters pass `3/3` and `1/1`, the broad front and module-early
+cohorts pass `93/93` and `39/39`, and the independent IR record invariant
+passes `1/1`. The exact
+`language/module-code/import-attributes/early-dup-attribute-key` Test262 filter
+passes `3/3` Wasm-AOT executions with every non-success bucket at zero. This is
+bounded classification evidence, not a measured pass gain or a claim about the
+broader current-pin cohort, host import-attribute semantics, dynamic-import
+option semantics, JSON-module behavior, T07 closure or aggregate conformance.
+The source of truth is
+`docs/rust-rewrite/contracts/duplicate-import-attribute-key-early-errors.md`.
 
 ### Landed 2026-08-23: delete-reference early errors
 

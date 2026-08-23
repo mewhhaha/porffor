@@ -656,6 +656,34 @@ struct ParseFailureRule {
 }
 ```
 
+**2026-08-23 anchored-pattern amendment.** The current schema replaces the
+bare `fragments` field above with one closed match domain:
+
+```rust
+enum ParseFailurePattern {
+    ContainsAll(&'static [&'static str]),
+    StartsWith(&'static str),
+}
+
+struct ParseFailureRule {
+    pattern: ParseFailurePattern,
+    code: EarlyErrorCode,
+    witnesses: &'static [&'static str],
+}
+```
+
+`ContainsAll` retains the original invariant-fragment behavior. `StartsWith`
+is available when a producer audit establishes one complete fixed message
+followed only by a source position; for that row it prevents user-controlled
+text interpolated later inside a different `Error::general` diagnostic from
+forging the condition. `rule_matches` and P1 consume the enum exhaustively; an
+empty fragment list, empty fragment, or empty prefix remains a compile-time
+assertion failure. The duplicate static import-attribute-key rule is the sole
+anchored consumer in this amendment. Existing `ContainsAll` rows retain their
+prior behavior and are not newly audited for General-message interpolation.
+The 15-row table below records the original measured foundation and is
+historical rather than a current row-count claim.
+
 `witnesses` is a list and not a single string for a measured reason: boa emits
 `lexical name declared multiple times` **and**
 ``lexical name `x` declared multiple times`` for one spec rule, and the fragment
@@ -1050,8 +1078,18 @@ Each entry states why a type cannot carry it.
   two interpolating message shapes (`INTERPOLATING_MESSAGE_SHAPES`:
   `"unexpected token '"`, `"expected token '"`, `"expected one of "`), detected by
   substring because the dependency path prepends a prefix. Assertion **P10**
-  proves the guard eats no witness of any row. A `Error::General` wording that a
-  future boa version interpolates user text into would reopen the channel.
+  proves the guard eats no witness of any row. An `Error::General` wording that
+  interpolates user text reopens that channel for an anywhere-substring rule.
+
+  **2026-08-23 closure for duplicate import-attribute keys:** Boa's
+  local-export error interpolates the exported name, which can contain the
+  complete fixed text of this condition. The message-pattern table now has a
+  closed `StartsWith` variant alongside `ContainsAll`; the duplicate static
+  import-attribute-key row uses it. Real-source witnesses pin both the forged
+  local-export diagnostic and an overlapping duplicate-export name. This
+  closes that one injection path only: current and future `ContainsAll` rows
+  remain unaudited for arbitrary `Error::General` interpolation and each needs
+  its own match-semantics review.
 
   Scanned at the same time, for completeness: all 1077 multi-word string literals
   in `boa_parser-0.21.1` and `boa_ast-0.21.1` against the 15 rows — exactly 28

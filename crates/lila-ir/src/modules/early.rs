@@ -36,7 +36,7 @@ use crate::*;
 /// link-only code here (`ModuleMissingExport`, say) fails to build rather than
 /// reporting a `resolution`-kind condition from a `ParseModule`-stage producer.
 /// That closes the call-site half of MC4 — assertion P7 constrains what the
-/// fragment table can yield, not what a producer can say.
+/// message-pattern table can yield, not what a producer can say.
 const DUPLICATE_EXPORT: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateExport);
 const UNDECLARED_EXPORT: ParseClassified =
@@ -116,7 +116,7 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
 /// Maps a retained failed module parse into an IR diagnostic.
 ///
 /// The classification itself is `lila_front::classify_parse_failure`, the
-/// **one** fragment table in this workspace. This module used to carry a second
+/// **one** message-pattern table in this workspace. This module used to carry a second
 /// copy of it, keyed to the same boa messages and maintained by hand alongside
 /// the copy in `lila-front`; the two had drifted in both directions by the
 /// time they were merged. See
@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(module_early_errors(&record), Vec::new());
     }
 
-    /// Every witness of every row of the one fragment table crosses the typed
+    /// Every witness of every row of the one message-pattern table crosses the typed
     /// front-end-to-IR diagnostic boundary without changing its condition.
     #[test]
     fn boa_static_semantics_messages_classify_as_syntax_errors() {
@@ -321,6 +321,10 @@ mod tests {
             (
                 "exported name `x` declared multiple times",
                 EarlyErrorCode::ModuleDuplicateExport,
+            ),
+            (
+                "duplicate import attribute key at line 1, col 1",
+                EarlyErrorCode::ModuleDuplicateImportAttributeKey,
             ),
             (
                 "could not find the exported binding `x` in the declared names of the module",
@@ -869,6 +873,25 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::ObjectLiteralCoverInitializedName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn duplicate_import_attribute_key_projects_to_an_ir_early_syntax_error() {
+        let error = lila_front::parse(
+            r#"export * from "./dep.mjs" with { type: "json", "type": "css" };"#,
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a repeated static import-attribute key should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ModuleDuplicateImportAttributeKey)
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");

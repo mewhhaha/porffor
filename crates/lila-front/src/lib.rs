@@ -338,7 +338,7 @@ impl ParseCode {
     pub const fn error_type(self) -> Option<&'static str> {
         match self {
             // boa read the source and rejected it: a real syntax error, whether
-            // or not the fragment table models its wording.
+            // or not the message-pattern table models its wording.
             Self::Malformed | Self::Early(_) => Some("SyntaxError"),
             Self::UnsupportedParserFeature => None,
         }
@@ -2269,6 +2269,76 @@ mod tests {
         }
     }
 
+    #[test]
+    fn duplicate_import_attribute_keys_report_one_module_early_error() {
+        for source in [
+            r#"import "./dep.mjs" with { type: "json", "type": "css" };"#,
+            r#"export * from "./dep.mjs" with { mode: "first", "mode": "second" };"#,
+        ] {
+            let err = parse(source, ParseOptions::module())
+                .expect_err("duplicate static import-attribute keys should fail");
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
+                "{source:?}: {err:?}"
+            );
+            assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn distinct_import_attribute_keys_and_trailing_commas_remain_valid() {
+        for source in [
+            r#"import "./dep.mjs" with { type: "json", mode: "strict", };"#,
+            r#"export * from "./dep.mjs" with { type: "json", mode: "strict", };"#,
+        ] {
+            parse(source, ParseOptions::module())
+                .expect("distinct static import-attribute keys should parse");
+        }
+    }
+
+    #[test]
+    fn user_export_names_cannot_forge_duplicate_import_attribute_classification() {
+        let err = parse(
+            r#"export { "duplicate import attribute key at line" };"#,
+            ParseOptions::module(),
+        )
+        .expect_err("a string literal cannot be a local referenced binding");
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed, "{err}");
+
+        let err = parse(
+            concat!(
+                "const value = 0;\n",
+                "export { value as \"duplicate import attribute key at line\" };\n",
+                "export { value as \"duplicate import attribute key at line\" };",
+            ),
+            ParseOptions::module(),
+        )
+        .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn known_duplicate_import_attribute_message_producers_stay_reviewed() {
+        const MESSAGE: &str = "duplicate import attribute key";
+        const IMPORT_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/import.rs"
+        );
+        const EXPORT_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/export.rs"
+        );
+
+        assert_eq!(IMPORT_SOURCE.matches(MESSAGE).count(), 1);
+        assert_eq!(EXPORT_SOURCE.matches(MESSAGE).count(), 1);
+        assert!(classify_parse_failure("duplicate import attribute key: type").is_none());
+    }
+
     /// Drift B3, closed.
     ///
     /// `ModuleParser::parse` words this one ``lexical name `x` declared
@@ -2663,7 +2733,7 @@ switch (0) {
     /// boa renders a `TokenKind::StringLiteral` as its raw contents
     /// (`boa_parser/src/lexer/token.rs:313`) and interpolates the found token
     /// into `Error::Unexpected` / `Error::Expected`, so a program can put a
-    /// whole fragment set of the one table into the message boa produces for an
+    /// whole `ContainsAll` fragment set of the one table into the message boa produces for an
     /// ordinary syntax error. `classify_parse_failure` refuses the two
     /// interpolating shapes, so this stays `Malformed` — a syntax error we do
     /// not model — rather than becoming a forged `E_ILLEGAL_BREAK`.
@@ -2677,7 +2747,7 @@ switch (0) {
         assert_eq!(err.diagnostic().code, ParseCode::Malformed, "{err}");
     }
 
-    /// MC4's call-site half. A code the fragment table cannot produce is not a
+    /// MC4's call-site half. A code the message-pattern table cannot produce is not a
     /// `ParseClassified`, so it cannot be reported at
     /// `ParseDiagnosticPhase::Early` by any parse-stage producer.
     #[test]
@@ -2777,6 +2847,10 @@ switch (0) {
         );
         assert!(
             ParseClassified::from_early(EarlyErrorCode::StrictModeDeletePrivateReference,)
+                .is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateImportAttributeKey,)
                 .is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
