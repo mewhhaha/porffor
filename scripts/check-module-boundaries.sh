@@ -356,6 +356,47 @@ check_no_inline_legacy_includes "$ir_labelled_statement_lowering"
 # Measured after formatting the extraction: 72 raw lines. The margin is for
 # maintenance of labelled-statement lowering only.
 check_raw_line_budget "$ir_labelled_statement_lowering" 100
+# T02's abrupt loop-control boundary owns all labelled/unlabelled break and
+# continue validation plus final abrupt-control IR assembly. The active-label
+# types stay parent-owned because labelled_statement produces them while this
+# child consumes them.
+ir_break_continue_lowering="crates/lila-ir/src/lowering/break_continue.rs"
+require_file "$ir_break_continue_lowering"
+require_module_decl "$ir_lowering" "break_continue"
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'pub(super) fn lower_break(' \
+  1 \
+  'break lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_break(' \
+  0 \
+  'break lowering outside child module'
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'pub(super) fn lower_continue(' \
+  1 \
+  'continue lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_continue(' \
+  0 \
+  'continue lowering outside child module'
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'struct ActiveLabel' \
+  0 \
+  'active-label type copied into break/continue owner'
+require_fixed_string_count \
+  "$ir_break_continue_lowering" \
+  'enum LabelTargetKind' \
+  0 \
+  'label-target type copied into break/continue owner'
+check_no_inline_legacy_includes "$ir_break_continue_lowering"
+# Measured after formatting the extraction: 45 raw lines. The margin is for
+# maintenance of break/continue lowering only.
+check_raw_line_budget "$ir_break_continue_lowering" 70
 # T02's while-family boundary owns ordinary/resumable while lowering and the
 # explicit do-while suspension refusal. Shared loop resumption helpers remain
 # parent-owned and the parent cannot regrow either loop implementation.
@@ -599,7 +640,7 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the switch-statement extraction: 23,348 raw
+# Measured after formatting the break/continue extraction: 23,307 raw
 # lines. This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
 check_raw_line_budget "$ir_lowering" 24500

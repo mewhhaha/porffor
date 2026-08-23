@@ -17,6 +17,30 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: break/continue ownership
+
+`lila-ir/src/lowering/break_continue.rs` now owns labelled and unlabelled
+break/continue target validation and final abrupt-control IR assembly. The
+statement dispatcher remains its sole caller. The parent-owned active-label
+stack and `LabelTargetKind` stay shared with labelled-statement lowering, while
+the breakable and loop depths remain lowerer state.
+
+This is an exact source move. All 41 method lines compare exactly after
+normalizing only `fn lower_break` and `fn lower_continue` to private-module
+visibility. The extraction reduces `lowering.rs` from 23,348 to 23,307 raw
+lines, and the child is 45 lines. The module audit requires both sole owners,
+rejects copies of the shared active-label types, forbids legacy `include!`
+assembly, budgets parent and child separately, and fails its missing-child
+negative control. No persistent structural test used either old method as a
+source-slice sentinel.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Three focused IR loop, switch-label and
+direct-label-target witnesses pass `3/3`; five focused CLI inspect, finally,
+iterator-closing and using-loop lifecycle witnesses pass `5/5`. The all-target
+`lila-ir` and workspace checks are green. No break/continue behavior or
+conformance improvement is claimed.
+
 ### Landed 2026-08-23: switch-statement ownership
 
 `lila-ir/src/lowering/switch_statement.rs` now owns discriminant and selector
