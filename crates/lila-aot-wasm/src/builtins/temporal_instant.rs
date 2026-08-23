@@ -18,6 +18,7 @@
 //! needs simply cannot be produced any other way.
 
 use super::super::*;
+use crate::operations::BigIntNumberPolicy;
 
 /// `Temporal.Instant.fromEpochMilliseconds` step 2 rejects a non-integral
 /// Number through `NumberToBigInt`, which is a **RangeError**, not the
@@ -426,7 +427,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_bigint_locals(
             argument_tag_local,
             argument_payload_local,
-            false,
+            BigIntNumberPolicy::RejectNumber,
             nanoseconds_payload_local,
             nanoseconds_tag_local,
             function,

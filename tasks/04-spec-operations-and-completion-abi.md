@@ -77,6 +77,23 @@ policy immediately after creating the error and before emitting the existing
 placeholder NaN, preserving their instruction order while making boolean
 inversion impossible.
 
+The value-to-BigInt Number-admission seam now carries a crate-private,
+two-variant `BigIntNumberPolicy` instead of `allow_number: bool`. The
+crate-visible value helper and its private primitive helper require that
+policy; the value helper performs the same number-hinted `ToPrimitive` and
+forwards the policy unchanged, while only the primitive Number branch projects
+it through an exhaustive match. The two
+`SpecOperationIr::ToBigInt` projections, typed-data low-word conversion and
+three Temporal epoch-nanosecond conversions explicitly reject Number. Only the
+`%BigInt%` function selects `NumberToBigInt`, retaining integral conversion and
+non-integral `RangeError` behavior. The implementation, source contract and
+bounded six-reject/one-admit mutation guard are independently reviewed. Under
+the shared eight-core cap, `cargo xc` is green, the structural guard passes
+`2/2`, the exact BigInt minimal-validation CLI witness passes `1/1`, and the
+exact TypedArray `with` CLI witness passes `1/1` while exercising Number
+rejection by a BigInt typed-data write. This verifies the bounded policy seam;
+no broad BigInt, Temporal or Test262 refresh or conformance gain is claimed.
+
 The synchronous DisposableStack value-return seam now names its remaining
 two-policy choice with a private, exhaustive
 `DisposableStackReturnDisposition`: return the current function from the early

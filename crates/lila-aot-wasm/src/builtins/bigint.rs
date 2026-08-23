@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::operations::BigIntNumberPolicy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct BigIntValueResult(());
@@ -82,7 +83,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_value_to_bigint_locals(
                     arg_tag_local,
                     arg_payload_local,
-                    true,
+                    BigIntNumberPolicy::NumberToBigInt,
                     self.result_local,
                     self.result_tag_local,
                     function,

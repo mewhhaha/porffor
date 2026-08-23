@@ -1,4 +1,5 @@
 use super::*;
+use crate::operations::BigIntNumberPolicy;
 
 use std::marker::PhantomData;
 
@@ -8435,7 +8436,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_bigint_locals(
             value_tag_local,
             value_payload_local,
-            false,
+            BigIntNumberPolicy::RejectNumber,
             bigint_payload_local,
             bigint_tag_local,
             function,

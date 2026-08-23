@@ -4,6 +4,18 @@ use super::*;
 use crate::emit::NumericErrorRealmSource;
 use lila_ir::{NativeErrorKind, StaticRegExpCompilation};
 
+/// Whether a Number primitive is admitted by a value-to-BigInt conversion.
+///
+/// `ToBigInt` rejects Number, while the `%BigInt%` function applies the
+/// distinct `NumberToBigInt` operation. Keeping that choice in a closed domain
+/// makes each caller name its specification policy and makes a new policy an
+/// exhaustive-match compile error at the sole Number projection below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BigIntNumberPolicy {
+    RejectNumber,
+    NumberToBigInt,
+}
+
 /// One already-evaluated ECMAScript value admitted to the has-instance
 /// dispatcher. The raw local pair stays private so the two abstract-operation
 /// signatures below cannot transpose `object` and `constructor` accidentally.
@@ -1454,7 +1466,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_value_to_bigint_locals(
                     tag_local,
                     payload_local,
-                    false,
+                    BigIntNumberPolicy::RejectNumber,
                     payload_local,
                     tag_local,
                     function,
@@ -1881,7 +1893,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_value_to_bigint_locals(
                     operand_tag_local,
                     operand_payload_local,
-                    false,
+                    BigIntNumberPolicy::RejectNumber,
                     payload_local,
                     tag_local,
                     function,
@@ -5967,7 +5979,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         input_tag_local: u32,
         input_payload_local: u32,
-        allow_number: bool,
+        number_policy: BigIntNumberPolicy,
         output_payload_local: u32,
         output_tag_local: u32,
         function: &mut Function,
@@ -5987,7 +5999,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_primitive_to_bigint_locals(
             primitive_tag_local,
             primitive_payload_local,
-            allow_number,
+            number_policy,
             output_payload_local,
             output_tag_local,
             function,
@@ -5998,11 +6010,11 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_primitive_to_bigint_locals(
+    fn emit_primitive_to_bigint_locals(
         &mut self,
         input_tag_local: u32,
         input_payload_local: u32,
-        allow_number: bool,
+        number_policy: BigIntNumberPolicy,
         output_payload_local: u32,
         output_tag_local: u32,
         function: &mut Function,
@@ -6027,27 +6039,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if allow_number {
-            function.instruction(&Instruction::LocalGet(input_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::LocalGet(input_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                RANGE_ERROR_NAME,
-                "cannot convert Number to BigInt",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+        match number_policy {
+            BigIntNumberPolicy::NumberToBigInt => {
                 function.instruction(&Instruction::LocalGet(input_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::LocalGet(input_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_runtime_error(
                     RANGE_ERROR_NAME,
@@ -6058,38 +6056,55 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
+                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+                    function.instruction(&Instruction::LocalGet(input_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
+                    function.instruction(&Instruction::F64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_runtime_error(
+                        RANGE_ERROR_NAME,
+                        "cannot convert Number to BigInt",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::LocalGet(input_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(input_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Trunc);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "cannot convert non-integer Number to BigInt",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(input_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(output_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                function.instruction(&Instruction::LocalSet(output_tag_local));
             }
-            function.instruction(&Instruction::LocalGet(input_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::LocalGet(input_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Trunc);
-            function.instruction(&Instruction::F64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                RANGE_ERROR_NAME,
-                "cannot convert non-integer Number to BigInt",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(input_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::I64TruncF64S);
-            function.instruction(&Instruction::LocalSet(output_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-            function.instruction(&Instruction::LocalSet(output_tag_local));
-        } else {
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "cannot convert Number to BigInt",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
+            BigIntNumberPolicy::RejectNumber => {
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "cannot convert Number to BigInt",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+            }
         }
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(input_tag_local));
