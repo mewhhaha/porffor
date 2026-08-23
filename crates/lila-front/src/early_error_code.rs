@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 34] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 35] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -216,6 +216,10 @@ early_error_codes! {
     /// `#constructor`. Public computed names whose StringValue is
     /// `"#constructor"` remain excluded.
     ClassPrivateConstructorName => "E_CLASS_PRIVATE_CONSTRUCTOR_NAME";
+    /// ClassElement early errors: a public static ordinary, generator, async,
+    /// async-generator, getter or setter method has the literal property name
+    /// `prototype`. Computed and private names remain excluded.
+    ClassStaticMethodPrototypeName => "E_CLASS_STATIC_METHOD_PROTOTYPE_NAME";
     /// ClassBody early errors: `PrivateBoundIdentifiers` contains duplicate
     /// entries, except for the permitted getter/setter pair with matching
     /// static placement. Nested class bodies have independent private-name
@@ -323,7 +327,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 32;
+const PARSE_FAILURE_RULE_COUNT: usize = 33;
 
 /// The one fragment table.
 ///
@@ -486,7 +490,15 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassPrivateConstructorName,
         witnesses: &["class constructor may not be a private method"],
     },
-    // 18. statement/declaration/hoistable/class_decl/mod.rs:367-467. Five
+    // 18. statement/declaration/hoistable/class_decl/mod.rs:806-812,871-879,
+    //     912-920,1194-1198,1295-1299,1447-1452. These six public static
+    //     method/accessor branches share one complete, case-sensitive wording.
+    ParseFailureRule {
+        fragments: &["class may not have static method definitions named 'prototype'"],
+        code: EarlyErrorCode::ClassStaticMethodPrototypeName,
+        witnesses: &["class may not have static method definitions named 'prototype'"],
+    },
+    // 19. statement/declaration/hoistable/class_decl/mod.rs:367-467. Five
     //     pinned branches use this exact, case-sensitive wording for duplicate
     //     private methods, accessors and fields.
     ParseFailureRule {
@@ -494,14 +506,14 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassDuplicatePrivateName,
         witnesses: &["private identifier has already been declared"],
     },
-    // 19. statement/declaration/hoistable/class_decl/mod.rs:740-745. This is
+    // 20. statement/declaration/hoistable/class_decl/mod.rs:740-745. This is
     //     the sole pinned producer and its complete, case-sensitive wording.
     ParseFailureRule {
         fragments: &["'arguments' not allowed in class static block"],
         code: EarlyErrorCode::ClassStaticBlockContainsArguments,
         witnesses: &["'arguments' not allowed in class static block"],
     },
-    // 20. statement/declaration/hoistable/class_decl/mod.rs:759-761. The
+    // 21. statement/declaration/hoistable/class_decl/mod.rs:759-761. The
     //     adjacent `at line` fragment is part of Error::General's rendered
     //     message and excludes the distinct longer generator-parameter error.
     ParseFailureRule {
@@ -509,7 +521,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassStaticBlockContainsAwait,
         witnesses: &["invalid await usage at line 1, col 1"],
     },
-    // 21. statement/declaration/hoistable/class_decl/mod.rs:1062,1096,1418,
+    // 22. statement/declaration/hoistable/class_decl/mod.rs:1062,1096,1418,
     //     1502. These four pinned branches cover ordinary public fields and
     //     public auto-accessors, with and without initializers.
     ParseFailureRule {
@@ -517,7 +529,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassFieldConstructorName,
         witnesses: &["class may not have field definitions named 'constructor'"],
     },
-    // 22. statement/declaration/hoistable/class_decl/mod.rs:1056,1090,1412,
+    // 23. statement/declaration/hoistable/class_decl/mod.rs:1056,1090,1412,
     //     1496. These four corresponding static branches share one complete,
     //     case-sensitive wording for the two forbidden literal names.
     ParseFailureRule {
@@ -529,7 +541,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "class may not have static field definitions named 'constructor' or 'prototype'",
         ],
     },
-    // 23. statement/declaration/hoistable/class_decl/mod.rs:1522-1558. The
+    // 24. statement/declaration/hoistable/class_decl/mod.rs:1522-1558. The
     //     exhaustive class-element match uses this one exact wording for
     //     public/private, instance/static and auto-accessor field initializers.
     ParseFailureRule {
@@ -537,32 +549,32 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ClassFieldContainsArguments,
         witnesses: &["'arguments' not allowed in class field definition"],
     },
-    // 24. statement/with/mod.rs:61-67. The sole pinned producer uses this
+    // 25. statement/with/mod.rs:61-67. The sole pinned producer uses this
     //     complete, case-sensitive wording for WithStatement in strict code.
     ParseFailureRule {
         fragments: &["with statement not allowed in strict mode"],
         code: EarlyErrorCode::StrictModeWithStatement,
         witnesses: &["with statement not allowed in strict mode"],
     },
-    // 25. boa_parser/src/parser/mod.rs:567
+    // 26. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
         fragments: &["module cannot contain", "super"],
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
-    // 26. boa_parser/src/parser/mod.rs:575
+    // 27. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
         fragments: &["module cannot contain", "new.target"],
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
-    // 27. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
+    // 28. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
         fragments: &["invalid private identifier usage"],
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
-    // 28-32. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
+    // 29-33. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
         fragments: &["duplicate label"],
         code: EarlyErrorCode::DuplicateLabel,

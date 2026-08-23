@@ -374,6 +374,15 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Public static ordinary, generator, async, async-generator, getter and setter
+  methods with the literal name `prototype` now share one typed early-error
+  code across Script, Module and retained dependency parsing. Instance literal,
+  public computed and private static names remain parse-valid, preserving the
+  separate computed-key run-time installation rule. The capped front gate
+  passes `51/51`, the IR early-error filter passes `3/3`, and the exact
+  twelve-file pinned cohort passes `24/24` sloppy/strict Wasm-AOT executions
+  with every failure and non-success bucket at zero. This is bounded diagnostic
+  classification, not method execution or broad T07 closure.
 - Class-static-block `ContainsAwait` now has one typed pre-evaluation code
   across Script, Module and retained dependency parsing. Its classifier uses
   the adjacent rendered fragment `invalid await usage at line`, keeping Boa's

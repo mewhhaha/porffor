@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -118,6 +118,21 @@ early-error gate passes `3/3`, and the exact pinned Test262 witness passes `2/2`
 Wasm-AOT executions with zero failure or non-success outcomes. This is typed
 classification and retained-module repair, not static-block execution or broad
 T07 closure.
+
+Public static ordinary, generator, async, async-generator, getter and setter
+methods whose literal property name is `prototype` now share one closed
+condition for Boa's exact common wording across its six producer branches.
+Script and Module declarations/expressions and retained dependency failures
+carry the same typed `Early`/`SyntaxError` diagnostic. Positive witnesses keep
+instance literal, public computed and private static names parse-valid; the
+computed public run-time installation guard remains separate T09/T10 behavior.
+The boundary is recorded in
+`docs/rust-rewrite/contracts/class-static-method-prototype-name-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `51/51`, the focused IR
+early-error gate passes `3/3`, and the exact twelve-file pinned cohort passes
+`24/24` sloppy/strict Wasm-AOT executions with zero failure or non-success
+outcomes. This is bounded diagnostic classification, not method execution,
+class-grammar, T07 or aggregate closure.
 
 Duplicate class private names now have one closed condition for Boa's exact
 common wording across private fields, methods, accessors and static/instance

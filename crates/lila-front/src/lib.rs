@@ -1200,6 +1200,76 @@ mod tests {
     }
 
     #[test]
+    fn class_static_method_prototype_rejections_cover_all_forms_and_goals() {
+        for element in [
+            "prototype() {}",
+            "*prototype() {}",
+            "async prototype() {}",
+            "async *prototype() {}",
+            "get prototype() {}",
+            "set prototype(value) {}",
+            r#""prototype"() {}"#,
+            r"prototyp\u0065() {}",
+        ] {
+            for source in [
+                format!("class C {{ static {element} }}"),
+                format!("const C = class {{ static {element} }};"),
+            ] {
+                for options in [ParseOptions::script(), ParseOptions::module()] {
+                    let err = parse(&source, options)
+                        .expect_err("a literal public static prototype method should fail");
+                    assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                    assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                    assert_eq!(
+                        err.diagnostic().code,
+                        early(EarlyErrorCode::ClassStaticMethodPrototypeName),
+                        "{source:?}: {err:?}"
+                    );
+                    assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn class_static_method_prototype_computed_private_and_instance_names_remain_valid() {
+        for element in [
+            "prototype() {}",
+            "*prototype() {}",
+            "async prototype() {}",
+            "async *prototype() {}",
+            "get prototype() {}",
+            "set prototype(value) {}",
+        ] {
+            let source = format!("class C {{ {element} }}");
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(&source, options).expect("non-static literal prototype methods are valid");
+            }
+        }
+
+        for element in [
+            r#"["prototype"]() {}"#,
+            r#"*["prototype"]() {}"#,
+            r#"async ["prototype"]() {}"#,
+            r#"async *["prototype"]() {}"#,
+            r#"get ["prototype"]() {}"#,
+            r#"set ["prototype"](value) {}"#,
+            "#prototype() {}",
+            "*#prototype() {}",
+            "async #prototype() {}",
+            "async *#prototype() {}",
+            "get #prototype() {}",
+            "set #prototype(value) {}",
+        ] {
+            let source = format!("class C {{ static {element} }}");
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(&source, options)
+                    .expect("computed and private static prototype names are parse-valid");
+            }
+        }
+    }
+
+    #[test]
     fn class_field_arguments_rejections_cover_all_field_forms_and_goals() {
         for source in [
             "class C { value = arguments; }",
@@ -1671,6 +1741,9 @@ switch (0) {
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorGetter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorSetter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassPrivateConstructorName).is_some());
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::ClassStaticMethodPrototypeName).is_some()
+        );
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassDuplicatePrivateName).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassFieldConstructorName).is_some());
         assert!(ParseClassified::from_early(

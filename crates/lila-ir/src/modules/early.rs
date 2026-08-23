@@ -375,6 +375,10 @@ mod tests {
                 EarlyErrorCode::ClassPrivateConstructorName,
             ),
             (
+                "class may not have static method definitions named 'prototype'",
+                EarlyErrorCode::ClassStaticMethodPrototypeName,
+            ),
+            (
                 "private identifier has already been declared",
                 EarlyErrorCode::ClassDuplicatePrivateName,
             ),
@@ -688,6 +692,34 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_static_method_prototype_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export default class { static async *prototype() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a literal public static prototype method should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassStaticMethodPrototypeName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn class_static_method_prototype_positive_module_names_remain_valid() {
+        lila_front::parse(
+            "export default class { prototype() {} static ['prototype']() {} static #prototype() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect("instance, computed static and private static prototype names are parse-valid");
     }
 
     #[test]
