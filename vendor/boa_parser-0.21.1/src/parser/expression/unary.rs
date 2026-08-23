@@ -19,7 +19,7 @@ use crate::{
 use boa_ast::{
     Expression, Keyword, Punctuator, Span, Spanned,
     expression::{
-        access::PropertyAccess,
+        OptionalOperationKind, access::PropertyAccess,
         operator::{Unary, unary::UnaryOp},
     },
 };
@@ -53,6 +53,24 @@ impl UnaryExpression {
     }
 }
 
+/// Whether an uncovered `delete` operand derives one of the private-reference
+/// alternatives in 13.5.1.1. Both direct member/call access and an optional
+/// chain whose final operation is private derive a private-ending grammar form.
+fn is_private_delete_reference(target: &Expression) -> bool {
+    match target {
+        Expression::PropertyAccess(PropertyAccess::Private(_)) => true,
+        Expression::Optional(optional) => match optional.chain().last() {
+            Some(operation) => match operation.kind() {
+                OptionalOperationKind::PrivatePropertyAccess { .. } => true,
+                OptionalOperationKind::SimplePropertyAccess { .. }
+                | OptionalOperationKind::Call { .. } => false,
+            },
+            None => false,
+        },
+        _ => false,
+    }
+}
+
 impl<R> TokenParser<R> for UnaryExpression
 where
     R: ReadChar,
@@ -71,20 +89,22 @@ where
                 let position = cursor.peek(0, interner).or_abrupt()?.span().start();
                 let target = self.parse(cursor, interner)?;
 
-                match target.flatten() {
-                    Expression::Identifier(_) if cursor.strict() => {
-                        return Err(Error::lex(LexError::Syntax(
-                            "cannot delete variables in strict mode".into(),
-                            token_start,
-                        )));
+                if cursor.strict() {
+                    match target.flatten() {
+                        Expression::Identifier(_) => {
+                            return Err(Error::lex(LexError::Syntax(
+                                "cannot delete variables in strict mode".into(),
+                                token_start,
+                            )));
+                        }
+                        target if is_private_delete_reference(target) => {
+                            return Err(Error::lex(LexError::Syntax(
+                                "cannot delete private fields".into(),
+                                position,
+                            )));
+                        }
+                        _ => {}
                     }
-                    Expression::PropertyAccess(PropertyAccess::Private(_)) => {
-                        return Err(Error::lex(LexError::Syntax(
-                            "cannot delete private fields".into(),
-                            position,
-                        )));
-                    }
-                    _ => {}
                 }
 
                 let target_span_end = target.span().end();

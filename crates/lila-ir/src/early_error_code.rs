@@ -51,12 +51,14 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ClassStaticFieldConstructorOrPrototypeName
         | EarlyErrorCode::ClassFieldContainsArguments
         | EarlyErrorCode::StrictModeWithStatement
+        | EarlyErrorCode::StrictModeDeleteIdentifierReference
         | EarlyErrorCode::DuplicateLabel
         | EarlyErrorCode::UndefinedBreakTarget
         | EarlyErrorCode::UndefinedContinueTarget
         | EarlyErrorCode::IllegalBreak
         | EarlyErrorCode::IllegalContinue
         | EarlyErrorCode::InvalidPrivateIdentifier
+        | EarlyErrorCode::StrictModeDeletePrivateReference
         | EarlyErrorCode::ScriptTopLevelNewTarget
         | EarlyErrorCode::ScriptTopLevelUsingDeclaration
         | EarlyErrorCode::ForInUsingDeclaration

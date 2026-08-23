@@ -374,6 +374,20 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Strict-mode `delete` early errors now have distinct typed identities for
+  identifier and private-reference operands. A vendored Boa repair places both
+  families beneath one strictness guard and exhaustively recognizes
+  private-ending optional chains, while sloppy undeclared private operands stay
+  owned by `InvalidPrivateIdentifier`. The closed domain has 55 variants and
+  the parse classifier has 54 rows; const parse-ownership witnesses and the
+  exhaustive IR map make drift fail compilation. The capped serial front,
+  early-module, retained-dependency graph and focused IR gates pass `89/89`,
+  `38/38`, `1/1` and `3/3`; `cargo xc` and the release CLI build are green; and
+  the exact 194-file cohort passes `386/386` Wasm-AOT executions with every
+  failure and non-success bucket at zero and an exact completed-ID set match.
+  This is typed diagnostic closure and bounded no-regression, not a measured
+  pass gain, runtime delete/private-element support, T07 closure or aggregate
+  conformance.
 - Callable bodies containing a Use Strict Directive with non-simple parameters
   now have one typed `Early`/`SyntaxError` condition across declarations,
   expressions, methods, setters and arrows. Three narrow parser repairs make

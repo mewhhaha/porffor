@@ -1903,6 +1903,167 @@ mod tests {
     }
 
     #[test]
+    fn delete_reference_early_errors_keep_distinct_typed_conditions() {
+        for (source, options, code) in [
+            (
+                r#""use strict"; delete identifier;"#,
+                ParseOptions::script(),
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                r#""use strict"; delete (identifier);"#,
+                ParseOptions::script(),
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                r#"function f() { "use strict"; delete ((identifier)); }"#,
+                ParseOptions::script(),
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                "delete identifier;",
+                ParseOptions::module(),
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                "class C { #x; m(o) { delete o.#x; } }",
+                ParseOptions::script(),
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+            (
+                "const C = class { #x; field = delete ((this.#x)); };",
+                ParseOptions::module(),
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+            (
+                "class C { #m() {} m(o) { delete o().#m; } }",
+                ParseOptions::script(),
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+            (
+                "const C = class { get #x() {} m(o) { delete (o.#x); } };",
+                ParseOptions::module(),
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+            (
+                "class C { m(o) { delete o.#missing; } }",
+                ParseOptions::script(),
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+            (
+                "class C { #x; m(o) { delete o?.#x; } }",
+                ParseOptions::script(),
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+            (
+                "const C = class { #x; m(o) { delete ((o?.c.#x)); } };",
+                ParseOptions::module(),
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+        ] {
+            let err = parse(source, options)
+                .expect_err("a forbidden delete-reference operand should fail before evaluation");
+            assert_eq!(
+                err.diagnostic().phase(),
+                ParseDiagnosticPhase::Early,
+                "{source:?}: {err:?}"
+            );
+            assert_eq!(
+                err.diagnostic().error_type(),
+                Some("SyntaxError"),
+                "{source:?}: {err:?}"
+            );
+            assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+            assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn sloppy_private_delete_stays_owned_by_private_name_validation() {
+        for source in [
+            "delete object.#missing;",
+            "delete ((object.#missing));",
+            "object.#missing;",
+        ] {
+            let err = parse(source, ParseOptions::script())
+                .expect_err("an undeclared private name should fail whole-source validation");
+            assert_eq!(
+                err.diagnostic().phase(),
+                ParseDiagnosticPhase::Early,
+                "{source:?}: {err:?}"
+            );
+            assert_eq!(
+                err.diagnostic().error_type(),
+                Some("SyntaxError"),
+                "{source:?}: {err:?}"
+            );
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::InvalidPrivateIdentifier),
+                "{source:?}: {err:?}"
+            );
+            assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn delete_reference_early_error_boundaries_remain_valid() {
+        for (source, options) in [
+            ("delete identifier;", ParseOptions::script()),
+            ("delete ((identifier));", ParseOptions::script()),
+            (
+                r#""use strict"; delete object.property;"#,
+                ParseOptions::script(),
+            ),
+            ("delete object.property;", ParseOptions::module()),
+            (
+                r#""use strict"; delete (0, identifier);"#,
+                ParseOptions::script(),
+            ),
+            ("delete object[key];", ParseOptions::module()),
+            (
+                r#""use strict"; delete object?.property;"#,
+                ParseOptions::script(),
+            ),
+            ("class C { #x; m(o) { o.#x; } }", ParseOptions::script()),
+            (
+                "class C { #x; m(o) { return o?.#x; } }",
+                ParseOptions::script(),
+            ),
+            (
+                "const C = class { #x; m(o) { return o?.c.#x; } };",
+                ParseOptions::module(),
+            ),
+            (
+                "class C { #x; m(o) { delete o?.#x.property; } }",
+                ParseOptions::script(),
+            ),
+            (
+                "class C { #m() {} m(o) { delete o?.#m(); } }",
+                ParseOptions::script(),
+            ),
+        ] {
+            parse(source, options).expect(
+                "sloppy identifiers, public properties, values and private reads remain valid syntax",
+            );
+        }
+    }
+
+    #[test]
+    fn delete_reference_message_inventory_stays_at_one_reviewed_site_per_condition() {
+        const SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/parser/expression/unary.rs");
+
+        assert_eq!(
+            SOURCE
+                .matches("cannot delete variables in strict mode")
+                .count(),
+            1
+        );
+        assert_eq!(SOURCE.matches("cannot delete private fields").count(), 1);
+    }
+
+    #[test]
     fn class_static_block_arguments_rejections_cover_both_forms_and_goals() {
         for source in [
             r"class C { static { (class { [argument\u0073]() {} }); } }",
@@ -2610,6 +2771,14 @@ switch (0) {
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassFieldContainsArguments).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::StrictModeWithStatement).is_some());
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::StrictModeDeleteIdentifierReference,)
+                .is_some()
+        );
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::StrictModeDeletePrivateReference,)
+                .is_some()
+        );
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());

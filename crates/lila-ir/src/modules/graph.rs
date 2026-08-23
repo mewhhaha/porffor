@@ -1596,6 +1596,73 @@ mod tests {
         crate::evaluation_components(graph)
     }
 
+    #[test]
+    fn rejected_delete_reference_dependencies_keep_typed_diagnostics_through_graph_build() {
+        for (index, source_text, expected) in [
+            (
+                0,
+                "export const x = 0; delete x;",
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                1,
+                "export class C { #x; m(o) { delete o.#x; } }",
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+        ] {
+            let dependency_key = format!("/root/delete-{index}.js");
+            let dependency = ModuleSourceIr::new(
+                ModuleKey::from_host(dependency_key.clone()),
+                source_text.to_string(),
+                format!("file://{dependency_key}"),
+            );
+            assert_eq!(
+                dependency.module_requests(),
+                None,
+                "the rejected parse must be retained rather than rescanned"
+            );
+
+            let diagnostics = build_graph(&ModuleGraphSources {
+                modules: vec![
+                    ModuleSourceIr::new(
+                        ModuleKey::from_host("/root/entry.js"),
+                        format!("import './delete-{index}.js';"),
+                        "file:///root/entry.js".to_string(),
+                    ),
+                    dependency,
+                ],
+                entry: 0,
+                resolutions: vec![(
+                    0,
+                    ModuleRequestKeyIr::plain(format!("./delete-{index}.js")),
+                    1,
+                )],
+            })
+            .expect_err("the retained rejected dependency must stop graph construction");
+            let [diagnostic] = diagnostics.as_slice() else {
+                panic!("expected one retained parse diagnostic, got {diagnostics:?}");
+            };
+
+            assert_eq!(
+                diagnostic.kind,
+                IrDiagnosticKind::EarlyError,
+                "{source_text:?}"
+            );
+            assert_eq!(
+                diagnostic.phase(),
+                IrDiagnosticPhase::Early,
+                "{source_text:?}"
+            );
+            assert_eq!(diagnostic.code(), Some(expected), "{source_text:?}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source_text:?}"
+            );
+            assert!(diagnostic.span.is_some(), "{source_text:?}: {diagnostic:?}");
+        }
+    }
+
     /// The default: everything the entry reaches through an ordinary `import`
     /// evaluates inline, which is what an unphased graph has always done.
     #[test]

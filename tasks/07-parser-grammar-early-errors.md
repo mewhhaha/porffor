@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, and strict-mode `with`/delete classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,44 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Landed 2026-08-23: delete-reference early errors
+
+This fixed-message batch splits the strict-mode delete early error
+by the two disjoint operand families detected by Boa's one `UnaryExpression`
+delete branch:
+`StrictModeDeleteIdentifierReference`
+(`E_STRICT_MODE_DELETE_IDENTIFIER_REFERENCE`) and
+`StrictModeDeletePrivateReference`
+(`E_STRICT_MODE_DELETE_PRIVATE_REFERENCE`). The complete rendered prefixes are
+`cannot delete variables in strict mode at line` and
+`cannot delete private fields at line`, with exactly one adjacent producer each
+in `vendor/boa_parser-0.21.1/src/parser/expression/unary.rs`.
+
+Review found two parser defects before classification: the private arm omitted
+the shared strictness guard and did not recognize a current-spec OptionalChain
+whose final operation is private. The repaired branch retains recursive
+parenthesis flattening, gates both operand families on strictness, and
+exhaustively classifies the final optional operation. The implementation
+has 55 closed variants and 54 parse-table rows, up from 53 and 52. The exact
+current-pin cohorts are two `onlyStrict`
+identifier files plus 192 generated class files with no execution-mode flag,
+for 194 physical files and 386 Wasm-AOT executions.
+
+The pinned private-delete cohort covers member and call-expression endings;
+permanent source witnesses additionally own the current-spec optional-chain
+forms and the sloppy-undeclared anti-conflation boundary, which must remain
+`InvalidPrivateIdentifier` rather than a delete-specific code.
+
+The typed rows, parser repair, durable source witnesses and retained dependency
+graph projection are complete. The capped serial front, early-module,
+retained-graph and focused IR gates pass `89/89`, `38/38`, `1/1` and `3/3`;
+`cargo xc` and the release CLI build are green; and the exact cohort passes all
+`386/386` Wasm-AOT executions with zero failure or non-success outcomes and an
+exact completed-ID set match. There is no focused pre-change snapshot, so this
+is typed diagnostic closure and bounded no-regression, not a measured pass
+gain. The theory source of truth is
+`docs/rust-rewrite/contracts/delete-reference-early-errors.md`.
 
 ### Landed 2026-08-23: callable non-simple parameters plus `ContainsUseStrict`
 

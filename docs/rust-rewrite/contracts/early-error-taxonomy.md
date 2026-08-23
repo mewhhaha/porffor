@@ -1,5 +1,36 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 delete-reference amendment
+
+T07's current fixed-message batch splits the strict-mode delete early error
+by its two disjoint operand families:
+`StrictModeDeleteIdentifierReference` and
+`StrictModeDeletePrivateReference`. The normative source of truth is:
+
+`docs/rust-rewrite/contracts/delete-reference-early-errors.md`
+
+Pinned Boa has one adjacent producer for each complete rendered prefix,
+`cannot delete variables in strict mode at line` and
+`cannot delete private fields at line`. Review found that the private branch
+began by incorrectly omitting the shared strictness guard and the two
+current-spec OptionalChain private endings. The vendored repair keeps recursive
+parenthesis flattening, gates both families on strictness, and exhaustively
+classifies the final optional operation. The implementation extends the
+domain from **53** to **55** variants and the parse-failure table from **52** to
+**54** rows.
+
+The exact pinned cohorts contain 194 physical files: two `onlyStrict`
+identifier-reference files and 192 generated class files with no execution-mode
+flag. They expand to 386 Wasm-AOT executions. Permanent source
+witnesses additionally cover the current-spec optional-chain shapes absent from
+that pinned delete cohort. A rejected dependency retained by `ModuleSourceIr`
+is projected through `build_graph`. The capped serial front, early-module,
+retained-graph and focused IR gates pass `89/89`, `38/38`, `1/1` and `3/3`;
+`cargo xc` and the release CLI build are green; and the exact cohort passes
+`386/386` with every failure and non-success bucket at zero. There is no focused
+pre-change snapshot, so this is bounded no-regression rather than a pass-gain
+claim.
+
 ## 2026-08-23 callable non-simple-parameters `ContainsUseStrict` amendment
 
 T07 now classifies the one shared callable early-error condition where a body's

@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 53] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 55] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -257,6 +257,10 @@ early_error_codes! {
     /// is contained in strict-mode code. Modules and class methods are strict
     /// without a directive; sloppy Script code remains excluded.
     StrictModeWithStatement => "E_STRICT_MODE_WITH_STATEMENT";
+    /// `delete UnaryExpression` early errors: the production is contained in
+    /// strict-mode code and its recursively uncovered operand is an
+    /// IdentifierReference. Sloppy identifier deletion remains excluded.
+    StrictModeDeleteIdentifierReference => "E_STRICT_MODE_DELETE_IDENTIFIER_REFERENCE";
     /// 14.13.1. `ContainsDuplicateLabels` with argument « » is `true`.
     DuplicateLabel => "E_DUPLICATE_LABEL";
     /// 14.13.1, applied by 16.1.1 / 16.2.1.2. `ContainsUndefinedBreakTarget`
@@ -272,6 +276,11 @@ early_error_codes! {
     IllegalContinue => "E_ILLEGAL_CONTINUE";
     /// 15.7.1 `AllPrivateIdentifiersValid`, applied by 16.1.1 / 16.2.1.2.
     InvalidPrivateIdentifier => "E_INVALID_PRIVATE_IDENTIFIER";
+    /// `delete UnaryExpression` early errors: the production is contained in
+    /// strict-mode code and its recursively uncovered operand is a direct or
+    /// optional-chain private reference. Sloppy private syntax remains owned by
+    /// the separate whole-source private-name validity condition.
+    StrictModeDeletePrivateReference => "E_STRICT_MODE_DELETE_PRIVATE_REFERENCE";
     /// 16.1.1. `StatementList Contains NewTarget` is `true` for a ScriptBody.
     /// Ordinary/async/generator functions are traversal boundaries; arrows
     /// inherit `new.target` lexically and are not.
@@ -393,7 +402,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 52;
+const PARSE_FAILURE_RULE_COUNT: usize = 54;
 
 /// The one fragment table.
 ///
@@ -868,6 +877,20 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "Illegal 'use strict' directive in function with non-simple parameter list at line 1, col 1",
         ],
     },
+    // 53. expression/unary.rs:92-98. The sole pinned producer recursively
+    //     uncovers parentheses and couples the identifier shape to strictness.
+    ParseFailureRule {
+        fragments: &["cannot delete variables in strict mode at line"],
+        code: EarlyErrorCode::StrictModeDeleteIdentifierReference,
+        witnesses: &["cannot delete variables in strict mode at line 1, col 1"],
+    },
+    // 54. expression/unary.rs. Lila repairs the adjacent pinned producer to
+    //     share the strictness guard and recognize private-ending optional chains.
+    ParseFailureRule {
+        fragments: &["cannot delete private fields at line"],
+        code: EarlyErrorCode::StrictModeDeletePrivateReference,
+        witnesses: &["cannot delete private fields at line 1, col 1"],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1024,11 +1047,15 @@ impl EarlyErrorCode {
     }
 }
 
-// This condition is intentionally parse-owned. Deleting its table row while
-// leaving the enum variant must fail during `cargo check`, not merely change a
+// These conditions are intentionally parse-owned. Deleting any table row while
+// leaving its enum variant must fail during `cargo check`, not merely change a
 // retained dependency rejection from EarlyError back to Unsupported at run time.
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::CallableNonSimpleParametersContainUseStrict);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::StrictModeDeleteIdentifierReference);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::StrictModeDeletePrivateReference);
 
 // ---------------------------------------------------------------------------
 // Const assertions P1-P6. Each names the mistake it makes fail to build.

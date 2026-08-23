@@ -427,6 +427,14 @@ mod tests {
                 EarlyErrorCode::StrictModeWithStatement,
             ),
             (
+                "cannot delete variables in strict mode at line 1, col 1",
+                EarlyErrorCode::StrictModeDeleteIdentifierReference,
+            ),
+            (
+                "cannot delete private fields at line 1, col 1",
+                EarlyErrorCode::StrictModeDeletePrivateReference,
+            ),
+            (
                 "module cannot contain `super` on the top-level",
                 EarlyErrorCode::ModuleTopLevelSuper,
             ),
