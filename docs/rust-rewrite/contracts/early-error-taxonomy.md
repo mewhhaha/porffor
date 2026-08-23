@@ -1,5 +1,17 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 async-generator-expression parameter-yield amendment
+
+T07 now classifies Boa's exact fixed-message rejection when an async-generator
+expression's FormalParameters Contains YieldExpression. The normative extension
+is:
+
+`docs/rust-rewrite/contracts/async-generator-expression-parameters-contain-yield-early-errors.md`
+
+The domain has **43** variants and the one parse-failure table has **41** rows.
+The adjacent AwaitExpression condition and other generator forms retain their
+distinct pinned producers.
+
 ## 2026-08-23 generator-expression parameter-yield amendment
 
 T07 now classifies Boa's exact fixed-message rejection when an ordinary

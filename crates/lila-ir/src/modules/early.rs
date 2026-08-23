@@ -455,6 +455,10 @@ mod tests {
                 EarlyErrorCode::GeneratorExpressionParametersContainYield,
             ),
             (
+                "yield expression not allowed in async generator expression parameters at line 1, col 1",
+                EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -931,6 +935,24 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::GeneratorExpressionParametersContainYield),
+            "{source:?}: {diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_classify_async_generator_expression_parameter_yield() {
+        let source = "export const g = async function*(x = yield) {};";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("a retained async generator expression parameter yield should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield),
             "{source:?}: {diagnostic:?}"
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));

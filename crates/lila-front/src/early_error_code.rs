@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 42] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 43] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -290,6 +290,10 @@ early_error_codes! {
     /// YieldExpression. Declarations, async-generator expressions and methods
     /// have distinct parser producers.
     GeneratorExpressionParametersContainYield => "E_GENERATOR_EXPRESSION_PARAMETERS_CONTAIN_YIELD";
+    /// 15.6.1. An AsyncGeneratorExpression's FormalParameters Contains
+    /// YieldExpression. Declarations, ordinary generator expressions and
+    /// methods have distinct parser producers.
+    AsyncGeneratorExpressionParametersContainYield => "E_ASYNC_GENERATOR_EXPRESSION_PARAMETERS_CONTAIN_YIELD";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -353,7 +357,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 40;
+const PARSE_FAILURE_RULE_COUNT: usize = 41;
 
 /// The one fragment table.
 ///
@@ -696,6 +700,18 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::GeneratorExpressionParametersContainYield,
         witnesses: &[
             "generator expression cannot contain yield expression in parameters at line 1, col 1",
+        ],
+    },
+    // 41. expression/primary/async_generator_expression/mod.rs:99-106. The
+    //     async GeneratorExpression parser owns this sole fixed message; its
+    //     adjacent AwaitExpression check and every other form are distinct.
+    ParseFailureRule {
+        fragments: &[
+            "yield expression not allowed in async generator expression parameters at line",
+        ],
+        code: EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield,
+        witnesses: &[
+            "yield expression not allowed in async generator expression parameters at line 1, col 1",
         ],
     },
 ];
