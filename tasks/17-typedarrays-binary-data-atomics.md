@@ -145,8 +145,32 @@ The fixtures now separately preserve their own `length = 50` shadow and check
 the six integer-indexed elements, removing a contradictory assertion found by
 the focused run. No aggregate or published conformance-count change is claimed.
 
-These migrations do not cover `copyWithin`, `with`, `set`, `slice` or other
-remaining raw validators. They do not change the shared indexed `Get`,
+The four `%TypedArray%.prototype` find-family methods now have the same written
+method-entry ownership. Their shared `FindViaPredicateKind` compiler completes
+the receiver-brand check, loads one immutable `TypedArrayViewLocals` record and
+consumes one `ValidatedMethodEntry` witness before predicate validation. That
+witness produces the single snapshot length used by all four direction and
+value/index projections; later indexed reads, Proxy-aware predicate calls,
+abrupt routing and result policies remain in the existing shared algorithm. The
+focused
+[find-family buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-find-family-buffer-witness.md)
+and hardened bounded source-structure regression record those invariants and
+reject the raw validator, private-slot reconstruction, parallel backing-store
+observation and local byte-length division. The guard also fixes all eight
+Array/TypedArray builtin-to-kind mappings, the single brand-error owner, exact
+callback receiver/argument wiring, and the live-read, abrupt-propagation,
+truthiness and projection sequence. The implementation and guard are written
+and independently reviewed. Under the shared eight-core cap, `cargo xc` is
+green, the structural guard passes `4/4`, the exact
+`wasm_typedarray_find.js` CLI fixture passes `1/1`, and the current-pin
+`find/return-abrupt-from-this-out-of-bounds.js` and
+`findLastIndex/detached-buffer.js` leaves each pass `2/2` Wasm-AOT executions
+with `--jobs 1 --threads 1`. No new-pass, baseline or published-count change is
+claimed.
+
+These migrations still do not cover `every`, `some`, `toLocaleString`,
+`copyWithin`, `with`, `set`, `slice`, `map`, `filter`, constructor validation or
+other remaining raw validators. They do not change the shared indexed `Get`,
 per-index integer-indexed behavior, result allocation, SharedArrayBuffer
 synchronization, Test262 rewrites or published counts. The existing fixtures do
 not prove created-Realm error-prototype identity at runtime; only the shared
