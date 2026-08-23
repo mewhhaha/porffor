@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 59] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 60] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -373,6 +373,10 @@ early_error_codes! {
     /// `OptionalChain TemplateLiteral`. Parenthesizing a completed optional
     /// expression before using it as a tag remains excluded.
     OptionalChainTaggedTemplate => "E_OPTIONAL_CHAIN_TAGGED_TEMPLATE";
+    /// 13.3.1.1. An ImportMeta production is parsed under a syntactic goal
+    /// other than Module. Lexical nesting does not change the source goal;
+    /// direct Module source remains excluded.
+    ImportMetaOutsideModule => "E_IMPORT_META_OUTSIDE_MODULE";
     /// 16.2.2.1. `WithClauseToAttributes` of one `WithClause` contains two
     /// different entries with the same `[[Key]]`. Dynamic-import option
     /// objects are deliberately excluded.
@@ -448,9 +452,11 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 58;
+const PARSE_FAILURE_RULE_COUNT: usize = 59;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
+const IMPORT_META_OUTSIDE_MODULE_PREFIX: &str =
+    "invalid `import.meta` expression outside a module at line";
 const FOR_HEAD_BODY_DECLARATION_CONFLICT_PREFIX: &str =
     "For loop initializer declared in loop body at line";
 const FOR_DECLARATION_DUPLICATE_BOUND_NAME_PREFIX: &str =
@@ -964,7 +970,18 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::OptionalChainTaggedTemplate,
         witnesses: &["Invalid tagged template on optional chain at line 1, col 1"],
     },
-    // 57. statement/iteration/for_statement.rs::ForStatement::parse and
+    // 57. expression/left_hand_side/member.rs:105-109. The sole producer
+    //     rejects ImportMeta only when the retained source goal is not Module.
+    //     Anchoring prevents user-controlled export text from forging the fixed
+    //     message later inside a different diagnostic.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(IMPORT_META_OUTSIDE_MODULE_PREFIX),
+        code: EarlyErrorCode::ImportMetaOutsideModule,
+        witnesses: &[
+            "invalid `import.meta` expression outside a module at line 1, col 1",
+        ],
+    },
+    // 58. statement/iteration/for_statement.rs::ForStatement::parse and
     //     ::parse_iterable_loop_tail. The classic-for LexicalDeclaration and
     //     iterable-loop ForDeclaration producers compute the same BoundNames /
     //     body VarDeclaredNames intersection and emit the same fixed raw
@@ -974,7 +991,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::ForHeadBodyDeclarationConflict,
         witnesses: &["For loop initializer declared in loop body at line 1, col 1"],
     },
-    // 58. statement/iteration/for_statement.rs::parse_iterable_loop_tail. The
+    // 59. statement/iteration/for_statement.rs::parse_iterable_loop_tail. The
     //     sole producer traverses one iterable-loop ForDeclaration's
     //     BoundNames through an FxHashSet and emits this fixed message when
     //     insertion finds a duplicate.
@@ -1206,6 +1223,8 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::OptionalChainTaggedTemplate);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ImportMetaOutsideModule);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ForHeadBodyDeclarationConflict);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ForDeclarationDuplicateBoundName);
@@ -1217,6 +1236,13 @@ const _: () = assert!(
         "Invalid tagged template on optional chain at line",
     ),
     "the optional-chain tagged-template code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::ImportMetaOutsideModule,
+        "invalid `import.meta` expression outside a module at line",
+    ),
+    "the ImportMeta outside-Module code must have one owner using its complete reviewed prefix"
 );
 const _: () = assert!(
     code_is_owned_once_by_exact_starts_with(
@@ -1368,6 +1394,25 @@ const fn optional_chain_tagged_template_prefix_is_injection_safe() -> bool {
     )
 }
 
+/// P13: the fixed ImportMeta goal-error wording remains unforgeable when a
+/// Module export name carries it inside another `Error::general` diagnostic.
+const fn import_meta_outside_module_prefix_is_injection_safe() -> bool {
+    if !matches!(
+        classify_parse_failure(
+            "local referenced binding `invalid `import.meta` expression outside a module at line` cannot be a string literal at line 1, col 1",
+        ),
+        None
+    ) {
+        return false;
+    }
+    classified_is(
+        classify_parse_failure(
+            "exported name `invalid `import.meta` expression outside a module at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
 /// P3: `ALL` is in discriminant order and complete, and `wire_name` round-trips
 /// through `from_wire_name` — so print and parse cannot diverge, and the round
 /// trip proves `wire_name` is injective.
@@ -1510,4 +1555,8 @@ const _: () = assert!(
 const _: () = assert!(
     optional_chain_tagged_template_prefix_is_injection_safe(),
     "P12: user-controlled export text can forge or shadow the anchored optional-chain tagged-template classification"
+);
+const _: () = assert!(
+    import_meta_outside_module_prefix_is_injection_safe(),
+    "P13: user-controlled export text can forge or shadow the anchored ImportMeta outside-Module classification"
 );

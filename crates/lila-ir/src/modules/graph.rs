@@ -1815,6 +1815,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn retained_import_meta_dependency_keeps_its_module_goal_through_graph_build() {
+        let dependency_source = concat!(
+            "export const direct = import.meta;\n",
+            "export function nested() { return import.meta; }",
+        );
+        let dependency = ModuleSourceIr::new(
+            ModuleKey::from_host("/root/import-meta.js"),
+            dependency_source.to_string(),
+            "file:///root/import-meta.js".to_string(),
+        );
+        assert_eq!(dependency.goal(), ParseGoal::Module);
+        assert_eq!(
+            dependency.module_requests(),
+            Some(Vec::new()),
+            "direct and nested ImportMeta must remain a successfully parsed Module"
+        );
+
+        let graph = build_graph(&ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './import-meta.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                dependency,
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./import-meta.js"), 1)],
+        })
+        .expect("a Module dependency containing ImportMeta must build without a parse rejection");
+
+        let dependency = &graph.units[unit_of(&graph, "/root/import-meta.js") as usize];
+        assert_eq!(dependency.source_text, dependency_source);
+        let import_meta_text: Vec<&str> = dependency
+            .record
+            .import_meta_sites
+            .iter()
+            .map(|site| &dependency.source_text[site.start..site.end])
+            .collect();
+        assert_eq!(import_meta_text, vec!["import.meta", "import.meta"]);
+    }
+
     /// The default: everything the entry reaches through an ordinary `import`
     /// evaluates inline, which is what an unphased graph has always done.
     #[test]

@@ -527,6 +527,10 @@ mod tests {
                 EarlyErrorCode::OptionalChainTaggedTemplate,
             ),
             (
+                "invalid `import.meta` expression outside a module at line 1, col 1",
+                EarlyErrorCode::ImportMetaOutsideModule,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),

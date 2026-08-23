@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict and duplicate `ForDeclaration` BoundNames classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames and `import.meta` outside Module classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -31,6 +31,35 @@ This closes the architectural double-parse defect, not T07 as a whole.
 Current-pin parser and early-error buckets still lack a complete verified
 Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
 inventory-driven closure.
+
+### Focused-verified 2026-08-23: `import.meta` outside Module
+
+`ImportMetaOutsideModule` (`E_IMPORT_META_OUTSIDE_MODULE`) now owns the closed
+ECMA-262 goal condition for `import.meta` parsed outside Module. One anchored
+classifier row owns pinned Boa's sole fixed producer; the closed front domain
+and parse table have 60 and 59 entries, and the exhaustive IR map projects the
+code as `Early` / `SyntaxError`. Script witnesses cover direct and nested forms,
+while positive Module and retained-graph witnesses prove that direct and nested
+`import.meta` remain valid under the Module goal. No vendor repair was needed.
+
+The focused `lila-front` `import_meta_` group passed `5/5`, and the complete
+`lila-front --lib` gate passed `108/108`. The exact `lila-ir` classifier test and
+retained Module graph witness each passed `1/1`. `cargo xc`,
+`cargo fmt --all -- --check`, and `git diff --check` were green. The source guard
+was aligned during verification to the actual derived `ModuleParser`
+declaration and parser signature; that was guard calibration, not a production
+behavior change.
+
+The complete pinned Test262 paths
+`language/expressions/import.meta/syntax/goal-script.js`,
+`language/expressions/import.meta/syntax/goal-module.js`, and
+`language/expressions/import.meta/syntax/goal-module-nested-function.js` passed
+exactly `2/2`, `1/1`, and `1/1` Wasm-AOT variants, respectively, with every
+failure and non-success bucket at zero. This is bounded diagnostic and goal
+closure only: it does not establish a new Test262 pass, broad-suite gain,
+runtime `import.meta`, dynamic-source support, T07 closure, or aggregate
+conformance. The source of truth is
+`docs/rust-rewrite/contracts/import-meta-outside-module-early-errors.md`.
 
 ### Focused-verified 2026-08-23: duplicate `ForDeclaration` BoundNames
 

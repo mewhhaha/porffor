@@ -753,6 +753,345 @@ mod tests {
     }
 
     #[test]
+    fn import_meta_outside_module_rejects_at_every_script_nesting_boundary() {
+        for source in [
+            "import.meta;",
+            "\"use strict\";\nimport.meta;",
+            "function f() { return import.meta; }",
+            "function* f() { return import.meta; }",
+            "async function f() { return import.meta; }",
+            "const f = () => import.meta;",
+            "class C { m() { return import.meta; } }",
+            "class C { field = import.meta; }",
+            "class C { static field = import.meta; }",
+            "class C { static { void import.meta; } }",
+            "\n  import.meta;",
+        ] {
+            let err = parse(source, ParseOptions::script())
+                .expect_err("ImportMeta requires the Module syntactic goal");
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ImportMetaOutsideModule),
+                "{source:?}: {err:?}"
+            );
+
+            let start = source
+                .find("import.meta")
+                .expect("the rejection witness contains ImportMeta");
+            assert_eq!(
+                err.diagnostic().span,
+                Some(SourceSpan {
+                    start,
+                    end: start + 1,
+                }),
+                "the parser position is the initial import token: {source:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn import_meta_module_goal_and_import_call_boundaries_remain_valid() {
+        for source in [
+            "import.meta;",
+            "function f() { return import.meta; }",
+            "function* f() { return import.meta; }",
+            "async function f() { return import.meta; }",
+            "const f = () => import.meta;",
+            "class C { m() { return import.meta; } }",
+            "class C { field = import.meta; }",
+            "class C { static field = import.meta; }",
+            "class C { static { void import.meta; } }",
+        ] {
+            parse(source, ParseOptions::module())
+                .expect("lexical nesting does not replace the Module syntactic goal");
+        }
+
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            parse("import('./dep.mjs');", options)
+                .expect("ImportCall is valid under both static source goals");
+        }
+    }
+
+    #[test]
+    fn import_meta_adjacent_failures_and_goal_precedence_remain_distinct() {
+        let mixed = "import.meta; let x; let x;";
+        let script = parse(mixed, ParseOptions::script())
+            .expect_err("Script rejects ImportMeta before whole-source declaration analysis");
+        assert_eq!(
+            script.diagnostic().code,
+            early(EarlyErrorCode::ImportMetaOutsideModule)
+        );
+
+        let module = parse(mixed, ParseOptions::module())
+            .expect_err("Module accepts ImportMeta and reaches duplicate declaration analysis");
+        assert_eq!(
+            module.diagnostic().code,
+            early(EarlyErrorCode::DuplicateLexicalDeclaration)
+        );
+
+        for source in [r"imp\u006frt.meta;", r"import.m\u0065ta;", "import.foo;"] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a spelling error must reject before the ImportMeta goal check");
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_ne!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ImportMetaOutsideModule),
+                    "{source:?}: {err:?}"
+                );
+            }
+        }
+
+        let err = parse("import.meta = 0;", ParseOptions::module())
+            .expect_err("ImportMeta is not a valid assignment target");
+        assert_ne!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ImportMetaOutsideModule),
+            "a Module assignment-target error must keep its distinct owner: {err:?}"
+        );
+    }
+
+    #[test]
+    fn user_export_names_cannot_forge_import_meta_goal_classification() {
+        let err = parse(
+            concat!(
+                "const value = 0;\n",
+                "export { value as \"invalid `import.meta` expression outside a module at line\" };\n",
+                "export { value as \"invalid `import.meta` expression outside a module at line\" };",
+            ),
+            ParseOptions::module(),
+        )
+        .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn known_import_meta_goal_producer_stays_structurally_reviewed() {
+        fn count_in_rust_sources(root: &std::path::Path, fragment: &str) -> usize {
+            let entries = std::fs::read_dir(root)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()));
+            let mut count = 0;
+            for entry in entries {
+                let path = entry.expect("failed to read vendored Boa entry").path();
+                if path.is_dir() {
+                    count += count_in_rust_sources(&path, fragment);
+                } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                    let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                        panic!("failed to read {}: {error}", path.display())
+                    });
+                    count += source.matches(fragment).count();
+                }
+            }
+            count
+        }
+
+        const MESSAGE: &str = "invalid `import.meta` expression outside a module";
+        const POSITION_CAPTURE: &str = "let position = token.span().start();";
+        const INITIAL_TOKEN_CAPTURE: &str = r#"
+            cursor.set_goal(InputElement::RegExp);
+
+            let token = cursor.peek(0, interner).or_abrupt()?;
+            let position = token.span().start();
+            let mut lhs = match token.kind() {
+        "#;
+        const GOAL_BRANCH: &str = r#"if !cursor.module() {
+                    return Err(Error::general(
+                        "invalid `import.meta` expression outside a module",
+                        position,
+                    ));
+                }"#;
+        const MODULE_ENTRY: &str = r#"
+            #[derive(Debug, Clone, Copy)]
+            struct ModuleParser;
+
+            impl<R> TokenParser<R> for ModuleParser
+            where
+                R: ReadChar,
+            {
+                type Output = ModuleParseOutput;
+
+                fn parse(
+                    self,
+                    cursor: &mut Cursor<R>,
+                    interner: &mut Interner
+                ) -> ParseResult<Self::Output> {
+                    cursor.set_module();
+
+                    let module = boa_ast::Module::new(ModuleItemList.parse(cursor, interner)?);
+        "#;
+        const MODULE_TRUE_PROJECTION: &str = r#"
+            pub(super) fn set_module(&mut self) {
+                self.buffered_lexer.set_module(true);
+            }
+
+            /// Returns `true` if the cursor is currently parsing a `Module`.
+            pub(super) const fn module(&self) -> bool {
+                self.buffered_lexer.module()
+            }
+        "#;
+        const BUFFERED_LEXER_MODULE_PROJECTION: &str = r#"
+            pub(super) const fn module(&self) -> bool {
+                self.lexer.module()
+            }
+
+            pub(super) fn set_module(&mut self, module: bool) {
+                self.lexer.set_module(module);
+            }
+        "#;
+        const LEXER_MODULE_READ: &str = r#"
+            pub(super) const fn module(&self) -> bool {
+                self.cursor.module()
+            }
+        "#;
+        const LEXER_MODULE_WRITE: &str = r#"
+            pub(super) fn set_module(&mut self, module: bool) {
+                self.cursor.set_module(module);
+            }
+        "#;
+        const TERMINAL_MODULE_READ: &str = r#"
+            pub(super) const fn module(&self) -> bool {
+                self.module
+            }
+        "#;
+        const TERMINAL_MODULE_WRITE: &str = r#"
+            pub(super) fn set_module(&mut self, module: bool) {
+                self.module = module;
+                self.strict = module;
+            }
+        "#;
+        const INITIAL_LEXER_STATE: &str = r#"
+            Self {
+                iter: inner,
+                pos: Position::new(1, 1),
+                strict: false,
+                module: false,
+                peeked: [None; 4],
+                source_collector: SourceText::default(),
+            }
+        "#;
+        const ESCAPED_META_MESSAGE: &str = "`import.meta` cannot contain escaped characters";
+        const MEMBER_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/expression/left_hand_side/member.rs"
+        );
+        const PARSER_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/parser/mod.rs");
+        const PARSER_CURSOR_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/parser/cursor/mod.rs");
+        const BUFFERED_LEXER_SOURCE: &str = include_str!(
+            "../../../vendor/boa_parser-0.21.1/src/parser/cursor/buffered_lexer/mod.rs"
+        );
+        const LEXER_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/lexer/mod.rs");
+        const LEXER_CURSOR_SOURCE: &str =
+            include_str!("../../../vendor/boa_parser-0.21.1/src/lexer/cursor.rs");
+
+        let without_whitespace = |source: &str| {
+            source
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>()
+        };
+
+        let boa_package_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
+        assert_eq!(count_in_rust_sources(&boa_package_root, MESSAGE), 1);
+        assert_eq!(MEMBER_SOURCE.matches(MESSAGE).count(), 1);
+        assert_eq!(MEMBER_SOURCE.matches(POSITION_CAPTURE).count(), 1);
+        assert_eq!(
+            without_whitespace(MEMBER_SOURCE)
+                .matches(without_whitespace(INITIAL_TOKEN_CAPTURE).as_str())
+                .count(),
+            1,
+            "the diagnostic position must come from the initial member-expression token",
+        );
+        assert_eq!(MEMBER_SOURCE.matches("cursor.module()").count(), 1);
+        assert_eq!(MEMBER_SOURCE.matches(GOAL_BRANCH).count(), 1);
+        assert!(
+            MEMBER_SOURCE
+                .find(ESCAPED_META_MESSAGE)
+                .expect("the escaped-meta producer remains present")
+                < MEMBER_SOURCE
+                    .find(GOAL_BRANCH)
+                    .expect("the ImportMeta goal branch remains present"),
+            "escaped meta must reject before the syntactic-goal condition"
+        );
+        assert_eq!(LEXER_CURSOR_SOURCE.matches("module: false,").count(), 1);
+        assert_eq!(
+            without_whitespace(LEXER_CURSOR_SOURCE)
+                .matches(without_whitespace(INITIAL_LEXER_STATE).as_str())
+                .count(),
+            1,
+            "a fresh lexer cursor must start in Script rather than Module mode",
+        );
+        assert_eq!(PARSER_SOURCE.matches("cursor.set_module();").count(), 1);
+        assert_eq!(
+            without_whitespace(PARSER_SOURCE)
+                .matches(without_whitespace(MODULE_ENTRY).as_str())
+                .count(),
+            1,
+            "ModuleParser must enter Module mode before parsing ModuleItemList",
+        );
+        assert_eq!(
+            without_whitespace(PARSER_CURSOR_SOURCE)
+                .matches(without_whitespace(MODULE_TRUE_PROJECTION).as_str())
+                .count(),
+            1,
+            "the parser's Module transition must project the true lexer state",
+        );
+        assert_eq!(
+            without_whitespace(BUFFERED_LEXER_SOURCE)
+                .matches(without_whitespace(BUFFERED_LEXER_MODULE_PROJECTION).as_str())
+                .count(),
+            1,
+            "the buffered lexer must forward Module reads and writes unchanged",
+        );
+        assert_eq!(
+            without_whitespace(LEXER_SOURCE)
+                .matches(without_whitespace(LEXER_MODULE_READ).as_str())
+                .count(),
+            1,
+            "the lexer must forward Module reads unchanged",
+        );
+        assert_eq!(
+            without_whitespace(LEXER_SOURCE)
+                .matches(without_whitespace(LEXER_MODULE_WRITE).as_str())
+                .count(),
+            1,
+            "the lexer must forward Module writes unchanged",
+        );
+        assert_eq!(
+            without_whitespace(LEXER_CURSOR_SOURCE)
+                .matches(without_whitespace(TERMINAL_MODULE_READ).as_str())
+                .count(),
+            1,
+            "the terminal cursor must read the Module state bit directly",
+        );
+        assert_eq!(
+            without_whitespace(LEXER_CURSOR_SOURCE)
+                .matches(without_whitespace(TERMINAL_MODULE_WRITE).as_str())
+                .count(),
+            1,
+            "the terminal cursor must write the Module state bit and matching strictness directly",
+        );
+        assert_eq!(LEXER_CURSOR_SOURCE.matches("self.module =").count(), 1);
+        assert_eq!(count_in_rust_sources(&boa_package_root, "set_module("), 8);
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, ".set_module(false)"),
+            0
+        );
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, ".set_module(true)"),
+            1
+        );
+    }
+
+    #[test]
     fn script_top_level_using_declaration_rejects() {
         let source = "using x = null;";
         let err = parse(source, ParseOptions::script())
@@ -3417,6 +3756,7 @@ switch (0) {
                 .is_some()
         );
         assert!(ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelNewTarget).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ImportMetaOutsideModule).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelUsingDeclaration).is_some()
         );
