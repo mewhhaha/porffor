@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, generator declaration/expression parameter `Contains YieldExpression` and async-generator-expression parameter `Contains YieldExpression`/`Contains AwaitExpression`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, generator declaration/expression/method parameter `Contains YieldExpression`, async declaration parameter `Contains AwaitExpression`, async-generator declaration/expression/method parameter `Contains YieldExpression`/`Contains AwaitExpression` where applicable, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -155,6 +155,36 @@ early-error gate passes `3/3`, and the exact one-file pinned cohort passes `2/2`
 sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
 This is bounded classification, not all async-generator grammar, direct eval,
 T07 or aggregate closure.
+
+Ordinary async and async-generator declarations whose own FormalParameters
+contain an `AwaitExpression` now share one closed condition for Boa's sole
+fixed-message callable-declaration producer. Script, Module and retained
+dependency parsing carry the same typed `Early`/`SyntaxError` diagnostic, while
+async bodies and nested async-function initializers remain valid containment
+boundaries. The pinned suite has no source that reaches this exact producer, so
+the condition relies on direct front-end and retained-module witnesses rather
+than claiming nearby bare-`await` tests. The contract is recorded in
+`docs/rust-rewrite/contracts/async-declaration-parameters-contain-await-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `75/75`, the retained-
+module early suite passes `35/35`, the focused IR early-error gate passes
+`3/3`, and `cargo xc` passes. This is bounded classification, not all async
+grammar, direct eval, T07 or aggregate closure.
+
+Generator methods whose own UniqueFormalParameters contain a
+`YieldExpression`, and async-generator methods whose own parameters contain a
+`YieldExpression` or `AwaitExpression`, now have three distinct closed
+conditions for Boa's three fixed-message method producers. Object and class
+methods share each producer, while method bodies and nested callable
+initializers remain valid containment boundaries. The exact ordinary
+generator-method cohort is five pinned files expanding to `9/9` passing Wasm-
+AOT executions with every failure and non-success bucket at zero; the pinned
+suite has no source reaching either async-generator-method producer. The
+contract is recorded in
+`docs/rust-rewrite/contracts/generator-method-parameters-contain-yield-await-early-errors.md`.
+At `2026-08-23`, the same capped serial front, retained-module, focused IR and
+workspace gates pass `75/75`, `35/35`, `3/3` and `cargo xc`, respectively. This
+is bounded classification, not all generator grammar, direct eval, T07 or
+aggregate closure.
 
 Duplicate formal parameters now have one closed diagnostic condition across
 entry and retained dependency parsing. The classifier follows pinned Boa's two

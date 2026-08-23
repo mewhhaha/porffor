@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 44] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 48] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -286,6 +286,10 @@ early_error_codes! {
     /// AsyncGeneratorDeclaration's FormalParameters Contains YieldExpression.
     /// Generator expressions and methods have distinct parser producers.
     GeneratorDeclarationParametersContainYield => "E_GENERATOR_DECLARATION_PARAMETERS_CONTAIN_YIELD";
+    /// An AsyncFunctionDeclaration or AsyncGeneratorDeclaration's
+    /// FormalParameters Contains AwaitExpression. Expression forms and methods
+    /// have distinct parser producers.
+    AsyncDeclarationParametersContainAwait => "E_ASYNC_DECLARATION_PARAMETERS_CONTAIN_AWAIT";
     /// 15.5.1. A GeneratorExpression's FormalParameters Contains
     /// YieldExpression. Declarations, async-generator expressions and methods
     /// have distinct parser producers.
@@ -298,6 +302,17 @@ early_error_codes! {
     /// AwaitExpression. Declaration forms and async-generator methods have
     /// distinct parser producers.
     AsyncGeneratorExpressionParametersContainAwait => "E_ASYNC_GENERATOR_EXPRESSION_PARAMETERS_CONTAIN_AWAIT";
+    /// A GeneratorMethod's UniqueFormalParameters Contains YieldExpression.
+    /// Object and class methods share the same parser producer.
+    GeneratorMethodParametersContainYield => "E_GENERATOR_METHOD_PARAMETERS_CONTAIN_YIELD";
+    /// An AsyncGeneratorMethod's UniqueFormalParameters Contains
+    /// YieldExpression. Object and class methods share the same parser
+    /// producer.
+    AsyncGeneratorMethodParametersContainYield => "E_ASYNC_GENERATOR_METHOD_PARAMETERS_CONTAIN_YIELD";
+    /// An AsyncGeneratorMethod's UniqueFormalParameters Contains
+    /// AwaitExpression. Object and class methods share the same parser
+    /// producer.
+    AsyncGeneratorMethodParametersContainAwait => "E_ASYNC_GENERATOR_METHOD_PARAMETERS_CONTAIN_AWAIT";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -361,7 +376,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 42;
+const PARSE_FAILURE_RULE_COUNT: usize = 46;
 
 /// The one fragment table.
 ///
@@ -696,7 +711,15 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::GeneratorDeclarationParametersContainYield,
         witnesses: &["invalid yield usage in generator function parameters at line 1, col 1"],
     },
-    // 40. expression/primary/generator_expression/mod.rs:144-150. The
+    // 40. statement/declaration/hoistable/mod.rs:251-257. Async-function and
+    //     async-generator declarations opt into this shared fixed-message
+    //     check. Expression forms and methods have distinct producers.
+    ParseFailureRule {
+        fragments: &["invalid await usage in generator function parameters at line"],
+        code: EarlyErrorCode::AsyncDeclarationParametersContainAwait,
+        witnesses: &["invalid await usage in generator function parameters at line 1, col 1"],
+    },
+    // 41. expression/primary/generator_expression/mod.rs:144-150. The
     //     ordinary GeneratorExpression parser owns this sole fixed message;
     //     declarations, async generators and methods use distinct wordings.
     ParseFailureRule {
@@ -706,7 +729,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "generator expression cannot contain yield expression in parameters at line 1, col 1",
         ],
     },
-    // 41. expression/primary/async_generator_expression/mod.rs:99-106. The
+    // 42. expression/primary/async_generator_expression/mod.rs:99-106. The
     //     async GeneratorExpression parser owns this sole fixed message; its
     //     adjacent AwaitExpression check and every other form are distinct.
     ParseFailureRule {
@@ -718,7 +741,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "yield expression not allowed in async generator expression parameters at line 1, col 1",
         ],
     },
-    // 42. expression/primary/async_generator_expression/mod.rs:109-114. The
+    // 43. expression/primary/async_generator_expression/mod.rs:109-114. The
     //     async GeneratorExpression parser owns this sole fixed message;
     //     declaration forms and methods use distinct wordings.
     ParseFailureRule {
@@ -728,6 +751,40 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait,
         witnesses: &[
             "await expression not allowed in async generator expression parameters at line 1, col 1",
+        ],
+    },
+    // 44. expression/primary/object_initializer/mod.rs:779-786. One
+    //     GeneratorMethod parser serves object literals and class elements.
+    ParseFailureRule {
+        fragments: &[
+            "yield expression not allowed in generator method definition parameters at line",
+        ],
+        code: EarlyErrorCode::GeneratorMethodParametersContainYield,
+        witnesses: &[
+            "yield expression not allowed in generator method definition parameters at line 1, col 1",
+        ],
+    },
+    // 45. expression/primary/object_initializer/mod.rs:868-876. One
+    //     AsyncGeneratorMethod parser serves object literals and class
+    //     elements; its await sibling has a distinct fixed message.
+    ParseFailureRule {
+        fragments: &[
+            "yield expression not allowed in async generator method definition parameters at line",
+        ],
+        code: EarlyErrorCode::AsyncGeneratorMethodParametersContainYield,
+        witnesses: &[
+            "yield expression not allowed in async generator method definition parameters at line 1, col 1",
+        ],
+    },
+    // 46. expression/primary/object_initializer/mod.rs:879-885. The same
+    //     AsyncGeneratorMethod parser owns this adjacent await condition.
+    ParseFailureRule {
+        fragments: &[
+            "await expression not allowed in async generator method definition parameters at line",
+        ],
+        code: EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
+        witnesses: &[
+            "await expression not allowed in async generator method definition parameters at line 1, col 1",
         ],
     },
 ];

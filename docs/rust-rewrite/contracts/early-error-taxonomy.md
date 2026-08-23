@@ -1,5 +1,29 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 async-declaration parameter-await amendment
+
+T07 classifies Boa's exact shared fixed-message rejection when an async or
+async-generator declaration's FormalParameters Contains AwaitExpression. The
+normative extension is:
+
+`docs/rust-rewrite/contracts/async-declaration-parameters-contain-await-early-errors.md`
+
+Together with the generator-method parameter-containment batch below, the
+domain has **48** variants and the one parse-failure table has **46** rows.
+Expression and method forms retain their distinct pinned producers.
+
+## 2026-08-23 generator-method parameter-containment amendment
+
+T07 classifies Boa's three exact fixed-message rejections for generator-method
+parameter `Contains YieldExpression` / `Contains AwaitExpression` conditions.
+The normative extension is:
+
+`docs/rust-rewrite/contracts/generator-method-parameters-contain-yield-await-early-errors.md`
+
+The method batch adds three distinct typed conditions: ordinary-generator
+yield, async-generator yield and async-generator await. Declaration and
+expression forms retain their own producer-owned codes.
+
 ## 2026-08-23 async-generator-expression parameter-await amendment
 
 T07 now classifies Boa's exact fixed-message rejection when an async-generator

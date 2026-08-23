@@ -451,6 +451,10 @@ mod tests {
                 EarlyErrorCode::GeneratorDeclarationParametersContainYield,
             ),
             (
+                "invalid await usage in generator function parameters at line 1, col 1",
+                EarlyErrorCode::AsyncDeclarationParametersContainAwait,
+            ),
+            (
                 "generator expression cannot contain yield expression in parameters at line 1, col 1",
                 EarlyErrorCode::GeneratorExpressionParametersContainYield,
             ),
@@ -461,6 +465,18 @@ mod tests {
             (
                 "await expression not allowed in async generator expression parameters at line 1, col 1",
                 EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait,
+            ),
+            (
+                "yield expression not allowed in generator method definition parameters at line 1, col 1",
+                EarlyErrorCode::GeneratorMethodParametersContainYield,
+            ),
+            (
+                "yield expression not allowed in async generator method definition parameters at line 1, col 1",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainYield,
+            ),
+            (
+                "await expression not allowed in async generator method definition parameters at line 1, col 1",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
             ),
             (
                 "invalid private identifier usage",
@@ -979,6 +995,60 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_classify_async_declaration_parameter_await() {
+        for source in [
+            "export async function f(x = await 1) {}",
+            "export default async function* g(x = await 1) {}",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained async declaration parameter await should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::AsyncDeclarationParametersContainAwait),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_generator_method_parameter_contains_errors() {
+        for (source, expected) in [
+            (
+                "export const o = { *m(x = yield) {} };",
+                EarlyErrorCode::GeneratorMethodParametersContainYield,
+            ),
+            (
+                "export const o = { async *m(x = yield) {} };",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainYield,
+            ),
+            (
+                "export const o = { async *m(x = await 1) {} };",
+                EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained generator-method parameter Contains error should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(expected),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
     }
 
     /// Drift B2, closed. The block, switch and scope-analysis wordings for a
