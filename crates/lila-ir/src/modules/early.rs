@@ -375,6 +375,10 @@ mod tests {
                 EarlyErrorCode::ClassPrivateConstructorName,
             ),
             (
+                "private identifier has already been declared",
+                EarlyErrorCode::ClassDuplicatePrivateName,
+            ),
+            (
                 "'arguments' not allowed in class static block",
                 EarlyErrorCode::ClassStaticBlockContainsArguments,
             ),
@@ -567,6 +571,25 @@ mod tests {
             );
             assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
         }
+    }
+
+    #[test]
+    fn duplicate_class_private_name_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "export default class { #x; static #x() {} }",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("a class may not declare the same private name twice");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassDuplicatePrivateName)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
     }
 
     #[test]

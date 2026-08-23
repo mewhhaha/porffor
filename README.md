@@ -372,8 +372,16 @@ denominators. Unflagged files now contribute separate sloppy and strict
 executions, so only entries that explicitly report execution variants from a
 post-cutover rerun are current focused evidence.
 
-Recent focused progress through `2026-08-22`:
+Recent focused progress through `2026-08-23`:
 
+- Duplicate class private names now carry one typed early-error code across
+  fields, methods, accessors and static/instance conflicts. Script, Module and
+  retained-module paths agree on `Early`/`SyntaxError`; valid getter/setter
+  pairs and nested-class private-name domains remain accepted. The capped
+  serial front and focused IR gates pass `42/42` and `3/3`, and the exact
+  32-file pinned Test262 cohort passes `64/64` sloppy/strict Wasm-AOT
+  executions with every failure bucket at zero. This is bounded parser
+  evidence, not class-grammar or aggregate closure.
 - Class-field `ContainsArguments` parser rejections now carry one typed early-
   error code across public/private, instance/static and auto-accessor
   initializers. The front-end preserves lexical traversal through arrows and

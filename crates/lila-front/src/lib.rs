@@ -954,6 +954,43 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_class_private_names_report_one_early_error_for_both_forms_and_goals() {
+        for source in [
+            "class C { #x; #x; }",
+            "let C = class { #x() {} static #x; };",
+            "class C { get #x() {} get #x() {} }",
+            "let C = class { set #x(value) {} #x; };",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a class may not declare the same private name twice");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassDuplicatePrivateName),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn duplicate_class_private_name_boundaries_preserve_accessor_pairs_and_nested_classes() {
+        for source in [
+            "class C { get #x() {} set #x(value) {} }",
+            "let C = class { #x() {} method() { return class { #x() {} }; } };",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "a getter/setter pair and a nested class have valid private-name domains",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn class_static_block_arguments_rejections_cover_both_forms_and_goals() {
         for source in [
             r"class C { static { (class { [argument\u0073]() {} }); } }",
@@ -1469,6 +1506,7 @@ switch (0) {
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorGetter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassConstructorSetter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ClassPrivateConstructorName).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ClassDuplicatePrivateName).is_some());
         assert!(
             ParseClassified::from_early(EarlyErrorCode::ClassStaticBlockContainsArguments)
                 .is_some()

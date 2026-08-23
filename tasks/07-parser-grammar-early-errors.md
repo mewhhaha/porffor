@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor, constructor method/private-name restrictions and class static-block/field `ContainsArguments` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name restrictions and class static-block/field `ContainsArguments` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -104,6 +104,19 @@ recorded in
 At `2026-08-22`, the full front-end gate passes `40/40`, the focused IR early-
 error gate passes `3/3`, and the exact 60-file pinned cohort passes `120/120`
 Wasm-AOT executions with zero failure or non-success outcomes.
+
+Duplicate class private names now have one closed condition for Boa's exact
+common wording across private fields, methods, accessors and static/instance
+conflicts. Script and Module tests cover declarations and expressions, while
+positive witnesses preserve the permitted getter/setter pair and independent
+nested-class private-name domains. Retained dependency failures project the
+same typed `Early`/`SyntaxError` diagnostic. The boundary is recorded in
+`docs/rust-rewrite/contracts/class-duplicate-private-name-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `42/42`, the focused IR
+early-error gate passes `3/3`, and the exact 32-file pinned cohort passes
+`64/64` Wasm-AOT executions with zero failure or non-success outcomes. This is
+bounded duplicate-private-name evidence, not class-grammar, T07 or aggregate
+closure.
 
 ## Objective
 
