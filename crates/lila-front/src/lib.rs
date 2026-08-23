@@ -719,6 +719,36 @@ mod tests {
     }
 
     #[test]
+    fn script_top_level_new_target_rejects_direct_and_arrow_carried_uses() {
+        for source in ["new.target;", "() => { new.target; };"] {
+            let err = parse(source, ParseOptions::script())
+                .expect_err("ScriptBody Contains NewTarget should fail");
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ScriptTopLevelNewTarget),
+                "{source:?}: {err:?}"
+            );
+            assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn script_top_level_new_target_function_and_class_boundaries_remain_valid() {
+        for source in [
+            "function F() { return new.target; }",
+            "function F() { return (() => new.target)(); }",
+            "class C { constructor() { new.target; } method() { new.target; } static method() { new.target; } static { new.target; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("function and class boundaries make new.target parse-valid");
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -1779,6 +1809,7 @@ switch (0) {
             ParseClassified::from_early(EarlyErrorCode::ObjectLiteralCoverInitializedName)
                 .is_some()
         );
+        assert!(ParseClassified::from_early(EarlyErrorCode::ScriptTopLevelNewTarget).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(

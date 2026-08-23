@@ -431,6 +431,10 @@ mod tests {
                 EarlyErrorCode::ModuleTopLevelNewTarget,
             ),
             (
+                "invalid new.target usage at line 1, col 1",
+                EarlyErrorCode::ScriptTopLevelNewTarget,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -792,6 +796,30 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn retained_modules_keep_their_distinct_new_target_goal_boundary() {
+        let error = lila_front::parse("new.target;", lila_front::ParseOptions::module())
+            .expect_err("top-level Module new.target should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ModuleTopLevelNewTarget)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+
+        for source in [
+            "export function F() { return new.target; }",
+            "export function F() { return (() => new.target)(); }",
+        ] {
+            lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect("retained function boundaries should allow lexical new.target");
+        }
     }
 
     /// Drift B2, closed. The block, switch and scope-analysis wordings for a

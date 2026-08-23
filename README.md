@@ -374,6 +374,14 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- ScriptBody `Contains NewTarget` now has one typed early-error code for direct
+  and top-level-arrow-carried `new.target`. Ordinary functions, their nested
+  arrows, constructors, methods and class static blocks remain valid; retained
+  dependencies keep the separate `ModuleTopLevelNewTarget` code. The capped
+  front gate passes `55/55`, the IR early-error filter passes `3/3`, and the
+  exact two-file cohort passes `4/4` sloppy/strict Wasm-AOT executions with
+  every failure and non-success bucket at zero. This is bounded Script
+  classification, not direct-eval or broad T07 closure.
 - ObjectLiteral `CoverInitializedName` now has one typed early-error code across
   Script, function-body, Module-item and class-static-block parser contexts.
   Assignment/binding reinterpretations, arrow parameters, shorthand and data

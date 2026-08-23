@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 36] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 37] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -268,6 +268,10 @@ early_error_codes! {
     IllegalContinue => "E_ILLEGAL_CONTINUE";
     /// 15.7.1 `AllPrivateIdentifiersValid`, applied by 16.1.1 / 16.2.1.2.
     InvalidPrivateIdentifier => "E_INVALID_PRIVATE_IDENTIFIER";
+    /// 16.1.1. `StatementList Contains NewTarget` is `true` for a ScriptBody.
+    /// Ordinary/async/generator functions are traversal boundaries; arrows
+    /// inherit `new.target` lexically and are not.
+    ScriptTopLevelNewTarget => "E_SCRIPT_TOP_LEVEL_NEW_TARGET";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -331,7 +335,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 34;
+const PARSE_FAILURE_RULE_COUNT: usize = 35;
 
 /// The one fragment table.
 ///
@@ -617,6 +621,14 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "invalid object literal in module item list at line 1, col 1",
             "invalid object literal in class static block statement list at line 1, col 1",
         ],
+    },
+    // 35. boa_parser/src/parser/mod.rs:447-454. The sole ScriptBody producer
+    //     uses one raw message and the fixed Position::new(1, 1), so the full
+    //     rendered text is stable and disjoint from the Module producer.
+    ParseFailureRule {
+        fragments: &["invalid new.target usage at line 1, col 1"],
+        code: EarlyErrorCode::ScriptTopLevelNewTarget,
+        witnesses: &["invalid new.target usage at line 1, col 1"],
     },
 ];
 

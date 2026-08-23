@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -43,6 +43,20 @@ early-error gate passes `3/3`, and the exact pinned Test262 witness passes `2/2`
 sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
 This is bounded diagnostic classification, not general ObjectLiteral grammar,
 destructuring execution, T07 or aggregate closure.
+
+ScriptBody `Contains NewTarget` now has one closed condition for Boa's sole
+fixed-position producer. Direct and top-level-arrow-carried `new.target` reject
+with a typed `Early`/`SyntaxError` diagnostic, while ordinary functions, their
+nested arrows, constructors, methods and class static blocks remain valid. The
+code is deliberately Script-only: retained dependencies preserve the existing
+distinct `ModuleTopLevelNewTarget` diagnostic and valid exported function
+boundaries. The contract is recorded in
+`docs/rust-rewrite/contracts/script-top-level-new-target-early-errors.md`. At
+`2026-08-23`, the capped serial front gate passes `55/55`, the focused IR
+early-error gate passes `3/3`, and the exact two-file pinned cohort passes `4/4`
+sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
+This is bounded classification, not direct-eval, all-`new.target`, T07 or
+aggregate closure.
 
 Duplicate formal parameters now have one closed diagnostic condition across
 entry and retained dependency parsing. The classifier follows pinned Boa's two

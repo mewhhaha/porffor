@@ -56,6 +56,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::IllegalBreak
         | EarlyErrorCode::IllegalContinue
         | EarlyErrorCode::InvalidPrivateIdentifier
+        | EarlyErrorCode::ScriptTopLevelNewTarget
         | EarlyErrorCode::ModuleDuplicateExport
         | EarlyErrorCode::ModuleUndeclaredExport
         | EarlyErrorCode::ModuleTopLevelSuper
