@@ -479,6 +479,26 @@ mod tests {
                 EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
             ),
             (
+                "yield expression is not allowed in formal parameter list of arrow function at line 1, col 1",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "Yield expression not allowed in this context at line 1, col 1",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "Await expression not allowed in this context at line 1, col 1",
+                EarlyErrorCode::ArrowParametersContainAwait,
+            ),
+            (
+                "await expression not allowed in async function expression parameters at line 1, col 1",
+                EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait,
+            ),
+            (
+                "await expression not allowed in async method definition parameters at line 1, col 1",
+                EarlyErrorCode::AsyncMethodParametersContainAwait,
+            ),
+            (
                 "invalid private identifier usage",
                 EarlyErrorCode::InvalidPrivateIdentifier,
             ),
@@ -1037,6 +1057,70 @@ mod tests {
         ] {
             let error = lila_front::parse(source, lila_front::ParseOptions::module())
                 .expect_err("a retained generator-method parameter Contains error should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(expected),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_arrow_parameter_contains_errors() {
+        for (source, expected) in [
+            (
+                "export function* outer() { (x = yield) => x; }",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "export function* outer() { async (x = yield) => x; }",
+                EarlyErrorCode::ArrowParametersContainYield,
+            ),
+            (
+                "export async function outer() { (x = await 1) => x; }",
+                EarlyErrorCode::ArrowParametersContainAwait,
+            ),
+            (
+                "export const f = async (x = await 1) => x;",
+                EarlyErrorCode::ArrowParametersContainAwait,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained arrow parameter Contains error should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+            assert_eq!(
+                diagnostic.code(),
+                Some(expected),
+                "{source:?}: {diagnostic:?}"
+            );
+            assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
+    }
+
+    #[test]
+    fn retained_modules_classify_async_expression_and_method_parameter_await() {
+        for (source, expected) in [
+            (
+                "export const f = async function(x = await 1) {};",
+                EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait,
+            ),
+            (
+                "export const o = { async m(x = await 1) {} };",
+                EarlyErrorCode::AsyncMethodParametersContainAwait,
+            ),
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("a retained async callable parameter await should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
             assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);

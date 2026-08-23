@@ -960,6 +960,14 @@ where
 
         let params = UniqueFormalParameters::new(false, true).parse(cursor, interner)?;
 
+        // Early Error: It is a Syntax Error if UniqueFormalParameters Contains AwaitExpression is true.
+        if contains(&params, ContainsSymbol::AwaitExpression) {
+            return Err(Error::lex(LexError::Syntax(
+                "await expression not allowed in async method definition parameters".into(),
+                params_start_position,
+            )));
+        }
+
         let body =
             FunctionBody::new(true, true, "async method definition").parse(cursor, interner)?;
 

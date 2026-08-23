@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, generator declaration/expression/method parameter `Contains YieldExpression`, async declaration parameter `Contains AwaitExpression`, async-generator declaration/expression/method parameter `Contains YieldExpression`/`Contains AwaitExpression` where applicable, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented and focused-verified; grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -185,6 +185,35 @@ At `2026-08-23`, the same capped serial front, retained-module, focused IR and
 workspace gates pass `75/75`, `35/35`, `3/3` and `cargo xc`, respectively. This
 is bounded classification, not all generator grammar, direct eval, T07 or
 aggregate closure.
+
+Ordinary and async arrows whose own parameters contain a `YieldExpression` or
+`AwaitExpression` now share two closed conditions. Pinned Boa emits two fixed
+Yield wordings and one Await wording; the table maps that producer variation
+to one code per static-semantics condition instead of splitting codes by arrow
+form. A narrow vendored repair carries the enclosing `AllowYield` grammar
+parameter into parenthesized async-arrow parameters, making the existing Yield
+check reachable without admitting any new valid source. The exact pinned code
+cohort is two files expanding to four sloppy/strict Wasm-AOT executions; both
+reach the ordinary-arrow producer. No pinned source reaches the repaired
+parenthesized async-arrow Yield producer, so its evidence is the direct front-
+end and retained-module witnesses. The contract is recorded in
+`docs/rust-rewrite/contracts/arrow-parameters-contain-yield-await-early-errors.md`.
+At `2026-08-23`, the exact cohort passes `4/4` sloppy/strict Wasm-AOT
+executions with every failure and non-success bucket at zero.
+
+Async function expressions and ordinary async methods whose own parameters
+contain an `AwaitExpression` now have two distinct closed conditions. Pinned
+Boa parsed both Await-enabled parameter lists without applying their required
+post-parameter containment checks; two vendored guards now reject before body
+parsing with producer-specific fixed messages. Object and class methods share
+the method producer, while named and anonymous function expressions share the
+expression producer. The pinned suite has no complete AwaitExpression source
+that reaches either repaired check, so direct front-end and retained-module
+witnesses own these contracts. The boundary is recorded in
+`docs/rust-rewrite/contracts/async-function-expression-and-method-parameters-contain-await-early-errors.md`.
+At `2026-08-23`, the shared capped serial front, retained-module, focused IR
+and workspace gates pass `81/81`, `37/37`, `3/3` and `cargo xc`, respectively.
+No Test262 result is claimed for the repaired producers.
 
 Duplicate formal parameters now have one closed diagnostic condition across
 entry and retained dependency parsing. The classifier follows pinned Boa's two

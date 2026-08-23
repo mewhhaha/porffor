@@ -1,5 +1,20 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-23 callable-parameter containment closure amendment
+
+This batch completes the currently enumerated callable-parameter
+`Contains YieldExpression` / `Contains AwaitExpression` matrix with two shared
+arrow conditions and two repaired async callable conditions. The normative
+extensions are:
+
+- `docs/rust-rewrite/contracts/arrow-parameters-contain-yield-await-early-errors.md`
+- `docs/rust-rewrite/contracts/async-function-expression-and-method-parameters-contain-await-early-errors.md`
+
+The domain has **52** variants and the one parse-failure table has **51** rows.
+Three narrow vendored-parser repairs preserve async-arrow Yield grammar and add
+the missing async-function-expression / async-method Await containment checks.
+This is bounded matrix closure, not T07 or aggregate parser closure.
+
 ## 2026-08-23 async-declaration parameter-await amendment
 
 T07 classifies Boa's exact shared fixed-message rejection when an async or

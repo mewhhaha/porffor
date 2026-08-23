@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 48] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 52] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -313,6 +313,19 @@ early_error_codes! {
     /// AwaitExpression. Object and class methods share the same parser
     /// producer.
     AsyncGeneratorMethodParametersContainAwait => "E_ASYNC_GENERATOR_METHOD_PARAMETERS_CONTAIN_AWAIT";
+    /// An ordinary or async arrow's own parameters Contains YieldExpression.
+    /// Pinned Boa's producer wordings map to the same closed condition.
+    ArrowParametersContainYield => "E_ARROW_PARAMETERS_CONTAIN_YIELD";
+    /// An ordinary or async arrow's own parameters Contains AwaitExpression.
+    /// Pinned Boa's producer wordings map to the same closed condition.
+    ArrowParametersContainAwait => "E_ARROW_PARAMETERS_CONTAIN_AWAIT";
+    /// An AsyncFunctionExpression's FormalParameters Contains AwaitExpression.
+    /// Declaration and async-generator expression forms have distinct
+    /// producers.
+    AsyncFunctionExpressionParametersContainAwait => "E_ASYNC_FUNCTION_EXPRESSION_PARAMETERS_CONTAIN_AWAIT";
+    /// An AsyncMethod's UniqueFormalParameters Contains AwaitExpression.
+    /// Object and class methods share the same parser producer.
+    AsyncMethodParametersContainAwait => "E_ASYNC_METHOD_PARAMETERS_CONTAIN_AWAIT";
     /// 16.2.3.1 / 16.2.1.2. `ExportedNames of ModuleItemList` contains
     /// duplicates. An **early** error, which is why `rejection_kind` maps it to
     /// `EarlyError` even though a link-stage producer also raises it.
@@ -376,7 +389,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 46;
+const PARSE_FAILURE_RULE_COUNT: usize = 51;
 
 /// The one fragment table.
 ///
@@ -785,6 +798,58 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
         witnesses: &[
             "await expression not allowed in async generator method definition parameters at line 1, col 1",
+        ],
+    },
+    // 47. expression/primary/mod.rs:571-575. Converting a parenthesized cover
+    //     expression into ordinary-arrow parameters rejects contained Yield
+    //     before assignment/mod.rs can reach its sibling fixed message.
+    ParseFailureRule {
+        fragments: &[
+            "yield expression is not allowed in formal parameter list of arrow function at line",
+        ],
+        code: EarlyErrorCode::ArrowParametersContainYield,
+        witnesses: &[
+            "yield expression is not allowed in formal parameter list of arrow function at line 1, col 1",
+        ],
+    },
+    // 48. expression/assignment/mod.rs:243-248,
+    //     assignment/arrow_function.rs:107-112 and
+    //     assignment/async_arrow_function.rs:114-119. This sibling wording
+    //     maps to the same typed condition across arrow forms.
+    ParseFailureRule {
+        fragments: &["Yield expression not allowed in this context at line"],
+        code: EarlyErrorCode::ArrowParametersContainYield,
+        witnesses: &["Yield expression not allowed in this context at line 1, col 1"],
+    },
+    // 49. expression/assignment/mod.rs:251-256,
+    //     assignment/arrow_function.rs:115-120 and
+    //     assignment/async_arrow_function.rs:122-127. The uppercase fixed
+    //     wording stays disjoint from generator-expression/method messages.
+    ParseFailureRule {
+        fragments: &["Await expression not allowed in this context at line"],
+        code: EarlyErrorCode::ArrowParametersContainAwait,
+        witnesses: &["Await expression not allowed in this context at line 1, col 1"],
+    },
+    // 50. expression/primary/async_function_expression/mod.rs. Lila's
+    //     vendored producer repairs the missing FormalParameters Contains
+    //     AwaitExpression check before body parsing.
+    ParseFailureRule {
+        fragments: &[
+            "await expression not allowed in async function expression parameters at line",
+        ],
+        code: EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait,
+        witnesses: &[
+            "await expression not allowed in async function expression parameters at line 1, col 1",
+        ],
+    },
+    // 51. expression/primary/object_initializer/mod.rs. Lila's vendored
+    //     AsyncMethod producer repairs the corresponding UniqueFormalParameters
+    //     check for object and class methods.
+    ParseFailureRule {
+        fragments: &["await expression not allowed in async method definition parameters at line"],
+        code: EarlyErrorCode::AsyncMethodParametersContainAwait,
+        witnesses: &[
+            "await expression not allowed in async method definition parameters at line 1, col 1",
         ],
     },
 ];

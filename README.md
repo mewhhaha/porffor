@@ -374,6 +374,22 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- The callable-parameter `Contains YieldExpression` / `Contains
+  AwaitExpression` matrix now has closed typed conditions across declarations,
+  expressions, methods and ordinary/async arrows. Existing fixed arrow
+  wordings map to two codes keyed by the containment condition rather than the
+  syntax form. Three narrow vendored-parser repairs preserve the enclosing
+  Yield grammar in parenthesized async-arrow parameters and add the missing
+  Await containment checks for async function expressions and async methods.
+  The only exact pinned cohort is two files expanding to four sloppy/strict
+  executions through the ordinary-arrow producers. No pinned source reaches
+  any of the three repaired producers, whose evidence is the direct front-end
+  and retained-module witnesses. This closes that bounded matrix, not T07 or
+  aggregate parser closure.
+  The capped serial front, retained-module and focused IR gates pass `81/81`,
+  `37/37` and `3/3`, respectively, and `cargo xc` is green. The exact pinned
+  ordinary-arrow cohort passes `4/4` sloppy/strict Wasm-AOT executions with
+  every failure and non-success bucket at zero.
 - Labelled-statement lowering now lives in `lowering/labelled_statement.rs`:
   one owner carries nested-label collection, target-kind classification,
   active-label stack management and final `Labelled` IR assembly while shared

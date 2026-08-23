@@ -1162,6 +1162,142 @@ mod tests {
     }
 
     #[test]
+    fn arrow_parameter_yield_rejects_under_both_goals() {
+        for source in [
+            "function* outer() { (x = yield) => x; }",
+            "function* outer() { async (x = yield) => x; }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("YieldExpression in arrow parameters should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ArrowParametersContainYield),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn arrow_parameter_await_rejects_under_both_goals() {
+        for source in [
+            "async function outer() { (x = await 1) => x; }",
+            "const f = async (x = await 1) => x;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("AwaitExpression in arrow parameters should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ArrowParametersContainAwait),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn arrow_parameter_contains_boundaries_remain_valid() {
+        for source in [
+            "const f = (x = function*(){ yield 1; }) => x;",
+            "function* outer() { async (x = function*(){ yield 1; }) => x; }",
+            "const f = async (x = async function(){ await 1; }) => await x;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("arrow bodies and nested functions are Contains boundaries");
+            }
+        }
+
+        parse(
+            "var yield = 1; const f = async (x = yield) => x;",
+            ParseOptions::script(),
+        )
+        .expect("a sloppy-script yield identifier must not enable Yield grammar globally");
+    }
+
+    #[test]
+    fn async_function_expression_parameter_await_rejects_under_both_goals() {
+        for source in [
+            "(async function(x = await 1) {});",
+            "const f = async function named(x = await 1) {};",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "AwaitExpression in async function expression parameters should fail",
+                );
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_method_parameter_await_rejects_under_both_goals() {
+        for source in [
+            "({ async m(x = await 1) {} });",
+            "class C { async m(x = await 1) {} }",
+            "class C { static async m(x = await 1) {} }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("AwaitExpression in async method parameters should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::AsyncMethodParametersContainAwait),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_expression_and_method_parameter_await_boundaries_remain_valid() {
+        for source in [
+            "const f = async function(x = async function(){ await 1; }) { await 1; };",
+            "const o = { async m(x = async function(){ await 1; }) { await 1; } };",
+            "class C { static async m(x = async function(){ await 1; }) { await 1; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("async bodies and nested async functions are Contains boundaries");
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -2263,6 +2399,16 @@ switch (0) {
             EarlyErrorCode::AsyncGeneratorMethodParametersContainAwait,
         )
         .is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ArrowParametersContainYield).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ArrowParametersContainAwait).is_some());
+        assert!(ParseClassified::from_early(
+            EarlyErrorCode::AsyncFunctionExpressionParametersContainAwait,
+        )
+        .is_some());
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::AsyncMethodParametersContainAwait)
+                .is_some()
+        );
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(

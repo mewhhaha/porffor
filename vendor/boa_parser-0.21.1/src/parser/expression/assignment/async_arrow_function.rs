@@ -80,7 +80,8 @@ where
                     .span()
                     .end();
 
-                let params = FormalParameters::new(false, true).parse(cursor, interner)?;
+                let params =
+                    FormalParameters::new(self.allow_yield, true).parse(cursor, interner)?;
                 cursor.expect(Punctuator::CloseParen, "async arrow function", interner)?;
                 (params, params_start_position)
             } else {

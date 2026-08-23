@@ -33,9 +33,9 @@ fixing a coordinate. The message contains no user source.
 
 Async-generator expressions and async-generator methods remain outside this
 code because their parser paths use distinct fixed messages. Ordinary async-
-function expressions and ordinary async methods do not expose an equivalent
-post-parameter producer at this pin; any conformance gap there is not folded
-into this declaration-owned code.
+function expressions and ordinary async methods likewise retain separate
+typed codes and repaired producer messages; none is folded into this
+declaration-owned condition.
 
 ## Goal and containment boundary
 
