@@ -286,6 +286,34 @@ check_no_inline_legacy_includes "$ir_function_definition_lowering"
 # Measured after formatting the extraction: 721 raw lines. The margin is for
 # maintenance of this lifecycle, not unrelated lowering.
 check_raw_line_budget "$ir_function_definition_lowering" 780
+# T02's try-statement boundary owns catch-parameter environment construction,
+# resumable entry/exit planning and final TryCatch/TryFinally IR assembly. The
+# catch and finally lifecycle records are named so their generator and async
+# states cannot be transposed through positional tuple access.
+ir_try_statement_lowering="crates/lila-ir/src/lowering/try_statement.rs"
+require_file "$ir_try_statement_lowering"
+require_module_decl "$ir_lowering" "try_statement"
+require_fixed_string_count \
+  "$ir_try_statement_lowering" \
+  'pub(super) fn lower_try(' \
+  1 \
+  'try-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_try(' \
+  0 \
+  'try-statement lowering outside child module'
+if ! grep -q '^struct LoweredCatchClause {' "$ir_try_statement_lowering" \
+  || ! grep -q '^struct LoweredFinallyClause {' "$ir_try_statement_lowering"; then
+  fail "$ir_try_statement_lowering must carry named catch/finally lifecycle records"
+fi
+if sed '/^[[:space:]]*\/\//d' "$ir_try_statement_lowering" | grep -Eq '\.[0-9]+'; then
+  fail "$ir_try_statement_lowering must not recover lifecycle state through tuple positions"
+fi
+check_no_inline_legacy_includes "$ir_try_statement_lowering"
+# Measured after formatting the extraction and named-record cleanup: 264 raw
+# lines. The margin is for maintenance of try-statement lowering only.
+check_raw_line_budget "$ir_try_statement_lowering" 320
 # T15's two array-literal lowerers share one typed ArrayAccumulation seam. Keep
 # the ordinary and staged-generator walkers together in their child module so
 # the 32k-line orchestration boundary does not become the edit point again.

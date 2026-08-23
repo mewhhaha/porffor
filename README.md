@@ -374,6 +374,16 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Try/catch/finally lowering now lives in `lowering/try_statement.rs`: catch
+  Environment Record construction, thrown-value inference, resumable-state
+  planning and final try IR assembly move together. Private named catch/finally
+  records replace the former eight- and five-field tuples, so generator and
+  async entry/exit states cannot be transposed by positional access. This
+  reduces `lowering.rs` from 24,910 to 24,663 raw lines. Focused IR coverage
+  passes `12/12` for `try_` and `14/14` for `catch`; three CLI filters pass
+  `2/2` each. Pre/post golden captures pass `2/2`, contain 635 artifacts each
+  and are byte-identical. No try-statement behavior or conformance change is
+  claimed.
 - Delete-expression lowering now lives in
   `lowering/delete_expression.rs`: one exhaustive target dispatcher owns
   ordinary/private/super property References, identifiers and non-Reference

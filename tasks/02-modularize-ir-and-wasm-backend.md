@@ -17,6 +17,29 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: try-statement ownership
+
+`lila-ir/src/lowering/try_statement.rs` now owns the complete `lower_try`
+lifecycle: try/catch/finally block lowering, catch-parameter Environment Record
+construction, thrown-value inference, generator/async resume planning and final
+`TryCatch`, `TryFinally` or `TryCatchFinally` assembly. The parent statement
+dispatcher remains its sole caller, while reusable block and throw-analysis
+helpers remain parent-owned.
+
+The former eight-field catch tuple and five-field finally tuple are now private
+`LoweredCatchClause` and `LoweredFinallyClause` records. Named generator/async
+entry and exit fields make positional state transposition impossible at every
+plan and final-assembly use site. The module audit requires both records and
+rejects positional tuple-field access in this owner.
+
+The extraction reduces `lowering.rs` from 24,910 to 24,663 raw lines; the
+formatted child is 264 lines. The capped pre/post Wasm goldens both pass `2/2`,
+capture 635 artifacts each and have an empty recursive diff. The focused
+all-target `lila-ir` check and the new module boundary are green. Serial IR
+filters pass `12/12` for `try_` and `14/14` for `catch`; the CLI `finally`,
+`catchability` and `top_level_try` filters pass `2/2` each. No try-statement
+behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: delete-expression ownership
 
 `lila-ir/src/lowering/delete_expression.rs` now owns the complete
