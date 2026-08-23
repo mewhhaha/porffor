@@ -17,6 +17,35 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: with-statement ownership
+
+`lila-ir/src/lowering/with_statement.rs` now owns the complete Object
+Environment lifecycle for `with`: outer-environment object evaluation,
+analyzed hidden-binding materialization, resumable/capture refusal, ordered
+environment-chain entry and exit, body lowering and nested lexical-block IR
+assembly. The statement dispatcher remains its sole caller; allocation,
+suspension and reference-lifecycle helpers remain in their shared owners.
+
+This is an exact source move. All 99 method lines compare exactly after
+normalizing only `fn lower_with_statement` to private-module visibility. The
+extraction reduces `lowering.rs` from 23,307 to 23,208 raw lines, and the child
+is 103 lines. The module audit requires the sole owner, rejects copied shared
+helpers and lifecycle types, requires exactly one chain entry and exit, forbids
+legacy `include!` assembly, budgets parent and child separately, and fails both
+missing-child and missing-exit negative controls. No persistent structural test
+used the old method as a source-slice sentinel.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Seven targeted IR environment, definition-
+cursor, hidden-capture, suspension and fallback witnesses pass `7/7`. The five
+targeted CLI fixtures pass `2/5`; one combined run at untouched parent
+`870203481` reproduces the other three failures with identical diagnostics:
+two existing `instanceof`-callability errors and one Wasmtime function-size
+limit. A deliberately broader `with_` IR filter passed `66/67`; its unrelated
+Object.seal result-shape assertion remains red and was not used as evidence for
+this owner. The all-target `lila-ir` and workspace checks are green. No `with`
+behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: break/continue ownership
 
 `lila-ir/src/lowering/break_continue.rs` now owns labelled and unlabelled

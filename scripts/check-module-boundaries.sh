@@ -488,6 +488,51 @@ check_no_inline_legacy_includes "$ir_switch_statement_lowering"
 # Measured after formatting the extraction: 90 raw lines. The margin is for
 # maintenance of switch-statement lowering only.
 check_raw_line_budget "$ir_switch_statement_lowering" 120
+# T02's with-statement boundary owns the full Object Environment lifecycle:
+# outer object evaluation, hidden binding materialization, ordered chain entry
+# and exit, body lowering and lexical-block assembly. Shared allocation and
+# suspension helpers plus reference lifecycle types remain in their owners.
+ir_with_statement_lowering="crates/lila-ir/src/lowering/with_statement.rs"
+require_file "$ir_with_statement_lowering"
+require_module_decl "$ir_lowering" "with_statement"
+require_fixed_string_count \
+  "$ir_with_statement_lowering" \
+  'pub(super) fn lower_with_statement(' \
+  1 \
+  'with-statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_with_statement(' \
+  0 \
+  'with-statement lowering outside child module'
+for shared_helper in object_like_kind_set alloc_temp_binding_name add_suspension_owned_binding; do
+  require_fixed_string_count \
+    "$ir_with_statement_lowering" \
+    "fn ${shared_helper}(" \
+    0 \
+    "shared ${shared_helper} helper copied into with-statement owner"
+done
+for reference_type in ObjectEnvironmentBindingObject CurrentScopeDepth OrderedWithEnvironmentChain; do
+  require_fixed_string_count \
+    "$ir_with_statement_lowering" \
+    "struct ${reference_type}" \
+    0 \
+    "shared ${reference_type} lifecycle type copied into with-statement owner"
+done
+require_fixed_string_count \
+  "$ir_with_statement_lowering" \
+  'with_environment_chain.enter_current(' \
+  1 \
+  'with-environment chain entry'
+require_fixed_string_count \
+  "$ir_with_statement_lowering" \
+  'with_environment_chain.leave_current();' \
+  1 \
+  'with-environment chain exit'
+check_no_inline_legacy_includes "$ir_with_statement_lowering"
+# Measured after formatting the extraction: 103 raw lines. The margin is for
+# maintenance of with-statement lowering only.
+check_raw_line_budget "$ir_with_statement_lowering" 130
 # T02's property-access boundary owns ordinary, private and super access
 # dispatch plus the primitive/exotic target-kind split. Keep that split
 # exhaustive so a future ValueKind cannot silently inherit Number's currently
@@ -640,7 +685,7 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the break/continue extraction: 23,307 raw
+# Measured after formatting the with-statement extraction: 23,208 raw
 # lines. This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
 check_raw_line_budget "$ir_lowering" 24500
