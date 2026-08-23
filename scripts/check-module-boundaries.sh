@@ -222,6 +222,26 @@ check_no_inline_legacy_includes "$ir_new_expression_lowering"
 # Measured after formatting the extraction: 248 raw lines. The margin is for
 # maintenance of constructor-expression lowering only.
 check_raw_line_budget "$ir_new_expression_lowering" 290
+# T02's statement boundary owns the exhaustive Statement dispatcher and its
+# resumable expression-statement specialization. Control-flow implementations
+# remain in their focused owners; the parent cannot regrow a second dispatcher.
+ir_statement_lowering="crates/lila-ir/src/lowering/statement.rs"
+require_file "$ir_statement_lowering"
+require_module_decl "$ir_lowering" "statement"
+require_fixed_string_count \
+  "$ir_statement_lowering" \
+  'pub(super) fn lower_statement(' \
+  1 \
+  'statement lowering owner'
+require_fixed_string_count \
+  "$ir_lowering" \
+  'fn lower_statement(' \
+  0 \
+  'statement lowering outside child module'
+check_no_inline_legacy_includes "$ir_statement_lowering"
+# Measured after formatting the extraction: 259 raw lines. The margin is for
+# maintenance of the exhaustive dispatcher, not statement implementations.
+check_raw_line_budget "$ir_statement_lowering" 300
 # T02's property-access boundary owns ordinary, private and super access
 # dispatch plus the primitive/exotic target-kind split. Keep that split
 # exhaustive so a future ValueKind cannot silently inherit Number's currently
@@ -374,10 +394,10 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generat
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the new-expression extraction: 24,202 raw
+# Measured after formatting the statement-dispatch extraction: 23,947 raw
 # lines. This leaves modest orchestration headroom while preventing the former
 # 32k-line implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 25200
+check_raw_line_budget "$ir_lowering" 24950
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.

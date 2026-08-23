@@ -17,6 +17,28 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
+### Landed 2026-08-23: statement-dispatch ownership
+
+`lila-ir/src/lowering/statement.rs` now owns the exhaustive `Statement`
+dispatcher and its resumable expression-statement specialization. Direct and
+nested async `await`, generator `yield` and assignment resumption, staged
+generator templates/expressions, ordinary expression statements and every
+control-flow/declaration delegate remain in one closed dispatch. The focused
+statement implementations and reusable suspension helpers remain parent-owned.
+
+This is an exact source move. The only method-body change is private-module
+visibility from `fn` to `pub(super) fn`; all 255 source lines compare exactly
+after normalizing that token. The extraction reduces `lowering.rs` from 24,202
+to 23,947 raw lines, and the child is 259 lines. The module audit requires the
+sole owner, forbids a second parent body or legacy `include!` assembly, budgets
+the parent and child separately, and fails its negative control when the child
+is absent.
+
+The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
+and have an empty recursive diff. Seven focused IR statement/resumption
+filters pass `7/7`; four focused CLI inspect and Wasm control-flow filters pass
+`4/4`. No statement behavior or conformance improvement is claimed.
+
 ### Landed 2026-08-23: new-expression ownership
 
 `lila-ir/src/lowering/new_expression.rs` now owns the complete `lower_new`

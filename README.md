@@ -374,6 +374,13 @@ post-cutover rerun are current focused evidence.
 
 Recent focused progress through `2026-08-23`:
 
+- Statement dispatch now lives in `lowering/statement.rs`: one exhaustive
+  owner routes ordinary and resumable expression statements plus every
+  control-flow/declaration form to its focused lowerer. The exact 255-line
+  method move reduces `lowering.rs` from 24,202 to 23,947 raw lines; the child
+  is 259 lines. Seven focused IR filters and four focused CLI filters pass.
+  Pre/post golden captures pass `2/2`, contain 635 artifacts each and are
+  byte-identical. No statement behavior or conformance change is claimed.
 - Public static ordinary, generator, async, async-generator, getter and setter
   methods with the literal name `prototype` now share one typed early-error
   code across Script, Module and retained dependency parsing. Instance literal,
