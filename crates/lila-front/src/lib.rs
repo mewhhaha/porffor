@@ -989,6 +989,46 @@ mod tests {
     }
 
     #[test]
+    fn async_generator_expression_parameter_await_rejects_under_both_goals() {
+        for source in [
+            "(async function*(x = await 1) {});",
+            "const g = async function* named(x = await 1) {};",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "AwaitExpression in async generator expression parameters should fail",
+                );
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_generator_expression_parameter_await_boundaries_remain_valid() {
+        for source in [
+            "const g = async function*(x = 1) { await 1; yield x; };",
+            "const outer = async function*(x = async function(){ await 1; }) {};",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect(
+                    "async-generator bodies and nested async functions are Contains boundaries",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
@@ -2067,6 +2107,10 @@ switch (0) {
         .is_some());
         assert!(ParseClassified::from_early(
             EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield,
+        )
+        .is_some());
+        assert!(ParseClassified::from_early(
+            EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait,
         )
         .is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());

@@ -63,6 +63,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::GeneratorDeclarationParametersContainYield
         | EarlyErrorCode::GeneratorExpressionParametersContainYield
         | EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield
+        | EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait
         | EarlyErrorCode::ModuleDuplicateExport
         | EarlyErrorCode::ModuleUndeclaredExport
         | EarlyErrorCode::ModuleTopLevelSuper

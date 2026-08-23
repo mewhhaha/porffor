@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, generator declaration/expression and async-generator-expression parameter `Contains YieldExpression`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target` and `using`, for-in and switch-clause `using` declarations, generator declaration/expression parameter `Contains YieldExpression` and async-generator-expression parameter `Contains YieldExpression`/`Contains AwaitExpression`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments` and strict-mode `with` classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -137,6 +137,20 @@ AwaitExpression` condition and other generator forms retain their distinct
 pinned producers. The contract is recorded in
 `docs/rust-rewrite/contracts/async-generator-expression-parameters-contain-yield-early-errors.md`.
 At `2026-08-23`, the capped serial front gate passes `67/67`, the focused IR
+early-error gate passes `3/3`, and the exact one-file pinned cohort passes `2/2`
+sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
+This is bounded classification, not all async-generator grammar, direct eval,
+T07 or aggregate closure.
+
+Async-generator expressions whose own FormalParameters contain an
+`AwaitExpression` now have one closed condition for Boa's sole fixed-message
+await producer. Anonymous and named forms reject under Script and Module goals,
+and retained dependency parsing carries the same typed `Early`/`SyntaxError`
+diagnostic. Async-generator bodies and nested async-function initializers remain
+valid containment boundaries. The yield sibling, declaration forms and methods
+retain their distinct pinned producers. The contract is recorded in
+`docs/rust-rewrite/contracts/async-generator-expression-parameters-contain-await-early-errors.md`.
+At `2026-08-23`, the capped serial front gate passes `69/69`, the focused IR
 early-error gate passes `3/3`, and the exact one-file pinned cohort passes `2/2`
 sloppy/strict Wasm-AOT executions with zero failure or non-success outcomes.
 This is bounded classification, not all async-generator grammar, direct eval,
