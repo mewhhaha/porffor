@@ -701,8 +701,9 @@ fn run_wasm_backend_uses_builtin_realm_for_collection_algorithm_errors() {
 /// `GetPrototypeFromConstructor` chooses `%Iterator.prototype%` from the
 /// new-target function's realm when its observable `prototype` value is a
 /// primitive. The fixture repeats the pinned six-value primitive matrix,
-/// preserves Object/Function/Array custom-prototype tags, and pins a single
-/// observable Get, abrupt propagation and revoked-Proxy realm routing.
+/// follows bound and nested-Proxy new targets, preserves Object/Function/Array
+/// custom-prototype tags, and pins a single observable Get, abrupt propagation
+/// and revoked-Proxy realm routing.
 #[test]
 fn run_wasm_backend_uses_new_target_realm_for_iterator_prototype() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

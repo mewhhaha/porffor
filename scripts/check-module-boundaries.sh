@@ -2265,6 +2265,58 @@ if [ ! -f docs/rust-rewrite/contracts/own-descriptor-predicates.md ]; then
   fail 'own-descriptor-predicate contract must remain present'
 fi
 
+# T10's complete [[HasProperty]] entry is crate-visible, while the
+# representation dispatcher stays private to objects.rs. The branch order is
+# declared once and consumed exhaustively both here and by the direct
+# [[GetOwnProperty]] authority below.
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  'pub(crate) fn emit_object_has_property_i32(' \
+  1 \
+  'crate-visible HasProperty entry'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  'pub(crate) fn emit_object_has_property_with_key_tag_i32(' \
+  1 \
+  'crate-visible tagged-key HasProperty entry'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  '    fn emit_has_property_dispatch_with_key_tag_i32(' \
+  1 \
+  'private HasProperty representation dispatcher'
+object_internal_method_macro="$(sed -n \
+  '/^macro_rules! object_internal_method_branches {/,/^}$/p' \
+  crates/lila-aot-wasm/src/objects.rs | tr -d '[:space:]')"
+if [ "$(grep -Fo 'enumObjectInternalMethodBranch{$($branch),+}' <<<"$object_internal_method_macro" | wc -l || true)" -ne 1 ] \
+  || [ "$(grep -Fo 'constORDER:&'"'"'static[Self]=&[$(Self::$branch),+];' <<<"$object_internal_method_macro" | wc -l || true)" -ne 1 ]; then
+  fail 'object internal-method enum and order must remain generated from the same branch sequence'
+fi
+object_internal_method_order="$(sed -n \
+  '/^object_internal_method_branches!(/,/^);/p' \
+  crates/lila-aot-wasm/src/objects.rs | tr -d '[:space:]')"
+if [ "$object_internal_method_order" != 'object_internal_method_branches!(Proxy,IntegerIndexed,Array,Arguments,BoxedString,Ordinary,);' ]; then
+  fail 'object internal methods must retain the reviewed exotic-to-ordinary dispatch order'
+fi
+has_property_dispatch_body="$(sed -n \
+  '/^    fn emit_has_property_dispatch_with_key_tag_i32(/,/^    pub(crate) fn emit_data_property_read_no_call(/p' \
+  crates/lila-aot-wasm/src/objects.rs)"
+if [ "$(grep -Fc 'for branch in ObjectInternalMethodBranch::ORDER.iter().copied() {' <<<"$has_property_dispatch_body" || true)" -ne 1 ]; then
+  fail 'HasProperty must consume the closed object-internal-method branch order once'
+fi
+for branch in Proxy IntegerIndexed Array Arguments BoxedString Ordinary; do
+  if [ "$(grep -Fc "ObjectInternalMethodBranch::$branch => {" <<<"$has_property_dispatch_body" || true)" -ne 1 ]; then
+    fail "HasProperty must exhaustively emit the $branch branch"
+  fi
+done
+if grep -Eq '^[[:space:]]*_ =>|unreachable!|todo!|unimplemented!' <<<"$has_property_dispatch_body"; then
+  fail 'HasProperty dispatch must not escape exhaustive representation handling'
+fi
+require_fixed_string_count \
+  crates/lila-engine/src/lib.rs \
+  'fn wasm_backend_has_property_dispatches_every_live_exotic_branch()' \
+  1 \
+  'complete HasProperty runtime regression'
+
 # T11's direct [[GetOwnProperty]] observations. One typed authority owns the
 # representation split used by the value-free public descriptor/Has/Delete
 # fact and the richer Proxy-Get/Proxy-Set projections. Array-only or

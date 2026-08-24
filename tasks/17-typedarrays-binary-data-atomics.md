@@ -259,8 +259,10 @@ an entry witness plus a conditional post-species witness. The late observation
 caps copying after shrinkage while leaving the originally constructed target
 length intact, preserves whole-element flooring and stays after target
 validation and content-type checks. Its implementation, durable guard and
-expanded CLI fixture are present; focused verification evidence has not yet
-been recorded. The source of truth is
+expanded CLI fixture are focused-verified on 2026-08-24: the structure target
+passes `6/6`, the exact CLI fixture passes `1/1`, and the seven pinned leaves
+pass all `14/14` Wasm-AOT variants with every failure bucket at zero. The source
+of truth is
 `docs/rust-rewrite/contracts/typed-array-slice-buffer-witness.md`.
 
 The four Wasm-AOT Atomics access owners now load one immutable

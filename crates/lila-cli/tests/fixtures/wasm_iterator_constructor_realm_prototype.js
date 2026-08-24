@@ -1,6 +1,10 @@
 let $262 = { createRealm: __lilaCreateRealm };
 let other = $262.createRealm().global;
 
+if (other.Iterator.prototype === Iterator.prototype) {
+  throw "Iterator prototype realm identity";
+}
+
 function assertOtherRealmIterator(prototype, label) {
   let C = new other.Function();
   C.prototype = prototype;
@@ -16,6 +20,34 @@ assertOtherRealmIterator(true, "boolean");
 assertOtherRealmIterator("", "string");
 assertOtherRealmIterator(Symbol(), "symbol");
 assertOtherRealmIterator(0, "number");
+
+let boundNewTarget = new other.Function().bind(null);
+let boundFallback = Reflect.construct(Iterator, [], boundNewTarget);
+if (Object.getPrototypeOf(boundFallback) !== other.Iterator.prototype) {
+  throw "bound new target realm prototype";
+}
+
+let innerPrototypeReads = 0;
+let outerPrototypeReads = 0;
+let nestedTarget = new other.Function();
+nestedTarget.prototype = null;
+let innerProxy = new Proxy(nestedTarget, {
+  get: function (target, key, receiver) {
+    if (key === "prototype") innerPrototypeReads = innerPrototypeReads + 1;
+    return Reflect.get(target, key, receiver);
+  },
+});
+let outerProxy = new Proxy(innerProxy, {
+  get: function (target, key, receiver) {
+    if (key === "prototype") outerPrototypeReads = outerPrototypeReads + 1;
+    return Reflect.get(target, key, receiver);
+  },
+});
+let nestedProxyFallback = Reflect.construct(Iterator, [], outerProxy);
+if (!(Object.getPrototypeOf(nestedProxyFallback) === other.Iterator.prototype &&
+      innerPrototypeReads === 1 && outerPrototypeReads === 1)) {
+  throw "nested proxy new target realm prototype";
+}
 
 function assertCustomPrototype(prototype, label) {
   let C = new other.Function();

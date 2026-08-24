@@ -1,8 +1,7 @@
 # TypedArray `slice` buffer witness
 
-Status: implemented with durable guards and focused runtime controls for the
-T17 Wasm-AOT `%TypedArray%.prototype.slice` invariant lane. Verification
-evidence has not yet been recorded.
+Status: focused-verified on 2026-08-24 with durable guards and runtime controls
+for the T17 Wasm-AOT `%TypedArray%.prototype.slice` invariant lane.
 
 ## Specification boundary
 
@@ -236,11 +235,12 @@ existing result-validation/copy roles.
 
 ## Durable bounded source guard
 
-The planned
+The
 `crates/lila-aot-wasm/tests/typed_array_slice_witness_structure.rs` must bound
 only the body from `compile_typed_array_prototype_slice_builtin` to
-`compile_typed_array_prototype_map_builtin`, plus the single dispatcher arm.
-It must not snapshot the complete array or standard-builtin emitter.
+`compile_typed_array_prototype_map_builtin`, plus the single dispatcher arm and
+the narrow entry-realm public prototype installation. It must not snapshot the
+complete array, standard-builtin emitter or bootstrap path.
 
 Within that bounded body, the guard must require:
 
@@ -281,15 +281,21 @@ Within that bounded body, the guard must require:
 - ascending byte-copy direction, exact source and target address wiring, and
   the existing different-type live read/write order; and
 - exactly one dispatcher mapping from
-  `StandardBuiltinId::TypedArrayPrototypeSlice` to this compiler.
+  `StandardBuiltinId::TypedArrayPrototypeSlice` to this compiler, plus exactly
+  one entry-realm bootstrap installation of that builtin as
+  `TypedArray.prototype.slice`.
 
 The guard should use normalized exact sentinels for the two witness calls,
 argument guards, target validation and copy wiring. For branch containment it
 should count structured Wasm `If`/`Else`/`End` boundaries rather than relying
 on a nearby textual substring. Local reservation/release ownership must remain
 balanced, with the new byte-count local released in reverse reservation order.
+The same target must pin the focused CLI owner and the fixture markers for
+coercion/species order, overlap, late shrinkage, positive-count detachment,
+zero-count detachment and odd-byte flooring so those controls cannot disappear
+while the fixture still returns `true`.
 
-## Focused runtime controls still needed
+## Focused runtime controls
 
 The durable fixture remains
 `crates/lila-cli/tests/fixtures/wasm_typedarray_prototype_slice.js`, owned by
@@ -304,7 +310,7 @@ out-of-bounds state after coercion, fixed shrink during species construction,
 BigInt conversion, target content mismatch, undersized targets, entry
 detachment and invalid receivers.
 
-The implementation lane must add these missing controls to that fixture:
+The implementation lane adds these controls to that fixture:
 
 1. a positive original count whose species constructor detaches the source,
    proving target construction occurs and the conditional second witness then
@@ -317,7 +323,7 @@ The implementation lane must add these missing controls to that fixture:
    floors to whole elements while a freshly allocated target retains its
    original length and zero-filled suffix.
 
-Counters should make species invocation and argument-coercion order explicit.
+Counters make species invocation and argument-coercion order explicit.
 Assertions that install an own throwing or shadowing `length` property must
 inspect integer-indexed values directly rather than call a helper that reads
 that public property.
@@ -380,12 +386,26 @@ reviewed before this ladder begins.
 No verification result may be recorded in this contract until it has actually
 run on the implementation being described.
 
+The 2026-08-24 checkpoint passed the complete structure target `6/6`, the
+exact CLI runtime fixture `1/1`, and all seven exact Test262 leaves above for
+`14/14` sloppy/strict Wasm-AOT variants. Every parser, early-error, lowering,
+runtime, Wasm-backend, host-harness, unsupported, not-implemented, crash and
+bug bucket was zero. The first structure run exposed a stale coordinate in the
+guard: its late-witness sentinel began at the preceding zero-count guard. The
+corrected assertion now proves the branch start and witness-call position
+separately; the compiler body already kept revalidation and both copy paths
+inside the positive-count arm.
+
 ## Explicit nonclaims
 
 This migration does not change start/end conversion, species lookup, target
 construction, constructed-target validation, content-type checks, ascending
-overlap behavior, different-type conversion or result publication. Its focused
-verification remains pending.
+overlap behavior, different-type conversion or result publication.
+
+A nullish species fallback still selects its default TypedArray constructor
+from entry globals rather than the executing builtin's Realm. This adjacent
+species-construction debt is not evidence for or against the migrated source
+buffer observations.
 
 It does not migrate the raw validator inside
 `emit_validate_typed_array_from_constructed_target`, nor any of that helper's
@@ -397,7 +417,11 @@ buffer-witness contracts.
 It does not alter SharedArrayBuffer synchronization, resizable-buffer storage,
 Test262 materializers or harness adaptations. It does not retire a rewrite,
 refresh the full real-suite matrix, change README/published conformance counts
-or establish a new Test262 pass before the exact executions occur.
+or establish a complete TypedArray-tree Test262 pass.
+
+The bootstrap installation guard is entry-realm only. Created realms install
+their own `TypedArray.prototype.slice` through the host realm builder; that
+separate installation path is outside this bounded source guard.
 
 The existing fixture does not prove created-Realm TypeError prototype identity
 for either source witness. The shared witness structurally owns the executing

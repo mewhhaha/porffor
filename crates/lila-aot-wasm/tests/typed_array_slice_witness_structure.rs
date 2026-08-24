@@ -1,5 +1,9 @@
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
+const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/typed_array.rs");
+const CLI_FIXTURE: &str =
+    include_str!("../../lila-cli/tests/fixtures/wasm_typedarray_prototype_slice.js");
 
 const PRIVATE_STATE_WIRING: &str = r#"
     self.emit_load_typed_array_private_state(
@@ -799,7 +803,7 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
     );
     let content_type =
         unique_normalized_position(body, CONTENT_TYPE_WIRING, "content-type comparison");
-    let late = unique_normalized_position(
+    let positive_count_branch = unique_normalized_position(
         body,
         POSITIVE_COUNT_WITNESS_WIRING,
         "conditional post-species witness",
@@ -815,7 +819,7 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
             && species_read < target_creation
             && target_creation <= construct
             && construct < content_type
-            && content_type < late,
+            && content_type < positive_count_branch,
         "slice must capture its entry length, coerce start/end, construct and validate the target, reject content mismatch, then conditionally revalidate the source"
     );
 
@@ -831,6 +835,10 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
         "function.instruction(&Instruction::LocalGet(count_local));function.instruction(&Instruction::I64Eqz);function.instruction(&Instruction::If(BlockType::Empty));function.instruction(&Instruction::Else);",
         "zero-count skip and positive-count branch",
     );
+    assert_eq!(
+        positive_branch, positive_count_branch,
+        "the reviewed post-species witness must begin at the positive-count guard"
+    );
     let positive_if = normalized[positive_branch..]
         .find("function.instruction(&Instruction::If(BlockType::Empty));")
         .map(|position| positive_branch + position)
@@ -845,6 +853,11 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
         "",
         "the zero-count arm must contain no witness, data load, address setup or copy operation"
     );
+    let positive_count_wiring = without_whitespace(POSITIVE_COUNT_WITNESS_WIRING);
+    let witness_offset = positive_count_wiring
+        .find("self.emit_typed_array_witness(")
+        .expect("the positive-count sentinel must contain its witness call");
+    let late_witness = positive_count_branch + witness_offset;
     let positive_end = matching_control_end(&normalized, positive_if);
     let current_cap =
         unique_normalized_position(body, CURRENT_LENGTH_CAP_WIRING, "current-length end cap");
@@ -879,14 +892,14 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
     );
     assert!(
         positive_if < positive_else
-            && positive_else < late
-            && late < current_cap
+            && positive_else < late_witness
+            && late_witness < current_cap
             && current_cap < copied_count
             && data
                 .iter()
                 .all(|position| copied_count < *position && *position < positive_end)
             && positive_end < result,
-        "the late witness, copied-count calculation and copy setup must remain inside the positive-count arm, with result publication after it"
+        "the late witness, copied-count calculation and copy setup must remain inside the positive-count arm, with result publication after it: positive_if={positive_if}, positive_else={positive_else}, late_witness={late_witness}, current_cap={current_cap}, copied_count={copied_count}, data={data:?}, positive_end={positive_end}, result={result}"
     );
 
     let current_length_reads = positions(
@@ -1183,4 +1196,64 @@ fn slice_has_one_dispatch_owner_and_balanced_temporaries() {
         "slice must publish its constructed target before releasing temporaries"
     );
     assert_temp_lifetime(body);
+}
+
+#[test]
+fn focused_cli_fixture_pins_slice_late_source_observations() {
+    let test_body = CLI_TESTS
+        .split_once(
+            "fn run_wasm_backend_slices_typedarrays_with_species_and_resizable_buffer_semantics()",
+        )
+        .expect("missing focused TypedArray.prototype.slice CLI test")
+        .1
+        .split_once("\n#[test]")
+        .expect("missing test after focused TypedArray.prototype.slice CLI test")
+        .0;
+    assert!(test_body.contains("wasm_typedarray_prototype_slice.js"));
+    assert!(test_body.contains("boolean(true)"));
+
+    for marker in [
+        "observable ordering",
+        "overlap third value",
+        "same type copies bytes",
+        "shrink keeps initial result length",
+        "species resize makes fixed source out of bounds",
+        "positive count species detaches source",
+        "zero detach skips first target write",
+        "odd shrink leaves last target suffix zero",
+        "content type mismatch",
+        "species target too small",
+        "detached source",
+    ] {
+        assert!(
+            CLI_FIXTURE.contains(marker),
+            "missing CLI control: {marker}"
+        );
+    }
+}
+
+#[test]
+fn entry_typed_array_prototype_installs_the_witnessed_slice_builtin() {
+    let installation = BOOTSTRAP_SOURCE
+        .split_once("let slice_meta = self")
+        .expect("missing TypedArray.prototype.slice installation")
+        .1
+        .split_once("let set_meta = self")
+        .expect("missing boundary after TypedArray.prototype.slice installation")
+        .0;
+
+    assert_eq!(
+        installation
+            .matches("StandardBuiltinId::TypedArrayPrototypeSlice.function_id()")
+            .count(),
+        1,
+        "the entry-realm public slice property must resolve to the witnessed builtin ID"
+    );
+    assert_eq!(
+        installation
+            .matches("typed_array_prototype_local,\n            \"slice\",\n            slice_meta")
+            .count(),
+        1,
+        "the witnessed builtin must remain installed on the entry Realm's TypedArray.prototype"
+    );
 }

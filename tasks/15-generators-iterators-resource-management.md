@@ -645,13 +645,21 @@ The `%Iterator%` constructor now selects its primitive
 policy. The observable prototype Get precedes function-Realm resolution; abrupt
 and revoked Proxy routes remain explicit. Allocation consumes the prototype
 payload and representation tag together, preserving exact Object, Function and
-Array custom-prototype identity. The realm slot and both publication paths
-already existed, so this seam changes no heap layout. A structural guard and one
-CLI fixture pin the typed policy, tagged allocation, six primitive cross-Realm
-fallbacks, one-read/abrupt ordering and revoked-Proxy behavior. This is not a
-claim that generator state machines, IteratorClose, helper closing or the whole
-Iterator tree are complete. The seam is dry-written and statically checked;
-Cargo, runtime and pinned Test262 gates remain deferred to the central verifier.
+Array custom-prototype identity. Bound and nested Proxy new targets traverse to
+the defining Realm only after the observable Get. The realm slot and both
+publication paths already existed, so this seam changes no heap layout. A
+strengthened structural guard and one CLI fixture pin the typed policy, original
+new-target ownership, tagged allocation, exact entry/created-Realm publication,
+six primitive cross-Realm fallbacks, bound/Proxy traversal, one-read/abrupt
+ordering and revoked-Proxy behavior. This is not a claim that generator state
+machines, IteratorClose, helper closing or the whole Iterator tree are complete.
+The seam is independently source-audited and its fixture passes `node --check`.
+Its first runtime gate exposed and repaired the supported empty Function's
+defining-Realm lifecycle, which is a prerequisite for truthful
+`GetFunctionRealm` results. On 2026-08-24, the exact structural and CLI tests
+passed `1/1` each and the single-file pinned Test262 gate passed `2/2` Wasm-AOT
+variants with every failure bucket at zero. Dynamic Function source parsing and
+complete Iterator-tree closure remain nonclaims.
 
 The `%Iterator%` active-function rejection now uses the private closed
 `ActiveStandardBuiltinFunction::IteratorConstructor` identity instead of

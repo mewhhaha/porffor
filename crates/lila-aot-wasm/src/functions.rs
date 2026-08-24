@@ -5148,7 +5148,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(RealmRecordLocal(realm_local))
     }
 
-    fn emit_store_function_defining_realm(
+    pub(crate) fn emit_store_function_defining_realm(
         &self,
         function_object_local: u32,
         realm_local: u32,

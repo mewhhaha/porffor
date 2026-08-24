@@ -15798,6 +15798,15 @@ Object.setPrototypeOf(array, new Proxy({ inheritedIndex: true }, {
 }));
 
 var typed = new Uint8Array([7]);
+var typedSymbol = Symbol("typed");
+Object.defineProperty(typed, typedSymbol, { value: true });
+var typedCalls = [];
+Object.setPrototypeOf(typed, new Proxy({ typedProto: true }, {
+  has: function(target, key) {
+    typedCalls.push("typed " + key);
+    return Reflect.has(target, key);
+  }
+}));
 
 var argumentsCalls = [];
 var argumentsResult = [];
@@ -15846,6 +15855,8 @@ var callable = new Proxy({}, { has: callableTrap });
   "inheritedIndex" in array,
   0 in typed,
   "-0" in typed,
+  typedSymbol in typed,
+  "typedProto" in typed,
   argumentsResult[0],
   argumentsResult[1],
   1 in absentOuter,
@@ -15855,6 +15866,7 @@ var callable = new Proxy({}, { has: callableTrap });
   "nested" in outer,
   "callable" in callable,
   arrayCalls.join(","),
+  typedCalls.join(","),
   argumentsCalls.join(","),
   nestedCalls.join(","),
   callableCalls.join(",")
@@ -15869,7 +15881,7 @@ var callable = new Proxy({}, { has: callableTrap });
             .expect("HasProperty should reclassify each target and prototype object");
         assert!(
             outcome.note.contains(
-                "string(true|true|true|false|true|true|true|true|true|true|true|true|array inheritedIndex|arguments argProto|inner nested|callable)"
+                "string(true|true|true|false|true|true|true|true|true|true|true|true|true|true|array inheritedIndex|typed typedProto|arguments argProto|inner nested|callable)"
             ),
             "note: {}",
             outcome.note

@@ -4865,6 +4865,12 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.store_i64_local_at_offset(
             function_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            function_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            function_constructor_local,
             HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
             array_buffer_prototype_local,
             function,

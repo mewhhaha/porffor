@@ -160,6 +160,25 @@ verifies only the typed inner-lifecycle selection and preserved outer-close
 order; it does not claim a flatMap algorithm change, broader Iterator/Test262
 refresh, conformance gain, or completion of T04 or T15.
 
+The `%Iterator%` constructor's `GetPrototypeFromConstructor` fallback now uses
+the closed `OrdinaryDefaultPrototype::Iterator` member and the required
+resolved-Realm policy. The shared operation performs the observable
+`Get(NewTarget, "prototype")` before resolving the original new target's
+function Realm, recursively follows bound and Proxy targets, rejects revoked
+Proxies, and consumes the required `%Iterator.prototype%` payload together with
+its Object tag. Entry and created Realms publish that exact slot, and Iterator
+routes directly to its owning body before generic construction can duplicate
+the Get or allocation. The implementation, strengthened structural guard,
+bound/nested-Proxy CLI controls and contract are independently source-audited;
+the fixture passes `node --check`. The runtime gate exposed and repaired the
+prerequisite empty-Function lifecycle: created-Realm `%Function%` is now
+self-backed and its supported zero-argument result inherits the active
+constructor's defining Realm. On 2026-08-24, the exact structural and CLI tests
+passed `1/1` each and the single-file pinned Test262 gate passed `2/2` Wasm-AOT
+variants with every failure bucket at zero. This closes only the
+constructor-Realm operation seam, not dynamic Function source parsing or
+broader iterator, generator, close or suspension debt.
+
 The async-generator request-settlement seam now carries the crate-private,
 closed `AsyncGeneratorCompleteStepKind::{Yielded, Completed}` lifecycle state
 instead of an unlabeled `done: bool`. Only

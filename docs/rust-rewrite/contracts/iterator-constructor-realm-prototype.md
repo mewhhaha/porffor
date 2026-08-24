@@ -1,5 +1,8 @@
 # Iterator constructor realm prototype
 
+Status: focused-verified on 2026-08-24 for the Wasm-AOT constructor-Realm
+fallback seam.
+
 ## Scope
 
 This contract spans the closed realm-prototype selection and generic construct
@@ -72,32 +75,58 @@ A missing slot in a resolved realm is an internal bootstrap invariant failure,
 not permission to substitute the entry global. This seam therefore changes no
 heap layout, bootstrap protocol or host-realm record.
 
+The supported empty-function materialization used by the focused fixture is a
+prerequisite to that lookup. A created-Realm `%Function%` is self-backed, and
+the zero-argument function it creates inherits the active constructor's
+defining Realm. The durable source guard pins both transitions so an
+other-Realm function cannot silently report the entry Realm to
+`GetFunctionRealm`. Dynamic source generation remains unsupported.
+
 ## Observable regression
 
-The durable CLI fixture repeats the pinned six-value primitive matrix through
-an other-realm function and checks exact prototype identity. Object-, Function-
-and Array-valued custom prototypes pin representation-tag preservation. A Proxy
-getter pins one observable `prototype` read, a thrown getter pins abrupt
-completion before allocation, and a revocable function Proxy pins the required
+The durable CLI fixture first proves the created Realm's Iterator prototype is
+distinct from the entry intrinsic, then repeats the pinned six-value primitive
+matrix through an other-realm function and checks exact prototype identity.
+Bound and nested Proxy new targets require `GetFunctionRealm` to traverse to
+that same function Realm after the observable Get; both Proxy traps observe
+exactly one `prototype` read. Object-, Function- and Array-valued custom
+prototypes pin representation-tag preservation. A separate Proxy getter pins
+one observable `prototype` read, a thrown getter pins abrupt completion before
+allocation, and a revocable function Proxy pins the required
 `GetFunctionRealm` TypeError route after the getter returns a primitive.
 
-The structural guards bound both the Iterator constructor arm and shared
-construct dispatcher. They require exactly one typed required-realm selection
-and one tagged allocation in the body, reject the legacy payload-only helper,
-`CurrentGlobal` selection and payload-only allocator there, and pin exactly one
-direct-returning Iterator membership before the generic prototype Get and
-receiver allocation.
+The structural guards bound the shared new-target prototype operation, Iterator
+constructor arm and shared construct dispatcher. They require the observable
+prototype Get before the required-Realm arm, require that arm to resolve the
+original new-target payload and tag without a global fallback, require exactly
+one typed required-Realm selection and one tagged allocation in the body,
+reject the legacy payload-only helper, `CurrentGlobal` selection and
+payload-only allocator there, and pin exactly one direct-returning Iterator
+membership before the generic prototype Get and receiver allocation. The entry
+and created-Realm publication guards name the Iterator slot and the exact realm
+and prototype locals, rather than accepting an unbounded store-helper call.
 
-## Deferred gates
+## Focused verification
 
-This implementation batch performs static source and diff checks only while the
-central verifier owns Cargo and Test262 resources. After those resources are
-released, verification must include:
+The implementation and strengthened witnesses are independently source-audited.
+On 2026-08-24, `node --check` passed for the CLI fixture, the exact structural
+test passed `1/1`, the exact CLI runtime test passed `1/1`, and the unflagged
+`built-ins/Iterator/proto-from-ctor-realm.js` leaf passed both sloppy/strict
+Wasm-AOT variants (`2/2`). Parser, early-error, lowering, runtime, Wasm-backend,
+host-harness, unsupported, not-implemented, crash and bug buckets were all
+zero. The focused commands were:
 
 ```sh
-cargo test -p lila-aot-wasm iterator_constructor_realm_ --quiet
-cargo test -p lila-cli run_wasm_backend_uses_new_target_realm_for_iterator_prototype --quiet
-./target/debug/lila test262 run built-ins/Iterator/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+cargo test -p lila-aot-wasm --lib \
+  tests::iterator_constructor_realm_prototype_is_required_tagged_and_published \
+  -- --exact --test-threads=1
+cargo test -p lila-cli --test cli -- \
+  --exact iterator::run_wasm_backend_uses_new_target_realm_for_iterator_prototype \
+  --test-threads=1
+./target/debug/lila --jobs 1 test262 run \
+  built-ins/Iterator/proto-from-ctor-realm.js \
+  --suite-root test262/vendor/test262 --execution-backend wasm-aot \
+  --timeout-ms 180000 --threads 1
 ```
 
 The final current-SHA closure remains the complete T15 ladder and full low-RAM
@@ -112,4 +141,6 @@ Iterator tree is green. It changes Iterator construction's primitive
 `NewTarget.prototype` fallback, preserves the exact representation tag of an
 explicit Object, Function or Array prototype through result allocation, and
 routes Iterator directly to that owning body instead of pre-running generic
-construction.
+construction. It does not implement dynamic `Function` source parsing or claim
+complete `Function` constructor semantics; only the already-supported empty
+function's active defining-Realm lifecycle is part of this checkpoint.

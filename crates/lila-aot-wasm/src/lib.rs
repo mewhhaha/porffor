@@ -768,6 +768,8 @@ mod tests {
     fn iterator_constructor_realm_prototype_is_required_tagged_and_published() {
         let functions = include_str!("functions.rs");
         let standard = include_str!("builtins/standard.rs");
+        let errors = include_str!("builtins/errors.rs");
+        let function_constructor = include_str!("builtins/function/constructor.rs");
         let bootstrap = include_str!("builtins/bootstrap.rs");
         let host = include_str!("builtins/host.rs");
 
@@ -836,13 +838,151 @@ mod tests {
         assert_eq!(constructor.matches(temp_reservation).count(), 1);
         assert_eq!(constructor.matches(temp_release).count(), 1);
 
-        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            ITERATOR_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::IteratorPrototype";
-        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
+        let prototype_operation = errors
+            .split_once("pub(crate) fn emit_new_target_prototype_to_locals(")
+            .expect("generic new-target prototype operation should exist")
+            .1
+            .split_once("pub(crate) fn emit_aggregate_error_new_target_prototype_to_local(")
+            .expect("generic new-target prototype operation should be bounded")
+            .0;
+        let without_whitespace =
+            |source: &str| -> String { source.chars().filter(|ch| !ch.is_whitespace()).collect() };
+        let prototype_operation = without_whitespace(prototype_operation);
+        let prototype_get_wiring = without_whitespace(
+            r#"
+            function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
+            function.instruction(&Instruction::LocalSet(prototype_key_local));
+            self.emit_object_read(
+                new_target_payload_local,
+                new_target_tag_local,
+                new_target_payload_local,
+                new_target_tag_local,
+                prototype_key_local,
+                prototype_payload_local,
+                prototype_tag_local,
+                function,
+            )?;
+            self.emit_propagate_throw_from_locals_if_needed(
+                prototype_payload_local,
+                prototype_tag_local,
+                function,
+            )?;
+            "#,
+        );
         assert_eq!(
-            host.matches("self.emit_store_realm_iterator_prototype(")
+            prototype_operation
+                .matches(prototype_get_wiring.as_str())
                 .count(),
             1
         );
+        assert_eq!(
+            prototype_operation
+                .matches("self.emit_object_read(")
+                .count(),
+            1
+        );
+        let prototype_get = prototype_operation
+            .find(prototype_get_wiring.as_str())
+            .expect("new-target prototype operation must perform the exact observable Get");
+        let required_realm_wiring = without_whitespace(
+            r#"
+            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic) => {
+                self.emit_required_new_target_realm_ordinary_prototype(
+                    new_target_payload_local,
+                    new_target_tag_local,
+                    intrinsic,
+                    prototype_payload_local,
+                    prototype_tag_local,
+                    function,
+                )?;
+            }
+            "#,
+        );
+        assert_eq!(
+            prototype_operation
+                .matches(required_realm_wiring.as_str())
+                .count(),
+            1
+        );
+        let required_realm_fallback = prototype_operation
+            .find(required_realm_wiring.as_str())
+            .expect("required resolved-realm ordinary fallback should exist");
+        assert!(
+            prototype_get < required_realm_fallback,
+            "the observable prototype Get must precede GetFunctionRealm fallback"
+        );
+        let before_prototype_get = &prototype_operation[..prototype_get];
+        assert!(!before_prototype_get.contains("emit_get_function_realm("));
+        assert!(
+            !before_prototype_get.contains("emit_required_new_target_realm_ordinary_prototype(")
+        );
+
+        let function_constructor = without_whitespace(function_constructor);
+        let active_constructor_realm_wiring = without_whitespace(
+            r#"
+            function.instruction(&Instruction::LocalGet(self.current_env_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+            function.instruction(&Instruction::GlobalGet(FUNCTION_CONSTRUCTOR_GLOBAL_INDEX));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::LocalGet(self.current_env_local));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalSet(active_constructor_local));
+            self.load_i64_to_local_from_offset(
+                active_constructor_local,
+                HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+                active_constructor_realm_local,
+                function,
+            );
+            self.emit_store_function_defining_realm(
+                function_object_local,
+                active_constructor_realm_local,
+                function,
+            );
+            "#,
+        );
+        assert_eq!(
+            function_constructor
+                .matches(active_constructor_realm_wiring.as_str())
+                .count(),
+            1,
+            "a supported empty Function result must inherit the active constructor's defining Realm"
+        );
+        let created_function_constructor_identity = without_whitespace(
+            r#"
+            self.store_i64_local_at_offset(
+                function_constructor_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                function_constructor_local,
+                function,
+            );
+            "#,
+        );
+        assert_eq!(
+            without_whitespace(host)
+                .matches(created_function_constructor_identity.as_str())
+                .count(),
+            1,
+            "created-Realm Function constructors must expose their active identity to the shared body"
+        );
+
+        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            ITERATOR_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::IteratorPrototype";
+        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
+        let created_realm_store = functions
+            .split_once("pub(crate) fn emit_store_realm_iterator_prototype(")
+            .expect("created-realm Iterator prototype store should exist")
+            .1
+            .split_once("pub(crate) fn emit_store_realm_iterator_from_wrapper_prototype(")
+            .expect("created-realm Iterator prototype store should be bounded")
+            .0;
+        assert_eq!(
+            created_realm_store
+                .matches("NonArrayRealmIntrinsicSlot::IteratorPrototype")
+                .count(),
+            1
+        );
+        let created_publication = "self.emit_store_realm_iterator_prototype(\n            realm_record_local,\n            iterator_prototype_local,\n            function";
+        assert_eq!(host.matches(created_publication).count(), 1);
     }
 
     #[test]

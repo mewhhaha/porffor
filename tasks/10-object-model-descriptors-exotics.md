@@ -88,9 +88,15 @@ prototype traversal, and absent Proxy `has` traps all restart the same dispatch
 with the actual next payload and tag; boxed String virtual misses continue into
 that object's ordinary storage. Proxy `has` also accepts callable Proxy trap
 values. A durable Wasm-AOT regression covers each branch, nested absent-trap
-targets and prototype reclassification. This HasProperty batch has received
-only formatting, diff and boundary checks while the shared conformance matrix
-runs; its focused Cargo/runtime commands remain pending.
+targets, a TypedArray Symbol own property and non-canonical-key prototype
+reclassification. The current-pin focused inventory is 58 Test262 files/105
+execution variants across Proxy `has` (26/43) and integer-indexed HasProperty
+(32/62). On 2026-08-24, the exact AOT controls passed `2/2`, the durable engine
+runtime control passed `1/1`, and those filters passed the full `43/43` and
+`62/62` Wasm-AOT variants respectively. The combined `105/105` run had every
+failure bucket at zero. This is focused evidence for the closed HasProperty
+dispatcher, not a claim that the complete Proxy, Object or TypedArray trees are
+green.
 
 The bounded Proxy invariant consumers now share a typed direct-target
 `[[GetOwnProperty]]` fact and the existing `[[IsExtensible]]` operation. The

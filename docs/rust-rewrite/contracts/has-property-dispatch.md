@@ -171,8 +171,10 @@ remain T11 work.
 ## Verification boundary
 
 The durable HasProperty regression combines ordinary inheritance, an Array
-whose prototype is a Proxy, integer-indexed present and `-0` cases, an
-absent-trap nested Proxy target and a callable-Proxy `has` trap. A second
+whose prototype is a Proxy, integer-indexed present and `-0` cases, a Symbol
+own property on a TypedArray, a non-canonical TypedArray key whose lookup
+reclassifies a Proxy prototype, an absent-trap nested Proxy target and a
+callable-Proxy `has` trap. A second
 regression covers the descriptor and extensibility consumer migration with
 Function, Array, arguments and nested-Proxy handlers, exact handler `this`,
 Object and Reflect entry points, and abrupt trap lookup. The `getPrototypeOf`
@@ -209,6 +211,23 @@ cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supporte
 ./target/debug/lila test262 run built-ins/TypedArrayConstructors/internals/HasProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
+At the current pin, those two exact Test262 filters contain 58 source files and
+105 execution variants: Proxy `has` contributes 26 files/43 variants, while
+integer-indexed HasProperty contributes 32 files/62 variants. The inventory was
+refreshed with:
+
+```sh
+./target/debug/lila test262 list built-ins/Proxy/has
+./target/debug/lila test262 list built-ins/TypedArrayConstructors/internals/HasProperty
+```
+
+On 2026-08-24, the two exact AOT structural controls passed `2/2`, the durable
+engine runtime control passed `1/1`, Proxy `has` passed all `43/43` Wasm-AOT
+variants and integer-indexed HasProperty passed all `62/62`. The combined
+current-SHA focused result is therefore `105/105`, with every parser,
+early-error, lowering, runtime, Wasm-backend, host-harness, unsupported,
+not-implemented, crash and bug bucket at zero.
+
 The direct-target Proxy Array invariants are covered by the focused delete,
 descriptor, Get and Set regressions above. The Get fixture covers direct and
 Reflect entry points, dense/sparse indices, named and Symbol keys, boxed String,
@@ -219,7 +238,8 @@ thrown trap before invariant validation. The Set fixture also covers
 dense/sparse indices, symbols, boxed String, mapped arguments, arguments
 accessors without getter invocation, callable-Proxy setters, `SameValue` edge
 cases, a Function `prototype` frozen through its materialized descriptor entry
-and both assignment/Reflect entry points. They are written but remain unrun
-while the shared verification lane owns Cargo and Test262. Closure still requires the
-complete pinned Proxy/Reflect, Object and TypedArray trees; these focused
-filters are only the cheapest regression gates for this seam.
+and both assignment/Reflect entry points. Those broader adjacent descriptor
+regressions were not rerun for this checkpoint. Closure still requires the
+complete pinned Proxy/Reflect, Object and TypedArray trees; the two green
+filters are focused current-SHA evidence for this dispatch seam, not a broader
+tree claim.
