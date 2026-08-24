@@ -134,6 +134,9 @@ trait CallableDeclaration {
     fn parameters_allow_await(&self) -> bool;
     fn body_allow_yield(&self) -> bool;
     fn body_allow_await(&self) -> bool;
+    fn contains_super_error_message(&self) -> &'static str {
+        "invalid super usage"
+    }
     fn parameters_yield_is_early_error(&self) -> bool {
         false
     }
@@ -233,7 +236,7 @@ fn parse_callable_declaration<R: ReadChar, C: CallableDeclaration>(
     // It is a Syntax Error if FunctionBody Contains SuperCall is true.
     if contains(&body, ContainsSymbol::Super) || contains(&params, ContainsSymbol::Super) {
         return Err(Error::lex(LexError::Syntax(
-            "invalid super usage".into(),
+            c.contains_super_error_message().into(),
             params_start_position,
         )));
     }

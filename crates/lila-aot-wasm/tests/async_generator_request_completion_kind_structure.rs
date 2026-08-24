@@ -342,26 +342,6 @@ fn assert_writer_raw_helper_allowlist(body: &str) {
             );"#,
             1,
         ),
-        (
-            r#"self.store_i64_const_at_offset(
-                activation_local,
-                HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-                match builtin {
-                    StandardBuiltinId::AsyncGeneratorPrototypeNext => {
-                        ASYNC_GENERATOR_RESUME_KIND_NORMAL
-                    }
-                    StandardBuiltinId::AsyncGeneratorPrototypeReturn => {
-                        ASYNC_GENERATOR_RESUME_KIND_RETURN
-                    }
-                    StandardBuiltinId::AsyncGeneratorPrototypeThrow => {
-                        ASYNC_GENERATOR_RESUME_KIND_THROW
-                    }
-                    _ => unreachable!(),
-                },
-                function,
-            );"#,
-            1,
-        ),
     ];
     let mut reviewed_calls = 0;
     for (call, expected_count) in expected {
@@ -824,7 +804,7 @@ fn request_completion_kind_heap_boundary_is_private_strict_and_opaque() {
 fn request_writer_initializes_the_closed_kind_before_queue_publication() {
     let writer_owner = request_writer_owner();
     assert_no_raw_request_kind_offset_alias(writer_owner, "request writer");
-    assert_raw_helper_inventory(writer_owner, "request writer", [4, 8, 2]);
+    assert_raw_helper_inventory(writer_owner, "request writer", [4, 8, 1]);
     assert_writer_raw_helper_allowlist(writer_owner);
     let writer = normalized_code(writer_owner);
     assert_eq!(
@@ -1514,7 +1494,7 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
 
     let yield_owner = yield_owner();
     assert_no_raw_request_kind_offset_alias(yield_owner, "live-yield reader");
-    assert_raw_helper_inventory(yield_owner, "live-yield reader", [2, 4, 0]);
+    assert_raw_helper_inventory(yield_owner, "live-yield reader", [2, 3, 0]);
     let yield_route = normalized_code(yield_owner);
     assert_eq!(
         yield_route
@@ -1573,7 +1553,6 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
             "resume payload",
         ),
         ("HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET", 1, "resume tag"),
-        ("HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET", 1, "resume kind"),
     ] {
         assert_eq!(
             yield_route.matches(field).count(),
@@ -1589,7 +1568,14 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
         "yield must remain Executing through the typed execution-state boundary"
     );
     assert_eq!(yield_route.matches("resume_body_local").count(), 3);
-    assert_eq!(yield_route.matches("resume_kind_local").count(), 5);
+    assert!(!yield_route.contains("resume_kind_local"));
+    assert_eq!(
+        yield_route
+            .matches("emit_store_async_generator_resume_kind(")
+            .count(),
+        2,
+        "yield must publish Normal or Throw through the typed resume-kind boundary"
+    );
     assert_eq!(
         yield_route
             .matches("emit_store_async_generator_body_status(")
@@ -1707,27 +1693,24 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
                 request_tag_local,
                 function,
             );
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_NORMAL as i64,
-            ));
-            function.instruction(&Instruction::LocalSet(resume_kind_local));
             self.emit_async_generator_request_completion_kind_equals(
                 &request_completion_kind,
                 AsyncGeneratorRequestCompletionKind::Throw,
                 function,
             );
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-            ));
-            function.instruction(&Instruction::LocalSet(resume_kind_local));
-            function.instruction(&Instruction::End);
-            self.store_i64_local_at_offset(
+            self.emit_store_async_generator_resume_kind(
                 activation_local,
-                HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-                resume_kind_local,
+                AsyncGeneratorResumeKind::Throw,
                 function,
             );
+            function.instruction(&Instruction::Else);
+            self.emit_store_async_generator_resume_kind(
+                activation_local,
+                AsyncGeneratorResumeKind::Normal,
+                function,
+            );
+            function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
             "#,
     );
@@ -1769,7 +1752,7 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     );
     let normal_resume = unique_position(
         &yield_route,
-        "ASYNC_GENERATOR_RESUME_KIND_NORMAL",
+        "AsyncGeneratorResumeKind::Normal",
         "yield Normal resume kind",
     );
     let resume_payload = unique_position(
@@ -1789,13 +1772,8 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     );
     let throw_resume = unique_position(
         &yield_route,
-        "ASYNC_GENERATOR_RESUME_KIND_THROW",
+        "AsyncGeneratorResumeKind::Throw",
         "yield Throw resume kind",
-    );
-    let resume_kind_store = unique_position(
-        &yield_route,
-        "HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET",
-        "yield resume-kind store",
     );
     let yield_release = unique_position(
         &yield_route,
@@ -1804,7 +1782,7 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     );
     assert_eq!(
         yield_route.matches("release_temp_local(").count(),
-        5,
+        4,
         "yield must retain exactly its reviewed ordinary temporary releases"
     );
     assert!(yield_request_entry < yield_load);
@@ -1815,22 +1793,21 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     assert!(executing_await < yield_return_route_end);
     assert_eq!(yield_return_route_end, yield_normal_throw_route);
     assert!(yield_normal_throw_route < resume_payload && resume_payload < resume_tag);
-    assert!(resume_tag < normal_resume && normal_resume < yield_throw);
-    assert!(yield_throw < throw_resume && throw_resume < resume_kind_store);
-    assert!(resume_kind_store < yield_normal_throw_route_end);
+    assert!(resume_tag < yield_throw && yield_throw < throw_resume);
+    assert!(throw_resume < normal_resume && normal_resume < yield_normal_throw_route_end);
     assert_eq!(yield_normal_throw_route_end, yield_exit);
     assert!(yield_exit < yield_release);
-    let resume_kind_release = unique_position(
+    let first_expected_temp_release = unique_position(
         &yield_route,
-        "self.release_temp_local(resume_kind_local);",
+        "self.release_temp_local(request_tag_local);",
         "first earlier yield temporary release",
     );
     let first_yield_temp_release = positions(&yield_route, "self.release_temp_local(")
         .into_iter()
         .next()
         .expect("yield must release its earlier temporaries");
-    assert_eq!(first_yield_temp_release, resume_kind_release);
-    assert!(yield_release < resume_kind_release);
+    assert_eq!(first_yield_temp_release, first_expected_temp_release);
+    assert!(yield_release < first_expected_temp_release);
 
     let return_arm = yield_route
         .split_once(

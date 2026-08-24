@@ -43,8 +43,8 @@ impl<'a> FunctionBuilder<'a> {
         let value_tag_local = self.reserve_temp_local();
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
         let pending_kind_local = self.reserve_temp_local();
+        let next_pending_kind_local = self.reserve_temp_local();
         let async_iterator_local = self.reserve_temp_local();
         let awaiting_sync_value_local = self.reserve_temp_local();
 
@@ -187,10 +187,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(argument_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_NORMAL as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
+        self.emit_initialize_async_generator_delegate_pending_kind_from_resume_kind(
+            next_pending_kind_local,
+            AsyncGeneratorResumeKind::Normal,
+            function,
+        );
         function.instruction(&Instruction::Else);
 
         self.load_i64_to_local_from_offset(
@@ -240,20 +241,22 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-            resume_kind_local,
+        let resume_kind =
+            self.emit_load_async_generator_resume_kind_strict(activation_local, function);
+        self.emit_copy_async_generator_resume_kind_to_delegate_pending_kind(
+            &resume_kind,
+            next_pending_kind_local,
             function,
         );
+        self.release_loaded_async_generator_resume_kind(resume_kind);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_FULFILL as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+            next_pending_kind_local,
+            AsyncGeneratorResumeKind::Fulfill,
+            function,
+        );
         self.open_frame(ControlFrameKind::If, function);
         self.load_i64_to_local_from_offset(
             record_local,
@@ -262,11 +265,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            function.instruction(&Instruction::LocalGet(pending_kind_local));
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-            ));
-            function.instruction(&Instruction::I64Eq);
+            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                pending_kind_local,
+                AsyncGeneratorResumeKind::Throw,
+                function,
+            );
             function.instruction(&Instruction::If(BlockType::Empty));
             self.load_i64_to_local_from_offset(
                 record_local,
@@ -345,11 +348,11 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            function.instruction(&Instruction::LocalGet(pending_kind_local));
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
-            ));
-            function.instruction(&Instruction::I64Eq);
+            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                pending_kind_local,
+                AsyncGeneratorResumeKind::Return,
+                function,
+            );
             function.instruction(&Instruction::If(BlockType::Empty));
             self.load_i64_to_local_from_offset(
                 record_local,
@@ -450,11 +453,11 @@ impl<'a> FunctionBuilder<'a> {
             0,
             function,
         );
-        function.instruction(&Instruction::LocalGet(pending_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+            pending_kind_local,
+            AsyncGeneratorResumeKind::Return,
+            function,
+        );
         self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -545,11 +548,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+            next_pending_kind_local,
+            AsyncGeneratorResumeKind::Reject,
+            function,
+        );
         self.open_frame(ControlFrameKind::If, function);
         if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
             self.load_i64_to_local_from_offset(
@@ -558,11 +561,11 @@ impl<'a> FunctionBuilder<'a> {
                 pending_kind_local,
                 function,
             );
-            function.instruction(&Instruction::LocalGet(pending_kind_local));
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-            ));
-            function.instruction(&Instruction::I64Eq);
+            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                pending_kind_local,
+                AsyncGeneratorResumeKind::Throw,
+                function,
+            );
             function.instruction(&Instruction::If(BlockType::Empty));
             self.load_i64_to_local_from_offset(
                 record_local,
@@ -590,11 +593,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         if delegation_kind == AsyncGeneratorDelegationKind::YieldStar {
-            function.instruction(&Instruction::LocalGet(resume_kind_local));
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-            ));
-            function.instruction(&Instruction::I64Eq);
+            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                next_pending_kind_local,
+                AsyncGeneratorResumeKind::Throw,
+                function,
+            );
         } else {
             function.instruction(&Instruction::I32Const(0));
         }
@@ -642,7 +645,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(
             ASYNC_GENERATOR_DELEGATE_PENDING_CLOSE_THROW as i64,
         ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
+        function.instruction(&Instruction::LocalSet(next_pending_kind_local));
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
@@ -661,17 +664,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+            next_pending_kind_local,
+            AsyncGeneratorResumeKind::Return,
+            function,
+        );
         if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            function.instruction(&Instruction::LocalGet(resume_kind_local));
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-            ));
-            function.instruction(&Instruction::I64Eq);
+            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                next_pending_kind_local,
+                AsyncGeneratorResumeKind::Throw,
+                function,
+            );
             function.instruction(&Instruction::I32Or);
         }
         self.open_frame(ControlFrameKind::If, function);
@@ -690,11 +693,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            function.instruction(&Instruction::LocalGet(resume_kind_local));
-            function.instruction(&Instruction::I64Const(
-                ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-            ));
-            function.instruction(&Instruction::I64Eq);
+            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                next_pending_kind_local,
+                AsyncGeneratorResumeKind::Throw,
+                function,
+            );
             function.instruction(&Instruction::If(BlockType::Empty));
             self.set_completion_kind(CompletionKind::Throw, function);
             function.instruction(&Instruction::Else);
@@ -749,7 +752,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_local_at_offset(
             record_local,
             HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET,
-            resume_kind_local,
+            next_pending_kind_local,
             function,
         );
         self.store_i64_local_at_offset(
@@ -797,8 +800,8 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(awaiting_sync_value_local);
         self.release_temp_local(async_iterator_local);
+        self.release_temp_local(next_pending_kind_local);
         self.release_temp_local(pending_kind_local);
-        self.release_temp_local(resume_kind_local);
         self.release_temp_local(argument_tag_local);
         self.release_temp_local(argument_payload_local);
         self.release_temp_local(value_tag_local);

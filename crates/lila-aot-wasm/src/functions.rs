@@ -7558,10 +7558,6 @@ impl<'a> FunctionBuilder<'a> {
                     HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
                     ValueKind::Undefined.tag() as u64,
                 ),
-                (
-                    HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-                    ASYNC_GENERATOR_RESUME_KIND_NORMAL,
-                ),
                 (HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET, 0),
                 (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET, 0),
                 (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET, 0),
@@ -7581,6 +7577,11 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            self.emit_store_async_generator_resume_kind(
+                async_generator_activation_local,
+                AsyncGeneratorResumeKind::Normal,
+                function,
+            );
             self.emit_store_async_generator_body_status(
                 async_generator_activation_local,
                 AsyncGeneratorBodyStatus::Idle,

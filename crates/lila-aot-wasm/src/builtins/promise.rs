@@ -1580,7 +1580,7 @@ impl<'a> FunctionBuilder<'a> {
     /// `PromiseResolve` into an already-rejected wrapper promise and then
     /// attaches the same reject reaction (see the `COMPLETION_KIND_THROW` arm
     /// there). So both spec steps arrive here, in the async-generator await
-    /// job, as `resume_kind == ASYNC_GENERATOR_RESUME_KIND_REJECT` — and one
+    /// job, with `AsyncGeneratorResumeKind::Reject` — and one
     /// emission discharges both.
     ///
     /// The three-part guard is the spec's, not a heuristic:
@@ -1601,7 +1601,7 @@ impl<'a> FunctionBuilder<'a> {
     /// - `closeOnRejection` is false for exactly one caller,
     ///   `%AsyncFromSyncIteratorPrototype%.return` (27.1.4.2.3), which this
     ///   backend reaches as a delegation resumed with
-    ///   `ASYNC_GENERATOR_RESUME_KIND_RETURN`. There the sync `return` has
+    ///   `AsyncGeneratorResumeKind::Return`. There the sync `return` has
     ///   *already* been called to produce the result being unwrapped, so
     ///   closing again would call it twice — the double close that
     ///   `sameValue(returnCount, 1)` cannot see but a counting fixture can.
@@ -1616,7 +1616,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_async_from_sync_close_on_rejection(
         &mut self,
         activation_local: u32,
-        resume_kind_local: u32,
+        reaction_is_rejected_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let delegate_record_local = self.reserve_temp_local();
@@ -1637,11 +1637,9 @@ impl<'a> FunctionBuilder<'a> {
         let close_saved_aux_local = self.reserve_temp_local();
 
         // Frame A: only a rejected await can owe an IteratorClose.
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
 
         // Frame B: a cheap pre-filter, and ONLY that. A non-zero record means a
@@ -1735,11 +1733,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(awaiting_sync_value_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(pending_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
+        self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+            pending_kind_local,
+            AsyncGeneratorResumeKind::Return,
+            function,
+        );
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::LocalGet(done_payload_local));
         function.instruction(&Instruction::I64Eqz);
@@ -3205,7 +3204,6 @@ impl<'a> FunctionBuilder<'a> {
         let activation_local = self.reserve_temp_local();
         let active_request_local = self.reserve_temp_local();
         let queue_head_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
 
         self.load_i64_to_local_from_offset(
             reaction_record_local,
@@ -3261,20 +3259,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_FULFILL as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
-        function.instruction(&Instruction::End);
-
         // `AsyncFromSyncIteratorContinuation` steps 6.a and 13. This runs
         // before the body is resumed, and leaves both the resume payload and
         // the current completion untouched: the generator is still resumed
@@ -3292,7 +3276,7 @@ impl<'a> FunctionBuilder<'a> {
         // case in `built-ins/AsyncFromSyncIteratorPrototype` observes it.
         self.emit_async_from_sync_close_on_rejection(
             activation_local,
-            resume_kind_local,
+            reaction_is_rejected_local,
             function,
         )?;
 
@@ -3308,17 +3292,25 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             function,
         );
-        self.store_i64_local_at_offset(
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_store_async_generator_resume_kind(
             activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-            resume_kind_local,
+            AsyncGeneratorResumeKind::Fulfill,
             function,
         );
+        function.instruction(&Instruction::Else);
+        self.emit_store_async_generator_resume_kind(
+            activation_local,
+            AsyncGeneratorResumeKind::Reject,
+            function,
+        );
+        function.instruction(&Instruction::End);
         self.emit_start_async_generator_body(activation_local, function)?;
 
         self.release_loaded_async_generator_body_status(body_status);
         self.release_loaded_async_generator_execution_state(execution_state);
-        self.release_temp_local(resume_kind_local);
         self.release_temp_local(queue_head_local);
         self.release_temp_local(active_request_local);
         self.release_temp_local(activation_local);
@@ -3375,7 +3367,6 @@ impl<'a> FunctionBuilder<'a> {
         let activation_local = self.reserve_temp_local();
         let active_request_local = self.reserve_temp_local();
         let queue_head_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
 
         self.load_i64_to_local_from_offset(
             reaction_record_local,
@@ -3431,20 +3422,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
-        function.instruction(&Instruction::End);
-
         self.store_i64_local_at_offset(
             activation_local,
             HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
@@ -3457,17 +3434,25 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             function,
         );
-        self.store_i64_local_at_offset(
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_store_async_generator_resume_kind(
             activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-            resume_kind_local,
+            AsyncGeneratorResumeKind::Return,
             function,
         );
+        function.instruction(&Instruction::Else);
+        self.emit_store_async_generator_resume_kind(
+            activation_local,
+            AsyncGeneratorResumeKind::Throw,
+            function,
+        );
+        function.instruction(&Instruction::End);
         self.emit_start_async_generator_body(activation_local, function)?;
 
         self.release_loaded_async_generator_body_status(body_status);
         self.release_loaded_async_generator_execution_state(execution_state);
-        self.release_temp_local(resume_kind_local);
         self.release_temp_local(queue_head_local);
         self.release_temp_local(active_request_local);
         self.release_temp_local(activation_local);
@@ -3522,10 +3507,9 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_resume_kind(
             activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-            ASYNC_GENERATOR_RESUME_KIND_REJECT,
+            AsyncGeneratorResumeKind::Reject,
             function,
         );
         self.emit_start_async_generator_body(activation_local, function)?;
@@ -3547,7 +3531,6 @@ impl<'a> FunctionBuilder<'a> {
         let request_local = self.reserve_temp_local();
         let request_payload_local = self.reserve_temp_local();
         let request_tag_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(resume_body_local));
@@ -3628,32 +3611,28 @@ impl<'a> FunctionBuilder<'a> {
             request_tag_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_NORMAL as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
         self.emit_async_generator_request_completion_kind_equals(
             &request_completion_kind,
             AsyncGeneratorRequestCompletionKind::Throw,
             function,
         );
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
-        function.instruction(&Instruction::End);
-        self.store_i64_local_at_offset(
+        self.emit_store_async_generator_resume_kind(
             activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-            resume_kind_local,
+            AsyncGeneratorResumeKind::Throw,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        self.emit_store_async_generator_resume_kind(
+            activation_local,
+            AsyncGeneratorResumeKind::Normal,
             function,
         );
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
 
         self.release_loaded_async_generator_request_completion_kind(request_completion_kind);
-        self.release_temp_local(resume_kind_local);
         self.release_temp_local(request_tag_local);
         self.release_temp_local(request_payload_local);
         self.release_temp_local(request_local);

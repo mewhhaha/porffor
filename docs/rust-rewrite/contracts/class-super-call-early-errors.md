@@ -1,6 +1,7 @@
 # Class constructor and static-block `super()` early errors
 
-**Status:** Focused-verified on current head, 2026-08-24
+**Status:** Product conditions and shared producer census through the
+FunctionDeclaration follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -182,14 +183,16 @@ The eleven separate `invalid super call usage` producers for method
 `HasDirectSuper` remain untouched.
 
 The later, separately owned class-field initializer lane gives those four
-field producers their own message. The subsequent FunctionExpression lane
-also gives the ordinary function-expression producer its own message. On
-current head, `invalid super usage` therefore occurs five times: the ScriptBody
-producer plus four callable producers. The field message occurs four times and
-is owned by `ClassFieldInitializerContainsSuperCall`; the function-expression
-message occurs once and is owned by `FunctionExpressionContainsSuper`. See
+field producers their own message. The subsequent FunctionExpression and
+FunctionDeclaration lanes also give the two ordinary function productions
+their own messages. On current head, `invalid super usage` still occurs five
+times: the ScriptBody producer, the shared default for the three remaining
+hoistable forms and three expression producers. The field message occurs four
+times and is owned by `ClassFieldInitializerContainsSuperCall`; the ordinary
+function messages occur once each and are separately owned. See
 `class-field-initializer-super-call-early-errors.md` and
-`function-expression-contains-super-early-errors.md`. The Script producer
+`function-expression-contains-super-early-errors.md` plus
+`function-declaration-contains-super-early-errors.md`. The Script producer
 remains byte-for-byte unchanged and continues to be selected only by the exact
 rendered message `invalid super usage at line 1, col 1`.
 
@@ -391,14 +394,16 @@ diagnostic without exercising a real front-end producer.
 The implementation extends one vendored-source guard that recursively
 inventories the pinned Boa packages and proves all of the following:
 
-- the current raw-message census is exactly `5 + 1 + 1 + 4 + 1`: five generic,
+- the current raw-message census is exactly `5 + 1 + 1 + 4 + 1 + 1`: five generic,
   one base-constructor, one static-block, four separately typed field messages
-  and one separately typed ordinary-function-expression message;
+  and one message for each ordinary function production;
 - the two new raw messages each occur exactly once, both in
   `class_decl/mod.rs`;
 - the old raw `invalid super usage` no longer occurs in `class_decl/mod.rs`;
 - the separately typed field message occurs exactly four times in its four
   reviewed initializer branches;
+- the ordinary function expression/declaration messages occur once each and
+  remain attached to their distinct completed-node/shared-predicate owners;
 - the base-constructor message is dominated by the complete three-part
   `super_ref.is_none` / optional-constructor / `ContainsSymbol::SuperCall`
   conjunction, retains `body_start`, and remains after the complete
@@ -498,7 +503,8 @@ for an aggregate `6/6` Wasm-AOT variants with every non-success bucket at zero.
 This contract does not:
 
 - classify the eleven method-owned `invalid super call usage` producers;
-- classify the four remaining callable `invalid super usage` producers;
+- classify the remaining generic generator/async declaration and expression
+  forms;
 - own the separately implemented class-field-initializer `SuperCall`
   condition;
 - broaden or merge `ScriptTopLevelSuper` or `ModuleTopLevelSuper`;

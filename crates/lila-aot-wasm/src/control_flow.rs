@@ -2298,13 +2298,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(resume_state as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        let resume_kind_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-            resume_kind_local,
-            function,
-        );
+        let resume_kind =
+            self.emit_load_async_generator_resume_kind_strict(activation_local, function);
         self.load_i64_to_local_from_offset(
             activation_local,
             HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
@@ -2318,11 +2313,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_resume_kind_equals(
+            &resume_kind,
+            AsyncGeneratorResumeKind::Return,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.set_completion_kind_with_aux(
             CompletionKind::Return,
@@ -2331,21 +2326,21 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_resume_kind_equals(
+            &resume_kind,
+            AsyncGeneratorResumeKind::Throw,
+            function,
+        );
+        self.emit_async_generator_resume_kind_equals(
+            &resume_kind,
+            AsyncGeneratorResumeKind::Reject,
+            function,
+        );
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.set_completion_kind(CompletionKind::Throw, function);
         function.instruction(&Instruction::End);
-        self.release_temp_local(resume_kind_local);
+        self.release_loaded_async_generator_resume_kind(resume_kind);
         self.emit_dispatch_async_generator_completion(function);
 
         match resume_mode {
@@ -2465,13 +2460,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(resume_state as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        let resume_kind_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-            resume_kind_local,
-            function,
-        );
+        let resume_kind =
+            self.emit_load_async_generator_resume_kind_strict(activation_local, function);
         self.load_i64_to_local_from_offset(
             activation_local,
             HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
@@ -2484,30 +2474,30 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_resume_kind_equals(
+            &resume_kind,
+            AsyncGeneratorResumeKind::Reject,
+            function,
+        );
+        self.emit_async_generator_resume_kind_equals(
+            &resume_kind,
+            AsyncGeneratorResumeKind::Throw,
+            function,
+        );
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.set_completion_kind(CompletionKind::Throw, function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_resume_kind_equals(
+            &resume_kind,
+            AsyncGeneratorResumeKind::Return,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.set_completion_kind(CompletionKind::Return, function);
         function.instruction(&Instruction::End);
-        self.release_temp_local(resume_kind_local);
+        self.release_loaded_async_generator_resume_kind(resume_kind);
         self.emit_dispatch_async_generator_completion(function);
 
         match resume_mode {
@@ -5953,26 +5943,22 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 ),
             ActivationAsyncDisposeOwner::AsyncGenerator(_) => {
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-                    is_throw_local,
+                let resume_kind =
+                    self.emit_load_async_generator_resume_kind_strict(activation_local, function);
+                self.emit_async_generator_resume_kind_equals(
+                    &resume_kind,
+                    AsyncGeneratorResumeKind::Fulfill,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(is_throw_local));
-                function.instruction(&Instruction::I64Const(
-                    ASYNC_GENERATOR_RESUME_KIND_FULFILL as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
                 self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(is_throw_local));
                 function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(is_throw_local));
-                function.instruction(&Instruction::I64Const(
-                    ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
+                self.emit_async_generator_resume_kind_equals(
+                    &resume_kind,
+                    AsyncGeneratorResumeKind::Reject,
+                    function,
+                );
                 self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(is_throw_local));
@@ -5980,6 +5966,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::Unreachable);
                 self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
+                self.release_loaded_async_generator_resume_kind(resume_kind);
                 self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
             }
@@ -8733,19 +8720,16 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 ),
             ForAwaitActivationLayout::AsyncGenerator => {
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-                    is_throw_local,
+                let resume_kind =
+                    self.emit_load_async_generator_resume_kind_strict(activation_local, function);
+                self.emit_async_generator_resume_kind_equals(
+                    &resume_kind,
+                    AsyncGeneratorResumeKind::Reject,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(is_throw_local));
-                function.instruction(&Instruction::I64Const(
-                    ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I64ExtendI32U);
                 function.instruction(&Instruction::LocalSet(is_throw_local));
+                self.release_loaded_async_generator_resume_kind(resume_kind);
             }
         }
     }

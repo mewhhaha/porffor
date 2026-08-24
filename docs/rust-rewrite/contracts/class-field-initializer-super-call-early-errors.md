@@ -1,7 +1,7 @@
 # Class field initializer `Contains SuperCall` early errors
 
-**Status:** Product condition and current shared producer census
-focused-verified, 2026-08-24
+**Status:** Product condition and shared producer census through the
+FunctionDeclaration follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -73,12 +73,13 @@ class field initializer cannot contain super call at line
 ```
 
 After the repair, that new raw message occurs exactly four times, all in the
-reviewed field arms. The later FunctionExpression lane gives one callable
-producer its own message. On current head, `invalid super usage` occurs exactly
-five times across pinned `boa_parser`: the fixed-position Script producer plus
-four callable parameter-position producers. The base-constructor,
-static-block and ordinary-function-expression conditions retain their
-separately repaired unique messages.
+reviewed field arms. The later ordinary function expression/declaration lanes
+give two callable productions their own messages. On current head,
+`invalid super usage` occurs exactly five times across pinned `boa_parser`: the
+fixed-position Script producer, the
+shared generic declaration default and three expression producers. The base-
+constructor, static-block, ordinary-function-expression and ordinary-function-
+declaration conditions retain their separately repaired unique messages.
 
 ## Typed encoding and classifier safety
 
@@ -132,10 +133,13 @@ remains a parsed graph node.
 The shared super-producer source guard recursively inventories pinned Boa and
 requires:
 
-- exactly five remaining `invalid super usage` messages, with the Script and
-  four callable position owners preserved;
+- exactly five remaining `invalid super usage` literals: the fixed Script
+  owner, shared declaration default and three expression owners, with their
+  common or direct parameter-start positions preserved;
 - exactly one ordinary-function-expression-specific message on its completed-
   node `Contains Super` branch;
+- exactly one ordinary-function-declaration-specific message selected by the
+  shared callable-declaration predicate;
 - exactly four field-specific messages, all in `class_decl/mod.rs`;
 - exactly one match in each of the private, private-static, grouped-public and
   static-auto-accessor field arms;
@@ -186,9 +190,11 @@ cargo test -p lila-ir rejected_class_field_super_call_dependency_keeps_its_code_
 All five focused commands passed `1/1` at the field-lane checkpoint. `cargo fmt
 --all -- --check` and `cargo xc` were green. The complete front library passed
 `125/125`; the relevant IR early and graph groups passed `46/46` and `43/43`.
-The later FunctionExpression lane updates the shared producer census. The
-current complete front library passes `129/129`; the relevant IR early and
-graph groups pass `47/47` and `45/45` with that census in place.
+The later FunctionExpression lane updated the shared producer census; the
+complete front library passed `129/129`, and the relevant IR early and graph
+groups passed `47/47` and `45/45` with that census in place. The subsequent
+FunctionDeclaration update leaves the complete front library at `134/134` and
+the relevant IR early and graph groups at `48/48` and `47/47`.
 
 The metadata-derived 60-file cohort was enumerated one exact suite-relative
 path at a time with the Wasm-AOT backend, `--jobs 1`, `--threads 1` and the

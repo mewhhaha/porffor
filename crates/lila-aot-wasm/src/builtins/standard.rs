@@ -18975,18 +18975,17 @@ impl<'a> FunctionBuilder<'a> {
                     argument_tag_local,
                     function,
                 );
-                self.store_i64_const_at_offset(
+                self.emit_store_async_generator_resume_kind(
                     activation_local,
-                    HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
                     match builtin {
                         StandardBuiltinId::AsyncGeneratorPrototypeNext => {
-                            ASYNC_GENERATOR_RESUME_KIND_NORMAL
+                            AsyncGeneratorResumeKind::Normal
                         }
                         StandardBuiltinId::AsyncGeneratorPrototypeReturn => {
-                            ASYNC_GENERATOR_RESUME_KIND_RETURN
+                            AsyncGeneratorResumeKind::Return
                         }
                         StandardBuiltinId::AsyncGeneratorPrototypeThrow => {
-                            ASYNC_GENERATOR_RESUME_KIND_THROW
+                            AsyncGeneratorResumeKind::Throw
                         }
                         _ => unreachable!(),
                     },

@@ -95,6 +95,22 @@ focused-verified. The four related structure targets pass `20/20`, the exact
 lifecycle/delegation CLI cohort passes `5/5`, and its five pinned Test262 files
 pass `10/10` Wasm-AOT variants with every non-success bucket at zero.
 
+The async-generator activation's resume-kind word now has the closed
+`AsyncGeneratorResumeKind::{Normal, Return, Throw, Fulfill, Reject}` domain.
+Nine runtime branch selections across six writer paths use one typed store.
+Four control-flow readers strictly validate one heap snapshot, compare it
+through an opaque non-`Copy` token and trap an unknown word before Normal-like
+fallthrough. The delegation resume branch strictly validates, copies and
+releases its activation snapshot before the branch joins; the fresh branch
+initializes the wider pending-kind transport from typed Normal. Every
+post-join route uses that wider transport, whose backend close-throw word 5
+cannot be written back through the private activation offset. Resume-state
+labels, request completion, execution state and body status remain separate
+types. The focused structure target and four neighboring guards pass `27/27`;
+the exact lifecycle/delegation CLI cohort passes `5/5`, and its five pinned
+Test262 files pass `10/10` Wasm-AOT variants with every non-success bucket at
+zero.
+
 Promise records now store `[[PromiseState]]` through one closed three-variant
 `PromiseState::{Pending, Fulfilled, Rejected}` wire domain. The raw offset is
 private to typed initialization, terminal-store and strict-load helpers, and an

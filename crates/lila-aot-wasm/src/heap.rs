@@ -395,7 +395,7 @@ pub(crate) const HEAP_ASYNC_GENERATOR_ARGV_OFFSET: u64 = 72;
 pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET: u64 = 80;
 pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET: u64 = 88;
 pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET: u64 = 96;
-pub(crate) const HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET: u64 = 104;
+const HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET: u64 = 104;
 pub(crate) const HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET: u64 = 112;
 pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
 pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
@@ -1956,6 +1956,44 @@ impl AsyncGeneratorBodyStatus {
 #[must_use = "a loaded async-generator body status must be routed and released"]
 pub(crate) struct LoadedAsyncGeneratorBodyStatus(u32);
 
+/// The closed completion kind supplied when an async-generator body resumes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncGeneratorResumeKind {
+    Normal,
+    Return,
+    Throw,
+    Fulfill,
+    Reject,
+}
+
+impl AsyncGeneratorResumeKind {
+    const ALL: [Self; 5] = [
+        Self::Normal,
+        Self::Return,
+        Self::Throw,
+        Self::Fulfill,
+        Self::Reject,
+    ];
+
+    const fn word(self) -> u64 {
+        match self {
+            Self::Normal => 0,
+            Self::Return => 1,
+            Self::Throw => 2,
+            Self::Fulfill => 3,
+            Self::Reject => 4,
+        }
+    }
+}
+
+/// One strictly validated snapshot of an async-generator resume kind.
+///
+/// The raw local is private and the token is deliberately non-`Copy`. Routing
+/// borrows it, then must consume it through the matching release boundary once
+/// every comparison and validated transport copy has been emitted.
+#[must_use = "a loaded async-generator resume kind must be routed and released"]
+pub(crate) struct LoadedAsyncGeneratorResumeKind(u32);
+
 pub(crate) const GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
 pub(crate) const GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
 pub(crate) const GENERATOR_RESUME_KIND_RETURN: u64 = 1;
@@ -1963,16 +2001,6 @@ pub(crate) const GENERATOR_RESUME_KIND_THROW: u64 = 2;
 pub(crate) const GENERATOR_DELEGATED_RESULT_AUX_FLAG: i64 = i64::MIN;
 #[allow(dead_code)]
 pub(crate) const ASYNC_GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
-#[allow(dead_code)]
-pub(crate) const ASYNC_GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
-#[allow(dead_code)]
-pub(crate) const ASYNC_GENERATOR_RESUME_KIND_RETURN: u64 = 1;
-#[allow(dead_code)]
-pub(crate) const ASYNC_GENERATOR_RESUME_KIND_THROW: u64 = 2;
-#[allow(dead_code)]
-pub(crate) const ASYNC_GENERATOR_RESUME_KIND_FULFILL: u64 = 3;
-#[allow(dead_code)]
-pub(crate) const ASYNC_GENERATOR_RESUME_KIND_REJECT: u64 = 4;
 pub(crate) const ASYNC_GENERATOR_RETURN_VALUE_ALREADY_AWAITED: u64 = 1;
 pub(crate) const FUNCTION_FLAG_CONSTRUCTABLE: u64 = 1;
 pub(crate) const FUNCTION_FLAG_CLASS_CONSTRUCTOR: u64 = 2;
@@ -6342,6 +6370,111 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(loaded.0);
     }
 
+    /// Store one kind from the closed async-generator resume domain.
+    pub(crate) fn emit_store_async_generator_resume_kind(
+        &self,
+        activation_local: u32,
+        kind: AsyncGeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
+            kind.word(),
+            function,
+        );
+    }
+
+    /// Load and strictly validate one async-generator resume-kind snapshot.
+    ///
+    /// An unknown or wrong-domain word is an impossible activation record.
+    pub(crate) fn emit_load_async_generator_resume_kind_strict(
+        &mut self,
+        activation_local: u32,
+        function: &mut Function,
+    ) -> LoadedAsyncGeneratorResumeKind {
+        let kind_word_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
+            kind_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for kind in AsyncGeneratorResumeKind::ALL {
+            function.instruction(&Instruction::LocalGet(kind_word_local));
+            function.instruction(&Instruction::I64Const(kind.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        LoadedAsyncGeneratorResumeKind(kind_word_local)
+    }
+
+    /// Emit one comparison against a strictly loaded resume-kind word.
+    pub(crate) fn emit_async_generator_resume_kind_equals(
+        &self,
+        loaded: &LoadedAsyncGeneratorResumeKind,
+        expected: AsyncGeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Copy a validated activation resume kind into the widened delegation
+    /// pending-kind transport.
+    pub(crate) fn emit_copy_async_generator_resume_kind_to_delegate_pending_kind(
+        &self,
+        loaded: &LoadedAsyncGeneratorResumeKind,
+        pending_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::LocalSet(pending_kind_local));
+    }
+
+    /// Initialize the delegation pending-kind transport from one typed resume
+    /// kind without constructing an activation snapshot.
+    pub(crate) fn emit_initialize_async_generator_delegate_pending_kind_from_resume_kind(
+        &self,
+        pending_kind_local: u32,
+        kind: AsyncGeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(kind.word() as i64));
+        function.instruction(&Instruction::LocalSet(pending_kind_local));
+    }
+
+    /// Compare the widened delegation pending-kind transport with one resume
+    /// kind without treating the pending field as the activation domain.
+    pub(crate) fn emit_async_generator_delegate_pending_kind_equals_resume_kind(
+        &self,
+        pending_kind_local: u32,
+        expected: AsyncGeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(pending_kind_local));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Release the private local owned by a resume-kind snapshot.
+    pub(crate) fn release_loaded_async_generator_resume_kind(
+        &mut self,
+        loaded: LoadedAsyncGeneratorResumeKind,
+    ) {
+        self.release_temp_local(loaded.0);
+    }
+
     /// Initialize a Promise record in the sole valid non-terminal state.
     pub(crate) fn emit_initialize_promise_state(
         &self,
@@ -6829,13 +6962,13 @@ mod tests {
         );
         assert_eq!(
             layout_decoder
-                .matches("HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET")
+                .matches("emit_load_async_generator_resume_kind_strict")
                 .count(),
             1
         );
         assert_eq!(
             layout_decoder
-                .matches("ASYNC_GENERATOR_RESUME_KIND_REJECT")
+                .matches("AsyncGeneratorResumeKind::Reject")
                 .count(),
             1,
             "the async-generator branch must preserve its existing rejection policy"
@@ -7452,13 +7585,7 @@ mod tests {
             [0, 1, 2, 3, 4, 5]
         );
         assert_eq!(
-            [
-                ASYNC_GENERATOR_RESUME_KIND_NORMAL,
-                ASYNC_GENERATOR_RESUME_KIND_RETURN,
-                ASYNC_GENERATOR_RESUME_KIND_THROW,
-                ASYNC_GENERATOR_RESUME_KIND_FULFILL,
-                ASYNC_GENERATOR_RESUME_KIND_REJECT,
-            ],
+            AsyncGeneratorResumeKind::ALL.map(AsyncGeneratorResumeKind::word),
             [0, 1, 2, 3, 4]
         );
 

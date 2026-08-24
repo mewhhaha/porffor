@@ -259,7 +259,7 @@ fn body_status_heap_boundary_is_private_strict_and_opaque() {
     let release = bounded(
         HEAP_SOURCE,
         "pub(crate) fn release_loaded_async_generator_body_status(",
-        "/// Initialize a Promise record in the sole valid non-terminal state.",
+        "/// Store one kind from the closed async-generator resume domain.",
     );
     assert!(release.contains("loaded: LoadedAsyncGeneratorBodyStatus,"));
     assert!(!release.contains("&LoadedAsyncGeneratorBodyStatus"));

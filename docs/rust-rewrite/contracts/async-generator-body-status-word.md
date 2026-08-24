@@ -155,9 +155,9 @@ sloppy/strict Wasm-AOT executions with every non-success bucket at zero.
 
 ## Explicit nonclaims
 
-This invariant does not type resume kinds, resume-state labels, pending
-completion records, Promise reaction kinds or body result payloads and tags. It
-does not repair general continuation spilling, the known resumable-loop
-failure, cross-realm behavior, queue ownership, GC layout or broader async
-generator conformance. It changes no published README count and does not
-complete T14 or T15.
+This invariant does not type resume-state labels, pending completion records,
+Promise reaction kinds or body result payloads and tags. Resume kind is closed
+by its own focused contract. It does not repair general continuation spilling,
+the known resumable-loop failure, cross-realm behavior, queue ownership, GC
+layout or broader async-generator conformance. It changes no published README
+count and does not complete T14 or T15.

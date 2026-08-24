@@ -282,6 +282,23 @@ Test262 files pass `8/8` Wasm-AOT variants with every non-success bucket at
 zero. This does not implement post-coercion `RevalidateAtomicAccess` or claim
 complete Atomics semantics.
 
+The shared TypedArray HasProperty predicate used by `Array.prototype.concat`
+and the TypedArray receiver branch of `Array.prototype.slice` now consumes the
+closed `IntegerIndexedProperty` witness. It keeps its non-throwing result
+policy: detached, fixed/tracking out-of-bounds and index-at-or-above-current-
+length states are absent, while fixed-view regrowth restores the stored index
+extent. The witness also floors odd available byte lengths before comparing an
+index, so concat cannot create an own `undefined` target property for a
+trailing partial element that should remain a hole. Non-TypedArray receivers
+still select the ordinary-object fallback through the separate classification
+output. The focused
+[concat TypedArray buffer-witness contract](../docs/rust-rewrite/contracts/array-concat-typed-array-buffer-witness.md),
+bounded predicate/caller guard and CLI fixture are focused-verified: the
+structure target passes `3/3`, the CLI fixture passes `1/1`, and the concat plus
+Array-slice Test262 controls pass `4/4` Wasm-AOT variants with every non-success
+bucket at zero. This closes one shared raw HasProperty owner, not concat, Array
+slice or integer-indexed exotic semantics as a whole.
+
 These migrations still do not cover `with`, `set`, `subarray`, constructor
 validation or other remaining raw validators. They do not change key
 classification, caller-specific integer-indexed descriptor/result policy,

@@ -77,6 +77,21 @@ Wasm-AOT variants with every non-success bucket at zero. This is a backend
 body-protocol invariant, not another `[[AsyncGeneratorState]]` value or a
 general suspension claim.
 
+Async-generator resumption now uses the distinct closed
+`AsyncGeneratorResumeKind::{Normal, Return, Throw, Fulfill, Reject}` activation
+domain. Its private stable projection is the sole authority for nine typed
+store selections and five strict readers. Unknown words trap before routing,
+and each reader consumes an opaque snapshot after its comparisons or validated
+transport copy. The delegation resume branch copies its snapshot into the
+wider pending-kind transport through a single named bridge, while the fresh
+branch initializes that transport from typed Normal. All routing after the
+branch join uses pending-kind operations; the transport's close-throw word 5
+is not an activation variant. The focused structure target and four neighboring
+guards pass `27/27`; the exact lifecycle/delegation CLI cohort passes `5/5`, and
+its five pinned Test262 files pass `10/10` Wasm-AOT variants with every
+non-success bucket at zero. This does not type resume-state labels or close
+general suspension debt.
+
 The existing broad resumable-loop CLI test still fails because later classic
 loop iterations and post-yield lexical state are lost. A detached unchanged
 `HEAD` worktree produces byte-identical output, while all observed yielded and

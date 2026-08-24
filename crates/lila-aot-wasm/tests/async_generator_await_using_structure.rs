@@ -321,10 +321,11 @@ fn backend_walker_awaits_and_dispatches_through_the_selected_owner() {
         "ActivationAsyncDisposeOwner::AsyncFunction(_)",
         "emit_load_async_function_resume_is_throw",
         "ActivationAsyncDisposeOwner::AsyncGenerator(_)",
-        "HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET",
-        "ASYNC_GENERATOR_RESUME_KIND_FULFILL",
-        "ASYNC_GENERATOR_RESUME_KIND_REJECT",
+        "emit_load_async_generator_resume_kind_strict",
+        "AsyncGeneratorResumeKind::Fulfill",
+        "AsyncGeneratorResumeKind::Reject",
         "Instruction::Unreachable",
+        "release_loaded_async_generator_resume_kind",
     ] {
         assert!(load_resume.contains(marker), "{marker}");
     }

@@ -1,7 +1,7 @@
 # Script top-level `super` early errors
 
-**Status:** Product condition and shared producer census through the field and
-FunctionExpression follow-ups focused-verified, 2026-08-24
+**Status:** Product condition and shared producer census through the
+FunctionDeclaration follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -98,13 +98,13 @@ boundary. It distinguishes this producer from the other reachable producers
 that reuse the raw literal `invalid super usage`.
 
 After the separately typed class-super-call, class-field-initializer and
-ordinary-function-expression repairs, across every Rust source in pinned
-`boa_parser-0.21.1` that raw literal occurs exactly five times:
+ordinary-function expression/declaration repairs, across every Rust source in
+pinned `boa_parser-0.21.1` that raw literal occurs exactly five times:
 
 | Parser owner | Raw occurrences | Position source | New code owns it |
 | --- | ---: | --- | --- |
 | `parser/mod.rs` ScriptBody check | 1 | fixed `Position::new(1, 1)` | yes |
-| shared hoistable-declaration parser | 1 | `params_start_position` | no |
+| shared hoistable-declaration default for generator/async forms | 1 | common branch retains `params_start_position` | no |
 | generator/async/async-generator expression parsers | 3 | each form's parameter-start position | no |
 
 The other four positions occur only after a function head and cannot render
@@ -115,7 +115,9 @@ conditions have unique messages and codes under
 `class-super-call-early-errors.md`; the four field-initializer producers are
 owned by `class-field-initializer-super-call-early-errors.md`; and the ordinary
 function-expression producer is owned by
-`function-expression-contains-super-early-errors.md`.
+`function-expression-contains-super-early-errors.md`. The ordinary
+function-declaration producer is separately owned by
+`function-declaration-contains-super-early-errors.md`.
 
 No vendor repair is required for the Script producer. Its existing
 fixed-position message remains sufficient for an exact-message classifier row.
@@ -294,8 +296,9 @@ prove all of the following:
   `contains(&body, ContainsSymbol::Super)` condition;
 - the Script super check remains before the adjacent NewTarget, private-name,
   label and cover-initialized-name checks;
-- the other four raw occurrences retain their reviewed parameter-start
-  positions rather than acquiring the fixed 1:1 coordinate;
+- the shared declaration branch and three expression producers retain their
+  reviewed parameter-start positions rather than acquiring the fixed 1:1
+  coordinate;
 - pinned `boa_ast` keeps ordinary callable bodies as stopping boundaries,
   traverses ordinary and async arrows, class heritage and computed public
   method/field names, traverses computed object-method names, and reaches a
@@ -389,7 +392,8 @@ front suite and the `47/47` IR early plus `45/45` graph groups on 2026-08-24.
 The lane classifies a rejection pinned Boa already produces. It does not:
 
 - add or broaden `super` syntax;
-- classify the other four raw `invalid super usage` producers;
+- classify the remaining generic generator/async declaration and expression
+  forms;
 - classify the eleven `invalid super call usage` producers;
 - repair token-level source location;
 - support direct eval or Function-family dynamic source;

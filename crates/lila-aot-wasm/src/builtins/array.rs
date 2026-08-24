@@ -8606,14 +8606,10 @@ impl<'a> FunctionBuilder<'a> {
         typed_array_like_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
-        let present_local = self.reserve_temp_local();
-        let slot_payload_local = self.reserve_temp_local();
-        let slot_tag_local = self.reserve_temp_local();
-        let byte_length_local = self.reserve_temp_local();
-        let bytes_per_element_local = self.reserve_temp_local();
         let buffer_payload_local = self.reserve_temp_local();
         let byte_offset_local = self.reserve_temp_local();
+        let stored_byte_length_local = self.reserve_temp_local();
+        let bytes_per_element_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(result_local));
@@ -8628,43 +8624,31 @@ impl<'a> FunctionBuilder<'a> {
             item_payload_local,
             buffer_payload_local,
             byte_offset_local,
-            byte_length_local,
+            stored_byte_length_local,
             bytes_per_element_local,
             function,
         );
-        self.emit_typed_array_current_byte_length(
+        let typed_array_view = TypedArrayViewLocals::new(
             item_payload_local,
-            item_tag_local,
             buffer_payload_local,
             byte_offset_local,
-            byte_length_local,
+            stored_byte_length_local,
+            bytes_per_element_local,
+        );
+        self.emit_typed_array_witness(
+            &typed_array_view,
+            TypedArrayWitnessUse::IntegerIndexedProperty {
+                index_local,
+                result_local,
+            },
             function,
         )?;
-
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(byte_length_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(bytes_per_element_local);
+        self.release_temp_local(stored_byte_length_local);
         self.release_temp_local(byte_offset_local);
         self.release_temp_local(buffer_payload_local);
-        self.release_temp_local(bytes_per_element_local);
-        self.release_temp_local(byte_length_local);
-        self.release_temp_local(slot_tag_local);
-        self.release_temp_local(slot_payload_local);
-        self.release_temp_local(present_local);
-        self.release_temp_local(key_local);
         Ok(())
     }
 

@@ -397,8 +397,9 @@ shared `187/187` Wasm-safe plus `191/191` complete fake-suite gates are green.
 This lane changes no valid-program behavior and claims no new conformance pass.
 It does not redesign the async-generator queue, Promise capability, completion
 payload/tag representation, complete-step generic completion local,
-`[[AsyncGeneratorState]]`, body status, resume kind, AwaitReturn jobs,
-delegation, continuation spilling or GC layout.
+`[[AsyncGeneratorState]]`, body status, AwaitReturn jobs, delegation,
+continuation spilling or GC layout. Resume kind is closed by its own focused
+contract.
 
 It does not type every `CompletionKind`, make Break/Continue globally
 unrepresentable, repair the known resumable-loop failure, refresh the complete

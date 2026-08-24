@@ -567,18 +567,22 @@ fn await_and_yield_paths_keep_execution_state_distinct_from_body_status() {
             "self.release_loaded_async_generator_execution_state(execution_state);",
             "await-job state release",
         );
-        let resume_kind_release = unique_position(
+        let resume_kind_stores = positions(&owner, "self.emit_store_async_generator_resume_kind(");
+        assert_eq!(resume_kind_stores.len(), 2);
+        let first_temp_release = unique_position(
             &owner,
-            "self.release_temp_local(resume_kind_local);",
-            "await-job resume-kind release",
+            "self.release_temp_local(queue_head_local);",
+            "await-job first ordinary temporary release",
         );
         assert!(load < executing && executing < trap);
         assert!(
             trap < body_status_load
                 && body_status_load < body_status_await
-                && body_status_await < resume
+                && body_status_await < resume_kind_stores[0]
+                && resume_kind_stores[0] < resume_kind_stores[1]
+                && resume_kind_stores[1] < resume
                 && resume < release
-                && release < resume_kind_release
+                && release < first_temp_release
         );
     }
 

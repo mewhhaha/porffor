@@ -68,6 +68,9 @@ impl CallableDeclaration for FunctionDeclaration {
     fn body_allow_await(&self) -> bool {
         false
     }
+    fn contains_super_error_message(&self) -> &'static str {
+        "function declaration cannot contain super"
+    }
 }
 
 impl<R> TokenParser<R> for FunctionDeclaration

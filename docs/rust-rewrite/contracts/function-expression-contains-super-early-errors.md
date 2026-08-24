@@ -1,6 +1,7 @@
 # FunctionExpression `Contains super` early errors
 
-**Status:** Focused-verified, 2026-08-24
+**Status:** Product condition and shared producer census through the
+FunctionDeclaration follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -72,9 +73,12 @@ No grammar, predicate, check order, accepted source, or location behavior is
 changed.
 
 After the repair, the unique message occurs once across pinned Boa Rust
-sources. The old generic message occurs five times: one fixed ScriptBody
-producer plus the shared hoistable declaration, generator-expression,
-async-function-expression and async-generator-expression producers.
+sources. The later FunctionDeclaration lane gives the ordinary declaration its
+own unique message while retaining the shared generic default for the three
+other hoistable forms. On current head, the old generic literal still occurs
+five times: one fixed ScriptBody producer, that declaration default, and the
+generator-expression, async-function-expression and async-generator-expression
+producers.
 
 ## Typed and retained boundaries
 
@@ -112,8 +116,8 @@ and remains pinned:
 - a Use Strict Directive with non-simple parameters precedes it; and
 - a formal parameter/body lexical declaration conflict precedes it.
 
-Adjacent FunctionDeclaration, generator-expression, async-function-expression,
-async-generator-expression and method producers remain outside the new code.
+The separately owned FunctionDeclaration condition and adjacent generator,
+async-function, async-generator and method producers remain outside this code.
 
 ## Durable source guard
 
@@ -123,8 +127,10 @@ The shared super-producer guard recursively requires:
   sources and none of the old generic message in that producer file;
 - the exact completed-node `contains(&function, ContainsSymbol::Super)` branch,
   new message and retained `params_start_position` together;
-- exactly five remaining generic messages, with their fixed Script or
-  parameter-start positions;
+- exactly one separately typed FunctionDeclaration message selected from the
+  shared callable-declaration predicate;
+- exactly five remaining generic messages, with their fixed Script or shared
+  callable parameter-start positions;
 - the existing class constructor, static-block, field and method message
   censuses;
 - ordinary/async-arrow traversal and ordinary callable/nested-class stopping
@@ -163,9 +169,12 @@ cargo test -p lila-ir modules::graph::tests::rejected_function_expression_super_
 cargo test -p lila-ir modules::graph::tests::retained_function_expression_without_super_builds_a_real_module_graph -- --exact --test-threads=1
 ```
 
-All six focused commands pass. `cargo fmt --all -- --check`, `cargo xc` and
-`git diff --check` are green. The complete front library passes `129/129`; the
-relevant IR early and graph groups pass `47/47` and `45/45`.
+All six focused commands passed at the FunctionExpression checkpoint. `cargo
+fmt --all -- --check`, `cargo xc` and `git diff --check` were green. The complete
+front library passed `129/129`; the relevant IR early and graph groups passed
+`47/47` and `45/45`. With the later FunctionDeclaration lane and updated shared
+producer guard, the complete front library passes `134/134`; the relevant IR
+early and graph groups pass `48/48` and `47/47`.
 
 The four exact Test262 paths were run separately with `--jobs 1 --threads 1`.
 Each passes `2/2`, for exactly `8/8` completed Wasm-AOT variants with every

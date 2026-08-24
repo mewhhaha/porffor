@@ -215,9 +215,9 @@ Wasm-safe and complete fixture gates also pass `187/187` and `191/191`.
 
 ## Explicit nonclaims
 
-This invariant does not type resume kind, resume-state labels, pending
-completion records or Promise reaction kind. Body status and request completion
-kind are closed by their own focused contracts.
+This invariant does not type resume-state labels, pending completion records or
+Promise reaction kind. Resume kind, body status and request completion kind are
+closed by their own focused contracts.
 It does not repair general continuation spilling, the known resumable-loop
 failure, cross-realm behavior, queue ownership, GC layout or broader async
 generator conformance. It changes no published README count and does not
