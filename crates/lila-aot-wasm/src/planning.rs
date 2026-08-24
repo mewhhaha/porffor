@@ -829,6 +829,7 @@ mod tests {
             StandardBuiltinId::ObjectDefineProperty,
             StandardBuiltinId::ReflectDefineProperty,
             StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+            StandardBuiltinId::ObjectPrototypeHasOwnProperty,
             StandardBuiltinId::ObjectPrototypeLookupGetter,
             StandardBuiltinId::ObjectPrototypeLookupSetter,
             StandardBuiltinId::ObjectPrototypePropertyIsEnumerable,
@@ -1866,6 +1867,7 @@ impl RuntimeBootstrapPlan {
             StandardBuiltinId::ObjectDefineProperty
                 | StandardBuiltinId::ReflectDefineProperty
                 | StandardBuiltinId::ReflectGetOwnPropertyDescriptor
+                | StandardBuiltinId::ObjectPrototypeHasOwnProperty
                 | StandardBuiltinId::ObjectPrototypeLookupGetter
                 | StandardBuiltinId::ObjectPrototypeLookupSetter
                 | StandardBuiltinId::ObjectPrototypePropertyIsEnumerable

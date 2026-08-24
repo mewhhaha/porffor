@@ -138,6 +138,18 @@ prototype predicates. The enumerable projection reads the materialized
 descriptor's own data field and never invokes the target property getter. The
 bounded contract is recorded in
 `docs/rust-rewrite/contracts/own-descriptor-predicates.md`.
+The runtime bootstrap planner now records
+`Object.prototype.hasOwnProperty`'s direct dependency on
+`Object.getOwnPropertyDescriptor`, and the existing focused planning test
+inventories that entry point. Previously the dependency was masked by the
+foundational Object-constructor chain and by the combined runtime fixture's
+`Object.hasOwn` calls; this closes an architectural reachability gap rather
+than claiming a reproduced runtime failure.
+On 2026-08-24, the isolated planner invariant and exact CLI fixture passed
+`1/1` each. The six direct conversion-order Test262 leaves passed all `12/12`
+raw Wasm-AOT variants with every failure bucket at zero. This focused result
+does not turn the masked planner omission into a historical runtime failure or
+claim complete Object/descriptor closure.
 
 `Object.prototype.toLocaleString` now has one typed `Invoke` path. A private
 receiver-role value keeps the exact original receiver distinct from the
@@ -187,8 +199,8 @@ fixture including explicit prototype-identity checks passes 1/1; the structural
 contract remains 4/4 and exact Test262 279/280 remain 4/4. The focused
 Proxy-Set direct-descriptor fixture is written but has not run while the shared
 verification lane owns Cargo and Test262. The focused own-descriptor-predicate
-fixture is also written but has received only static boundary and diff checks;
-its Cargo/runtime test and focused Test262 filters remain deferred. The
+fixture, strengthened bootstrap-planning checkpoint and six-file current-pin
+cohort are green at `1/1`, `1/1` and `12/12`, respectively. The
 `Object.prototype.toLocaleString` Invoke regressions likewise have only static
 verification. A complete current-pin Wasm-AOT Object/descriptor subtree run
 has not been performed.

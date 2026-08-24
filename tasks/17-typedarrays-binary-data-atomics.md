@@ -208,13 +208,45 @@ loop retains live per-index reads; the generic
 `LengthOfArrayLike` policy. The focused
 [toLocaleString buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-to-locale-string-buffer-witness.md),
 companion invocation guard and bounded witness guard are implemented,
-independently reviewed and focused-verified as of 2026-08-23. Under the shared
-eight-core cap, `cargo fmt --all -- --check`, `cargo xc` and `git diff --check`
-are green; the companion structure suite passes `4/4`, the witness structure
-suite passes `3/3`, and the exact core and invocation CLI fixtures each pass
-`1/1`. The pinned out-of-bounds, detached-buffer, mid-invocation growth and
-mid-invocation shrink Test262 leaves each pass `2/2`, for `8/8` Wasm-AOT
-executions with all failure buckets at zero under `--jobs 1 --threads 1`.
+independently reviewed and focused-verified at the 2026-08-23 direct-entry
+checkpoint. Under the shared eight-core cap at that checkpoint,
+`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` were green; the
+companion invocation structure suite passed `4/4`, the then-three-test witness
+structure target passed `3/3`, and the then-current core and invocation CLI
+fixtures each passed `1/1`. The pinned out-of-bounds, detached-buffer,
+mid-invocation growth and mid-invocation shrink Test262 leaves each passed
+`2/2`, for `8/8` Wasm-AOT executions with all failure buckets at zero under
+`--jobs 1 --threads 1`. The later generic companion migration expands the
+shared witness target to four tests and changes the core fixture. Its separate
+2026-08-24 checkpoint below supersedes the historical `3/3` and core `1/1`
+results for those changed artifacts.
+
+The generic `Array.prototype.toLocaleString` TypedArray length specialization
+now expresses that distinct policy through one non-throwing
+`ArrayLikeLengthSnapshot` witness. The ArrayLike arm loads one immutable view
+and consumes the witness-produced element length instead of calling the raw
+current-byte-length emitter and dividing locally. Detached and initially
+out-of-bounds views therefore retain their zero-length result, while an
+available length-tracking view floors its current byte extent to whole
+elements. The captured loop bound and the downstream live integer-indexed reads
+remain separate. The focused
+[generic Array toLocaleString TypedArray buffer-witness contract](../docs/rust-rewrite/contracts/array-to-locale-string-typed-array-buffer-witness.md),
+bounded shared-owner guard and strengthened core fixture are focused-verified:
+the shared witness and companion invocation structure targets pass `4/4` each,
+and the strengthened core fixture passes `1/1`. The exact three Array Test262
+leaves pass all six ordinary sloppy/strict variants, but each is currently
+rewritten by the
+test-specific `rewrite_array_to_locale_string_resizable_case` materializer to a
+Uint8-only program inventoried as a T18 semantic shortcut; all `6/6` adapted
+Wasm-AOT variants pass with every failure bucket at zero. No raw
+all-constructor or BigInt Test262 pass, rewrite retirement, baseline or
+published-count change is claimed. This migration also does not correct own or
+inherited TypedArray `length` shadowing in the generic `LengthOfArrayLike` path,
+migrate the downstream indexed-read owner, or change either `flatMap` raw
+observation or any remaining `objects.rs` raw consumer. The bounded
+non-throwing raw census is therefore five after this lane: two observations in
+the `flatMap` compiler and three property/index read/write owners in
+`objects.rs`.
 
 The `%TypedArray%.prototype.map` and `filter` compilers now use that same
 validated-method-entry witness after their receiver-brand guards and before

@@ -100,4 +100,19 @@ try {
 }
 if (!fixedToLocaleStringThrew) failures |= 32768;
 
+let oddRab = new ArrayBuffer(6, { maxByteLength: 8 });
+let oddTracking = new Uint16Array(oddRab);
+oddTracking[0] = 7;
+oddTracking[1] = 9;
+oddTracking[2] = 11;
+oddRab.resize(5);
+if (Array.prototype.toLocaleString.call(oddTracking) !== "7" + separator + "9") {
+  failures |= 65536;
+}
+
+let detachedBuffer = new ArrayBuffer(4);
+let detached = new Uint8Array(detachedBuffer);
+detachedBuffer.transfer();
+if (Array.prototype.toLocaleString.call(detached) !== "") failures |= 131072;
+
 failures === 0;

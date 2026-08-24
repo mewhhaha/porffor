@@ -89,21 +89,23 @@ length locally, or overwrite the witness-produced `len_local`. The unused
 survive this migration. `ValidatedMethodEntry` already expresses the required
 policy; this lane adds no `TypedArrayWitnessUse` variant.
 
-## Preserved generic and element-invocation paths
+## Distinct generic and element-invocation paths
 
-The `ArrayLike` arm is outside the migration. In particular:
+The `ArrayLike` arm remains outside this direct method-entry migration. Its
+TypedArray length snapshot is now owned by the separate
+[`array-to-locale-string-typed-array-buffer-witness.md`](array-to-locale-string-typed-array-buffer-witness.md)
+contract. In particular:
 
 - its nullish receiver check and `ToObject` boundary stay unchanged;
 - ordinary Arrays and arguments objects retain their existing length paths;
-- a TypedArray reached through the generic Array entry retains its
-  non-throwing, out-of-bounds-as-zero length snapshot; and
+- a TypedArray reached through the generic Array entry uses the non-throwing,
+  out-of-bounds-as-zero `ArrayLikeLengthSnapshot` projection; and
 - other objects retain the observable `length` read and `ToLength` ordering.
 
-The generic arm must never consume `ValidatedMethodEntry`. Its current raw
-non-throwing TypedArray length observation may remain in this patch. A later
-migration may replace that observation only with the semantically matching
-`TypedArrayWitnessUse::ArrayLikeLengthSnapshot` projection under its own
-contract; it may not reuse this lane's throwing projection.
+The generic arm must never consume `ValidatedMethodEntry`. Its companion
+migration replaces the former raw non-throwing observation with the
+semantically matching `TypedArrayWitnessUse::ArrayLikeLengthSnapshot`
+projection; it does not reuse this lane's throwing projection.
 
 After either entry has produced `len_local`, the shared loop remains one
 algorithm. It compares the ascending index with the captured length and then
@@ -145,7 +147,8 @@ The regression must pin all of the following:
   TypeError construction, `typed_buffer_tag_local`, second witness or direct
   `len_local` assignment in the TypedArray arm;
 - the generic arm contains no `ValidatedMethodEntry` and retains its distinct
-  non-throwing TypedArray length policy;
+  non-throwing TypedArray length policy through one `ArrayLikeLengthSnapshot`
+  witness;
 - the complete `len_local` writer inventory leaves the witness snapshot intact
   through the shared-loop bound, and the complete `typed_receiver_local`
   writer/use inventory routes both direct and generic TypedArray entries to the
@@ -212,23 +215,33 @@ bounded structural guards, they are the focused checkpoint for this seam. They
 must be run with the constrained Test262 worker settings used by the surrounding
 T17 lanes.
 
-The checkpoint is green as of 2026-08-23 under the shared eight-core cap.
-`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` pass. The
-companion invocation structure suite passes `4/4`, this lane's witness structure
-suite passes `3/3`, and the exact core and invocation CLI fixtures each pass
-`1/1`. Each of the four current-pin Test262 leaves above passes both ordinary
-sloppy and strict variants, for `8/8` Wasm-AOT executions with every failure
-bucket at zero under `--jobs 1 --threads 1`.
+The direct method-entry checkpoint was green as of 2026-08-23 under the shared
+eight-core cap. At that checkpoint `cargo fmt --all -- --check`, `cargo xc` and
+`git diff --check` passed; the companion invocation structure suite passed
+`4/4`, the invocation CLI fixture passed `1/1`, and each of the four current-pin
+Test262 leaves above passed both ordinary sloppy and strict variants, for `8/8`
+Wasm-AOT executions with every failure bucket at zero under
+`--jobs 1 --threads 1`.
+
+The later generic companion migration changes the shared witness structure
+target and strengthens the core fixture with odd-byte and detached generic
+cases. On 2026-08-24, the current witness structure target passed `4/4`, the
+unchanged invocation structure target passed `4/4`, and the strengthened core
+fixture passed `1/1`. Its three adapted Array Test262 leaves passed `6/6`
+Wasm-AOT variants with every failure bucket at zero. These results verify the
+generic companion additions; the direct method's `8/8` Test262 evidence remains
+the separate 2026-08-23 checkpoint above.
 
 ## Nonclaims
 
-This lane does not change generic `Array.prototype.toLocaleString`, its
-observable `LengthOfArrayLike` behavior, the shared indexed-read helper,
-integer-indexed exotic semantics, separator selection, locale formatting,
-element lookup or conversion, Proxy `Call`, the validated element-invocation
-token, or the other remaining raw TypedArray validators. It does not migrate
-`copyWithin`, `with`, `set`, `slice`, `map`, `filter`, constructor validation or
-species-target validation.
+This direct method-entry lane does not own generic
+`Array.prototype.toLocaleString`; its later buffer-observation migration is
+recorded by the companion contract above. Neither lane changes the shared
+indexed-read helper, integer-indexed exotic semantics, separator selection,
+locale formatting, element lookup or conversion, Proxy `Call`, the validated
+element-invocation token, or the other remaining raw TypedArray validators. It
+does not migrate `copyWithin`, `with`, `set`, `slice`, `map`, `filter`,
+constructor validation or species-target validation.
 
 The shared witness structurally routes direct-entry failures through the
 executing builtin's Realm, and the existing invocation fixture proves that the

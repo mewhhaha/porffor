@@ -179,6 +179,31 @@ variants with every failure bucket at zero. This closes only the
 constructor-Realm operation seam, not dynamic Function source parsing or
 broader iterator, generator, close or suspension debt.
 
+The `%Iterator%` active-function rejection uses the private, shared
+`ActiveStandardBuiltinFunction` domain to select the exact created-realm
+self-backed constructor or the exhaustively mapped entry-realm global. Its
+Iterator projection is bounded to one `IteratorConstructor` member and mapping
+within the current two-member Iterator/RegExp domain. The Iterator arm rejects
+only an undefined `NewTarget` or a Function-tagged payload equal to that exact
+active object, and throws in the active function's Realm before its sole
+prototype Get and tagged allocation. The shared construct dispatcher routes
+Iterator directly to that owning body before generic preconstruction. The
+strengthened structural guard pins the Function-tag/identity conjunction, both
+identity publications, direct-return membership and dispatch/Get/allocation
+order. The CLI fixture covers the raw two-Realm identity matrix, the two
+cross-Realm observing Proxy directions, and same-Realm Proxy and bound wrappers
+around the active Iterator in entry and created Realms. Every wrapper must
+remain distinct and record exactly `prototype,return`; bound wrappers returning
+`undefined` also exercise fallback through their target's function Realm. The
+product source required no change. On 2026-08-24, the structural guard and CLI
+fixture passed `1/1` each, while the direct pinned leaf passed both Wasm-AOT
+variants (`2/2`) with every failure bucket at zero. `cargo check -p
+lila-aot-wasm`, `cargo xc`, `node --check` and `git diff --check` are also
+green. That pinned leaf covers only entry-realm undefined/self rejection, so
+this checkpoint claims no measured baseline gain,
+RegExp behavior change, broader Iterator closure, generator suspension,
+IteratorClose, helper closing or resource-management closure.
+
 The async-generator request-settlement seam now carries the crate-private,
 closed `AsyncGeneratorCompleteStepKind::{Yielded, Completed}` lifecycle state
 instead of an unlabeled `done: bool`. Only

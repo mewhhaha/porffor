@@ -24789,18 +24789,20 @@ impl<'a> FunctionBuilder<'a> {
                 typed_bytes_per_element_local,
                 function,
             );
-            self.emit_typed_array_current_byte_length(
+            let typed_view = TypedArrayViewLocals::new(
                 receiver_payload_local,
-                receiver_tag_local,
                 typed_buffer_payload_local,
                 typed_byte_offset_local,
                 typed_byte_length_local,
+                typed_bytes_per_element_local,
+            );
+            self.emit_typed_array_witness(
+                &typed_view,
+                TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
+                    length_local: len_local,
+                },
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(typed_byte_length_local));
-            function.instruction(&Instruction::LocalGet(typed_bytes_per_element_local));
-            function.instruction(&Instruction::I64DivU);
-            function.instruction(&Instruction::LocalSet(len_local));
             function.instruction(&Instruction::Else);
             function.instruction(&Instruction::I64Const(self.strings.payload("length")));
             function.instruction(&Instruction::LocalSet(key_local));

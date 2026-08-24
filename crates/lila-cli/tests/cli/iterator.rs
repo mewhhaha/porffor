@@ -727,7 +727,9 @@ fn run_wasm_backend_uses_new_target_realm_for_iterator_prototype() {
 
 /// `%Iterator%` rejects only its exact active function object. Created-realm
 /// copies share one emitted builtin body, but remain distinct function objects
-/// when either one is supplied as the other's `NewTarget`.
+/// when either one is supplied as the other's `NewTarget`. Proxy and bound
+/// wrappers around the active object are also distinct and must reach the sole
+/// observable prototype Get before construction returns.
 #[test]
 fn run_wasm_backend_distinguishes_iterator_active_function_across_realms() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

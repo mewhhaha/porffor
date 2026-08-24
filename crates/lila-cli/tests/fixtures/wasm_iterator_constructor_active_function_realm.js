@@ -27,6 +27,74 @@ if (Object.getPrototypeOf(activeError) !== other.TypeError.prototype) {
   throw "created-realm active Iterator TypeError realm";
 }
 
+let entryActiveProxyEvents = [];
+let entryActiveProxy = new Proxy(Iterator, {
+  get: function (target, key, receiver) {
+    if (key === "prototype") entryActiveProxyEvents.push("prototype");
+    return Reflect.get(target, key, receiver);
+  },
+});
+let entryActiveProxyResult = Reflect.construct(Iterator, [], entryActiveProxy);
+entryActiveProxyEvents.push("return");
+if (!(entryActiveProxyEvents.join(",") === "prototype,return" &&
+      Object.getPrototypeOf(entryActiveProxyResult) === Iterator.prototype)) {
+  throw "entry-realm active Iterator Proxy identity or prototype Get order";
+}
+
+let entryActiveBoundEvents = [];
+let entryActiveBound = Iterator.bind(null);
+Object.defineProperty(entryActiveBound, "prototype", {
+  configurable: true,
+  get: function () {
+    entryActiveBoundEvents.push("prototype");
+    return undefined;
+  },
+});
+let entryActiveBoundResult = Reflect.construct(Iterator, [], entryActiveBound);
+entryActiveBoundEvents.push("return");
+if (!(entryActiveBoundEvents.join(",") === "prototype,return" &&
+      Object.getPrototypeOf(entryActiveBoundResult) === Iterator.prototype)) {
+  throw "entry-realm active Iterator bound identity or prototype Get order";
+}
+
+let otherActiveProxyEvents = [];
+let otherActiveProxy = new Proxy(other.Iterator, {
+  get: function (target, key, receiver) {
+    if (key === "prototype") otherActiveProxyEvents.push("prototype");
+    return Reflect.get(target, key, receiver);
+  },
+});
+let otherActiveProxyResult = Reflect.construct(
+  other.Iterator,
+  [],
+  otherActiveProxy,
+);
+otherActiveProxyEvents.push("return");
+if (!(otherActiveProxyEvents.join(",") === "prototype,return" &&
+      Object.getPrototypeOf(otherActiveProxyResult) === other.Iterator.prototype)) {
+  throw "created-realm active Iterator Proxy identity or prototype Get order";
+}
+
+let otherActiveBoundEvents = [];
+let otherActiveBound = other.Iterator.bind(null);
+Object.defineProperty(otherActiveBound, "prototype", {
+  configurable: true,
+  get: function () {
+    otherActiveBoundEvents.push("prototype");
+    return undefined;
+  },
+});
+let otherActiveBoundResult = Reflect.construct(
+  other.Iterator,
+  [],
+  otherActiveBound,
+);
+otherActiveBoundEvents.push("return");
+if (!(otherActiveBoundEvents.join(",") === "prototype,return" &&
+      Object.getPrototypeOf(otherActiveBoundResult) === other.Iterator.prototype)) {
+  throw "created-realm active Iterator bound identity or prototype Get order";
+}
+
 let entryNewTarget = Reflect.construct(other.Iterator, [], Iterator);
 if (Object.getPrototypeOf(entryNewTarget) !== Iterator.prototype) {
   throw "distinct entry Iterator NewTarget rejected or wrong prototype";

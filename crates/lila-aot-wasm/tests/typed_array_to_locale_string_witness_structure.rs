@@ -1,5 +1,29 @@
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/array.rs");
+const CLI_FIXTURE: &str =
+    include_str!("../../lila-cli/tests/fixtures/wasm_array_to_locale_string_core.js");
+
+const ODD_BYTE_FIXTURE_WIRING: &str = r#"
+let oddRab = new ArrayBuffer(6, { maxByteLength: 8 });
+let oddTracking = new Uint16Array(oddRab);
+oddTracking[0] = 7;
+oddTracking[1] = 9;
+oddTracking[2] = 11;
+oddRab.resize(5);
+if (Array.prototype.toLocaleString.call(oddTracking) !== "7" + separator + "9") {
+  failures |= 65536;
+}
+"#;
+
+const DETACHED_FIXTURE_WIRING: &str = r#"
+let detachedBuffer = new ArrayBuffer(4);
+let detached = new Uint8Array(detachedBuffer);
+detachedBuffer.transfer();
+if (Array.prototype.toLocaleString.call(detached) !== "") failures |= 131072;
+"#;
+
+const FINAL_FIXTURE_PUBLICATION: &str = "failures === 0;";
 
 const TYPED_ARRAY_ARM_START: &str =
     "if matches!(receiver_kind, ToLocaleStringReceiverKind::TypedArray) {";
@@ -81,19 +105,14 @@ const WITNESS_WIRING: &str = r#"
     )?;
 "#;
 
-const GENERIC_LENGTH_WIRING: &str = r#"
-    self.emit_typed_array_current_byte_length(
-        receiver_payload_local,
-        receiver_tag_local,
-        typed_buffer_payload_local,
-        typed_byte_offset_local,
-        typed_byte_length_local,
+const GENERIC_WITNESS_WIRING: &str = r#"
+    self.emit_typed_array_witness(
+        &typed_view,
+        TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
+            length_local: len_local,
+        },
         function,
     )?;
-    function.instruction(&Instruction::LocalGet(typed_byte_length_local));
-    function.instruction(&Instruction::LocalGet(typed_bytes_per_element_local));
-    function.instruction(&Instruction::I64DivU);
-    function.instruction(&Instruction::LocalSet(len_local));
 "#;
 
 const ARRAYLIKE_ARRAY_LENGTH_WIRING: &str = r#"
@@ -160,6 +179,14 @@ fn typed_array_entry_body() -> &'static str {
         ARRAY_SOURCE,
         "pub(crate) fn compile_typed_array_prototype_to_locale_string_builtin(",
         "fn emit_validate_to_locale_string_invocation(",
+    )
+}
+
+fn focused_cli_test_body() -> &'static str {
+    bounded(
+        CLI_TESTS,
+        "fn run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture() {",
+        "\n#[test]\n",
     )
 }
 
@@ -288,8 +315,8 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
     assert_eq!(shared.matches("len_local").count(), 8);
     assert_eq!(
         shared.matches("Instruction::LocalSet(len_local)").count(),
-        2,
-        "only initialization and the preserved generic TypedArray projection may directly write len_local"
+        1,
+        "only initialization may directly write len_local; both witnesses own their snapshots"
     );
     assert_eq!(shared.matches("typed_receiver_local").count(), 6);
     assert_eq!(
@@ -333,14 +360,14 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
         2,
         "the statically distinct direct and generic TypedArray arms each load one private record"
     );
-    assert_eq!(shared.matches("TypedArrayViewLocals::new(").count(), 1);
-    assert_eq!(shared.matches("emit_typed_array_witness(").count(), 1);
+    assert_eq!(shared.matches("TypedArrayViewLocals::new(").count(), 2);
+    assert_eq!(shared.matches("emit_typed_array_witness(").count(), 2);
     assert_eq!(
         shared
             .matches("emit_typed_array_current_byte_length(")
             .count(),
-        1,
-        "only the preserved generic ArrayLike arm may retain the non-throwing raw observation"
+        0,
+        "neither entry arm may retain a raw current-byte-length observation"
     );
     assert_eq!(
         generic
@@ -348,16 +375,34 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
             .count(),
         1
     );
+    assert_eq!(generic.matches("TypedArrayViewLocals::new(").count(), 1);
+    assert_eq!(generic.matches("emit_typed_array_witness(").count(), 1);
     assert_eq!(
         generic
-            .matches("emit_typed_array_current_byte_length(")
+            .matches("TypedArrayWitnessUse::ArrayLikeLengthSnapshot")
             .count(),
         1
     );
-    assert_eq!(generic.matches("Instruction::I64DivU").count(), 1);
-    assert!(!generic.contains("TypedArrayViewLocals::new("));
-    assert!(!generic.contains("emit_typed_array_witness("));
     assert!(!generic.contains("TypedArrayWitnessUse::ValidatedMethodEntry"));
+    for forbidden in [
+        "emit_typed_array_current_byte_length(",
+        "emit_validate_typed_array_current_byte_length(",
+        "emit_load_array_buffer_byte_length(",
+        "emit_load_array_buffer_data(",
+        "HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET",
+        "HEAP_TYPED_ARRAY_BYTE_OFFSET",
+        "HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET",
+        "HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET",
+        "Instruction::I64DivU",
+        "Instruction::LocalSet(len_local)",
+        "TypedArrayWitnessUse::IntegerIndexedProperty",
+        "TypedArrayWitnessUse::Accessor",
+    ] {
+        assert!(
+            !generic.contains(forbidden),
+            "the generic TypedArray snapshot must not bypass its ArrayLike witness through {forbidden}"
+        );
+    }
 
     let generic_check = normalized_generic
         .find("self.emit_is_typed_array_i32(receiver_payload_local,receiver_tag_local,function);")
@@ -372,16 +417,19 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
         PRIVATE_STATE_WIRING,
         "generic private-state load",
     );
-    let generic_length_in_arm = unique_normalized_position(
+    let generic_view =
+        unique_normalized_position(&normalized_generic, VIEW_WIRING, "generic immutable view");
+    let generic_witness_in_arm = unique_normalized_position(
         &normalized_generic,
-        GENERIC_LENGTH_WIRING,
-        "generic non-throwing length observation",
+        GENERIC_WITNESS_WIRING,
+        "generic ArrayLike length witness",
     );
     assert!(
         generic_check < generic_typed_receiver_in_arm
             && generic_typed_receiver_in_arm < generic_private
-            && generic_private < generic_length_in_arm,
-        "generic TypedArray detection and live-read routing must precede its distinct non-throwing length snapshot"
+            && generic_private < generic_view
+            && generic_view < generic_witness_in_arm,
+        "generic TypedArray detection and live-read routing must precede its immutable view and non-throwing length witness"
     );
 
     let initial_length = unique_normalized_position(
@@ -411,10 +459,10 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
         ARRAYLIKE_ARRAY_LENGTH_WIRING,
         "generic Array/arguments length",
     );
-    let generic_length = unique_normalized_position(
+    let generic_witness = unique_normalized_position(
         &normalized_shared,
-        GENERIC_LENGTH_WIRING,
-        "generic TypedArray length",
+        GENERIC_WITNESS_WIRING,
+        "generic TypedArray ArrayLike witness",
     );
     let object_length = unique_normalized_position(
         &normalized_shared,
@@ -440,8 +488,8 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
             && direct_typed_receiver_write < witness
             && witness < array_length
             && array_length < generic_typed_receiver_write
-            && generic_typed_receiver_write < generic_length
-            && generic_length < object_length
+            && generic_typed_receiver_write < generic_witness
+            && generic_witness < object_length
             && object_length < loop_bound
             && loop_bound < live_read
             && live_read < validate_invocation
@@ -565,5 +613,94 @@ fn entry_dispatch_and_shared_temporary_lifecycle_are_exact() {
     assert!(
         result_publication < first_release,
         "all compiler temporaries must remain live through final result publication"
+    );
+}
+
+#[test]
+fn focused_cli_fixture_covers_non_throwing_generic_typed_array_snapshots() {
+    let cli_test = focused_cli_test_body();
+    assert_eq!(
+        cli_test
+            .matches("wasm_array_to_locale_string_core.js")
+            .count(),
+        1,
+        "the focused CLI test must execute the exact core fixture once"
+    );
+    assert!(cli_test.contains("backend_used: WasmAot"));
+    assert!(cli_test.contains("boolean(true)"));
+
+    for preserved_control in [
+        "Array.prototype.toLocaleString.call(tracking)",
+        "Array.prototype.toLocaleString.call(fixed) !== \"\"",
+    ] {
+        assert!(
+            CLI_FIXTURE.contains(preserved_control),
+            "the focused CLI fixture must retain {preserved_control}"
+        );
+    }
+
+    let normalized_fixture = without_whitespace(CLI_FIXTURE);
+    let odd_scenario = unique_normalized_position(
+        &normalized_fixture,
+        ODD_BYTE_FIXTURE_WIRING,
+        "coupled odd-byte scenario",
+    );
+    let detached_scenario = unique_normalized_position(
+        &normalized_fixture,
+        DETACHED_FIXTURE_WIRING,
+        "coupled detached scenario",
+    );
+    let final_publication = unique_normalized_position(
+        &normalized_fixture,
+        FINAL_FIXTURE_PUBLICATION,
+        "final zero-failure publication",
+    );
+
+    let mut load_bearing_positions = Vec::new();
+    for (snippet, label) in [
+        (
+            "let oddRab = new ArrayBuffer(6, { maxByteLength: 8 });",
+            "odd-byte buffer setup",
+        ),
+        (
+            "let oddTracking = new Uint16Array(oddRab);",
+            "odd-byte tracking view setup",
+        ),
+        ("oddRab.resize(5);", "odd-byte resize"),
+        (
+            "Array.prototype.toLocaleString.call(oddTracking) !== \"7\" + separator + \"9\"",
+            "odd-byte assertion",
+        ),
+        ("failures |= 65536;", "odd-byte failure bit"),
+        (
+            "let detachedBuffer = new ArrayBuffer(4);",
+            "detached buffer setup",
+        ),
+        (
+            "let detached = new Uint8Array(detachedBuffer);",
+            "detached view setup",
+        ),
+        ("detachedBuffer.transfer();", "detachment"),
+        (
+            "Array.prototype.toLocaleString.call(detached) !== \"\"",
+            "detached assertion",
+        ),
+        ("failures |= 131072;", "detached failure bit"),
+        (FINAL_FIXTURE_PUBLICATION, "final zero-failure publication"),
+    ] {
+        load_bearing_positions.push(unique_normalized_position(
+            &normalized_fixture,
+            snippet,
+            label,
+        ));
+    }
+
+    assert!(
+        load_bearing_positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "odd-byte setup, resize, assertion and failure bit must precede detached setup, transfer, assertion, failure bit and the final publication"
+    );
+    assert!(
+        odd_scenario < detached_scenario && detached_scenario < final_publication,
+        "the coupled odd-byte and detached scenarios must precede the sole final publication"
     );
 }

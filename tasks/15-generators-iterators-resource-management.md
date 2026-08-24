@@ -666,21 +666,33 @@ The `%Iterator%` active-function rejection now uses the private closed
 comparing `NewTarget` directly with the entry-realm constructor global. The
 typed emitter selects the self-backed created-realm function from the builtin
 environment when present and otherwise selects the exhaustively mapped entry
-global. This preserves exact object identity: constructing a realm's Iterator
-with itself throws before prototype lookup, while using either realm's distinct
-Iterator as the other realm's `NewTarget` remains a valid subclass-style
-construction. The shared construct dispatcher now classifies Iterator as
-direct-returning in `crates/lila-aot-wasm/src/functions.rs`, so its body performs
-the sole prototype Get and allocation after active-function rejection instead
-of inheriting generic preconstruction.
-Structural guards pin both identity producers, exact direct-returning membership
-and dispatch/Get/allocation source order. One CLI fixture covers the raw
-two-realm identity matrix and one observable prototype Get in both distinct
-directions. This is direct specification/source closure rather than a measured
-pinned Test262 failure. It does not generalize active-function identity to every
-builtin or complete broader T15 semantics. The seam is dry-written and
-statically checked; Cargo, runtime and pinned Test262 gates remain deferred to
-the central verifier.
+global. The closed domain is shared with RegExp, but the Iterator projection is
+bounded to one variant, one mapping and one direct constructor-arm call. This
+preserves exact object identity: constructing a realm's Iterator with itself
+throws before prototype lookup, while using either realm's distinct Iterator or
+a Proxy/bound wrapper around the active Iterator as `NewTarget` remains a valid
+subclass-style construction. The shared construct dispatcher classifies
+Iterator as direct-returning, so its body performs the sole prototype Get and
+allocation after active-function rejection instead of inheriting generic
+preconstruction.
+
+The strengthened structural guard pins the Function-tag/payload-equality
+conjunction, both identity producers, exact direct-returning membership and
+dispatch/Get/allocation source order. The CLI fixture covers the raw two-Realm
+identity matrix, one observable prototype Get in both distinct cross-Realm
+Proxy directions, and same-Realm Proxy and bound wrappers around the entry and
+created active Iterators. Each same-Realm wrapper must remain distinct and
+record exactly `prototype,return`; bound getters returning `undefined` also pin
+fallback through their target's function Realm. The product source required no
+change. On 2026-08-24, the structural guard and CLI fixture passed `1/1` each,
+while the direct pinned leaf passed both Wasm-AOT variants (`2/2`) with every
+failure bucket at zero. `cargo check -p lila-aot-wasm`, `cargo xc`, fixture
+`node --check` and `git diff --check` are also green. The pinned leaf covers
+only entry-realm undefined/self rejection, so this remains direct
+specification/source closure rather than a measured baseline gain. It does not
+change RegExp behavior, generalize active
+identity to every builtin, or complete generator suspension, IteratorClose,
+helper closing, resource management or broader T15 semantics.
 
 ## Objective
 

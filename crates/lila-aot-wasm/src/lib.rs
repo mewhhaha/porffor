@@ -1060,18 +1060,65 @@ mod tests {
             .0;
         let active_call = "self.emit_active_standard_builtin_function_payload(\n                    ActiveStandardBuiltinFunction::IteratorConstructor,\n                    function,\n                );";
         assert_eq!(constructor.matches(active_call).count(), 1);
+        for (operation, count) in [
+            ("ValueKind::Undefined.tag() as i64", 1),
+            ("ValueKind::Function.tag() as i64", 1),
+            ("Instruction::I64Eq", 3),
+            ("Instruction::I32And", 1),
+            ("Instruction::I32Or", 1),
+        ] {
+            assert_eq!(
+                constructor.matches(operation).count(),
+                count,
+                "Iterator active-function rejection must retain exactly {count} {operation} occurrence(s)"
+            );
+        }
         assert!(
             !constructor.contains("Instruction::GlobalGet(ITERATOR_CONSTRUCTOR_GLOBAL_INDEX)"),
             "Iterator construction must not compare NewTarget with the entry global directly"
         );
+        let undefined_test = constructor
+            .find("ValueKind::Undefined.tag() as i64")
+            .expect("Iterator must reject an undefined NewTarget");
+        let function_tag_test = constructor
+            .find("ValueKind::Function.tag() as i64")
+            .expect("Iterator active identity must be gated by the Function tag");
         let active_test = constructor.find(active_call).unwrap();
+        let undefined_equality = constructor[undefined_test..function_tag_test]
+            .find("Instruction::I64Eq")
+            .map(|offset| undefined_test + offset)
+            .expect("Iterator must compare the NewTarget tag with undefined");
+        let function_tag_equality = constructor[function_tag_test..active_test]
+            .find("Instruction::I64Eq")
+            .map(|offset| function_tag_test + offset)
+            .expect("Iterator must compare the NewTarget tag with Function");
+        let active_equality = constructor[active_test + active_call.len()..]
+            .find("Instruction::I64Eq")
+            .map(|offset| active_test + active_call.len() + offset)
+            .expect("Iterator must compare the function payload with its active identity");
+        let active_conjunction = constructor
+            .find("Instruction::I32And")
+            .expect("Iterator must conjoin the Function tag and active identity tests");
+        let rejection_disjunction = constructor
+            .find("Instruction::I32Or")
+            .expect("Iterator must reject undefined or the active function object");
         let active_throw = constructor
             .find("emit_throw_current_function_realm_type_error(")
             .unwrap();
         let prototype_resolution = constructor
             .find("emit_new_target_prototype_to_locals(")
             .unwrap();
-        assert!(active_test < active_throw && active_throw < prototype_resolution);
+        assert!(
+            undefined_test < undefined_equality
+                && undefined_equality < function_tag_test
+                && function_tag_test < function_tag_equality
+                && function_tag_equality < active_test
+                && active_test < active_equality
+                && active_equality < active_conjunction
+                && active_conjunction < rejection_disjunction
+                && rejection_disjunction < active_throw
+                && active_throw < prototype_resolution
+        );
 
         let entry_identity = "self.init_builtin_constructor_object(\n                StandardBuiltinId::IteratorConstructor,\n                ITERATOR_PROTOTYPE_GLOBAL_INDEX";
         assert_eq!(bootstrap.matches(entry_identity).count(), 1);

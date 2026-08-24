@@ -69,6 +69,26 @@ The pinned `propertyIsEnumerable/symbol_property_toPrimitive.js` and
 rejection; the focused fixture below combines them to make their required
 ordering durable in this repository.
 
+## Planning boundary
+
+The shared compiler's direct metadata call makes
+`Object.getOwnPropertyDescriptor` a bootstrap dependency of every predicate
+body. `Object.prototype.hasOwnProperty` and
+`Object.prototype.propertyIsEnumerable` therefore root that builtin directly
+in `RuntimeBootstrapPlan`; the existing `Object.hasOwn` dependency reaches the
+same body through `Reflect.getOwnPropertyDescriptor`.
+
+Before the direct `hasOwnProperty` edge was recorded, emitted programs happened
+to receive the required body through the foundational Object-constructor chain:
+`Object.getOwnPropertyDescriptors` rooted
+`Reflect.getOwnPropertyDescriptor`, which then rooted
+`Object.getOwnPropertyDescriptor`. The combined CLI fixture also calls
+`Object.hasOwn` for every scenario. Both facts masked the architectural gap, so
+closing it is not evidence of a reproduced runtime failure. The focused
+planning unit test now inventories `hasOwnProperty` beside the other direct
+descriptor entry points so later bootstrap trimming cannot silently revive the
+gap.
+
 ## Static boundary
 
 `scripts/check-module-boundaries.sh` keeps the following facts reviewable:
@@ -88,6 +108,23 @@ indices and `length`; accessor presence/enumerability without getter
 invocation; Function `prototype`; inherited Proxy traps and abrupt trap
 identity; coercion order; and current-function-realm `TypeError` identity.
 
+The integrated 2026-08-24 checkpoint is green. The module-boundary audit
+passed, the isolated planner invariant passed `1/1`, and the exact CLI fixture
+passed `1/1`:
+
+```sh
+cargo test -p lila-aot-wasm planning::tests::descriptor_entry_points_root_generic_descriptor_lookup -- --exact --test-threads=1
+cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_object_own_descriptor_predicates -- --exact --test-threads=1
+```
+
+The direct current-pin Test262 cohort is the two conversion-order files named
+above plus
+`built-ins/Object/prototype/propertyIsEnumerable/symbol_property_toPrimitive.js`,
+`symbol_property_toString.js`, `symbol_property_valueOf.js` and
+`S15.2.4.7_A13.js`. The current runner discovered two ordinary sloppy/strict
+variants per file; all `12/12` raw Wasm-AOT executions passed with every
+failure bucket at zero.
+
 ## Deliberate boundary
 
 This is a consumer consolidation, not a new descriptor-record implementation.
@@ -95,5 +132,6 @@ It does not make the public `Object.getOwnPropertyDescriptor` path
 allocation-free, close recursive nested-Proxy target validation, implement
 module-namespace descriptors, replace other context-specific
 `emit_object_own_property_present` users, or close T10. It changes no
-Test262/README status and makes no claim about the full Object, Reflect,
-TypedArray or Proxy trees until their deferred runtime verification runs.
+Test262/README status. The planning edge does not independently prove runtime
+semantics, and this focused evidence makes no claim about the full Object,
+Reflect, TypedArray or Proxy trees.
