@@ -1,7 +1,7 @@
 # Script top-level `super` early errors
 
 **Status:** Product condition and shared producer census through the
-FunctionDeclaration follow-up focused-verified, 2026-08-24
+AsyncFunctionExpression follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -97,27 +97,30 @@ The fixed `Position::new(1, 1)` is part of the current pin's classification
 boundary. It distinguishes this producer from the other reachable producers
 that reuse the raw literal `invalid super usage`.
 
-After the separately typed class-super-call, class-field-initializer and
-ordinary-function expression/declaration repairs, across every Rust source in
-pinned `boa_parser-0.21.1` that raw literal occurs exactly five times:
+After the separately typed class-super-call, class-field-initializer, ordinary-
+function expression/declaration and async-function-expression repairs, across
+every Rust source in pinned `boa_parser-0.21.1` that raw literal occurs exactly
+four times:
 
 | Parser owner | Raw occurrences | Position source | New code owns it |
 | --- | ---: | --- | --- |
 | `parser/mod.rs` ScriptBody check | 1 | fixed `Position::new(1, 1)` | yes |
 | shared hoistable-declaration default for generator/async forms | 1 | common branch retains `params_start_position` | no |
-| generator/async/async-generator expression parsers | 3 | each form's parameter-start position | no |
+| generator and async-generator expression parsers | 2 | each form's parameter-start position | no |
 
-The other four positions occur only after a function head and cannot render
+The other three positions occur only after a function head and cannot render
 line 1, column 1. They cover distinct callable conditions and must remain
 unclassified by this lane. A broad row for `invalid super usage at line` would
-falsely merge all five producers. The base-constructor and static-block
+falsely merge all four raw-message owners. The base-constructor and static-block
 conditions have unique messages and codes under
 `class-super-call-early-errors.md`; the four field-initializer producers are
 owned by `class-field-initializer-super-call-early-errors.md`; and the ordinary
 function-expression producer is owned by
 `function-expression-contains-super-early-errors.md`. The ordinary
 function-declaration producer is separately owned by
-`function-declaration-contains-super-early-errors.md`.
+`function-declaration-contains-super-early-errors.md`; the async-function-
+expression producer is owned by
+`async-function-expression-contains-super-early-errors.md`.
 
 No vendor repair is required for the Script producer. Its existing
 fixed-position message remains sufficient for an exact-message classifier row.
@@ -288,7 +291,7 @@ inventing an unreachable Module producer.
 A durable source guard must recursively inventory the pinned Boa parser and
 prove all of the following:
 
-- the raw literal `invalid super usage` occurs exactly five times across
+- the raw literal `invalid super usage` occurs exactly four times across
   Rust sources;
 - exactly one occurrence is the ScriptBody call with the complete
   `Error::general(..., Position::new(1, 1))` shape;
@@ -296,7 +299,7 @@ prove all of the following:
   `contains(&body, ContainsSymbol::Super)` condition;
 - the Script super check remains before the adjacent NewTarget, private-name,
   label and cover-initialized-name checks;
-- the shared declaration branch and three expression producers retain their
+- the shared declaration branch and two expression producers retain their
   reviewed parameter-start positions rather than acquiring the fixed 1:1
   coordinate;
 - pinned `boa_ast` keeps ordinary callable bodies as stopping boundaries,

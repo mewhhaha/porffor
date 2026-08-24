@@ -33,6 +33,21 @@ state-word boundary, not a claim that general continuation, generator, iterator
 or T15 closure is complete. The source of truth is
 `docs/rust-rewrite/contracts/generator-state-word.md`.
 
+The distinct synchronous-generator resume-kind word now has the closed
+`GeneratorResumeKind::{Normal, Return, Throw}` domain. Generator allocation
+and the suspended-yield prototype dispatcher use one typed store boundary.
+Plain `yield` strictly validates one activation snapshot before Return/Throw
+routing. Delegation preserves its fresh-path Normal behavior through an opaque
+typed transport; only the resumed branch strictly loads, copies and releases
+the activation snapshot, and all three post-join comparisons use that
+transport. The private offset, stable projection, unknown-word trap, exact
+owner census and fresh/resumed source order are pinned by the focused contract
+and structure guard. `cargo xc` is green; the new guard passes `7/7`, the
+neighboring generator-state guard passes `4/4`, four exact CLI controls pass
+`4/4`, and the six exact generator-state Test262 leaves pass all `12/12`
+Wasm-AOT variants with every failure bucket at zero. This domain remains
+distinct from generator state, resume-state labels and the completion ABI.
+
 Async-generator request settlement now carries the closed
 `AsyncGeneratorCompleteStepKind::{Yielded, Completed}` lifecycle state rather
 than an unlabeled Boolean. Its sole exhaustive projection lives at the

@@ -161,7 +161,7 @@ where
 
         if contains(&function, ContainsSymbol::Super) {
             return Err(Error::lex(LexError::Syntax(
-                "invalid super usage".into(),
+                "async function expression cannot contain super".into(),
                 params_start_position,
             )));
         }

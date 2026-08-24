@@ -329,7 +329,7 @@ fn generator_state_heap_boundary_is_private_strict_and_opaque() {
     let release = bounded(
         HEAP_SOURCE,
         "pub(crate) fn release_loaded_generator_state(",
-        "/// Initialize a Promise record in the sole valid non-terminal state.",
+        "/// Store one kind from the closed synchronous-generator resume domain.",
     );
     assert!(release.contains("loaded: LoadedGeneratorState"));
     assert!(!release.contains("&LoadedGeneratorState"));
@@ -338,7 +338,7 @@ fn generator_state_heap_boundary_is_private_strict_and_opaque() {
     let typed_boundary = bounded(
         HEAP_SOURCE,
         "pub(crate) fn emit_store_generator_state(",
-        "/// Initialize a Promise record in the sole valid non-terminal state.",
+        "/// Store one kind from the closed synchronous-generator resume domain.",
     );
     let typed_boundary = normalized_code(typed_boundary);
     for forbidden in ["stateas", "expectedas", "transmute"] {
@@ -455,7 +455,7 @@ fn generator_state_product_owners_preserve_the_exact_census_and_order() {
     assert_eq!(tag_offsets.len(), 2);
     let resume_kind = unique_position(
         &dispatch,
-        "HEAP_GENERATOR_RESUME_KIND_OFFSET",
+        "self.emit_store_generator_resume_kind(this_payload_local,matchbuiltin{StandardBuiltinId::GeneratorPrototypeNext=>GeneratorResumeKind::Normal,StandardBuiltinId::GeneratorPrototypeReturn=>GeneratorResumeKind::Return,StandardBuiltinId::GeneratorPrototypeThrow=>GeneratorResumeKind::Throw,_=>unreachable!(),},function);",
         "typed resume-kind store",
     );
     assert!(payload_offsets[0] < tag_offsets[0]);

@@ -851,7 +851,6 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
 
         self.load_i64_to_local_from_offset(
             activation_local,
@@ -975,8 +974,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(argument_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_NORMAL as i64));
-        function.instruction(&Instruction::LocalSet(resume_kind_local));
+        let resume_kind = self
+            .emit_initialize_generator_resume_kind_transport(GeneratorResumeKind::Normal, function);
         function.instruction(&Instruction::Else);
 
         self.load_i64_to_local_from_offset(
@@ -1021,18 +1020,22 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_GENERATOR_RESUME_KIND_OFFSET,
-            resume_kind_local,
+        let loaded_resume_kind =
+            self.emit_load_generator_resume_kind_strict(activation_local, function);
+        self.emit_copy_generator_resume_kind_to_transport(
+            &loaded_resume_kind,
+            &resume_kind,
             function,
         );
+        self.release_loaded_generator_resume_kind(loaded_resume_kind);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_THROW as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_generator_resume_kind_transport_equals(
+            &resume_kind,
+            GeneratorResumeKind::Throw,
+            function,
+        );
         self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
@@ -1078,9 +1081,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
 
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_RETURN as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_generator_resume_kind_transport_equals(
+            &resume_kind,
+            GeneratorResumeKind::Return,
+            function,
+        );
         self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
@@ -1152,9 +1157,11 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_RETURN as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_generator_resume_kind_transport_equals(
+            &resume_kind,
+            GeneratorResumeKind::Return,
+            function,
+        );
         self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1232,7 +1239,7 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(resume_kind_local);
+        self.release_generator_resume_kind_transport(resume_kind);
         self.release_temp_local(argument_tag_local);
         self.release_temp_local(argument_payload_local);
         self.release_temp_local(key_local);

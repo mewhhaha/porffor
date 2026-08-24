@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, ordinary FunctionExpression and FunctionDeclaration `Contains super`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented; class field-initializer `SuperCall` and both ordinary-function `Contains super` classifications focused-verified while broader grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, ordinary FunctionExpression/FunctionDeclaration and AsyncFunctionExpression `Contains super`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented; class field-initializer `SuperCall` and all three function `Contains super` classifications focused-verified while broader grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -53,16 +53,17 @@ unrelated lowerer-test failures, confirmed by exact reruns, so no complete-IR or
 aggregate green claim is made. The source of truth is
 `docs/rust-rewrite/contracts/script-top-level-super-early-errors.md`.
 
-### Implementation present 2026-08-24: class constructor and static-block `super()`
+### Focused-verified 2026-08-24: class constructor and static-block `super()`
 
-The current head already contains the two condition-specific producer repairs,
+The current head contains the two condition-specific producer repairs,
 closed codes, anchored classifier rows, exhaustive IR arms, direct Script and
 Module matrices, precedence controls, retained dependency witnesses and shared
 vendored-source guard for `ClassBaseConstructorHasDirectSuper` and
-`ClassStaticBlockContainsSuperCall`. Their stale theory-only contract status
-has been reconciled without adding verification claims: the coordinated batch
-has not yet run their focused Rust or six-variant Test262 gates. The source of
-truth is `docs/rust-rewrite/contracts/class-super-call-early-errors.md`.
+`ClassStaticBlockContainsSuperCall`. Their complete three-file Test262 cohort
+passes all `6/6` Wasm-AOT variants with every non-success bucket at zero; the
+current shared producer census also passes the complete `138/138` front gate
+and relevant `49/49` IR early and `49/49` graph groups. The source of truth is
+`docs/rust-rewrite/contracts/class-super-call-early-errors.md`.
 
 ### Focused-verified 2026-08-24: class field initializer `Contains SuperCall`
 
@@ -79,10 +80,11 @@ Direct tests cover all field shapes, both goals, base/derived and lexical-arrow
 traversal, positive `SuperProperty` and nested-class boundaries, and precedence
 against field `ContainsArguments` and the deferred base-constructor check. A
 real failed Module parse and retained rejected dependency prove structured IR
-and graph projection. The shared source guard now pins the current five generic
-messages, the unique ordinary function expression/declaration producers, four
-field-specific branches, unique constructor/static-block messages, traversal
-rules, and sole parse/classifier boundary.
+and graph projection. The shared source guard now pins the current four generic
+messages, the unique ordinary function expression/declaration and async-
+function-expression producers, four field-specific branches, unique
+constructor/static-block messages, traversal rules, and sole parse/classifier
+boundary.
 
 The complete front library passes `125/125`, while the relevant IR early and
 graph groups pass `46/46` and `43/43`. The exact pinned static-source cohort is
@@ -111,8 +113,9 @@ existing duplicate-parameter, non-simple Use Strict and parameter/body lexical
 conflict owners. Real Module and retained rejected-dependency tests preserve
 the typed code through IR and graph construction. The shared structural guard
 pins the unique completed-node producer, the separately typed ordinary
-declaration message, five remaining generic messages, the adjacent producer
-census, `Contains` traversal and the sole product classifier boundary.
+declaration and async-function-expression messages, four remaining generic
+messages, the adjacent producer census, `Contains` traversal and the sole
+product classifier boundary.
 
 The complete front library passes `129/129`; the relevant IR early and graph
 groups pass `47/47` and `45/45`. The exact pinned cohort is four unflagged
@@ -144,7 +147,9 @@ a parsed graph node.
 
 The shared source guard pins one generic declaration default, one ordinary
 override, no override in the three adjacent declaration implementations, the
-single body-or-parameters predicate and its early-error order. The exact pinned
+single body-or-parameters predicate and its early-error order. It also pins the
+separately typed async-function-expression producer and four remaining generic
+raw messages. The exact pinned
 cohort is four unflagged parse-negative files under
 `language/statements/function/`, expanding to exactly eight sloppy/strict
 Wasm-AOT variants. The complete front library passes `134/134`; the relevant IR
@@ -152,6 +157,35 @@ early and graph groups pass `48/48` and `47/47`. The exact cohort passes `8/8`
 with every non-success bucket at zero. This is typed-classification evidence,
 not an aggregate-status refresh. The source of truth is
 `docs/rust-rewrite/contracts/function-declaration-contains-super-early-errors.md`.
+
+### Focused-verified 2026-08-24: AsyncFunctionExpression `Contains super`
+
+`AsyncFunctionExpressionContainsSuper`
+(`E_ASYNC_FUNCTION_EXPRESSION_CONTAINS_SUPER`) now owns the four
+AsyncFunctionExpression conditions where `FormalParameters` or
+`AsyncFunctionBody` `Contains SuperProperty` or `Contains SuperCall`. Its sole
+pinned producer already checks the completed node and now emits one production-
+specific message instead of the generic text retained by adjacent generator and
+async declaration/expression forms. The closed front domain and parse table grow
+from 67 to 68 entries; exhaustive IR projection derives `Early` /
+`SyntaxError`.
+
+Direct tests cover named/anonymous expressions, both super forms, parameter and
+body positions, lexical ordinary/async arrows and both goals. Positive and
+precedence controls retain nested callable/class boundaries and the earlier
+parameter `Contains AwaitExpression`, duplicate-parameter, non-simple Use Strict
+and parameter/body lexical-conflict owners. Real Module and retained dependency
+witnesses preserve the code through IR and graph construction.
+
+The shared source guard pins the unique completed-node producer, exactly four
+remaining generic raw messages, adjacent production boundaries and traversal.
+The complete front library passes `138/138`; the relevant IR early and graph
+groups pass `49/49` and `49/49`. The exact pinned cohort is four unflagged
+parse-negative files under `language/expressions/async-function/`, and all
+eight sloppy/strict Wasm-AOT variants pass with every non-success bucket at
+zero. This is typed-classification evidence, not an aggregate-status refresh.
+The source of truth is
+`docs/rust-rewrite/contracts/async-function-expression-contains-super-early-errors.md`.
 
 ### Focused-verified 2026-08-23: lexical bound-name `let`
 

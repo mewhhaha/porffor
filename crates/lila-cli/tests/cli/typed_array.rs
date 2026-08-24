@@ -661,6 +661,28 @@ fn run_wasm_backend_enumerates_typedarray_own_keys_in_spec_order() {
 }
 
 #[test]
+fn run_wasm_backend_get_own_property_names_uses_typedarray_buffer_witness() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_object_get_own_property_names_typed_array_witness.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(951"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_reads_typedarray_own_property_descriptors() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

@@ -1,5 +1,6 @@
 use super::super::*;
 use super::array::ArrayConcatSpreadableSlotValue;
+use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::objects::{
     ObjectPreventExtensionsRequest, PreventExtensionsResultLocal,
     PreventExtensionsTraversalTargetLocals, ProxyHandlerLocals, ProxyRevocationRoute,
@@ -5375,7 +5376,7 @@ impl<'a> FunctionBuilder<'a> {
         let typed_array_brand_local = self.reserve_temp_local();
         let typed_array_buffer_payload_local = self.reserve_temp_local();
         let typed_array_byte_offset_local = self.reserve_temp_local();
-        let typed_array_byte_length_local = self.reserve_temp_local();
+        let typed_array_stored_byte_length_local = self.reserve_temp_local();
         let typed_array_bytes_per_element_local = self.reserve_temp_local();
         let typed_array_length_local = self.reserve_temp_local();
         let ordinary_string_count_local = self.reserve_temp_local();
@@ -5800,42 +5801,28 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             arg_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             typed_array_buffer_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            arg_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             typed_array_byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            arg_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
-            typed_array_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            arg_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+            typed_array_stored_byte_length_local,
             typed_array_bytes_per_element_local,
             function,
         );
-        self.emit_typed_array_current_byte_length(
+        let typed_array_view = TypedArrayViewLocals::new(
             arg_payload_local,
-            arg_tag_local,
             typed_array_buffer_payload_local,
             typed_array_byte_offset_local,
-            typed_array_byte_length_local,
+            typed_array_stored_byte_length_local,
+            typed_array_bytes_per_element_local,
+        );
+        self.emit_typed_array_witness(
+            &typed_array_view,
+            TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
+                length_local: typed_array_length_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(typed_array_byte_length_local));
-        function.instruction(&Instruction::LocalGet(typed_array_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(typed_array_length_local));
 
         self.load_i64_to_local_from_offset(arg_payload_local, HEAP_LEN_OFFSET, len_local, function);
         self.load_i64_to_local_from_offset(
@@ -6353,7 +6340,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(ordinary_string_count_local);
         self.release_temp_local(typed_array_length_local);
         self.release_temp_local(typed_array_bytes_per_element_local);
-        self.release_temp_local(typed_array_byte_length_local);
+        self.release_temp_local(typed_array_stored_byte_length_local);
         self.release_temp_local(typed_array_byte_offset_local);
         self.release_temp_local(typed_array_buffer_payload_local);
         self.release_temp_local(typed_array_brand_local);

@@ -2800,16 +2800,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(*resume_state as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                let resume_kind_local = self.reserve_temp_local();
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_KIND_OFFSET,
-                    resume_kind_local,
+                let resume_kind =
+                    self.emit_load_generator_resume_kind_strict(activation_local, function);
+                self.emit_generator_resume_kind_equals(
+                    &resume_kind,
+                    GeneratorResumeKind::Return,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(resume_kind_local));
-                function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_RETURN as i64));
-                function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.load_i64_to_local_from_offset(
                     activation_local,
@@ -2825,9 +2822,11 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 self.set_completion_kind(CompletionKind::Return, function);
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(resume_kind_local));
-                function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_THROW as i64));
-                function.instruction(&Instruction::I64Eq);
+                self.emit_generator_resume_kind_equals(
+                    &resume_kind,
+                    GeneratorResumeKind::Throw,
+                    function,
+                );
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.load_i64_to_local_from_offset(
                     activation_local,
@@ -2843,7 +2842,7 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 self.set_completion_kind(CompletionKind::Throw, function);
                 function.instruction(&Instruction::End);
-                self.release_temp_local(resume_kind_local);
+                self.release_loaded_generator_resume_kind(resume_kind);
                 self.emit_dispatch_current_completion(function)?;
                 function.instruction(&Instruction::End);
 

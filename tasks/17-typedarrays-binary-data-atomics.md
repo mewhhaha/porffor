@@ -299,6 +299,23 @@ Array-slice Test262 controls pass `4/4` Wasm-AOT variants with every non-success
 bucket at zero. This closes one shared raw HasProperty owner, not concat, Array
 slice or integer-indexed exotic semantics as a whole.
 
+The direct TypedArray branch of `Object.getOwnPropertyNames` now loads one
+immutable `TypedArrayViewLocals` value and consumes one non-throwing
+`ArrayLikeLengthSnapshot` witness. The witness-produced element length owns the
+ascending integer-key prefix, including detached/out-of-bounds zeroing,
+fixed-view regrowth and whole-element flooring for odd-byte length-tracking
+buffers. Ordinary String keys remain after that prefix and Symbol keys remain
+excluded. Proxy `ownKeys` dispatch and every non-TypedArray fallback keep their
+existing order and behavior. The focused
+[`Object.getOwnPropertyNames` TypedArray buffer-witness contract](../docs/rust-rewrite/contracts/object-get-own-property-names-typed-array-buffer-witness.md),
+bounded owner guard and CLI fixture are focused-verified: `cargo xc` is green,
+the structure target passes `3/3`, and the exact CLI fixture passes `1/1`. The
+pinned suite has no direct
+`Object.getOwnPropertyNames` TypedArray leaf, so the contract inventories the
+two smallest adjacent resizable-buffer `[[OwnPropertyKeys]]` controls. They
+pass all `4/4` Wasm-AOT variants with every non-success bucket at zero, while
+remaining adjacent rather than direct evidence for this compiler.
+
 These migrations still do not cover `with`, `set`, `subarray`, constructor
 validation or other remaining raw validators. They do not change key
 classification, caller-specific integer-indexed descriptor/result policy,

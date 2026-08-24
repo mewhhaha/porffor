@@ -7367,10 +7367,9 @@ impl<'a> FunctionBuilder<'a> {
                 ValueKind::Undefined.tag() as u64,
                 function,
             );
-            self.store_i64_const_at_offset(
+            self.emit_store_generator_resume_kind(
                 payload_local,
-                HEAP_GENERATOR_RESUME_KIND_OFFSET,
-                GENERATOR_RESUME_KIND_NORMAL,
+                GeneratorResumeKind::Normal,
                 function,
             );
             self.store_i64_const_at_offset(

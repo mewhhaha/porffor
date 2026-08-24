@@ -18480,13 +18480,12 @@ impl<'a> FunctionBuilder<'a> {
                     abrupt_tag_local,
                     function,
                 );
-                self.store_i64_const_at_offset(
+                self.emit_store_generator_resume_kind(
                     this_payload_local,
-                    HEAP_GENERATOR_RESUME_KIND_OFFSET,
                     match builtin {
-                        StandardBuiltinId::GeneratorPrototypeNext => GENERATOR_RESUME_KIND_NORMAL,
-                        StandardBuiltinId::GeneratorPrototypeReturn => GENERATOR_RESUME_KIND_RETURN,
-                        StandardBuiltinId::GeneratorPrototypeThrow => GENERATOR_RESUME_KIND_THROW,
+                        StandardBuiltinId::GeneratorPrototypeNext => GeneratorResumeKind::Normal,
+                        StandardBuiltinId::GeneratorPrototypeReturn => GeneratorResumeKind::Return,
+                        StandardBuiltinId::GeneratorPrototypeThrow => GeneratorResumeKind::Throw,
                         _ => unreachable!(),
                     },
                     function,

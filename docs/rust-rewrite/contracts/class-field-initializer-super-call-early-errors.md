@@ -1,7 +1,7 @@
 # Class field initializer `Contains SuperCall` early errors
 
 **Status:** Product condition and shared producer census through the
-FunctionDeclaration follow-up focused-verified, 2026-08-24
+AsyncFunctionExpression follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -74,12 +74,12 @@ class field initializer cannot contain super call at line
 
 After the repair, that new raw message occurs exactly four times, all in the
 reviewed field arms. The later ordinary function expression/declaration lanes
-give two callable productions their own messages. On current head,
-`invalid super usage` occurs exactly five times across pinned `boa_parser`: the
-fixed-position Script producer, the
-shared generic declaration default and three expression producers. The base-
-constructor, static-block, ordinary-function-expression and ordinary-function-
-declaration conditions retain their separately repaired unique messages.
+give two callable productions their own messages. The subsequent
+AsyncFunctionExpression lane gives a third production its own message. On
+current head, `invalid super usage` occurs exactly four times across pinned
+`boa_parser`: the fixed-position Script producer, the shared generic declaration
+default and two expression producers. The base-constructor, static-block and
+three separately typed function conditions retain their unique messages.
 
 ## Typed encoding and classifier safety
 
@@ -133,13 +133,15 @@ remains a parsed graph node.
 The shared super-producer source guard recursively inventories pinned Boa and
 requires:
 
-- exactly five remaining `invalid super usage` literals: the fixed Script
-  owner, shared declaration default and three expression owners, with their
+- exactly four remaining `invalid super usage` literals: the fixed Script
+  owner, shared declaration default and two expression owners, with their
   common or direct parameter-start positions preserved;
 - exactly one ordinary-function-expression-specific message on its completed-
   node `Contains Super` branch;
 - exactly one ordinary-function-declaration-specific message selected by the
   shared callable-declaration predicate;
+- exactly one async-function-expression-specific message on its completed-node
+  `Contains Super` branch;
 - exactly four field-specific messages, all in `class_decl/mod.rs`;
 - exactly one match in each of the private, private-static, grouped-public and
   static-auto-accessor field arms;
@@ -195,6 +197,9 @@ complete front library passed `129/129`, and the relevant IR early and graph
 groups passed `47/47` and `45/45` with that census in place. The subsequent
 FunctionDeclaration update leaves the complete front library at `134/134` and
 the relevant IR early and graph groups at `48/48` and `47/47`.
+The subsequent AsyncFunctionExpression producer-census update passes the
+complete `138/138` front gate and the relevant `49/49` IR early and `49/49`
+graph groups.
 
 The metadata-derived 60-file cohort was enumerated one exact suite-relative
 path at a time with the Wasm-AOT backend, `--jobs 1`, `--threads 1` and the

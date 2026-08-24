@@ -71,8 +71,8 @@ record-integrity bug class: JavaScript cannot forge the word directly, but a
 future emitter omission or wrong-domain transposition could silently select
 executable behavior.
 
-The word is distinct from `GENERATOR_RESUME_STATE_INITIALIZING`, the
-`GENERATOR_RESUME_KIND_*` injection direction, pending-completion records, and
+The word is distinct from `GENERATOR_RESUME_STATE_INITIALIZING`, the typed
+`GeneratorResumeKind` injection direction, pending-completion records, and
 every `AsyncGeneratorExecutionState` word. Equal numeric values do not make
 those domains interchangeable.
 
@@ -361,11 +361,12 @@ contract.
 
 This lane does not change valid-program behavior or claim a new conformance
 pass. It does not redesign generator continuations, activation spills,
-`yield*`, pending completions, `GENERATOR_RESUME_KIND_*`, completion words,
-exception transport, resource disposal, or the generic iterator-result
-`done: bool` materializer. It does not type `[[AsyncGeneratorState]]`, repair
-the known async-loop red, consolidate the duplicated generator-body call
-emitters, or establish GC reachability beyond the existing heap record.
+`yield*`, pending completions, completion words, exception transport, resource
+disposal, or the generic iterator-result `done: bool` materializer. The
+distinct generator resume kind is closed by its own focused contract. This
+lane does not type `[[AsyncGeneratorState]]`, repair the known async-loop red,
+consolidate the duplicated generator-body call emitters, or establish GC
+reachability beyond the existing heap record.
 
 It does not claim the complete generator, iterator, Promise, or Test262 trees
 are green, change a published status count, or complete T04 or T15.

@@ -360,7 +360,7 @@ pub(crate) const HEAP_GENERATOR_RESUME_PAYLOAD_OFFSET: u64 = 136;
 pub(crate) const HEAP_GENERATOR_RESUME_TAG_OFFSET: u64 = 144;
 pub(crate) const HEAP_GENERATOR_ENV_OFFSET: u64 = 152;
 pub(crate) const HEAP_GENERATOR_INITIALIZED_OFFSET: u64 = 160;
-pub(crate) const HEAP_GENERATOR_RESUME_KIND_OFFSET: u64 = 168;
+const HEAP_GENERATOR_RESUME_KIND_OFFSET: u64 = 168;
 pub(crate) const HEAP_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET: u64 = 176;
 pub(crate) const HEAP_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 184;
 pub(crate) const HEAP_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET: u64 = 192;
@@ -1841,6 +1841,38 @@ impl GeneratorState {
 #[must_use = "a loaded generator state must be compared and released"]
 pub(crate) struct LoadedGeneratorState(u32);
 
+/// The closed completion kind supplied when a synchronous generator resumes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeneratorResumeKind {
+    Normal,
+    Return,
+    Throw,
+}
+
+impl GeneratorResumeKind {
+    const ALL: [Self; 3] = [Self::Normal, Self::Return, Self::Throw];
+
+    const fn word(self) -> u64 {
+        match self {
+            Self::Normal => 0,
+            Self::Return => 1,
+            Self::Throw => 2,
+        }
+    }
+}
+
+/// One strictly validated snapshot of a synchronous generator resume kind.
+#[must_use = "a loaded generator resume kind must be routed and released"]
+pub(crate) struct LoadedGeneratorResumeKind(u32);
+
+/// The exact resume-kind transport joining fresh and resumed delegation.
+///
+/// The raw local is private and the token is deliberately non-`Copy`. The
+/// fresh path initializes it from a typed kind, while the resumed path can
+/// only replace it from a validated activation snapshot.
+#[must_use = "a generator delegation resume kind must be routed and released"]
+pub(crate) struct GeneratorResumeKindTransport(u32);
+
 /// The closed Completion Record subset persisted in an async-generator
 /// request.
 ///
@@ -1995,9 +2027,6 @@ impl AsyncGeneratorResumeKind {
 pub(crate) struct LoadedAsyncGeneratorResumeKind(u32);
 
 pub(crate) const GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
-pub(crate) const GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
-pub(crate) const GENERATOR_RESUME_KIND_RETURN: u64 = 1;
-pub(crate) const GENERATOR_RESUME_KIND_THROW: u64 = 2;
 pub(crate) const GENERATOR_DELEGATED_RESULT_AUX_FLAG: i64 = i64::MIN;
 #[allow(dead_code)]
 pub(crate) const ASYNC_GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
@@ -6150,6 +6179,115 @@ impl<'a> FunctionBuilder<'a> {
     /// Release the private local owned by a loaded generator-state snapshot.
     pub(crate) fn release_loaded_generator_state(&mut self, loaded: LoadedGeneratorState) {
         self.release_temp_local(loaded.0);
+    }
+
+    /// Store one kind from the closed synchronous-generator resume domain.
+    pub(crate) fn emit_store_generator_resume_kind(
+        &self,
+        generator_payload_local: u32,
+        kind: GeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            generator_payload_local,
+            HEAP_GENERATOR_RESUME_KIND_OFFSET,
+            kind.word(),
+            function,
+        );
+    }
+
+    /// Load and strictly validate one generator resume-kind snapshot.
+    pub(crate) fn emit_load_generator_resume_kind_strict(
+        &mut self,
+        generator_payload_local: u32,
+        function: &mut Function,
+    ) -> LoadedGeneratorResumeKind {
+        let kind_word_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            generator_payload_local,
+            HEAP_GENERATOR_RESUME_KIND_OFFSET,
+            kind_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for kind in GeneratorResumeKind::ALL {
+            function.instruction(&Instruction::LocalGet(kind_word_local));
+            function.instruction(&Instruction::I64Const(kind.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        LoadedGeneratorResumeKind(kind_word_local)
+    }
+
+    /// Compare one strictly loaded generator resume kind.
+    pub(crate) fn emit_generator_resume_kind_equals(
+        &self,
+        loaded: &LoadedGeneratorResumeKind,
+        expected: GeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Initialize the exact resume-kind transport for fresh delegation.
+    pub(crate) fn emit_initialize_generator_resume_kind_transport(
+        &mut self,
+        kind: GeneratorResumeKind,
+        function: &mut Function,
+    ) -> GeneratorResumeKindTransport {
+        let kind_word_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(kind.word() as i64));
+        function.instruction(&Instruction::LocalSet(kind_word_local));
+        GeneratorResumeKindTransport(kind_word_local)
+    }
+
+    /// Copy a validated activation snapshot into the delegation transport.
+    pub(crate) fn emit_copy_generator_resume_kind_to_transport(
+        &self,
+        loaded: &LoadedGeneratorResumeKind,
+        transport: &GeneratorResumeKindTransport,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::LocalSet(transport.0));
+    }
+
+    /// Compare one exact generator delegation resume-kind transport.
+    pub(crate) fn emit_generator_resume_kind_transport_equals(
+        &self,
+        transport: &GeneratorResumeKindTransport,
+        expected: GeneratorResumeKind,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(transport.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Release the private local owned by a resume-kind snapshot.
+    pub(crate) fn release_loaded_generator_resume_kind(
+        &mut self,
+        loaded: LoadedGeneratorResumeKind,
+    ) {
+        self.release_temp_local(loaded.0);
+    }
+
+    /// Release the private local owned by a delegation resume-kind transport.
+    pub(crate) fn release_generator_resume_kind_transport(
+        &mut self,
+        transport: GeneratorResumeKindTransport,
+    ) {
+        self.release_temp_local(transport.0);
     }
 
     /// Store one completion kind from the closed async-generator request

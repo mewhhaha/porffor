@@ -1,6 +1,7 @@
 # FunctionDeclaration `Contains super` early errors
 
-**Status:** Focused-verified, 2026-08-24
+**Status:** Product condition and shared producer census through the
+AsyncFunctionExpression follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -73,12 +74,14 @@ No grammar, `Contains` predicate, early-error order, accepted source or source
 location changes. The seam selects a diagnostic by production; it does not
 duplicate the semantic check.
 
-The new message occurs exactly once across pinned Boa Rust sources. The raw
-literal `invalid super usage` still occurs five times: the fixed ScriptBody
-producer, the shared declaration default used by generator/async-function/
-async-generator declarations, and the three generator/async expression
-producers. `function expression cannot contain super` occurs once, and the
-method-owned `invalid super call usage` census remains eleven.
+The new message occurs exactly once across pinned Boa Rust sources. The later
+AsyncFunctionExpression lane gives that production its own message. On current
+head, `invalid super usage` occurs four times: the fixed ScriptBody producer,
+the shared declaration default used by generator/async-function/async-generator
+declarations, and the generator-expression and async-generator-expression
+producers. The ordinary function and async-function-expression messages occur
+once each, and the method-owned `invalid super call usage` census remains
+eleven.
 
 ## Typed and retained boundaries
 
@@ -136,8 +139,8 @@ The shared super-producer guard recursively requires:
 - the branch remains after parameter/body lexical-name validation and before
   the generator parameter checks;
 - each declaration parser still calls the common parser once;
-- exactly five generic raw messages plus the existing function-expression,
-  class and method message censuses;
+- exactly four generic raw messages plus the existing ordinary-function,
+  async-function-expression, class and method message censuses;
 - ordinary/async-arrow traversal and ordinary callable/nested-class stopping
   behavior in pinned `boa_ast`; and
 - the sole parse/classifier product boundary.
@@ -180,10 +183,14 @@ passes `134/134`; the relevant IR early and graph groups pass `48/48` and
 --threads 1`; each passes `2/2`, for `8/8` completed Wasm-AOT variants with
 every non-success bucket at zero.
 
+The subsequent AsyncFunctionExpression lane updates the shared producer guard;
+the complete `138/138` front gate and relevant `49/49` IR early and `49/49`
+graph groups are green with that census.
+
 ## Nonclaims
 
 This lane does not classify generator or async declarations, classify the
-remaining generator/async expression messages, change `Contains`, add syntax,
-support eval or Function-constructor dynamic source, alter function lowering or
-execution, claim that typed classification caused a new Test262 pass, refresh
+remaining generator/async-generator expression messages, change `Contains`,
+add syntax, support eval or Function-constructor dynamic source, alter function
+lowering or execution, claim that typed classification caused a new Test262 pass, refresh
 aggregate status, close callable grammar, or complete T07.

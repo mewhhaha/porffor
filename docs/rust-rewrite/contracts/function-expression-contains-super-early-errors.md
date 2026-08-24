@@ -1,7 +1,7 @@
 # FunctionExpression `Contains super` early errors
 
 **Status:** Product condition and shared producer census through the
-FunctionDeclaration follow-up focused-verified, 2026-08-24
+AsyncFunctionExpression follow-up focused-verified, 2026-08-24
 
 ## Decision
 
@@ -75,10 +75,10 @@ changed.
 After the repair, the unique message occurs once across pinned Boa Rust
 sources. The later FunctionDeclaration lane gives the ordinary declaration its
 own unique message while retaining the shared generic default for the three
-other hoistable forms. On current head, the old generic literal still occurs
-five times: one fixed ScriptBody producer, that declaration default, and the
-generator-expression, async-function-expression and async-generator-expression
-producers.
+other hoistable forms. The later AsyncFunctionExpression lane gives that
+production its own message. On current head, the old generic literal occurs
+four times: one fixed ScriptBody producer, that declaration default, and the
+generator-expression and async-generator-expression producers.
 
 ## Typed and retained boundaries
 
@@ -129,7 +129,9 @@ The shared super-producer guard recursively requires:
   new message and retained `params_start_position` together;
 - exactly one separately typed FunctionDeclaration message selected from the
   shared callable-declaration predicate;
-- exactly five remaining generic messages, with their fixed Script or shared
+- exactly one async-function-expression-specific message on its completed-node
+  `Contains Super` branch;
+- exactly four remaining generic messages, with their fixed Script or shared
   callable parameter-start positions;
 - the existing class constructor, static-block, field and method message
   censuses;
@@ -179,6 +181,10 @@ early and graph groups pass `48/48` and `47/47`.
 The four exact Test262 paths were run separately with `--jobs 1 --threads 1`.
 Each passes `2/2`, for exactly `8/8` completed Wasm-AOT variants with every
 non-success bucket at zero.
+
+The subsequent AsyncFunctionExpression lane updates the shared producer guard;
+the complete `138/138` front gate and relevant `49/49` IR early and `49/49`
+graph groups are green with that census.
 
 ## Nonclaims
 
