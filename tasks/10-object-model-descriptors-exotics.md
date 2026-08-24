@@ -159,8 +159,22 @@ token; its sole ownership-consuming call is Proxy-aware and passes the exact
 original receiver with no arguments. Nullish and non-callable failures use the
 running built-in's Realm. The durable source and CLI regressions cover strict
 primitive getter and method receivers, callable Proxy `apply`, the downstream
-Array path, and created-realm TypeErrors. Runtime and pinned Test262 execution
-remain deferred; the boundary and nonclaims are recorded in
+Array path, and created-realm TypeErrors. At current pin
+`e9d582d6b8b13afc5ba9a676664741592b5c7f69`, the exact `onlyStrict` inventory,
+and therefore the exact four-execution inventory, is:
+
+- `built-ins/Object/prototype/toLocaleString/primitive_this_value.js`;
+- `built-ins/Object/prototype/toLocaleString/primitive_this_value_getter.js`;
+- `built-ins/Array/prototype/toLocaleString/primitive_this_value.js`; and
+- `built-ins/Array/prototype/toLocaleString/primitive_this_value_getter.js`.
+
+On 2026-08-24, the batch-wide `cargo check` and `cargo xc` gates were green.
+The central verifier passed the three-test
+`object_to_locale_string_invoke_structure` target at `3/3`, the exact
+`language_numerics::run_wasm_backend_succeeds_for_object_to_locale_string_invoke_fixture`
+CLI test at `1/1`, and one Wasm-AOT execution for each listed leaf at `4/4`
+total, with every failure bucket at zero. The exact commands, stale-baseline
+disclosure and nonclaims remain recorded in
 `docs/rust-rewrite/contracts/object-to-locale-string-invoke.md`.
 
 This is direct-target closure only. The fact deliberately marks a nested Proxy
@@ -201,9 +215,11 @@ Proxy-Set direct-descriptor fixture is written but has not run while the shared
 verification lane owns Cargo and Test262. The focused own-descriptor-predicate
 fixture, strengthened bootstrap-planning checkpoint and six-file current-pin
 cohort are green at `1/1`, `1/1` and `12/12`, respectively. The
-`Object.prototype.toLocaleString` Invoke regressions likewise have only static
-verification. A complete current-pin Wasm-AOT Object/descriptor subtree run
-has not been performed.
+`Object.prototype.toLocaleString` Invoke lane is green at `3/3` for its
+structure target, `1/1` for its exact CLI fixture and `4/4` for its four
+current-pin `onlyStrict` Wasm-AOT leaves, with every failure bucket at zero. A
+complete current-pin Wasm-AOT Object/descriptor subtree run has not been
+performed.
 
 ## Objective
 

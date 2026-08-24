@@ -142,8 +142,11 @@ described in §15.
 ## ArrayAccumulation addendum (2026-08-13)
 
 Group C is closed by deleting the shortcut. The lowerer now emits
-`ExprIr::ArrayAccumulation` for every spread-bearing array literal and preserves
-`ExprIr::ArrayLiteral` only for the no-spread case. `ArraySpreadIr` requires
+`ExprIr::ArrayAccumulation` for every spread-bearing array literal. An
+uninterrupted no-spread literal preserves `ExprIr::ArrayLiteral`; a staged
+generator literal that crosses a nested yield uses suspension-owned
+ArrayAccumulation even when it has no spread, because its partially evaluated
+state must survive the suspension. `ArraySpreadIr` requires
 `ArraySpreadProtocol::ARRAY_ACCUMULATION`; its witness names
 `EmissionSite::ArrayLiteralSpread` for GetIterator, IteratorStep and
 IteratorValue, and records `ArrayAccumulationDoesNotClose` as the fourth-slot
@@ -165,6 +168,23 @@ consults inherited setters and never chooses a dense spread path.
 ArrayAccumulation itself has no IteratorClose step. Abrupt completion of
 iterator acquisition, step or value extraction propagates directly, so adding
 a `return()` call here would be an observable spec violation rather than extra
-safety. This patch was dry-written: scoped formatting and static repository
-checks ran, while Cargo, focused runtime tests and pinned
-`language/expressions/array` Test262 remain pending for the central verifier.
+safety.
+
+The suspension-ownership evidence is now source-complete. The focused IR test
+pins the pre-suspension prefix and resumed suffix to identical typed array and
+raw-index slots. The CLI fixture observes prefix evaluation before suspension,
+then iterator acquisition and every `next` call before the suffix, and checks
+the final consecutive indexes. The direct pinned cohort is
+`language/statements/generators/yield-spread-arr-{single,multiple}.js`, not the
+non-generator `language/expressions/array` subtree. Prior-pin
+`aa55200d1310384c5cf69ea95b2a2ecba457007b` snapshots reported `1/1` for each
+leaf on 2026-07-20; they predate this ArrayAccumulation replacement and are
+historical baselines, not verification of the current seam. At the current pin,
+each leaf has only `flags: [generated]` and therefore materializes through the
+normal harness as ordinary sloppy and strict executions. The 2026-08-24 central
+checkpoint is green: the batch `cargo check` and `cargo xc` gates pass, the
+focused exact lila-ir test passes `1/1`, the exact CLI suspension fixture passes
+`1/1`, and the two generated leaves pass all four materialized executions
+`4/4` with every failure bucket at zero. These bounded results do not change the
+exact-`u64` backend bound or no-IteratorClose boundary, and do not claim broader
+generator, iterator or full Test262 closure.

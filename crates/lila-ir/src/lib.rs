@@ -7672,26 +7672,142 @@ target[Symbol.iterator];"#,
                 .state_count,
             3
         );
-        assert!(function
-            .owned_env_bindings
-            .iter()
-            .any(|binding| binding.name.starts_with("$generator.array.accumulator.")));
-        assert!(function
-            .owned_env_bindings
-            .iter()
-            .any(|binding| binding.name.starts_with("$generator.array.next_index.")));
+        let [StatementIr::LexicalBlock(statements)] = function.body.statements.as_slice() else {
+            panic!(
+                "expected one staged array lexical block, got {:#?}",
+                function.body.statements
+            );
+        };
+        let [array_init, next_index_init, prefix, received_init, inner_yield, outer_yield] =
+            statements.as_slice()
+        else {
+            panic!("expected the exact staged array sequence, got {statements:#?}");
+        };
+
+        let StatementIr::Lexical {
+            name: array_binding,
+            init:
+                TypedExpr {
+                    expr: ExprIr::ArrayLiteral(initial_elements),
+                    ..
+                },
+            ..
+        } = array_init
+        else {
+            panic!("expected the accumulator array initialization, got {array_init:#?}");
+        };
+        assert!(initial_elements.is_empty());
+        let StatementIr::Lexical {
+            name: next_index_binding,
+            init:
+                TypedExpr {
+                    expr: ExprIr::Number(initial_next_index),
+                    ..
+                },
+            ..
+        } = next_index_init
+        else {
+            panic!("expected the accumulator index initialization, got {next_index_init:#?}");
+        };
+        assert_eq!(*initial_next_index, 0.0f64.to_bits());
+        assert_ne!(array_binding, next_index_binding);
+
+        let StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ArrayAccumulation(prefix),
+            ..
+        }) = prefix
+        else {
+            panic!("expected the pre-suspension accumulation, got {prefix:#?}");
+        };
+        let ArrayAccumulationTargetIr::SuspensionOwned(prefix_slots) = prefix.target() else {
+            panic!(
+                "expected suspension-owned prefix, got {:#?}",
+                prefix.target()
+            );
+        };
+        assert_eq!(prefix_slots.array().as_str(), array_binding);
+        assert_eq!(prefix_slots.next_index().as_str(), next_index_binding);
         assert!(matches!(
-            function.body.statements.as_slice(),
-            [StatementIr::LexicalBlock(statements)]
-                if statements.iter().filter(|statement| matches!(statement, StatementIr::GeneratorYield { .. })).count() == 2
-                    && statements.iter().any(|statement| matches!(
-                        statement,
-                        StatementIr::Expression(TypedExpr {
-                            expr: ExprIr::ArrayAccumulation(_),
-                            ..
-                        })
-                    ))
+            prefix.elements(),
+            [ArrayAccumulationElementIr::Value(TypedExpr {
+                expr: ExprIr::Number(value),
+                ..
+            })] if *value == 0.0f64.to_bits()
         ));
+
+        let StatementIr::Lexical {
+            name: received_binding,
+            init:
+                TypedExpr {
+                    expr: ExprIr::Undefined,
+                    ..
+                },
+            ..
+        } = received_init
+        else {
+            panic!("expected the yielded-value binding, got {received_init:#?}");
+        };
+        let StatementIr::GeneratorYield {
+            value:
+                TypedExpr {
+                    expr: ExprIr::Undefined,
+                    ..
+                },
+            resume_mode: GeneratorResumeModeIr::AssignIdentifier(inner_resume_binding),
+            ..
+        } = inner_yield
+        else {
+            panic!("expected the inner array suspension, got {inner_yield:#?}");
+        };
+        assert_eq!(inner_resume_binding, received_binding);
+
+        let StatementIr::GeneratorYield {
+            value:
+                TypedExpr {
+                    expr: ExprIr::ArrayAccumulation(final_accumulation),
+                    ..
+                },
+            resume_mode: GeneratorResumeModeIr::Ignore,
+            ..
+        } = outer_yield
+        else {
+            panic!("expected the final accumulated array yield, got {outer_yield:#?}");
+        };
+        let ArrayAccumulationTargetIr::SuspensionOwned(final_slots) = final_accumulation.target()
+        else {
+            panic!(
+                "expected suspension-owned final accumulation, got {:#?}",
+                final_accumulation.target()
+            );
+        };
+        assert_eq!(final_slots, prefix_slots);
+        let [ArrayAccumulationElementIr::Spread(ArraySpreadIr {
+            value: spread_value,
+            protocol,
+        }), ArrayAccumulationElementIr::Value(TypedExpr {
+            expr: ExprIr::Number(final_value),
+            ..
+        })] = final_accumulation.elements()
+        else {
+            panic!(
+                "expected resumed spread followed by the suffix, got {:#?}",
+                final_accumulation.elements()
+            );
+        };
+        assert_eq!(*protocol, ArraySpreadProtocol::ARRAY_ACCUMULATION);
+        assert!(matches!(
+            &spread_value.expr,
+            ExprIr::Identifier(spread_binding) if spread_binding == received_binding
+        ));
+        assert_eq!(*final_value, 3.0f64.to_bits());
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == array_binding.as_str()));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == next_index_binding.as_str()));
     }
 
     #[test]

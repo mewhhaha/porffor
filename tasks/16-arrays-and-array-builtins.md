@@ -15,18 +15,33 @@ shared implementation file, and the Test262 harness still contains numerous
 Array-specific path rewrites and source reductions. This task cannot close
 until the full current-pin Array tree is green through general semantics.
 
-The generic callback tranche (`map`, `every`, `some`, `filter`, `find*`,
-`forEach`, `reduce` and `reduceRight`) and the search/access tranche now observe
-borrowed TypedArrays through a closed view/witness API. The view carries the
-immutable fixed extent, a length witness snapshots one backing-store length for
-`LengthOfArrayLike`, and each live integer-indexed `HasProperty` or `Get` gate
-takes a fresh witness. `at` selects generic length observation or validated
+The generic callback tranche (`map`, `flatMap`, `every`, `some`, `filter`,
+`find*`, `forEach`, `reduce` and `reduceRight`) and the search/access tranche now
+observe borrowed TypedArrays through a closed view/witness API. The view carries
+the immutable fixed extent, a length witness snapshots one backing-store length
+for `LengthOfArrayLike`, and each live integer-indexed `HasProperty` or `Get`
+gate takes a fresh witness. `at` selects generic length observation or validated
 TypedArray entry through its closed receiver policy. Generic `includes`
 continues to perform the observable `LengthOfArrayLike` and per-index `Get`
 operations rather than borrowing the non-generic TypedArray entry rule. This
 prevents an out-of-bounds observation from erasing the extent needed after a
 later regrow, and length-tracking views floor odd backing-byte lengths to whole
 elements.
+
+The generic `Array.prototype.flatMap` TypedArray specialization now loads one
+immutable view and uses it for both incompatible observation points: one
+non-throwing `ArrayLikeLengthSnapshot` captures the source bound, and a fresh
+`IntegerIndexedProperty` observation inside the loop determines whether the
+current source index is present. The existing live indexed read and mapper call
+remain after that presence result. A bounded guard also rejects any legacy raw
+current-length call across the complete Array builtin source. The focused
+[flatMap TypedArray buffer-witness contract](../docs/rust-rewrite/contracts/array-flat-map-typed-array-buffer-witness.md),
+structure target and resizable/detached CLI fixture are written as of
+2026-08-24. At that date's central checkpoint, `cargo check` and `cargo xc`
+were green, the structure target passed `3/3`, the exact CLI fixture passed
+`1/1`, and the one unrewritten vendored leaf passed both ordinary executions
+`2/2` with every failure bucket at zero. No baseline, README, published-count
+or broader conformance change is claimed.
 
 The Array and TypedArray `find`, `findIndex`, `findLast` and `findLastIndex`
 emitters now share one closed `FindViaPredicateKind`. Exhaustive projections

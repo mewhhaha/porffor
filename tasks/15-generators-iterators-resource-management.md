@@ -570,7 +570,10 @@ the unprovable shortcut rather than encoding an unreachable `ProvenDense`
 variant. A spread-bearing literal lowers to `ExprIr::ArrayAccumulation`; each
 spread carries the one-inhabitant `ArraySpreadProtocol`, tied at compile time to
 the emitter that performs `GetIterator`, `IteratorStep` and `IteratorValue`.
-Plain no-spread literals retain `ExprIr::ArrayLiteral` and their static shape.
+Uninterrupted no-spread literals retain `ExprIr::ArrayLiteral` and their static
+shape. A staged generator literal that crosses a nested yield instead uses
+suspension-owned ArrayAccumulation even without a spread, because its partial
+array and logical index must survive the suspension.
 
 `ArrayAccumulationTargetIr` distinguishes an uninterrupted `Fresh` expression
 from `SuspensionOwned(ArrayAccumulatorSlots)`. The latter contains distinct
@@ -585,9 +588,22 @@ array writes cover indexes through `4294967294`, index `4294967295` and later
 values become ordinary named data properties without growing `length`, and an
 elision at or beyond that boundary throws `RangeError`. Every spread observes
 `@@iterator`; there is no dense fast path and, matching ArrayAccumulation, no
-`IteratorClose` claim. The implementation is dry-written in this batch;
-Cargo, focused runtime and pinned Test262 gates remain pending for the central
-verifier.
+`IteratorClose` claim. The focused IR evidence now requires the evaluated
+prefix and resumed suffix to reuse identical typed array and raw-index slots.
+The focused CLI fixture observes prefix evaluation before suspension, iterator
+acquisition and every `next` before the suffix, then checks the final
+consecutive indexes. The direct pinned cohort is the exact
+`language/statements/generators/yield-spread-arr-{single,multiple}.js` pair.
+Prior-pin `aa55200d1310384c5cf69ea95b2a2ecba457007b` snapshots reported `1/1`
+per leaf on 2026-07-20; they predate this implementation and are historical
+baselines only. At the current pin each leaf has only `flags: [generated]` and
+materializes through the normal harness as two ordinary sloppy/strict
+executions. The 2026-08-24 central checkpoint is green: the batch `cargo check`
+and `cargo xc` gates pass, the focused exact lila-ir test passes `1/1`, the
+exact CLI suspension fixture passes `1/1`, and the two generated leaves pass
+all four materialized executions `4/4` with every failure bucket at zero. This
+is bounded suspension-ownership closure, not broader generator, iterator,
+IteratorClose or full Test262 closure.
 
 Array destructuring now carries the closed
 `ArrayDestructuringEvaluationIr::{BindingInitialization, AssignmentEvaluation}`

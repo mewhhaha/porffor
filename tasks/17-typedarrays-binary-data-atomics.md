@@ -241,12 +241,37 @@ Uint8-only program inventoried as a T18 semantic shortcut; all `6/6` adapted
 Wasm-AOT variants pass with every failure bucket at zero. No raw
 all-constructor or BigInt Test262 pass, rewrite retirement, baseline or
 published-count change is claimed. This migration also does not correct own or
-inherited TypedArray `length` shadowing in the generic `LengthOfArrayLike` path,
-migrate the downstream indexed-read owner, or change either `flatMap` raw
-observation or any remaining `objects.rs` raw consumer. The bounded
-non-throwing raw census is therefore five after this lane: two observations in
-the `flatMap` compiler and three property/index read/write owners in
-`objects.rs`.
+inherited TypedArray `length` shadowing in the generic `LengthOfArrayLike` path
+or migrate the downstream indexed-read owner. It did not itself change either
+`flatMap` raw observation or any `objects.rs` raw consumer; the later flatMap
+checkpoint below supersedes that former two-site nonclaim. The bounded
+non-throwing raw census is therefore three on the current tree, all
+property/index read/write owners in `objects.rs`.
+
+The generic `Array.prototype.flatMap` TypedArray specialization now consumes
+the same non-throwing witness protocol at both of its formerly raw observation
+points. One immutable `TypedArrayViewLocals` feeds an
+`ArrayLikeLengthSnapshot` before target allocation and a fresh
+`IntegerIndexedProperty` projection inside the captured-length loop. Growth
+during a mapper call cannot extend the walk; shrinkage, odd-byte availability,
+out-of-bounds state or detachment can make the next index absent. The existing
+live indexed `Get` and mapper ordering remain unchanged. The focused
+[flatMap TypedArray buffer-witness contract](../docs/rust-rewrite/contracts/array-flat-map-typed-array-buffer-witness.md),
+bounded structure target and resizable/detached CLI fixture are written as of
+2026-08-24. The guard also pins zero legacy raw current-length calls across all
+of `builtins/array.rs`.
+
+At the 2026-08-24 central checkpoint, `cargo check` and `cargo xc` were green,
+the structure target passed `3/3`, the exact CLI fixture passed `1/1`, and the
+exact direct pinned cohort is the unrewritten vendored
+`built-ins/Array/prototype/flatMap/array-like-objects-typedarrays.js` leaf,
+materialized with the normal harness preludes into two ordinary sloppy/strict
+executions. Both passed `2/2` with every failure bucket at zero. The leaf covers
+only fixed `Int32Array` borrowing, so the resizable, odd-byte and detached
+evidence remains confined to the focused CLI fixture. No all-constructor,
+BigInt, baseline, README or published-count change is claimed. The shared
+indexed-read owner and the three remaining raw `objects.rs` consumers remain
+separate work.
 
 The `%TypedArray%.prototype.map` and `filter` compilers now use that same
 validated-method-entry witness after their receiver-brand guards and before

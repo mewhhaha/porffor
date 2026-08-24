@@ -62,10 +62,31 @@ covers the direct function path and the inherited Array call chain.
 Created-realm nullish and non-callable cases fix both TypeError prototypes to
 the borrowed method's Realm.
 
-The pinned direct Object and downstream Array
-`primitive_this_value{,_getter}.js` tests provide the corresponding Test262
-contracts. Their execution, along with the focused Cargo and CLI regressions,
-remains deferred to the coordinated verification checkpoint.
+At Test262 pin `e9d582d6b8b13afc5ba9a676664741592b5c7f69`, the exact focused
+inventory is four physical files:
+
+- `built-ins/Object/prototype/toLocaleString/primitive_this_value.js`;
+- `built-ins/Object/prototype/toLocaleString/primitive_this_value_getter.js`;
+- `built-ins/Array/prototype/toLocaleString/primitive_this_value.js`; and
+- `built-ins/Array/prototype/toLocaleString/primitive_this_value_getter.js`.
+
+Each file declares `flags: [onlyStrict]`, so the inventory materializes as
+exactly four executions rather than sloppy/strict pairs. On 2026-08-24, the
+central verifier ran these focused gates:
+
+```sh
+cargo test -p lila-aot-wasm --test object_to_locale_string_invoke_structure -- --test-threads=1
+cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_object_to_locale_string_invoke_fixture -- --exact --test-threads=1
+./target/debug/lila --jobs 1 test262 run built-ins/Object/prototype/toLocaleString/primitive_this_value.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/lila --jobs 1 test262 run built-ins/Object/prototype/toLocaleString/primitive_this_value_getter.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/lila --jobs 1 test262 run built-ins/Array/prototype/toLocaleString/primitive_this_value.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/lila --jobs 1 test262 run built-ins/Array/prototype/toLocaleString/primitive_this_value_getter.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+```
+
+The batch-wide `cargo check` and `cargo xc` gates were green. The structure
+target passed `3/3`, and the exact CLI fixture passed `1/1`. Each Test262 leaf
+command discovered and passed its one strict execution, for `4/4` in total with
+every failure bucket at zero.
 
 ## Baseline disclosure and nonclaims
 

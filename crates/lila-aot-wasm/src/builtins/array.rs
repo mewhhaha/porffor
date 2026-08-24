@@ -9372,13 +9372,20 @@ impl<'a> FunctionBuilder<'a> {
         let typed_buffer_tag_local = self.reserve_temp_local();
         let typed_data_ptr_local = self.reserve_temp_local();
         let typed_byte_offset_local = self.reserve_temp_local();
-        let typed_byte_length_local = self.reserve_temp_local();
+        let typed_stored_byte_length_local = self.reserve_temp_local();
         let typed_bytes_per_element_local = self.reserve_temp_local();
         let typed_address_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
         let array_hole_prototype_clean_local = self.reserve_temp_local();
         let prototype_len_local = self.reserve_temp_local();
+        let typed_view = TypedArrayViewLocals::new(
+            this_payload_local,
+            typed_buffer_payload_local,
+            typed_byte_offset_local,
+            typed_stored_byte_length_local,
+            typed_bytes_per_element_local,
+        );
         function.instruction(&Instruction::LocalGet(this_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -9654,22 +9661,17 @@ impl<'a> FunctionBuilder<'a> {
             this_payload_local,
             typed_buffer_payload_local,
             typed_byte_offset_local,
-            typed_byte_length_local,
+            typed_stored_byte_length_local,
             typed_bytes_per_element_local,
             function,
         );
-        self.emit_typed_array_current_byte_length(
-            this_payload_local,
-            this_tag_local,
-            typed_buffer_payload_local,
-            typed_byte_offset_local,
-            typed_byte_length_local,
+        self.emit_typed_array_witness(
+            &typed_view,
+            TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
+                length_local: current_len_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(typed_byte_length_local));
-        function.instruction(&Instruction::LocalGet(typed_bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(current_len_local));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::LocalSet(key_local));
@@ -9906,21 +9908,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_typed_array_current_byte_length(
-            this_payload_local,
-            this_tag_local,
-            typed_buffer_payload_local,
-            typed_byte_offset_local,
-            typed_byte_length_local,
+        self.emit_typed_array_witness(
+            &typed_view,
+            TypedArrayWitnessUse::IntegerIndexedProperty {
+                index_local: src_index_local,
+                result_local: has_property_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(src_index_local));
-        function.instruction(&Instruction::LocalGet(typed_bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(typed_byte_length_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(has_property_local));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(this_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
@@ -10362,7 +10357,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(argc_local);
         self.release_temp_local(typed_address_local);
         self.release_temp_local(typed_bytes_per_element_local);
-        self.release_temp_local(typed_byte_length_local);
+        self.release_temp_local(typed_stored_byte_length_local);
         self.release_temp_local(typed_byte_offset_local);
         self.release_temp_local(typed_data_ptr_local);
         self.release_temp_local(typed_buffer_tag_local);
