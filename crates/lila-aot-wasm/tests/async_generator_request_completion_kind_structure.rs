@@ -362,15 +362,6 @@ fn assert_writer_raw_helper_allowlist(body: &str) {
             );"#,
             1,
         ),
-        (
-            r#"self.store_i64_const_at_offset(
-                activation_local,
-                HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-                ASYNC_GENERATOR_BODY_STATUS_AWAIT,
-                function,
-            );"#,
-            1,
-        ),
     ];
     let mut reviewed_calls = 0;
     for (call, expected_count) in expected {
@@ -833,7 +824,7 @@ fn request_completion_kind_heap_boundary_is_private_strict_and_opaque() {
 fn request_writer_initializes_the_closed_kind_before_queue_publication() {
     let writer_owner = request_writer_owner();
     assert_no_raw_request_kind_offset_alias(writer_owner, "request writer");
-    assert_raw_helper_inventory(writer_owner, "request writer", [4, 8, 3]);
+    assert_raw_helper_inventory(writer_owner, "request writer", [4, 8, 2]);
     assert_writer_raw_helper_allowlist(writer_owner);
     let writer = normalized_code(writer_owner);
     assert_eq!(
@@ -1523,7 +1514,7 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
 
     let yield_owner = yield_owner();
     assert_no_raw_request_kind_offset_alias(yield_owner, "live-yield reader");
-    assert_raw_helper_inventory(yield_owner, "live-yield reader", [2, 4, 1]);
+    assert_raw_helper_inventory(yield_owner, "live-yield reader", [2, 4, 0]);
     let yield_route = normalized_code(yield_owner);
     assert_eq!(
         yield_route
@@ -1577,11 +1568,6 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
             "active-request publication",
         ),
         (
-            "HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET",
-            1,
-            "Await body status",
-        ),
-        (
             "HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET",
             1,
             "resume payload",
@@ -1604,6 +1590,13 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     );
     assert_eq!(yield_route.matches("resume_body_local").count(), 3);
     assert_eq!(yield_route.matches("resume_kind_local").count(), 5);
+    assert_eq!(
+        yield_route
+            .matches("emit_store_async_generator_body_status(")
+            .count(),
+        1,
+        "yield must publish Await through the typed body-status boundary"
+    );
 
     let yield_request_entry_sentinel = normalized(
         r#"
@@ -1680,10 +1673,9 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
                 request_tag_local,
                 function,
             )?;
-            self.store_i64_const_at_offset(
+            self.emit_store_async_generator_body_status(
                 activation_local,
-                HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-                ASYNC_GENERATOR_BODY_STATUS_AWAIT,
+                AsyncGeneratorBodyStatus::Await,
                 function,
             );
             self.emit_store_async_generator_execution_state(
@@ -1767,7 +1759,7 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     );
     let body_await = unique_position(
         &yield_route,
-        "HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET",
+        "AsyncGeneratorBodyStatus::Await",
         "yield Return body Await state",
     );
     let executing_await = unique_position(

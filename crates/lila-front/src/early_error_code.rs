@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 65] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 66] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -219,6 +219,11 @@ early_error_codes! {
     /// Use Strict Directive and its own parameter list is non-simple. Ambient
     /// strictness and parameterless getters are deliberately excluded.
     CallableNonSimpleParametersContainUseStrict => "E_CALLABLE_NON_SIMPLE_PARAMETERS_CONTAIN_USE_STRICT";
+    /// FunctionExpression early errors: the expression's FormalParameters or
+    /// FunctionBody `Contains SuperProperty` or `Contains SuperCall`.
+    /// Nested ordinary callables and classes retain their own boundaries;
+    /// ordinary and async arrows remain lexical traversal paths.
+    FunctionExpressionContainsSuper => "E_FUNCTION_EXPRESSION_CONTAINS_SUPER";
     /// TryStatement early errors: `BoundNames` of a `CatchParameter` contains
     /// duplicate elements. Unlike ordinary-function parameters, this condition
     /// has no sloppy simple-list exception.
@@ -478,7 +483,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 65;
+const PARSE_FAILURE_RULE_COUNT: usize = 66;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
 const IMPORT_META_OUTSIDE_MODULE_PREFIX: &str =
@@ -497,6 +502,8 @@ const CLASS_STATIC_BLOCK_SUPER_CALL_PREFIX: &str =
     "class static block cannot contain super call at line";
 const CLASS_FIELD_INITIALIZER_SUPER_CALL_PREFIX: &str =
     "class field initializer cannot contain super call at line";
+const FUNCTION_EXPRESSION_CONTAINS_SUPER_PREFIX: &str =
+    "function expression cannot contain super at line";
 
 /// The one message-pattern table.
 ///
@@ -1100,6 +1107,14 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "class field initializer cannot contain super call at line 2, col 1",
         ],
     },
+    // 66. expression/primary/function_expression/mod.rs. The sole ordinary
+    //     FunctionExpression producer applies Contains Super to the completed
+    //     node, covering parameters and body plus SuperProperty and SuperCall.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(FUNCTION_EXPRESSION_CONTAINS_SUPER_PREFIX),
+        code: EarlyErrorCode::FunctionExpressionContainsSuper,
+        witnesses: &["function expression cannot contain super at line 1, col 11"],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1402,6 +1417,8 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ClassFieldInitializerContainsSuperCall);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::FunctionExpressionContainsSuper);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
     code_is_owned_once_by_exact_starts_with(
@@ -1466,6 +1483,13 @@ const _: () = assert!(
         "class field initializer cannot contain super call at line",
     ),
     "the class-field initializer SuperCall code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::FunctionExpressionContainsSuper,
+        "function expression cannot contain super at line",
+    ),
+    "the FunctionExpression super code must have one owner using its complete reviewed prefix"
 );
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
@@ -1708,6 +1732,32 @@ const fn class_super_call_prefixes_are_distinct_and_injection_safe() -> bool {
     )
 }
 
+/// P17: the ordinary FunctionExpression prefix remains distinct from the
+/// adjacent generic declaration/generator/async-expression and method
+/// producers. User-controlled Module export text carrying the complete prefix
+/// must remain owned by the duplicate-export condition.
+const fn function_expression_super_prefix_is_distinct_and_injection_safe() -> bool {
+    if !classified_is(
+        classify_parse_failure("function expression cannot contain super at line 1, col 11"),
+        EarlyErrorCode::FunctionExpressionContainsSuper,
+    ) || !matches!(
+        classify_parse_failure("invalid super usage at line 1, col 11"),
+        None
+    ) || !matches!(
+        classify_parse_failure("invalid super call usage at line 1, col 11"),
+        None
+    ) {
+        return false;
+    }
+
+    classified_is(
+        classify_parse_failure(
+            "exported name `function expression cannot contain super at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
 /// P3: `ALL` is in discriminant order and complete, and `wire_name` round-trips
 /// through `from_wire_name` — so print and parse cannot diverge, and the round
 /// trip proves `wire_name` is injective.
@@ -1866,4 +1916,8 @@ const _: () = assert!(
 const _: () = assert!(
     class_super_call_prefixes_are_distinct_and_injection_safe(),
     "P16: a class-owned SuperCall prefix is ambiguous, absorbs an adjacent message, or can be forged through Module export text"
+);
+const _: () = assert!(
+    function_expression_super_prefix_is_distinct_and_injection_safe(),
+    "P17: the FunctionExpression super prefix absorbs an adjacent producer or can be forged through Module export text"
 );

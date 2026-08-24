@@ -263,6 +263,25 @@ expanded CLI fixture are present; focused verification evidence has not yet
 been recorded. The source of truth is
 `docs/rust-rewrite/contracts/typed-array-slice-buffer-witness.md`.
 
+The four Wasm-AOT Atomics access owners now load one immutable
+`TypedArrayViewLocals` value and consume one `ValidatedMethodEntry` witness
+before index coercion. `notify`, `waitAsync`, `wait` and the shared integer-
+operation compiler use the witness-produced element length directly for their
+post-`ToIndex` bound; they no longer reconstruct current byte length or admit a
+trailing partial element. The validated projection also intentionally corrects
+the old fixed-view behavior: an initially detached or out-of-bounds view throws
+TypeError before a side-effecting index is coerced, while a valid zero-length
+tracking view still coerces the index and then throws the operation-specific
+RangeError against the captured length. The pre-coercion backing-pointer
+snapshot remains separate for address formation, preserving the current
+Atomics pointer timing. The focused
+[Atomics buffer-witness contract](../docs/rust-rewrite/contracts/atomics-typed-array-buffer-witness.md),
+bounded four-owner structural guard and CLI fixture are focused-verified. The
+guard passes `3/3`, the CLI fixture passes `1/1`, and the four exact pinned
+Test262 files pass `8/8` Wasm-AOT variants with every non-success bucket at
+zero. This does not implement post-coercion `RevalidateAtomicAccess` or claim
+complete Atomics semantics.
+
 These migrations still do not cover `with`, `set`, `subarray`, constructor
 validation or other remaining raw validators. They do not change key
 classification, caller-specific integer-indexed descriptor/result policy,

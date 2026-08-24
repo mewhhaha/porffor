@@ -63,6 +63,20 @@ the exact lifecycle/delegation CLI cohort passes `5/5`, and the five pinned
 request-order/state files pass `10/10` Wasm-AOT variants under `--jobs 1
 --threads 1` with every non-success bucket at zero.
 
+The backend body protocol now has the separate closed
+`AsyncGeneratorBodyStatus::{Idle, Running, Await, Yield, Complete, Throw}`
+domain. Its raw offset and stable 0-through-5 projection are private to typed
+store and strict-load operations. All fifteen writers are typed; the body
+driver and two Promise reaction readers validate one snapshot, compare it only
+through an opaque non-`Copy` token and trap unknown words. The body driver also
+uses a distinct resume-state local instead of recycling one raw local across
+domains. The focused contract and bounded structure guard are focused-verified:
+the four related structure targets pass `20/20`, the exact lifecycle/delegation
+CLI cohort passes `5/5`, and its five pinned Test262 files pass `10/10`
+Wasm-AOT variants with every non-success bucket at zero. This is a backend
+body-protocol invariant, not another `[[AsyncGeneratorState]]` value or a
+general suspension claim.
+
 The existing broad resumable-loop CLI test still fails because later classic
 loop iterations and post-yield lexical state are lost. A detached unchanged
 `HEAD` worktree produces byte-identical output, while all observed yielded and

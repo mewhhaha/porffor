@@ -82,6 +82,19 @@ pass `5/5`; the exact lifecycle/delegation CLI cohort passes `5/5`, and its five
 pinned Test262 files pass `10/10` Wasm-AOT variants under `--jobs 1 --threads
 1`. This is a state-word invariant, not broader suspended-async closure.
 
+The distinct async-generator body-status field is now closed over
+`AsyncGeneratorBodyStatus::{Idle, Running, Await, Yield, Complete, Throw}`.
+All fifteen product writers cross one typed heap boundary. The body driver and
+the two Promise reaction jobs are the only readers; each strictly validates one
+stable snapshot and traps an unknown word before routing, while an opaque
+non-`Copy` token prevents raw-local reuse. Await still pairs body status
+`Await` with execution state `Executing`, so this backend protocol does not
+widen `[[AsyncGeneratorState]]`. The bounded owner/ordering guard and
+`docs/rust-rewrite/contracts/async-generator-body-status-word.md` are
+focused-verified. The four related structure targets pass `20/20`, the exact
+lifecycle/delegation CLI cohort passes `5/5`, and its five pinned Test262 files
+pass `10/10` Wasm-AOT variants with every non-success bucket at zero.
+
 Promise records now store `[[PromiseState]]` through one closed three-variant
 `PromiseState::{Pending, Fulfilled, Rejected}` wire domain. The raw offset is
 private to typed initialization, terminal-store and strict-load helpers, and an

@@ -1,8 +1,7 @@
 # Script top-level `super` early errors
 
-**Status:** Product condition independently reviewed and focused-verified
-2026-08-23; shared producer census updated for the field follow-up with batch
-re-verification pending, 2026-08-24
+**Status:** Product condition and shared producer census through the field and
+FunctionExpression follow-ups focused-verified, 2026-08-24
 
 ## Decision
 
@@ -98,23 +97,25 @@ The fixed `Position::new(1, 1)` is part of the current pin's classification
 boundary. It distinguishes this producer from the other reachable producers
 that reuse the raw literal `invalid super usage`.
 
-After the separately typed class-super-call and class-field-initializer repairs,
-across every Rust source in pinned `boa_parser-0.21.1` that raw literal occurs
-exactly six times:
+After the separately typed class-super-call, class-field-initializer and
+ordinary-function-expression repairs, across every Rust source in pinned
+`boa_parser-0.21.1` that raw literal occurs exactly five times:
 
 | Parser owner | Raw occurrences | Position source | New code owns it |
 | --- | ---: | --- | --- |
 | `parser/mod.rs` ScriptBody check | 1 | fixed `Position::new(1, 1)` | yes |
 | shared hoistable-declaration parser | 1 | `params_start_position` | no |
-| ordinary/generator/async/async-generator expression parsers | 4 | each form's parameter-start position | no |
+| generator/async/async-generator expression parsers | 3 | each form's parameter-start position | no |
 
-The other five positions occur only after a function head and cannot render
+The other four positions occur only after a function head and cannot render
 line 1, column 1. They cover distinct callable conditions and must remain
 unclassified by this lane. A broad row for `invalid super usage at line` would
-falsely merge all six producers. The base-constructor and static-block
+falsely merge all five producers. The base-constructor and static-block
 conditions have unique messages and codes under
 `class-super-call-early-errors.md`; the four field-initializer producers are
-owned by `class-field-initializer-super-call-early-errors.md`.
+owned by `class-field-initializer-super-call-early-errors.md`; and the ordinary
+function-expression producer is owned by
+`function-expression-contains-super-early-errors.md`.
 
 No vendor repair is required for the Script producer. Its existing
 fixed-position message remains sufficient for an exact-message classifier row.
@@ -285,7 +286,7 @@ inventing an unreachable Module producer.
 A durable source guard must recursively inventory the pinned Boa parser and
 prove all of the following:
 
-- the raw literal `invalid super usage` occurs exactly six times across
+- the raw literal `invalid super usage` occurs exactly five times across
   Rust sources;
 - exactly one occurrence is the ScriptBody call with the complete
   `Error::general(..., Position::new(1, 1))` shape;
@@ -293,7 +294,7 @@ prove all of the following:
   `contains(&body, ContainsSymbol::Super)` condition;
 - the Script super check remains before the adjacent NewTarget, private-name,
   label and cover-initialized-name checks;
-- the other five raw occurrences retain their reviewed parameter-start
+- the other four raw occurrences retain their reviewed parameter-start
   positions rather than acquiring the fixed 1:1 coordinate;
 - pinned `boa_ast` keeps ordinary callable bodies as stopping boundaries,
   traverses ordinary and async arrows, class heritage and computed public
@@ -382,10 +383,13 @@ the repeatable current-working-tree failures in
 early-error or module-graph paths changed here. They remain explicit broad-suite
 debt, so this lane does not claim the complete `lila-ir` crate is green.
 
+The updated shared producer census was re-verified in the complete `129/129`
+front suite and the `47/47` IR early plus `45/45` graph groups on 2026-08-24.
+
 The lane classifies a rejection pinned Boa already produces. It does not:
 
 - add or broaden `super` syntax;
-- classify the other five raw `invalid super usage` producers;
+- classify the other four raw `invalid super usage` producers;
 - classify the eleven `invalid super call usage` producers;
 - repair token-level source location;
 - support direct eval or Function-family dynamic source;

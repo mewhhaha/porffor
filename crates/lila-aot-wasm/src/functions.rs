@@ -6257,7 +6257,7 @@ impl<'a> FunctionBuilder<'a> {
         let body_tag_local = self.reserve_temp_local();
         let body_completion_local = self.reserve_temp_local();
         let body_aux_local = self.reserve_temp_local();
-        let body_status_local = self.reserve_temp_local();
+        let resume_state_local = self.reserve_temp_local();
         let resolved_return_payload_local = self.reserve_temp_local();
         let resolved_return_tag_local = self.reserve_temp_local();
 
@@ -6289,10 +6289,10 @@ impl<'a> FunctionBuilder<'a> {
         self.load_i64_to_local_from_offset(
             activation_local,
             HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-            body_status_local,
+            resume_state_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(body_status_local));
+        function.instruction(&Instruction::LocalGet(resume_state_local));
         function.instruction(&Instruction::I64Const(
             ASYNC_GENERATOR_RESUME_STATE_INITIALIZING as i64,
         ));
@@ -6312,10 +6312,9 @@ impl<'a> FunctionBuilder<'a> {
             AsyncGeneratorExecutionState::Executing,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_body_status(
             activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-            ASYNC_GENERATOR_BODY_STATUS_RUNNING,
+            AsyncGeneratorBodyStatus::Running,
             function,
         );
 
@@ -6352,17 +6351,13 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-            body_status_local,
+        let body_status =
+            self.emit_load_async_generator_body_status_strict(activation_local, function);
+        self.emit_async_generator_body_status_equals(
+            &body_status,
+            AsyncGeneratorBodyStatus::Yield,
             function,
         );
-        function.instruction(&Instruction::LocalGet(body_status_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_BODY_STATUS_YIELD as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         let delegate_record_local = self.reserve_temp_local();
         self.load_i64_to_local_from_offset(
@@ -6397,20 +6392,20 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(delegate_record_local);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(body_status_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_BODY_STATUS_RUNNING as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_async_generator_body_status_equals(
+            &body_status,
+            AsyncGeneratorBodyStatus::Running,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.release_loaded_async_generator_body_status(body_status);
         function.instruction(&Instruction::LocalGet(body_completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_body_status(
             activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-            ASYNC_GENERATOR_BODY_STATUS_COMPLETE,
+            AsyncGeneratorBodyStatus::Complete,
             function,
         );
         self.emit_store_async_generator_execution_state(
@@ -6467,10 +6462,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_body_status(
             activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-            ASYNC_GENERATOR_BODY_STATUS_THROW,
+            AsyncGeneratorBodyStatus::Throw,
             function,
         );
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
@@ -6504,10 +6498,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_body_status(
             activation_local,
-            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-            ASYNC_GENERATOR_BODY_STATUS_COMPLETE,
+            AsyncGeneratorBodyStatus::Complete,
             function,
         );
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
@@ -6534,7 +6527,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(resolved_return_tag_local);
         self.release_temp_local(resolved_return_payload_local);
-        self.release_temp_local(body_status_local);
+        self.release_temp_local(resume_state_local);
         self.release_temp_local(body_aux_local);
         self.release_temp_local(body_completion_local);
         self.release_temp_local(body_tag_local);
@@ -7573,10 +7566,6 @@ impl<'a> FunctionBuilder<'a> {
                 (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET, 0),
                 (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET, 0),
                 (HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET, 0),
-                (
-                    HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-                    ASYNC_GENERATOR_BODY_STATUS_IDLE,
-                ),
                 (HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET, 0),
                 (
                     HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET,
@@ -7592,6 +7581,11 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            self.emit_store_async_generator_body_status(
+                async_generator_activation_local,
+                AsyncGeneratorBodyStatus::Idle,
+                function,
+            );
             self.emit_store_async_generator_execution_state(
                 async_generator_activation_local,
                 AsyncGeneratorExecutionState::SuspendedStart,

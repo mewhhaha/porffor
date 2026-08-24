@@ -19005,10 +19005,9 @@ impl<'a> FunctionBuilder<'a> {
                         argument_tag_local,
                         function,
                     )?;
-                    self.store_i64_const_at_offset(
+                    self.emit_store_async_generator_body_status(
                         activation_local,
-                        HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
-                        ASYNC_GENERATOR_BODY_STATUS_AWAIT,
+                        AsyncGeneratorBodyStatus::Await,
                         function,
                     );
                     self.emit_store_async_generator_execution_state(

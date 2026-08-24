@@ -662,6 +662,26 @@ fn run_wasm_backend_succeeds_for_atomics_private_slots_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_validates_atomics_access_through_typed_array_witness() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_atomics_typed_array_buffer_witness.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(936"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_atomics_pause_core_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

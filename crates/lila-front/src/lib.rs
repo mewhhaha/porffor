@@ -920,6 +920,112 @@ mod tests {
     }
 
     #[test]
+    fn function_expression_super_rejections_cover_parameters_bodies_arrows_and_goals() {
+        for source in [
+            "(function() { super(); });",
+            "(function() { void super.value; });",
+            "(function(value = super()) {});",
+            "(function(value = super.value) {});",
+            "(function named() { super(); });",
+            "(function named(value = super.value) {});",
+            "(function() { (() => super())(); });",
+            "(function(value = (() => super.value)()) {});",
+            "(function() { (async () => super())(); });",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("FunctionExpression parameters and body may not contain super");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::FunctionExpressionContainsSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the function-expression rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn function_expression_super_positive_boundaries_remain_valid_under_both_goals() {
+        for source in [
+            "(function() {});",
+            "(function named(value) { return value; });",
+            "(function() { class D extends Object { constructor() { super(); } } });",
+            "(function() { return \"super() and super.value\"; });",
+            "class B {}; class C extends B { method() { return function() {}; } }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("nested class ownership and ordinary text must remain parse-valid");
+            }
+        }
+    }
+
+    #[test]
+    fn function_expression_super_precedence_preserves_prior_callable_checks() {
+        for (source, code) in [
+            (
+                "(function(value = super(), value) {});",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "(function(value = super()) { \"use strict\"; });",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
+                "(function(value = super()) { let value; });",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("an earlier FunctionExpression check should own the rejection");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn function_expression_super_classifier_is_anchored_and_injection_safe() {
+        assert_eq!(
+            classify_parse_failure("function expression cannot contain super at line 1, col 11")
+                .map(ParseClassified::code),
+            Some(EarlyErrorCode::FunctionExpressionContainsSuper)
+        );
+        for message in [
+            "invalid super usage at line 1, col 11",
+            "invalid super call usage at line 1, col 11",
+        ] {
+            assert_eq!(classify_parse_failure(message), None);
+        }
+
+        let exported_name = "function expression cannot contain super at line";
+        let source = format!(
+            "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
+        );
+        let err = parse(&source, ParseOptions::module())
+            .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err:?}"
+        );
+    }
+
+    #[test]
     fn class_super_call_positive_boundaries_remain_valid_under_both_goals() {
         for source in [
             "class C {}",
@@ -1036,6 +1142,9 @@ mod tests {
     fn adjacent_invalid_super_producers_remain_unclassified_by_this_lane() {
         for source in [
             "function f() { super.value; }",
+            "(function*() { super.value; });",
+            "(async function() { super.value; });",
+            "(async function*() { super.value; });",
             "class C { method() { super(); } }",
         ] {
             for options in [ParseOptions::script(), ParseOptions::module()] {
@@ -1161,6 +1270,7 @@ mod tests {
             "base class constructor cannot contain direct super call";
         const STATIC_BLOCK_MESSAGE: &str = "class static block cannot contain super call";
         const FIELD_INITIALIZER_MESSAGE: &str = "class field initializer cannot contain super call";
+        const FUNCTION_EXPRESSION_MESSAGE: &str = "function expression cannot contain super";
         const MODULE_MESSAGE: &str = "module cannot contain `super` on the top-level";
         const SCRIPT_BRANCH: &str = r#"if contains(&body, ContainsSymbol::Super) {
                 return Err(Error::general("invalid super usage", Position::new(1, 1)));
@@ -1173,6 +1283,12 @@ mod tests {
         }"#;
         const PARAMETER_POSITION: &str = r#""invalid super usage".into(),
                 params_start_position,"#;
+        const FUNCTION_EXPRESSION_SUPER_BRANCH: &str = r#"if contains(&function, ContainsSymbol::Super) {
+            return Err(Error::lex(LexError::Syntax(
+                "function expression cannot contain super".into(),
+                params_start_position,
+            )));
+        }"#;
         const BASE_CONSTRUCTOR_BRANCH: &str = r#"if super_ref.is_none()
                 && let Some(constructor) = &constructor
                 && contains(constructor, ContainsSymbol::SuperCall)
@@ -1269,7 +1385,11 @@ mod tests {
 
         let boa_package_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
-        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 6);
+        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 5);
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, FUNCTION_EXPRESSION_MESSAGE),
+            1
+        );
         assert_eq!(count_in_rust_sources(&boa_package_root, METHOD_MESSAGE), 11);
         assert_eq!(
             count_in_rust_sources(&boa_package_root, BASE_CONSTRUCTOR_MESSAGE),
@@ -1349,7 +1469,6 @@ mod tests {
 
         for source in [
             HOISTABLE_SOURCE,
-            FUNCTION_EXPRESSION_SOURCE,
             GENERATOR_EXPRESSION_SOURCE,
             ASYNC_FUNCTION_EXPRESSION_SOURCE,
             ASYNC_GENERATOR_EXPRESSION_SOURCE,
@@ -1370,6 +1489,20 @@ mod tests {
                 0
             );
         }
+        assert_eq!(FUNCTION_EXPRESSION_SOURCE.matches(RAW_MESSAGE).count(), 0);
+        assert_eq!(
+            FUNCTION_EXPRESSION_SOURCE
+                .matches(FUNCTION_EXPRESSION_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            compact(FUNCTION_EXPRESSION_SOURCE)
+                .matches(compact(FUNCTION_EXPRESSION_SUPER_BRANCH).as_str())
+                .count(),
+            1,
+            "the unique FunctionExpression message must remain on the completed-node Contains Super branch"
+        );
 
         let compact_class = compact(CLASS_SOURCE);
         assert_eq!(CLASS_SOURCE.matches(RAW_MESSAGE).count(), 0);
@@ -1712,9 +1845,9 @@ mod tests {
             vec![
                 (
                     "crates/lila-front/src/early_error_code.rs".to_string(),
-                    24,
+                    28,
                 ),
-                ("crates/lila-front/src/lib.rs".to_string(), 10),
+                ("crates/lila-front/src/lib.rs".to_string(), 12),
                 ("crates/lila-ir/src/modules/early.rs".to_string(), 2),
             ],
             "every classifier identifier, including imports, re-exports and aliases, requires review"
@@ -1727,7 +1860,7 @@ mod tests {
         assert_eq!(
             product_classifier_calls,
             vec![
-                ("crates/lila-front/src/early_error_code.rs".to_string(), 19,),
+                ("crates/lila-front/src/early_error_code.rs".to_string(), 23,),
                 ("crates/lila-front/src/lib.rs".to_string(), 1),
             ],
             "only classifier self-proofs and the product parse boundary may call the classifier"

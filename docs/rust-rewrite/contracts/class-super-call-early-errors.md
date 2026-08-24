@@ -1,7 +1,6 @@
 # Class constructor and static-block `super()` early errors
 
-**Status:** Implementation present on current head; focused verification
-pending, 2026-08-24
+**Status:** Focused-verified on current head, 2026-08-24
 
 ## Decision
 
@@ -183,11 +182,14 @@ The eleven separate `invalid super call usage` producers for method
 `HasDirectSuper` remain untouched.
 
 The later, separately owned class-field initializer lane gives those four
-field producers their own message. On current head, `invalid super usage`
-therefore occurs six times: the ScriptBody producer plus five callable
-producers. The field message occurs four times and is owned by
-`ClassFieldInitializerContainsSuperCall`; see
-`class-field-initializer-super-call-early-errors.md`. The Script producer
+field producers their own message. The subsequent FunctionExpression lane
+also gives the ordinary function-expression producer its own message. On
+current head, `invalid super usage` therefore occurs five times: the ScriptBody
+producer plus four callable producers. The field message occurs four times and
+is owned by `ClassFieldInitializerContainsSuperCall`; the function-expression
+message occurs once and is owned by `FunctionExpressionContainsSuper`. See
+`class-field-initializer-super-call-early-errors.md` and
+`function-expression-contains-super-early-errors.md`. The Script producer
 remains byte-for-byte unchanged and continues to be selected only by the exact
 rendered message `invalid super usage at line 1, col 1`.
 
@@ -389,9 +391,9 @@ diagnostic without exercising a real front-end producer.
 The implementation extends one vendored-source guard that recursively
 inventories the pinned Boa packages and proves all of the following:
 
-- the current raw-message census is exactly `6 + 1 + 1 + 4`: six generic,
-  one base-constructor, one static-block and four separately typed field
-  messages;
+- the current raw-message census is exactly `5 + 1 + 1 + 4 + 1`: five generic,
+  one base-constructor, one static-block, four separately typed field messages
+  and one separately typed ordinary-function-expression message;
 - the two new raw messages each occur exactly once, both in
   `class_decl/mod.rs`;
 - the old raw `invalid super usage` no longer occurs in `class_decl/mod.rs`;
@@ -456,16 +458,14 @@ host-harness, unsupported, crash and bug bucket to be zero.
 The direct Module and retained-graph witnesses are permanent Rust tests because
 the pinned cohort contains no Module-goal leaf for either producer.
 
-## Verification ladder
+## Verification evidence
 
-Implementation is batched before verification. Expensive commands run
-serially, never overlap, and use the shared limit of eight logical CPUs and
-22 GB RAM (`CPUQuota=800%`, `taskset -c 0-7`, `CARGO_BUILD_JOBS=8`,
-`MemoryHigh=20G`, `MemoryMax=22G`).
+Implementation was batched before verification. Expensive commands ran
+serially and did not overlap.
 
-Run the ladder once the theory, vendor wording, typed codes, classifier rows,
-IR arms, source guards, direct matrices, retained-graph witnesses and task
-status are all written:
+The verifier ran this ladder after the theory, vendor wording, typed codes,
+classifier rows, IR arms, source guards, direct matrices, retained-graph
+witnesses and task status were written:
 
 1. read-only/adversarial source review of both predicates, all twelve old raw
    producers, the post-repair census, `Contains` traversal and classifier
@@ -488,12 +488,17 @@ hidden, but they also do not erase exact evidence for these parser/graph paths.
 No full language tree or aggregate Test262 refresh is required for this bounded
 diagnostic lane.
 
+`cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green. The
+complete front library passes `129/129`; the relevant IR early and graph groups
+pass `47/47` and `45/45`. Each of the three exact Test262 files passes `2/2`,
+for an aggregate `6/6` Wasm-AOT variants with every non-success bucket at zero.
+
 ## Explicit nonclaims
 
 This contract does not:
 
 - classify the eleven method-owned `invalid super call usage` producers;
-- classify the five remaining callable `invalid super usage` producers;
+- classify the four remaining callable `invalid super usage` producers;
 - own the separately implemented class-field-initializer `SuperCall`
   condition;
 - broaden or merge `ScriptTopLevelSuper` or `ModuleTopLevelSuper`;

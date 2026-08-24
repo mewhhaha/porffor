@@ -25,8 +25,8 @@ before the yielded iterator result escapes. Body termination and an early
 Await does not add another `[[AsyncGeneratorState]]` value. An async generator
 whose body is awaiting remains executing while its Promise reaction owns the
 continuation. Lila already persists that finer backend phase separately as
-`ASYNC_GENERATOR_BODY_STATUS_AWAIT`; it is not part of the specification's
-state domain.
+`AsyncGeneratorBodyStatus::Await`; it is not part of the specification's state
+domain.
 
 ## Representation defect closed
 
@@ -215,8 +215,9 @@ Wasm-safe and complete fixture gates also pass `187/187` and `191/191`.
 
 ## Explicit nonclaims
 
-This invariant does not type body status, resume kind, resume-state labels,
-request completion kind, pending completion records or Promise reaction kind.
+This invariant does not type resume kind, resume-state labels, pending
+completion records or Promise reaction kind. Body status and request completion
+kind are closed by their own focused contracts.
 It does not repair general continuation spilling, the known resumable-loop
 failure, cross-realm behavior, queue ownership, GC layout or broader async
 generator conformance. It changes no published README count and does not

@@ -400,7 +400,7 @@ pub(crate) const HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET: u64 = 112;
 pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
 pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
 pub(crate) const HEAP_ASYNC_GENERATOR_PENDING_COMPLETION_CAPACITY_OFFSET: u64 = 136;
-pub(crate) const HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET: u64 = 144;
+const HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET: u64 = 144;
 pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET: u64 = 152;
 pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET: u64 = 160;
 pub(crate) const HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET: u64 = 168;
@@ -1915,6 +1915,47 @@ impl AsyncGeneratorExecutionState {
 #[must_use = "a loaded async-generator execution state must be routed and released"]
 pub(crate) struct LoadedAsyncGeneratorExecutionState(u32);
 
+/// The closed backend status stored around an async-generator body invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncGeneratorBodyStatus {
+    Idle,
+    Running,
+    Await,
+    Yield,
+    Complete,
+    Throw,
+}
+
+impl AsyncGeneratorBodyStatus {
+    const ALL: [Self; 6] = [
+        Self::Idle,
+        Self::Running,
+        Self::Await,
+        Self::Yield,
+        Self::Complete,
+        Self::Throw,
+    ];
+
+    const fn word(self) -> u64 {
+        match self {
+            Self::Idle => 0,
+            Self::Running => 1,
+            Self::Await => 2,
+            Self::Yield => 3,
+            Self::Complete => 4,
+            Self::Throw => 5,
+        }
+    }
+}
+
+/// One strictly validated snapshot of an async-generator body status.
+///
+/// The raw local is private and the token is deliberately non-`Copy`. Status
+/// routing borrows it, then must consume it through the matching release
+/// boundary once every comparison has been emitted.
+#[must_use = "a loaded async-generator body status must be routed and released"]
+pub(crate) struct LoadedAsyncGeneratorBodyStatus(u32);
+
 pub(crate) const GENERATOR_RESUME_STATE_INITIALIZING: u64 = u64::MAX;
 pub(crate) const GENERATOR_RESUME_KIND_NORMAL: u64 = 0;
 pub(crate) const GENERATOR_RESUME_KIND_RETURN: u64 = 1;
@@ -1933,12 +1974,6 @@ pub(crate) const ASYNC_GENERATOR_RESUME_KIND_FULFILL: u64 = 3;
 #[allow(dead_code)]
 pub(crate) const ASYNC_GENERATOR_RESUME_KIND_REJECT: u64 = 4;
 pub(crate) const ASYNC_GENERATOR_RETURN_VALUE_ALREADY_AWAITED: u64 = 1;
-pub(crate) const ASYNC_GENERATOR_BODY_STATUS_IDLE: u64 = 0;
-pub(crate) const ASYNC_GENERATOR_BODY_STATUS_RUNNING: u64 = 1;
-pub(crate) const ASYNC_GENERATOR_BODY_STATUS_AWAIT: u64 = 2;
-pub(crate) const ASYNC_GENERATOR_BODY_STATUS_YIELD: u64 = 3;
-pub(crate) const ASYNC_GENERATOR_BODY_STATUS_COMPLETE: u64 = 4;
-pub(crate) const ASYNC_GENERATOR_BODY_STATUS_THROW: u64 = 5;
 pub(crate) const FUNCTION_FLAG_CONSTRUCTABLE: u64 = 1;
 pub(crate) const FUNCTION_FLAG_CLASS_CONSTRUCTOR: u64 = 2;
 pub(crate) const FUNCTION_FLAG_BOUND: u64 = 4;
@@ -6239,6 +6274,74 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(loaded.0);
     }
 
+    /// Store one status from the closed async-generator body domain.
+    pub(crate) fn emit_store_async_generator_body_status(
+        &self,
+        activation_local: u32,
+        status: AsyncGeneratorBodyStatus,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+            status.word(),
+            function,
+        );
+    }
+
+    /// Load and strictly validate one async-generator body-status snapshot.
+    ///
+    /// An unknown or wrong-domain word is an impossible activation record.
+    pub(crate) fn emit_load_async_generator_body_status_strict(
+        &mut self,
+        activation_local: u32,
+        function: &mut Function,
+    ) -> LoadedAsyncGeneratorBodyStatus {
+        let status_word_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
+            status_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for status in AsyncGeneratorBodyStatus::ALL {
+            function.instruction(&Instruction::LocalGet(status_word_local));
+            function.instruction(&Instruction::I64Const(status.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        LoadedAsyncGeneratorBodyStatus(status_word_local)
+    }
+
+    /// Emit one comparison against a strictly loaded body-status word.
+    pub(crate) fn emit_async_generator_body_status_equals(
+        &self,
+        loaded: &LoadedAsyncGeneratorBodyStatus,
+        expected: AsyncGeneratorBodyStatus,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(loaded.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    /// Release the private local owned by a body-status snapshot.
+    pub(crate) fn release_loaded_async_generator_body_status(
+        &mut self,
+        loaded: LoadedAsyncGeneratorBodyStatus,
+    ) {
+        self.release_temp_local(loaded.0);
+    }
+
     /// Initialize a Promise record in the sole valid non-terminal state.
     pub(crate) fn emit_initialize_promise_state(
         &self,
@@ -7345,14 +7448,7 @@ mod tests {
         );
         assert_eq!(ASYNC_GENERATOR_RESUME_STATE_INITIALIZING, u64::MAX);
         assert_eq!(
-            [
-                ASYNC_GENERATOR_BODY_STATUS_IDLE,
-                ASYNC_GENERATOR_BODY_STATUS_RUNNING,
-                ASYNC_GENERATOR_BODY_STATUS_AWAIT,
-                ASYNC_GENERATOR_BODY_STATUS_YIELD,
-                ASYNC_GENERATOR_BODY_STATUS_COMPLETE,
-                ASYNC_GENERATOR_BODY_STATUS_THROW,
-            ],
+            AsyncGeneratorBodyStatus::ALL.map(AsyncGeneratorBodyStatus::word),
             [0, 1, 2, 3, 4, 5]
         );
         assert_eq!(

@@ -259,7 +259,7 @@ fn execution_state_heap_boundary_is_private_strict_and_opaque() {
     let release = bounded(
         HEAP_SOURCE,
         "pub(crate) fn release_loaded_async_generator_execution_state(",
-        "/// Initialize a Promise record in the sole valid non-terminal state.",
+        "/// Store one status from the closed async-generator body domain.",
     );
     assert!(release.contains("loaded: LoadedAsyncGeneratorExecutionState,"));
     assert!(!release.contains("&LoadedAsyncGeneratorExecutionState"));
@@ -441,7 +441,7 @@ fn lifecycle_owners_preserve_state_transition_order() {
     );
     let running = unique_position(
         &body_driver,
-        "self.store_i64_const_at_offset(activation_local,HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,ASYNC_GENERATOR_BODY_STATUS_RUNNING,function);",
+        "self.emit_store_async_generator_body_status(activation_local,AsyncGeneratorBodyStatus::Running,function);",
         "body running status",
     );
     let body_call = unique_position(
@@ -547,10 +547,15 @@ fn await_and_yield_paths_keep_execution_state_distinct_from_body_status() {
         let trap = owner
             .find("function.instruction(&Instruction::Unreachable);")
             .expect("await-job state invariant trap must exist");
-        let body_status = unique_position(
+        let body_status_load = unique_position(
             &owner,
-            "HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET",
-            "separate Await body status",
+            "self.emit_load_async_generator_body_status_strict(activation_local,function)",
+            "strict body-status snapshot",
+        );
+        let body_status_await = unique_position(
+            &owner,
+            "AsyncGeneratorBodyStatus::Await",
+            "separate Await body-status route",
         );
         let resume = unique_position(
             &owner,
@@ -569,8 +574,9 @@ fn await_and_yield_paths_keep_execution_state_distinct_from_body_status() {
         );
         assert!(load < executing && executing < trap);
         assert!(
-            trap < body_status
-                && body_status < resume
+            trap < body_status_load
+                && body_status_load < body_status_await
+                && body_status_await < resume
                 && resume < release
                 && release < resume_kind_release
         );
@@ -588,7 +594,7 @@ fn await_and_yield_paths_keep_execution_state_distinct_from_body_status() {
     );
     let await_status = unique_position(
         &yield_owner,
-        "ASYNC_GENERATOR_BODY_STATUS_AWAIT",
+        "AsyncGeneratorBodyStatus::Await",
         "yield Return body status",
     );
     let executing = unique_position(
@@ -634,5 +640,5 @@ fn await_and_yield_paths_keep_execution_state_distinct_from_body_status() {
     assert!(CONTRACT.contains("exact five-value ECMA-262 domain"));
     assert!(CONTRACT.contains("word `5` is retired"));
     assert!(CONTRACT.contains("seventeen product writers and three product readers"));
-    assert!(CONTRACT.contains("No Cargo command was run"));
+    assert!(CONTRACT.contains("focused-verified"));
 }
