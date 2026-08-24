@@ -137,9 +137,25 @@ internal functions retain their direct four-word completion return. The drain
 also preserves the thrown error-name/message globals alongside the completion
 tuple, so an error raised by a queued job cannot overwrite the identity or
 message of an already-pending top-level throw. A durable engine regression
-requires the queued job's print side effect and the primary throw identity;
-central compile and that focused runtime contract remain queued behind the live
-current-pin matrix.
+requires the queued job's print side effect, secondary rejection diagnostic and
+primary throw identity; the focused engine contract passes `1/1`.
+
+The main-export rejection checkpoint now detaches and walks a finite snapshot
+of the complete candidate FIFO. After strict state and handled-mark rechecks, a
+Normal Script completion keeps the oldest unhandled rejection as its exported
+Throw and prints every later rejection value in FIFO order. If a top-level
+abrupt completion is already primary, the checkpoint prints every unhandled
+snapshot rejection and preserves that completion. Heap-backed modules import
+the existing line-oriented host printer even when source never names `print`,
+so the diagnostic path cannot disappear behind builtin reachability. Symbols
+use non-coercing descriptive rendering. A throwing ordinary `ToString` emits a
+fixed visible failure marker, restores the primary completion diagnostics and
+continues the FIFO; a host-print failure is not caught. A `ToString` that calls
+`Promise.reject` appends to a fresh live tracker which is neither traversed nor
+cleared by the current checkpoint, so recursive rejection cannot extend the
+snapshot indefinitely. The bounded source guard passes `5/5`, and the two
+public CLI fixtures pass `2/2`; the tracker remains process-global rather than
+realm-owned.
 
 This closes the current record/ordering/realm-source boundary; it does not yet
 provide the broader realm/agent-owned host queue contract. Async continuations
@@ -239,13 +255,17 @@ a fix that reported *handled* rejections would have turned passes into failures:
 Implementation note: the promise record grew from 64 to 72 bytes for the list
 link, and the global registry gained two slots.
 
-Two holes remain in the same story:
+The former oldest-only diagnostic hole is now focused-verified: the oldest
+rejection remains the failing completion when there is no primary Script throw,
+and the existing host line-output ABI reports every other unhandled value in
+the checkpoint snapshot. With a primary Script throw, every snapshot value uses
+host output and the Script throw remains primary. Diagnostic coercion operates
+on a detached finite snapshot, leaving reentrant rejections on the fresh live
+tracker. `cargo xc` is green; the bounded source guard passes `5/5`, the engine
+checkpoint regression passes `1/1`, and the public CLI fixtures pass `2/2`.
 
-- **Only the oldest unhandled rejection is reported**, because the main export
-  carries a single completion value. Hosts normally report every one. Adequate
-  for pass/fail scoring, imprecise as a diagnostic. `emit_report_unhandled_rejection`
-  already walks the whole list and could print the rest via the host `print`
-  import before setting the throw completion.
+One hole remains in the same story:
+
 - The rejection list is process-global rather than per-realm, so cross-realm
   (`$262.createRealm`) promises share one tracker. Untested territory rather
   than a known break - cross-realm is the one feature still failing the probe.

@@ -9,12 +9,12 @@ completion. The completion remains the primary result of the run. A rejection
 created by a drained job may be recorded as unhandled, but it must not replace
 an already-pending top-level throw.
 
-The Wasm-AOT backend already implements the second half of this rule:
-`emit_drain_promise_jobs` saves and restores the complete result tuple, and
-`emit_report_unhandled_rejection` promotes a rejection only while the restored
-completion is Normal. The missing first half was control flow. An abrupt
-operation in the main body called `emit_return_current_completion`, which
-returned from the Wasm export before either helper could run.
+The Wasm-AOT backend implements both halves of this rule:
+`emit_drain_promise_jobs` saves and restores the complete result tuple, while
+`emit_report_unhandled_rejection` reports the complete detached checkpoint
+snapshot of the still-unhandled FIFO and promotes its oldest rejection only
+while the restored completion is Normal. The control-flow half prevents an
+abrupt operation in the main body from returning before either helper can run.
 
 ## Closed completion-exit state
 
@@ -47,20 +47,89 @@ The checkpoint performs these steps in order:
    error-name/message diagnostic globals;
 2. drain all currently reachable Promise jobs, including jobs they enqueue;
 3. restore the Script completion and checkpoint realm;
-4. inspect the unhandled-rejection list;
-5. promote the oldest rejection only when the Script completion is Normal;
-6. publish the resulting main-export tuple.
+4. capture the unhandled-rejection head and tail, detach both tracker globals,
+   and sever the captured tail's intrusive link before any diagnostic
+   conversion can run;
+5. inspect every candidate in that finite FIFO snapshot, re-reading its strict
+   Promise state and `[[IsHandled]]` mark after the drain;
+6. when the Script completion is Normal, reserve the oldest still-unhandled
+   rejection for the exported Throw and print every later rejection value in
+   FIFO order;
+7. when an abrupt Script completion is already primary, print every
+   still-unhandled rejection value in FIFO order;
+8. consume only the detached snapshot, promote the reserved oldest rejection
+   only when the Script completion is Normal, and publish the resulting
+   main-export tuple.
 
 Thus a queued job can run and reject after `throw primary`, while the public
-completion still carries `primary`. This contract does not claim that every
-unhandled rejection is reported, that the rejection tracker is realm-owned, or
-that module/finalization jobs share this queue; those remain explicit T14/T06
-work.
+completion still carries `primary` and every rejection captured after the job
+drain remains visible through the line-oriented host output ABI. Symbol values
+use the existing non-coercing `SymbolDescriptiveString` path. Other values use
+the same `ToString` operation as host `print`; when user conversion throws, the
+reporter prints the fixed `unhandled rejection diagnostic ToString threw`
+marker, restores the Script/oldest-rejection completion and its name/message
+globals, and continues with the next FIFO entry. Thus conversion failure is
+visible but cannot silently replace the primary failure. A `print_line_utf8`
+host failure is not caught, so the checkpoint cannot report success after its
+output failed. The print import is present for every heap-backed module even
+when source never names `print`.
+
+`ToString` may itself call `Promise.reject`. Those reentrant rejections append
+to the newly empty live tracker: they cannot mutate the severed snapshot tail,
+extend the current walk or make a recursively rejecting conversion loop
+forever. The reporter never clears that fresh FIFO. It is outside the current
+checkpoint snapshot and remains available to later host policy. This lane does
+not schedule a second main-export checkpoint for rejections created while the
+first checkpoint is formatting diagnostics.
+
+This contract does not claim that the rejection tracker is realm-owned or that
+module/finalization jobs share this queue; those remain explicit T14/T06 work.
+
+## Product owner census
+
+- `heap.rs` declares the intrusive Promise-record link, and `module.rs`
+  declares the tracker head/tail globals and line-print import index.
+- Promise allocation clears the link; `emit_track_unhandled_rejection` is the
+  sole FIFO append owner.
+- `emit_report_unhandled_rejection` is the sole traversal, diagnostic and
+  snapshot-detachment/consumption owner.
+- the main-body compiler calls that reporter once after the job drain;
+  `emit_script_with_forced_builtins` is the sole import-authority decision that
+  makes the host printer reachable from that product call.
+
+No CLI or engine wrapper reconstructs the queue. They observe only the host
+lines and the final main-export completion.
 
 ## Durable consumer contract
 
 The engine regression queues a Promise reaction that prints and throws a
 secondary `RangeError`, then throws a primary top-level `TypeError`. It requires
-both the printed job side effect and the primary TypeError/message. Either a
-premature Wasm return or an unhandled-rejection overwrite fails the same focused
+the printed job side effect, the `RangeError: secondary` rejection diagnostic,
+and the primary TypeError/message. Either a premature Wasm return, an omitted
+rejection report or an unhandled-rejection overwrite fails the same focused
 contract.
+
+The CLI fixtures
+`crates/lila-cli/tests/fixtures/wasm_multiple_unhandled_rejections.js` and
+`crates/lila-cli/tests/fixtures/wasm_multiple_unhandled_rejections_with_primary_throw.js`
+name no host-print global. Together they require handled candidates to remain
+silent, all unhandled values to be reported once in FIFO order, the oldest
+rejection to supply the Throw when the Script completes normally, and an
+existing top-level `TypeError` to remain primary while all rejection values are
+printed. They include Symbol, throwing-`toString` and recursively rejecting
+`toString` values, pinning the descriptive Symbol output, fixed conversion-
+failure marker, finite detached-snapshot policy, continued FIFO walk and
+primary-completion restoration. The bounded structure target additionally
+rejects the retired first-match loop exit, clearing the fresh reentrant FIFO,
+removing the product checkpoint call or its CLI test registrations, and any
+restoration of source-reference-only print-import authority.
+
+## Verification
+
+The coordinated checkpoint ran `cargo xc` and the focused structure, engine
+and CLI targets. The bounded unhandled-rejection structure suite passes `5/5`,
+`wasm_backend_drains_promise_jobs_after_top_level_throw_without_replacing_it`
+passes `1/1`, and the two `functions::run_wasm_backend_reports_` CLI regressions
+pass `2/2`. The shared Wasm-AOT fake suites also pass `187/187` and `191/191`,
+with every non-success bucket at zero. These checks do not establish realm-
+owned rejection tracking or full Promise/Test262 closure.

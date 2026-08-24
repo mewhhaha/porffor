@@ -1,0 +1,211 @@
+# TypedArray `subarray` buffer witness
+
+Status: focused-verified for the T17 Wasm-AOT source-length witness lane on
+2026-08-24.
+
+## Specification boundary
+
+This contract is pinned to the ECMA-262 2026
+[`%TypedArray%.prototype.subarray`](https://tc39.es/ecma262/2026/multipage/indexed-collections.html#sec-%typedarray%.prototype.subarray)
+algorithm and Test262 revision `e9d582d6b8b13afc5ba9a676664741592b5c7f69`.
+
+`subarray` is deliberately not a validated TypedArray method-entry
+observation. After requiring the TypedArray internal slots, it creates one
+TypedArray-with-buffer witness and derives `srcLength`. A detached or currently
+out-of-bounds receiver contributes length zero; it does not throw before
+argument coercion. The method then:
+
+1. coerces and clamps `start` against that captured length;
+2. defaults `end` to the same length or coerces and clamps an explicit value;
+3. computes `beginByteOffset` from the immutable stored source byte offset;
+4. passes only `(buffer, beginByteOffset)` when the source is length-tracking
+   and `end` is `undefined`, preserving a length-tracking result;
+5. otherwise passes `(buffer, beginByteOffset, newLength)`, producing a fixed
+   result; and
+6. performs species construction and checks that the returned TypedArray has
+   the same Number/BigInt content type.
+
+The witness is not repeated after coercion or species lookup. Growth and
+shrinkage during either coercion cannot change the captured index range.
+Backing-store state is observed again only by the selected species constructor
+when it processes the passed buffer, byte offset and optional length.
+
+For a detached source, the selected constructor normally throws after both
+arguments and species have been observed. When species resolution selects an
+explicit constructor, that TypeError belongs to the selected constructor's
+Realm, not to the executing `subarray` builtin. A custom species may ignore the
+detached buffer and return a compatible TypedArray, in which case `subarray`
+succeeds. An initially out-of-bounds resizable view can likewise become in
+bounds during coercion, but its start/end normalization still uses the earlier
+zero-length snapshot while its stored byte offset is retained for construction.
+
+## Migrated owner
+
+The sole product owner is the
+`StandardBuiltinId::TypedArrayPrototypeSubarray` arm in
+`crates/lila-aot-wasm/src/builtins/standard.rs`. Before this lane it loaded the
+source viewed buffer, byte offset, stored byte length and bytes per element
+directly, called `emit_typed_array_current_byte_length`, divided the returned
+bytes locally and overwrote the stored-byte-length carrier.
+
+The arm now loads one immutable view:
+
+```rust
+let typed_array_view = TypedArrayViewLocals::new(
+    receiver_payload_local,
+    buffer_payload_local,
+    byte_offset_local,
+    stored_byte_length_local,
+    bytes_per_element_local,
+);
+```
+
+and consumes exactly one closed projection:
+
+```rust
+TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
+    length_local,
+}
+```
+
+`ArrayLikeLengthSnapshot` owns the one cached backing byte-length and data
+observation, fixed versus length-tracking out-of-bounds calculation, fixed-view
+stored extent and whole-element flooring. `ValidatedMethodEntry` is forbidden:
+it would incorrectly throw for a detached or initially out-of-bounds receiver
+before `start` and `end` coercion. `IntegerIndexedProperty` and the accessor
+projection expose different result domains.
+
+The separate source length-tracking flag and element kind remain direct
+immutable metadata reads. The former selects the normative two- versus
+three-argument species construction shape; the latter selects the intrinsic
+default constructor and participates in the result content-type comparison.
+Neither is a second backing-store length observation.
+
+## Preserved observable order and result shape
+
+The emitted order remains:
+
+1. reject a receiver without the TypedArray brand through the executing
+   builtin's Realm;
+2. load one immutable source view, source element kind and source
+   length-tracking flag;
+3. create the non-throwing witness and capture `length_local`;
+4. load, convert and clamp `begin` against that snapshot;
+5. initialize `endIndex` from the snapshot, then convert and clamp an explicit
+   non-`undefined` `end` against it;
+6. compute `newLength` and `beginByteOffset` using the immutable element size
+   and stored source byte offset;
+7. select the intrinsic constructor from the source element kind;
+8. read `receiver.constructor` and its `@@species` property;
+9. prepare three arguments, reducing the actual count to two only for a
+   length-tracking source with `end === undefined`;
+10. construct the result, require a TypedArray result and reject a Number versus
+    BigInt content-type mismatch; and
+11. publish the existing normal completion.
+
+The result's buffer sharing, byte offset, fixed/length-tracking shape and
+element-kind selection remain constructor-owned. This lane does not add a late
+source revalidation or copy elements; `subarray` creates a view over the passed
+buffer.
+
+## Durable structural and runtime evidence
+
+`crates/lila-aot-wasm/tests/typed_array_subarray_witness_structure.rs` bounds
+only the `TypedArrayPrototypeSubarray` arm through the following `DateNow` arm.
+It requires one private-state load, one immutable view and one
+`ArrayLikeLengthSnapshot` witness. It rejects both legacy byte-length emitters,
+direct view-slot or backing-store observations, a throwing witness projection,
+local byte division and writes to immutable view or witness-result locals.
+
+The guard pins the public `"subarray"` installation to
+`TypedArrayPrototypeSubarray`, then pins the receiver check; source view, element-kind and
+length-tracking metadata order; witness-before-coercion boundary; begin/end and
+species order; exact length-tracking two-argument override; result element-kind
+validation; reverse-order local release; and focused CLI fixture connection.
+
+`crates/lila-cli/tests/fixtures/wasm_typedarray_subarray_buffer_witness.js`,
+owned by
+`typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness`,
+checks:
+
+- a fixed `Uint16Array` result becomes out of bounds after shrink and restores
+  its stored extent after regrowth;
+- omitting `end` on a length-tracking source creates a length-tracking result,
+  while explicit `end` creates a fixed result;
+- odd available byte lengths are floored to complete `Uint16` elements;
+- begin and end coercion precede species construction and pass the expected
+  buffer, byte offset and element length;
+- an initially out-of-bounds fixed source snapshots zero length, still coerces
+  begin, regrows, and constructs at the stored byte offset;
+- a detached source still coerces both arguments before its intrinsic
+  constructor throws, while a custom species can return a compatible result;
+- borrowing another Realm's method onto an entry-Realm detached receiver keeps
+  the later explicitly selected constructor TypeError in that constructor's
+  Realm; and
+- default `Uint16Array` and `BigUint64Array` results retain their element kind.
+
+## Exact pinned Test262 inventory
+
+The smallest direct cohort covering the migrated observation and retained
+construction boundary is:
+
+- `built-ins/TypedArray/prototype/subarray/resizable-buffer.js`;
+- `built-ins/TypedArray/prototype/subarray/result-byteOffset-from-out-of-bounds.js`;
+- `built-ins/TypedArray/prototype/subarray/coerced-begin-end-grow.js`;
+- `built-ins/TypedArray/prototype/subarray/coerced-begin-end-shrink.js`;
+- `built-ins/TypedArray/prototype/subarray/detached-buffer.js`; and
+- `built-ins/TypedArray/prototype/subarray/byteoffset-with-detached-buffer.js`.
+
+The resizable-buffer leaves cover fixed and tracking sources, entry snapshots,
+initial out-of-bounds recovery and resize during coercion. The detached leaves
+distinguish the non-throwing snapshot from the later default/custom species
+boundary. The CLI fixture and structural guard pin the two- versus
+three-argument construction shape directly.
+
+None has a strictness-limiting flag at this pin. Each discovers two
+sloppy/strict Wasm-AOT variants. All six leaves pass their `12/12` variants,
+with every non-success bucket at zero.
+
+`speciesctor-get-species-custom-ctor-invocation.js` is an adjacent construction
+control rather than part of the migrated source-length cohort. Its two variants
+remain `Runtime/Bug`: the Number case throws `Constructor called with arguments`
+and the BigInt case reaches Boa's `Cannot assign to property` TypeError. The
+pre-batch artifact
+`test262/snapshots/typedarray-prototype-subarray-current-pin-baseline-67-3353953584716781290.json`
+already records both failures, so this lane makes no pass claim for that leaf.
+
+## Verification ladder
+
+The coordinated checkpoint ran:
+
+```sh
+cargo test -p lila-aot-wasm --test typed_array_subarray_witness_structure -- --test-threads=1
+cargo test -p lila-cli --test cli typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness -- --exact --test-threads=1
+```
+
+The structure target passes `3/3`, the exact CLI fixture passes `1/1`, and the
+six direct Test262 leaves pass `12/12` variants under
+`--execution-backend wasm-aot --jobs 1 --threads 1`. `cargo xc` and the shared
+format and diff gates are green. The adjacent custom-species control was run
+separately and retains its two pre-existing failures described above.
+
+## Explicit nonclaims
+
+This lane does not change argument conversion, clamping, species lookup,
+constructor invocation, target brand/content-type validation, result
+publication or the underlying TypedArray constructor. It does not add a
+post-coercion source witness or claim that shrinkage during coercion must throw;
+the constructor decides whether the captured offset/length arguments remain
+valid for the current buffer.
+
+It does not migrate the remaining raw current-length observations in indexed
+object read/write emitters or Array builtins, change SharedArrayBuffer behavior,
+retire a Test262 rewrite, refresh aggregate status or published counts, or
+complete `subarray`, TypedArray or T17.
+
+Two adjacent `subarray` debts remain explicit. A nullish species fallback still
+selects its default TypedArray constructor from entry globals rather than the
+executing builtin's Realm. Result validation checks the TypedArray brand and
+Number/BigInt content category but does not reject a species-returned detached
+or currently out-of-bounds view through `ValidateTypedArray`. Neither behavior
+is evidence for or against the migrated source-length witness.

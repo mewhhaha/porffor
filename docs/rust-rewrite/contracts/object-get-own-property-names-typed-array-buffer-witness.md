@@ -112,7 +112,8 @@ This lane does not change Proxy own-key validation, ordinary key storage,
 property-key classification, Symbol enumeration, result allocation, or any
 other `Object`/`Reflect` builtin. It does not migrate the separate
 `Reflect.ownKeys` compiler or the remaining raw TypedArray observations in
-Array builtins, standard builtins or indexed object read/write emitters.
+Array builtins or indexed object read/write emitters. The last standard-builtin
+owner, `subarray`, has a separate buffer-witness contract.
 
 It retires no Test262 rewrite, changes no aggregate or published conformance
 count, and does not complete integer-indexed exotic objects, TypedArrays or

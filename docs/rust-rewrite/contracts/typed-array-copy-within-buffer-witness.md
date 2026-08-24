@@ -195,9 +195,10 @@ the TypedArray integer-indexed exotic protocol. It introduces no new witness
 variant and does not change `TypedArrayViewLocals` or the shared witness's
 semantics.
 
-It does not migrate `%TypedArray%.prototype.with`, `set`, `slice`, `subarray`,
-constructor validation, species-target validation or another raw TypedArray
-consumer. It does not modify Test262, materializers, harness adaptations,
+It does not migrate `%TypedArray%.prototype.with`, `set`, constructor
+validation, species-target validation or another raw TypedArray consumer.
+`slice` and `subarray` have separate buffer-witness contracts. It does not
+modify Test262, materializers, harness adaptations,
 published conformance counts or the README status. The current CLI fixture
 does not prove created-Realm error-prototype identity; source structure proves
 only that both validating observations route failures through the shared

@@ -1190,7 +1190,10 @@ fn emit_script_with_forced_builtins(
         .copied()
         .filter(|builtin| !compiled_host_builtins.contains(builtin))
         .collect::<Vec<_>>();
-    let uses_host_print = compiled_host_builtins.contains(&HostBuiltinId::Print);
+    // The main job checkpoint reports unhandled Promise rejections through the
+    // same line-oriented host ABI as `print`. Its import therefore belongs to
+    // every heap-backed module even when user source never names `print`.
+    let uses_host_print = uses_heap || compiled_host_builtins.contains(&HostBuiltinId::Print);
     let uses_agent_host = compiled_host_builtins.iter().any(|builtin| {
         matches!(
             builtin,

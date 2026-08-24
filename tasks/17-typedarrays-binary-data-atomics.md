@@ -316,14 +316,37 @@ two smallest adjacent resizable-buffer `[[OwnPropertyKeys]]` controls. They
 pass all `4/4` Wasm-AOT variants with every non-success bucket at zero, while
 remaining adjacent rather than direct evidence for this compiler.
 
-These migrations still do not cover `with`, `set`, `subarray`, constructor
-validation or other remaining raw validators. They do not change key
+`%TypedArray%.prototype.subarray` now loads one immutable
+`TypedArrayViewLocals` and consumes the non-throwing
+`ArrayLikeLengthSnapshot` projection. Detached and initially out-of-bounds
+sources therefore contribute a zero source-length snapshot without skipping
+begin/end coercion or species construction. An explicitly selected constructor
+still owns any later detached-buffer error and its Realm, and a custom species may
+return a compatible result. The compiler retains the stored source byte offset,
+floors available bytes to whole elements, selects the source element kind for
+the intrinsic default constructor, and keeps the normative two-argument result
+construction only when the source is length-tracking and `end` is omitted. The
+focused
+[subarray buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-subarray-buffer-witness.md),
+bounded owner guard and CLI fixture are focused-verified: `cargo xc` is green,
+the structure target passes `3/3`, the exact CLI fixture passes `1/1`, and the
+six direct pinned Test262 leaves pass all `12/12` Wasm-AOT variants with every
+non-success bucket at zero. The adjacent custom-species-constructor invocation
+leaf retains two `Runtime/Bug` failures already recorded in the pre-batch
+current-pin baseline, so it is not included in the witness cohort's pass claim.
+
+These migrations still do not cover `with`, `set`, constructor validation or
+other remaining raw validators. They do not change key
 classification, caller-specific integer-indexed descriptor/result policy,
 result allocation, SharedArrayBuffer synchronization, Test262 rewrites or
 published counts. The toLocaleString, map/filter and copyWithin fixtures do not
 prove created-Realm buffer-error prototype identity at direct method entry;
 only the shared witness's current-function-Realm route is structurally owned
 for that case.
+`subarray` additionally retains two adjacent semantic debts: its nullish-species
+default constructor comes from entry globals rather than the executing Realm,
+and its species result does not yet reject detached or out-of-bounds TypedArrays
+through `ValidateTypedArray`.
 
 ## Objective
 

@@ -793,23 +793,81 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(is_handled_local);
     }
 
-    /// Turns the oldest still-unhandled rejection into a throw completion for
-    /// the main export. Runs once, after the job queue has drained, so every
-    /// handler that a job could still attach has already been attached.
+    /// Reports the finite snapshot of still-unhandled rejections captured at
+    /// the main-export checkpoint. When the Script completion is Normal, the
+    /// oldest rejection becomes the exported Throw and each later value is
+    /// printed in FIFO order. When an abrupt Script completion is already
+    /// pending, every snapshot rejection is printed and the Script completion
+    /// remains primary.
     pub(crate) fn emit_report_unhandled_rejection(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let value_to_string_helper = self.value_to_string_helper_function_index().ok_or_else(|| {
+            EmitError::unsupported(
+                "unsupported in lila wasm-aot: unhandled-rejection reporting requires the value-to-string runtime helper",
+            )
+        })?;
         let record_local = self.reserve_temp_local();
+        let snapshot_head_local = self.reserve_temp_local();
+        let snapshot_tail_local = self.reserve_temp_local();
         let state_local = self.reserve_temp_local();
         let is_handled_local = self.reserve_temp_local();
-        let found_local = self.reserve_temp_local();
+        let oldest_unhandled_local = self.reserve_temp_local();
+        let rejection_payload_local = self.reserve_temp_local();
+        let rejection_tag_local = self.reserve_temp_local();
+        let rejection_string_local = self.reserve_temp_local();
+        let rejection_string_ptr_local = self.reserve_temp_local();
+        let rejection_string_len_local = self.reserve_temp_local();
+        let conversion_completion_local = self.reserve_temp_local();
+        let conversion_aux_local = self.reserve_temp_local();
+        let saved_throw_error_name_local = self.reserve_temp_local();
+        let saved_throw_error_message_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::GlobalGet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::LocalSet(saved_throw_error_name_local));
+        function.instruction(&Instruction::GlobalGet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::LocalSet(saved_throw_error_message_local));
 
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::LocalSet(oldest_unhandled_local));
         function.instruction(&Instruction::GlobalGet(
             PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
         ));
+        function.instruction(&Instruction::LocalSet(snapshot_head_local));
+        function.instruction(&Instruction::GlobalGet(
+            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(snapshot_tail_local));
+
+        // Diagnostic conversion may reject another Promise. Detach the finite
+        // checkpoint snapshot first, and sever its old tail, so reentrant
+        // rejections start a fresh FIFO rather than extending this traversal.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(
+            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(
+            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalGet(snapshot_tail_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_i64_const_at_offset(
+            snapshot_tail_local,
+            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
+            0,
+            function,
+        );
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(snapshot_head_local));
         function.instruction(&Instruction::LocalSet(record_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
@@ -830,9 +888,82 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(oldest_unhandled_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::LocalSet(found_local));
-        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::LocalSet(oldest_unhandled_local));
+        function.instruction(&Instruction::End);
+
+        // A Normal Script completion exposes the oldest rejection through the
+        // main-export Throw below. Every later rejection, or every rejection
+        // when a Script throw is already primary, must use the host output ABI.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(oldest_unhandled_local));
+        function.instruction(&Instruction::LocalGet(record_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
+            rejection_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_PROMISE_RESULT_TAG_OFFSET,
+            rejection_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(rejection_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_symbol_descriptive_string_to_local(
+            rejection_payload_local,
+            rejection_string_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(rejection_payload_local));
+        function.instruction(&Instruction::LocalGet(rejection_tag_local));
+        for _ in 0..5 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(value_to_string_helper));
+        self.store_call_results_to(
+            rejection_string_local,
+            rejection_tag_local,
+            conversion_completion_local,
+            conversion_aux_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(conversion_completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .payload(UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE),
+        ));
+        function.instruction(&Instruction::LocalSet(rejection_string_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.emit_unpack_string_payload(
+            rejection_string_local,
+            rejection_string_ptr_local,
+            rejection_string_len_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(rejection_string_ptr_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(rejection_string_len_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::Call(HOST_PRINT_IMPORT_FUNCTION_INDEX));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         self.load_i64_to_local_from_offset(
             record_local,
@@ -844,17 +975,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        // The list is consumed exactly once; drop it so nothing re-reports.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::GlobalSet(
-            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::GlobalSet(
-            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
-        ));
+        // The detached snapshot is consumed exactly once. The globals now
+        // belong exclusively to rejections created during diagnostics.
+        function.instruction(&Instruction::LocalGet(saved_throw_error_name_local));
+        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::LocalGet(saved_throw_error_message_local));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
 
-        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::LocalGet(oldest_unhandled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::LocalGet(self.completion_local));
@@ -863,13 +995,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
-            found_local,
+            oldest_unhandled_local,
             HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
             self.result_local,
             function,
         );
         self.load_i64_to_local_from_offset(
-            found_local,
+            oldest_unhandled_local,
             HEAP_PROMISE_RESULT_TAG_OFFSET,
             self.result_tag_local,
             function,
@@ -882,9 +1014,20 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind_with_aux(CompletionKind::Throw, -1, function);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(found_local);
+        self.release_temp_local(saved_throw_error_message_local);
+        self.release_temp_local(saved_throw_error_name_local);
+        self.release_temp_local(conversion_aux_local);
+        self.release_temp_local(conversion_completion_local);
+        self.release_temp_local(rejection_string_len_local);
+        self.release_temp_local(rejection_string_ptr_local);
+        self.release_temp_local(rejection_string_local);
+        self.release_temp_local(rejection_tag_local);
+        self.release_temp_local(rejection_payload_local);
+        self.release_temp_local(oldest_unhandled_local);
         self.release_temp_local(is_handled_local);
         self.release_temp_local(state_local);
+        self.release_temp_local(snapshot_tail_local);
+        self.release_temp_local(snapshot_head_local);
         self.release_temp_local(record_local);
         Ok(())
     }

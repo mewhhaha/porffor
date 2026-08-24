@@ -1277,6 +1277,126 @@ mod tests {
     }
 
     #[test]
+    fn generator_expression_super_rejections_cover_parameters_bodies_arrows_and_goals() {
+        for source in [
+            "(function*() { super(); });",
+            "(function*() { void super.value; });",
+            "(function*(value = super()) {});",
+            "(function*(value = super.value) {});",
+            "(function* named() { super(); });",
+            "(function* named(value = super.value) {});",
+            "(function*() { (() => super())(); });",
+            "(function*(value = (() => super.value)()) {});",
+            "(function*() { (async () => super())(); });",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("GeneratorExpression parameters and body may not contain super");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::GeneratorExpressionContainsSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the generator-expression rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn generator_expression_super_positive_boundaries_remain_valid_under_both_goals() {
+        for source in [
+            "(function*() {});",
+            "(function* named(value) { yield value; });",
+            "(function*() { function nested() {} });",
+            "(function*() { class D extends Object { constructor() { super(); } } });",
+            "(function*() { return \"super() and super.value\"; });",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("nested ownership and ordinary text must remain parse-valid");
+            }
+        }
+    }
+
+    #[test]
+    fn generator_expression_super_precedence_preserves_prior_callable_checks() {
+        for (source, code) in [
+            (
+                "(function*(value = yield) { super(); });",
+                EarlyErrorCode::GeneratorExpressionParametersContainYield,
+            ),
+            (
+                "(function*(value = super(), value) {});",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "(function*(value = super()) { \"use strict\"; });",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
+                "(function*(value = super()) { let value; });",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("an earlier GeneratorExpression check should own the rejection");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn generator_expression_super_classifier_is_anchored_and_injection_safe() {
+        for (message, expected) in [
+            (
+                "generator expression cannot contain super at line 1, col 12",
+                Some(EarlyErrorCode::GeneratorExpressionContainsSuper),
+            ),
+            (
+                "async function expression cannot contain super at line 1, col 17",
+                Some(EarlyErrorCode::AsyncFunctionExpressionContainsSuper),
+            ),
+            (
+                "function expression cannot contain super at line 1, col 11",
+                Some(EarlyErrorCode::FunctionExpressionContainsSuper),
+            ),
+            ("invalid super usage at line 1, col 12", None),
+            ("invalid super call usage at line 1, col 12", None),
+        ] {
+            assert_eq!(
+                classify_parse_failure(message).map(ParseClassified::code),
+                expected
+            );
+        }
+
+        let exported_name = "generator expression cannot contain super at line";
+        let source = format!(
+            "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
+        );
+        let err = parse(&source, ParseOptions::module())
+            .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err:?}"
+        );
+    }
+
+    #[test]
     fn class_super_call_positive_boundaries_remain_valid_under_both_goals() {
         for source in [
             "class C {}",
@@ -1395,7 +1515,6 @@ mod tests {
             "function* f() { super.value; }",
             "async function f() { super.value; }",
             "async function* f() { super.value; }",
-            "(function*() { super.value; });",
             "(async function*() { super.value; });",
             "class C { method() { super(); } }",
         ] {
@@ -1526,6 +1645,7 @@ mod tests {
         const FUNCTION_DECLARATION_MESSAGE: &str = "function declaration cannot contain super";
         const ASYNC_FUNCTION_EXPRESSION_MESSAGE: &str =
             "async function expression cannot contain super";
+        const GENERATOR_EXPRESSION_MESSAGE: &str = "generator expression cannot contain super";
         const MODULE_MESSAGE: &str = "module cannot contain `super` on the top-level";
         const SCRIPT_BRANCH: &str = r#"if contains(&body, ContainsSymbol::Super) {
                 return Err(Error::general("invalid super usage", Position::new(1, 1)));
@@ -1547,6 +1667,12 @@ mod tests {
         const ASYNC_FUNCTION_EXPRESSION_SUPER_BRANCH: &str = r#"if contains(&function, ContainsSymbol::Super) {
             return Err(Error::lex(LexError::Syntax(
                 "async function expression cannot contain super".into(),
+                params_start_position,
+            )));
+        }"#;
+        const GENERATOR_EXPRESSION_SUPER_BRANCH: &str = r#"if contains(&function, ContainsSymbol::Super) {
+            return Err(Error::lex(LexError::Syntax(
+                "generator expression cannot contain super".into(),
                 params_start_position,
             )));
         }"#;
@@ -1670,7 +1796,7 @@ mod tests {
 
         let boa_package_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
-        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 4);
+        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 3);
         assert_eq!(
             count_in_rust_sources(
                 &boa_package_root,
@@ -1684,6 +1810,10 @@ mod tests {
         );
         assert_eq!(
             count_in_rust_sources(&boa_package_root, ASYNC_FUNCTION_EXPRESSION_MESSAGE),
+            1
+        );
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, GENERATOR_EXPRESSION_MESSAGE),
             1
         );
         assert_eq!(count_in_rust_sources(&boa_package_root, METHOD_MESSAGE), 11);
@@ -1763,26 +1893,54 @@ mod tests {
             "Module must retain its separate super owner and ordering"
         );
 
-        for source in [
-            GENERATOR_EXPRESSION_SOURCE,
-            ASYNC_GENERATOR_EXPRESSION_SOURCE,
-        ] {
-            assert_eq!(source.matches(RAW_MESSAGE).count(), 1);
-            let compact_source = compact(source);
-            assert_eq!(
-                compact_source
-                    .matches(compact(PARAMETER_POSITION).as_str())
-                    .count(),
-                1,
-                "each callable owner must retain its parameter-start position"
-            );
-            assert_eq!(
-                source
-                    .matches(r#"Error::general("invalid super usage", Position::new(1, 1))"#,)
-                    .count(),
-                0
-            );
-        }
+        assert_eq!(
+            ASYNC_GENERATOR_EXPRESSION_SOURCE
+                .matches(RAW_MESSAGE)
+                .count(),
+            1
+        );
+        let compact_async_generator_expression = compact(ASYNC_GENERATOR_EXPRESSION_SOURCE);
+        assert_eq!(
+            compact_async_generator_expression
+                .matches(compact(PARAMETER_POSITION).as_str())
+                .count(),
+            1,
+            "the remaining generic expression owner must retain its parameter-start position"
+        );
+        assert_eq!(
+            ASYNC_GENERATOR_EXPRESSION_SOURCE
+                .matches(r#"Error::general("invalid super usage", Position::new(1, 1))"#,)
+                .count(),
+            0
+        );
+        assert_eq!(GENERATOR_EXPRESSION_SOURCE.matches(RAW_MESSAGE).count(), 0);
+        assert_eq!(
+            GENERATOR_EXPRESSION_SOURCE
+                .matches(GENERATOR_EXPRESSION_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            compact(GENERATOR_EXPRESSION_SOURCE)
+                .matches(compact(GENERATOR_EXPRESSION_SUPER_BRANCH).as_str())
+                .count(),
+            1,
+            "the unique GeneratorExpression message must remain on the completed-node Contains Super branch"
+        );
+        let generator_parameter_yield_check = GENERATOR_EXPRESSION_SOURCE
+            .find("if contains(&params, ContainsSymbol::YieldExpression)")
+            .expect("the GeneratorExpression parameter Yield check remains present");
+        let generator_node_construction = GENERATOR_EXPRESSION_SOURCE
+            .find("let function = GeneratorExpressionNode::new(")
+            .expect("the complete GeneratorExpression node remains present");
+        let generator_super_check = GENERATOR_EXPRESSION_SOURCE
+            .find(GENERATOR_EXPRESSION_SUPER_BRANCH)
+            .expect("the GeneratorExpression Contains Super branch remains present");
+        assert!(
+            generator_parameter_yield_check < generator_node_construction
+                && generator_node_construction < generator_super_check,
+            "the GeneratorExpression parameter-Yield / completed-node-super order changed"
+        );
         assert_eq!(
             ASYNC_FUNCTION_EXPRESSION_SOURCE
                 .matches(RAW_MESSAGE)
@@ -2240,9 +2398,9 @@ mod tests {
             vec![
                 (
                     "crates/lila-front/src/early_error_code.rs".to_string(),
-                    36,
+                    40,
                 ),
-                ("crates/lila-front/src/lib.rs".to_string(), 14),
+                ("crates/lila-front/src/lib.rs".to_string(), 15),
                 ("crates/lila-ir/src/modules/early.rs".to_string(), 2),
             ],
             "every classifier identifier, including imports, re-exports and aliases, requires review"
@@ -2255,7 +2413,7 @@ mod tests {
         assert_eq!(
             product_classifier_calls,
             vec![
-                ("crates/lila-front/src/early_error_code.rs".to_string(), 31,),
+                ("crates/lila-front/src/early_error_code.rs".to_string(), 35,),
                 ("crates/lila-front/src/lib.rs".to_string(), 1),
             ],
             "only classifier self-proofs and the product parse boundary may call the classifier"

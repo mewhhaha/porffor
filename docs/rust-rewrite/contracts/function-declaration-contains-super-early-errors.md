@@ -1,7 +1,7 @@
 # FunctionDeclaration `Contains super` early errors
 
-**Status:** Product condition and shared producer census through the
-AsyncFunctionExpression follow-up focused-verified, 2026-08-24
+**Status:** Product condition and GeneratorExpression-updated shared producer
+census focused-verified 2026-08-24
 
 ## Decision
 
@@ -75,13 +75,12 @@ location changes. The seam selects a diagnostic by production; it does not
 duplicate the semantic check.
 
 The new message occurs exactly once across pinned Boa Rust sources. The later
-AsyncFunctionExpression lane gives that production its own message. On current
-head, `invalid super usage` occurs four times: the fixed ScriptBody producer,
-the shared declaration default used by generator/async-function/async-generator
-declarations, and the generator-expression and async-generator-expression
-producers. The ordinary function and async-function-expression messages occur
-once each, and the method-owned `invalid super call usage` census remains
-eleven.
+AsyncFunctionExpression and GeneratorExpression lanes give those productions
+their own messages. On current head, `invalid super usage` occurs three times:
+the fixed ScriptBody producer, the shared declaration default used by generator,
+async-function and async-generator declarations, and the async-generator-
+expression producer. The four typed function messages occur once each, and the
+method-owned `invalid super call usage` census remains eleven.
 
 ## Typed and retained boundaries
 
@@ -139,8 +138,9 @@ The shared super-producer guard recursively requires:
 - the branch remains after parameter/body lexical-name validation and before
   the generator parameter checks;
 - each declaration parser still calls the common parser once;
-- exactly four generic raw messages plus the existing ordinary-function,
-  async-function-expression, class and method message censuses;
+- exactly three generic raw messages plus the existing ordinary-function,
+  async-function-expression, generator-expression, class and method message
+  censuses;
 - ordinary/async-arrow traversal and ordinary callable/nested-class stopping
   behavior in pinned `boa_ast`; and
 - the sole parse/classifier product boundary.
@@ -187,10 +187,13 @@ The subsequent AsyncFunctionExpression lane updates the shared producer guard;
 the complete `138/138` front gate and relevant `49/49` IR early and `49/49`
 graph groups are green with that census.
 
+The subsequent GeneratorExpression producer-census update passes the complete
+`142/142` front gate and relevant `50/50` IR early and `51/51` graph groups.
+
 ## Nonclaims
 
 This lane does not classify generator or async declarations, classify the
-remaining generator/async-generator expression messages, change `Contains`,
+remaining async-generator-expression message, change `Contains`,
 add syntax, support eval or Function-constructor dynamic source, alter function
 lowering or execution, claim that typed classification caused a new Test262 pass, refresh
 aggregate status, close callable grammar, or complete T07.

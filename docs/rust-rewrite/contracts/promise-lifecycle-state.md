@@ -110,7 +110,9 @@ invalid internal state.
 ## Nonclaims
 
 This invariant does not make the job queue realm- or agent-owned, add module or
-finalization-cleanup jobs, report every unhandled rejection, make rejection
-tracking realm-local, type async-generator lifecycle states, complete suspended
-async bodies, establish GC completion, or close the Promise/async Test262 gate.
-It is not expected to change a valid-program conformance count by itself.
+finalization-cleanup jobs, or make rejection tracking realm-local. The separate
+main-job checkpoint contract owns reporting every rejection in its detached
+still-unhandled snapshot. This state-word invariant also does not type async-
+generator lifecycle states, complete suspended async bodies, establish GC
+completion, or close the Promise/async Test262 gate. It is not expected to
+change a valid-program conformance count by itself.

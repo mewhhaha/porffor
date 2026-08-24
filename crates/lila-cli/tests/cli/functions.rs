@@ -569,6 +569,89 @@ fn run_wasm_backend_preserves_async_for_of_iteration_environments() {
 }
 
 #[test]
+fn run_wasm_backend_reports_every_unhandled_rejection_in_fifo_order() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_multiple_unhandled_rejections.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        [
+            "checkpoint-second",
+            "Symbol(checkpoint-symbol)",
+            "unhandled rejection diagnostic ToString threw",
+            "checkpoint-reentrant",
+            "checkpoint-third"
+        ],
+        "the oldest rejection is the exported Throw; every rejection in the detached checkpoint snapshot must be printed once in FIFO order: {stdout}"
+    );
+    assert!(
+        stderr.contains("uncaught throw") && stderr.contains("string(checkpoint-first)"),
+        "the oldest rejection must keep the run in a failing Throw completion: {stderr}"
+    );
+    assert!(
+        !stderr.contains("checkpoint-conversion"),
+        "a diagnostic conversion failure must not replace the oldest rejection: {stderr}"
+    );
+    assert!(
+        !stdout.contains("checkpoint-handled") && !stderr.contains("checkpoint-handled"),
+        "a rejection handled before the checkpoint must remain silent: stdout={stdout} stderr={stderr}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_reports_all_rejections_without_replacing_a_primary_throw() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_multiple_unhandled_rejections_with_primary_throw.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        [
+            "primary-first",
+            "primary-second",
+            "unhandled rejection diagnostic ToString threw",
+            "primary-third"
+        ],
+        "a pending Script throw makes every unhandled rejection diagnostic output, in FIFO order: {stdout}"
+    );
+    assert!(
+        stderr.contains("uncaught throw: TypeError") && stderr.contains("primary-script-failure"),
+        "the Script throw must remain the primary completion: {stderr}"
+    );
+    assert!(
+        !stderr.contains("primary-conversion"),
+        "a diagnostic conversion failure must not replace the primary Script throw: {stderr}"
+    );
+    assert!(
+        !stdout.contains("primary-handled") && !stderr.contains("primary-handled"),
+        "a handled rejection must remain silent beside a primary throw: stdout={stdout} stderr={stderr}"
+    );
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_function_form_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

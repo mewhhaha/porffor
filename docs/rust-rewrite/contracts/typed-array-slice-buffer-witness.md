@@ -390,8 +390,9 @@ verification remains pending.
 It does not migrate the raw validator inside
 `emit_validate_typed_array_from_constructed_target`, nor any of that helper's
 five callers as a family. It does not migrate `%TypedArray%.prototype.with`,
-`set`, `subarray`, a TypedArray constructor, integer-indexed exotic operations,
-Atomics or another remaining raw current-length consumer.
+`set`, a TypedArray constructor, integer-indexed exotic operations or another
+remaining raw current-length consumer. `subarray` and Atomics have separate
+buffer-witness contracts.
 
 It does not alter SharedArrayBuffer synchronization, resizable-buffer storage,
 Test262 materializers or harness adaptations. It does not retire a rewrite,

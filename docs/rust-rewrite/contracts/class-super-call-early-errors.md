@@ -1,7 +1,7 @@
 # Class constructor and static-block `super()` early errors
 
-**Status:** Product conditions and shared producer census through the
-AsyncFunctionExpression follow-up focused-verified, 2026-08-24
+**Status:** Product conditions and GeneratorExpression-updated shared producer
+census focused-verified 2026-08-24
 
 ## Decision
 
@@ -185,16 +185,18 @@ The eleven separate `invalid super call usage` producers for method
 The later, separately owned class-field initializer lane gives those four
 field producers their own message. The subsequent FunctionExpression and
 FunctionDeclaration lanes also give the two ordinary function productions
-their own messages. The AsyncFunctionExpression lane gives a third function
-production its own message. On current head, `invalid super usage` occurs four
-times: the ScriptBody producer, the shared default for the three remaining
-hoistable forms and two expression producers. The field message occurs four
-times and is owned by `ClassFieldInitializerContainsSuperCall`; the three
-function messages occur once each and are separately owned. See
+their own messages. The AsyncFunctionExpression and GeneratorExpression lanes
+give two more function productions their own messages. On current head,
+`invalid super usage` occurs three times: the ScriptBody producer, the shared
+default for the three remaining hoistable forms and the async-generator-
+expression producer. The field message occurs four times and is owned by
+`ClassFieldInitializerContainsSuperCall`; the four function messages occur
+once each and are separately owned. See
 `class-field-initializer-super-call-early-errors.md` and
 `function-expression-contains-super-early-errors.md` plus
 `function-declaration-contains-super-early-errors.md` and
-`async-function-expression-contains-super-early-errors.md`. The Script producer
+`async-function-expression-contains-super-early-errors.md` plus
+`generator-expression-contains-super-early-errors.md`. The Script producer
 remains byte-for-byte unchanged and continues to be selected only by the exact
 rendered message `invalid super usage at line 1, col 1`.
 
@@ -396,17 +398,17 @@ diagnostic without exercising a real front-end producer.
 The implementation extends one vendored-source guard that recursively
 inventories the pinned Boa packages and proves all of the following:
 
-- the current raw-message census is exactly `4 + 1 + 1 + 4 + 1 + 1 + 1`: four generic,
+- the current raw-message census is exactly `3 + 1 + 1 + 4 + 1 + 1 + 1 + 1`: three generic,
   one base-constructor, one static-block, four separately typed field messages
-  and one message for each of the three typed function productions;
+  and one message for each of the four typed function productions;
 - the two new raw messages each occur exactly once, both in
   `class_decl/mod.rs`;
 - the old raw `invalid super usage` no longer occurs in `class_decl/mod.rs`;
 - the separately typed field message occurs exactly four times in its four
   reviewed initializer branches;
-- the ordinary function expression/declaration and async-function-expression
-  messages occur once each and remain attached to their distinct completed-
-  node/shared-predicate owners;
+- the ordinary function expression/declaration, async-function-expression and
+  generator-expression messages occur once each and remain attached to their
+  distinct completed-node/shared-predicate owners;
 - the base-constructor message is dominated by the complete three-part
   `super_ref.is_none` / optional-constructor / `ContainsSymbol::SuperCall`
   conjunction, retains `body_start`, and remains after the complete
@@ -501,13 +503,17 @@ complete front library passes `129/129`; the relevant IR early and graph groups
 pass `47/47` and `45/45`. Each of the three exact Test262 files passes `2/2`,
 for an aggregate `6/6` Wasm-AOT variants with every non-success bucket at zero.
 
+The subsequent GeneratorExpression checkpoint leaves the verified shared
+census at `142/142` front tests, `50/50` relevant IR early tests and `51/51`
+graph tests.
+
 ## Explicit nonclaims
 
 This contract does not:
 
 - classify the eleven method-owned `invalid super call usage` producers;
-- classify the remaining generic generator/async declaration and expression
-  forms;
+- classify the remaining generic generator/async declarations or async-
+  generator expression;
 - own the separately implemented class-field-initializer `SuperCall`
   condition;
 - broaden or merge `ScriptTopLevelSuper` or `ModuleTopLevelSuper`;

@@ -39,6 +39,7 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::FunctionExpressionContainsSuper
         | EarlyErrorCode::FunctionDeclarationContainsSuper
         | EarlyErrorCode::AsyncFunctionExpressionContainsSuper
+        | EarlyErrorCode::GeneratorExpressionContainsSuper
         | EarlyErrorCode::DuplicateCatchParameter
         | EarlyErrorCode::CatchBodyDeclarationConflict
         | EarlyErrorCode::DuplicateClassConstructor

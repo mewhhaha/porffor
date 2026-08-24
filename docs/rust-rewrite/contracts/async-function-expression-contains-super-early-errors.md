@@ -1,6 +1,7 @@
 # AsyncFunctionExpression `Contains super` early errors
 
-**Status:** Focused-verified, 2026-08-24
+**Status:** Product condition and GeneratorExpression-updated shared producer
+census focused-verified 2026-08-24
 
 ## Decision
 
@@ -61,11 +62,12 @@ No grammar, predicate, check order, accepted source or location behavior
 changes.
 
 After the repair, the unique message occurs once across pinned Boa Rust
-sources. `invalid super usage` drops from five to four raw literals: the fixed
+sources. The later GeneratorExpression lane gives that production its own
+message. On current head, `invalid super usage` occurs three times: the fixed
 ScriptBody producer, the generic declaration default used by generator/async
-declarations, and the generator-expression and async-generator-expression
-producers. The ordinary function expression/declaration messages remain unique,
-and the method-owned `invalid super call usage` census remains eleven.
+declarations, and the async-generator-expression producer. All four typed
+function messages remain unique, and the method-owned `invalid super call
+usage` census remains eleven.
 
 ## Typed and retained boundaries
 
@@ -114,8 +116,10 @@ The shared super-producer guard recursively requires:
   message in that producer file;
 - the exact completed-node `contains(&function, ContainsSymbol::Super)` branch,
   new message and retained `params_start_position` together;
-- exactly four remaining generic raw messages, including the declaration
-  default and both remaining expression producers;
+- exactly one generator-expression-specific message on its completed-node
+  `Contains Super` branch;
+- exactly three remaining generic raw messages, including the declaration
+  default and sole remaining expression producer;
 - the existing ordinary function, class and method message censuses;
 - the declaration default/override boundary remains unchanged;
 - ordinary/async-arrow traversal and ordinary callable/nested-class stopping
@@ -157,10 +161,13 @@ paths were run separately through Wasm-AOT with `--jobs 1 --threads 1`; all
 eight sloppy/strict variants pass with every failure and non-success bucket at
 zero.
 
+The subsequent GeneratorExpression producer-census update passes the complete
+`142/142` front gate and relevant `50/50` IR early and `51/51` graph groups.
+
 ## Nonclaims
 
-This lane does not classify async declarations, generator/async-generator
-expressions or declarations, method-owned super restrictions, change
+This lane does not classify async declarations, generator declarations,
+async-generator expressions/declarations, method-owned super restrictions, change
 `Contains`, add syntax, support dynamic source, alter async execution, prove a
 new Test262 pass, refresh aggregate status, close callable grammar, or complete
 T07.

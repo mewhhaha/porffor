@@ -26,6 +26,8 @@ pub(crate) const REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION: u64 =
 
 pub(crate) const REALM_EVAL_SCRIPT_ESCAPE_MESSAGE: &str =
     "$262.evalScript dynamic source evaluation escaped typed lowering";
+pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
+    "unhandled rejection diagnostic ToString threw";
 
 /// Runtime-error message literals that no other interning path reaches.
 ///
@@ -594,6 +596,7 @@ impl StringPool {
         for value in [
             "",
             " ",
+            UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE,
             "          ",
             "\n",
             ": ",

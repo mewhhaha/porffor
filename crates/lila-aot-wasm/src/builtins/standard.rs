@@ -21645,7 +21645,7 @@ impl<'a> FunctionBuilder<'a> {
                 let buffer_payload_local = self.reserve_temp_local();
                 let buffer_tag_local = self.reserve_temp_local();
                 let byte_offset_local = self.reserve_temp_local();
-                let byte_length_local = self.reserve_temp_local();
+                let stored_byte_length_local = self.reserve_temp_local();
                 let bytes_per_element_local = self.reserve_temp_local();
                 let element_kind_local = self.reserve_temp_local();
                 let length_tracking_local = self.reserve_temp_local();
@@ -21703,29 +21703,20 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
 
-                self.load_i64_to_local_from_offset(
+                self.emit_load_typed_array_private_state(
                     receiver_payload_local,
-                    HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
                     buffer_payload_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_BYTE_OFFSET,
                     byte_offset_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
-                    byte_length_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+                    stored_byte_length_local,
                     bytes_per_element_local,
                     function,
+                );
+                let typed_array_view = TypedArrayViewLocals::new(
+                    receiver_payload_local,
+                    buffer_payload_local,
+                    byte_offset_local,
+                    stored_byte_length_local,
+                    bytes_per_element_local,
                 );
                 self.load_i64_to_local_from_offset(
                     receiver_payload_local,
@@ -21739,18 +21730,11 @@ impl<'a> FunctionBuilder<'a> {
                     length_tracking_local,
                     function,
                 );
-                self.emit_typed_array_current_byte_length(
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    buffer_payload_local,
-                    byte_offset_local,
-                    byte_length_local,
+                self.emit_typed_array_witness(
+                    &typed_array_view,
+                    TypedArrayWitnessUse::ArrayLikeLengthSnapshot { length_local },
                     function,
                 )?;
-                function.instruction(&Instruction::LocalGet(byte_length_local));
-                function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-                function.instruction(&Instruction::I64DivU);
-                function.instruction(&Instruction::LocalSet(length_local));
 
                 self.emit_builtin_arg_to_locals(0, begin_payload_local, begin_tag_local, function);
                 self.emit_value_to_number_payload(begin_tag_local, begin_payload_local, function)?;
@@ -22034,7 +22018,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(length_tracking_local);
                 self.release_temp_local(element_kind_local);
                 self.release_temp_local(bytes_per_element_local);
-                self.release_temp_local(byte_length_local);
+                self.release_temp_local(stored_byte_length_local);
                 self.release_temp_local(byte_offset_local);
                 self.release_temp_local(buffer_tag_local);
                 self.release_temp_local(buffer_payload_local);

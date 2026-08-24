@@ -743,6 +743,26 @@ fn run_wasm_backend_sets_typedarray_from_array_like_and_overlapping_typedarray_s
 }
 
 #[test]
+fn run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_typedarray_subarray_buffer_witness.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(967"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_slices_typedarrays_with_species_and_resizable_buffer_semantics() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

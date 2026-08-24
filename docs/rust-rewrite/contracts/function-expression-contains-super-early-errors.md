@@ -1,7 +1,7 @@
 # FunctionExpression `Contains super` early errors
 
-**Status:** Product condition and shared producer census through the
-AsyncFunctionExpression follow-up focused-verified, 2026-08-24
+**Status:** Product condition and GeneratorExpression-updated shared producer
+census focused-verified 2026-08-24
 
 ## Decision
 
@@ -75,10 +75,11 @@ changed.
 After the repair, the unique message occurs once across pinned Boa Rust
 sources. The later FunctionDeclaration lane gives the ordinary declaration its
 own unique message while retaining the shared generic default for the three
-other hoistable forms. The later AsyncFunctionExpression lane gives that
-production its own message. On current head, the old generic literal occurs
-four times: one fixed ScriptBody producer, that declaration default, and the
-generator-expression and async-generator-expression producers.
+other hoistable forms. The later AsyncFunctionExpression and
+GeneratorExpression lanes give those productions their own messages. On
+current head, the old generic literal occurs three times: one fixed ScriptBody
+producer, that declaration default, and the async-generator-expression
+producer.
 
 ## Typed and retained boundaries
 
@@ -131,7 +132,9 @@ The shared super-producer guard recursively requires:
   shared callable-declaration predicate;
 - exactly one async-function-expression-specific message on its completed-node
   `Contains Super` branch;
-- exactly four remaining generic messages, with their fixed Script or shared
+- exactly one generator-expression-specific message on its completed-node
+  `Contains Super` branch;
+- exactly three remaining generic messages, with their fixed Script or shared
   callable parameter-start positions;
 - the existing class constructor, static-block, field and method message
   censuses;
@@ -185,6 +188,9 @@ non-success bucket at zero.
 The subsequent AsyncFunctionExpression lane updates the shared producer guard;
 the complete `138/138` front gate and relevant `49/49` IR early and `49/49`
 graph groups are green with that census.
+
+The subsequent GeneratorExpression producer-census update passes the complete
+`142/142` front gate and relevant `50/50` IR early and `51/51` graph groups.
 
 ## Nonclaims
 

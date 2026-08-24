@@ -26722,8 +26722,8 @@ try {
             .expect_err("the primary top-level throw must remain observable");
         assert_eq!(
             lines.lock().expect("capture mutex poisoned").as_slice(),
-            &["job".to_string()],
-            "a top-level throw must not abandon jobs already queued by the script"
+            &["job".to_string(), "RangeError: secondary".to_string()],
+            "a top-level throw must drain queued jobs and report their unhandled rejections"
         );
         assert!(
             error.message().contains("uncaught throw: TypeError")
