@@ -156,11 +156,25 @@ fn lowering_mints_the_async_generator_owner_before_initializers_and_finalizes_on
         &[
             "for (mut prefix, scope) in segments.into_iter().rev()",
             "LoweredDisposableScopeIr::Async(scope) =>",
+            "let finalizer =",
+            "self.allocate_async_disposable_finalizer(scope.execution.entry_state())",
+            "scope.execution.finalize(finalizer)",
+        ],
+    );
+    let allocate_finalizer = bounded(
+        ASYNC_LOWERING_SOURCE,
+        "fn allocate_async_disposable_finalizer(",
+        "/// Lowers the resource side of an admitted classic-for `await using` head.",
+    );
+    positions_in_order(
+        allocate_finalizer,
+        &[
             "let dispose_state = self",
             "let resume_state = dispose_state",
             "let exit_state = resume_state",
-            "AsyncDisposableFinalizerPlanIr::new(",
-            "scope.execution.finalize(finalizer)",
+            "self.current_async_resume_state = Some(exit_state)",
+            "self.current_generator_resume_state = Some(exit_state)",
+            "AsyncDisposableFinalizerPlanIr::new(entry_state, dispose_state, resume_state, exit_state)",
         ],
     );
     assert!(IR_TEST_SOURCE
@@ -225,19 +239,24 @@ fn backend_owner_selects_layout_and_scope_compilation_exhaustively() {
     );
     for marker in [
         "AsyncFunction(&'a AsyncFunctionAsyncDisposableCapabilityIr)",
+        "AsyncFunctionForOf(&'a AsyncFunctionAsyncDisposableForOfCapabilityIr)",
         "AsyncGenerator(&'a AsyncGeneratorAsyncDisposableCapabilityIr)",
         "fn from_execution(execution: &'a AsyncDisposableScopeExecutionIr)",
         "AsyncDisposableScopeExecutionIr::AsyncFunction(capability)",
         "AsyncDisposableScopeExecutionIr::AsyncGenerator(capability)",
         "Self::AsyncFunction(capability) => capability.binding_name()",
+        "Self::AsyncFunctionForOf(capability) => capability.binding_name()",
         "Self::AsyncGenerator(capability) => capability.binding_name()",
-        "Self::AsyncFunction(_) => FunctionExecutionKind::Async",
+        "Self::AsyncFunction(capability) => capability.finalizer()",
+        "Self::AsyncFunctionForOf(capability) => capability.finalizer()",
+        "Self::AsyncGenerator(capability) => capability.finalizer()",
+        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => FunctionExecutionKind::Async",
         "Self::AsyncGenerator(_) => FunctionExecutionKind::AsyncGenerator",
-        "Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_STATE_OFFSET",
+        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_STATE_OFFSET",
         "Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET",
-        "Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_PAYLOAD_OFFSET",
+        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => {\n                HEAP_ASYNC_RESUME_PAYLOAD_OFFSET",
         "Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET",
-        "Self::AsyncFunction(_) => HEAP_ASYNC_RESUME_TAG_OFFSET",
+        "Self::AsyncFunction(_) | Self::AsyncFunctionForOf(_) => HEAP_ASYNC_RESUME_TAG_OFFSET",
         "Self::AsyncGenerator(_) => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET",
     ] {
         assert!(owner.contains(marker), "{marker}");
@@ -256,7 +275,7 @@ fn backend_owner_selects_layout_and_scope_compilation_exhaustively() {
         &[
             "ActivationAsyncDisposeOwner::from_execution(execution)",
             "meta.protocol.execution_kind() == owner.execution_kind()",
-            "owned_env_slot(owner.binding_name())",
+            "activation_owned_binding_storage(owner.binding_name())",
             "let finalizer = owner.finalizer()",
             "let resume_state_offset = owner.resume_state_offset()",
             "finalizer.entry_state()",
@@ -325,8 +344,8 @@ fn backend_walker_awaits_and_dispatches_through_the_selected_owner() {
             "emit_async_generator_await_reactions",
             "HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET",
             "ASYNC_GENERATOR_BODY_STATUS_AWAIT",
-            "HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET",
-            "ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT",
+            "emit_store_async_generator_execution_state",
+            "AsyncGeneratorExecutionState::Executing",
         ],
     );
     assert!(!await_reactions.contains("_ =>"));

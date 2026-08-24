@@ -2722,7 +2722,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_valid_integer_index_i32(
             target_payload_local,
-            target_tag_local,
             typed_array_numeric_index_payload_local,
             index_local,
             typed_array_valid_index_local,
@@ -4336,7 +4335,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_valid_integer_index_i32(
             target_payload_local,
-            target_tag_local,
             typed_array_numeric_index_payload_local,
             entry_index_local,
             typed_array_valid_index_local,

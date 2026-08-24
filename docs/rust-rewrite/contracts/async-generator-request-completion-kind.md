@@ -1,8 +1,8 @@
 # Async-generator request completion kind
 
-Status: theory-written and implementation-pending for the T14/T15 Wasm-AOT
-invariant lane on 2026-08-23. The source census below was taken at repository
-commit `dfed6ae911014c6fd512627b29ae04518e912a38`.
+Status: implemented with its durable structural guard on 2026-08-23 and
+focused-verified on 2026-08-24. The source census was taken at repository commit
+`dfed6ae911014c6fd512627b29ae04518e912a38`.
 
 ## Specification boundary
 
@@ -213,7 +213,7 @@ it becomes active and its payload, tag and strictly validated kind are read
 once. Routing is then:
 
 - Return starts the yield-return Await path, sets the backend body status to
-  Await and execution state to SuspendedAwait, and does not resume the body;
+  Await and execution state to Executing, and does not resume the body;
 - Normal stores the request payload/tag as the body resumption and selects the
   async-generator Normal resume kind; and
 - Throw stores the same payload/tag but selects the Throw resume kind.
@@ -349,7 +349,7 @@ Each exact suite-relative path must run separately with the Wasm-AOT backend,
 `--jobs 1`, `--threads 1` and the repository timeout. Each must discover and
 pass `2/2`; aggregate acceptance is `10/10`, with every unsupported, crash,
 bug, timeout and other non-success bucket at zero. These are post-implementation
-acceptance counts, not verification evidence for this theory-only revision.
+acceptance counts and were verified against the implementation on 2026-08-24.
 
 ## Known unrelated red baseline
 
@@ -366,18 +366,16 @@ implementation unexpectedly changes its output, compare against unchanged
 `HEAD` before attributing the difference. An unchanged failure is
 negative-scope evidence only and must never be counted as passing.
 
-## Verification ladder
+## Verification
 
-Implementation remains pending. When code and the durable guard are complete,
-verification should occur once, serially, under the shared eight-core, 22 GB
-cap so build artifacts are reused:
+Verification ran once and serially after the coordinated batch compile:
 
 1. perform bounded source review of the enum, heap helpers, writer and two
    readers; run `git diff --check` and `cargo fmt --all -- --check`;
 2. run one capped `cargo xc` workspace compile checkpoint;
 3. run
    `cargo test -p lila-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1`
-   and inspect its exact discovered/pass count;
+   and require `5/5`;
 4. run the five exact CLI tests above one at a time with `--exact` and
    `--test-threads=1`, expecting aggregate `5/5`;
 5. run the five exact Test262 paths above one at a time through
@@ -389,8 +387,10 @@ cap so build artifacts are reused:
 
 Long-running commands should use `scripts/run-watched.sh` around the shared
 CPU/memory wrapper. No two compilation, CLI or Test262 commands may overlap.
-Report exact commands, discovery counts, pass counts and any deliberately
-unverified broad gate.
+The structure target passes `5/5`, the five exact CLI tests pass `5/5`, and the
+five pinned files pass `10/10` sloppy/strict Wasm-AOT executions with every
+non-success bucket at zero. `cargo fmt --all -- --check`, `cargo xc` and the
+shared `187/187` Wasm-safe plus `191/191` complete fake-suite gates are green.
 
 ## Explicit nonclaims
 

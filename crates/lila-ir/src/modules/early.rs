@@ -700,6 +700,26 @@ mod tests {
     }
 
     #[test]
+    fn class_field_initializer_super_call_module_parse_maps_to_an_early_syntax_error() {
+        let source = "export default class { static #field = () => super(); }";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("a class field initializer may not contain SuperCall");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ClassFieldInitializerContainsSuperCall)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the class field rejection must retain its source span");
+        assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
     fn class_constructor_generator_module_parse_maps_to_an_early_syntax_error() {
         let error = lila_front::parse(
             "class C { async *constructor() {} }",

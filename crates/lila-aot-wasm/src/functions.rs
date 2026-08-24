@@ -6307,10 +6307,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_execution_state(
             activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            ASYNC_GENERATOR_STATE_EXECUTING,
+            AsyncGeneratorExecutionState::Executing,
             function,
         );
         self.store_i64_const_at_offset(
@@ -6414,10 +6413,9 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_BODY_STATUS_COMPLETE,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_execution_state(
             activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
+            AsyncGeneratorExecutionState::DrainingQueue,
             function,
         );
         function.instruction(&Instruction::LocalGet(body_aux_local));
@@ -6515,10 +6513,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::LocalSet(body_completion_local));
         function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_execution_state(
             activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
+            AsyncGeneratorExecutionState::DrainingQueue,
             function,
         );
         self.emit_complete_async_generator_step(
@@ -7560,10 +7557,6 @@ impl<'a> FunctionBuilder<'a> {
                 (HEAP_ASYNC_GENERATOR_QUEUE_TAIL_OFFSET, 0),
                 (HEAP_ASYNC_GENERATOR_ACTIVE_REQUEST_OFFSET, 0),
                 (
-                    HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                    ASYNC_GENERATOR_STATE_SUSPENDED_START,
-                ),
-                (
                     HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
                     ASYNC_GENERATOR_RESUME_STATE_INITIALIZING,
                 ),
@@ -7599,6 +7592,11 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            self.emit_store_async_generator_execution_state(
+                async_generator_activation_local,
+                AsyncGeneratorExecutionState::SuspendedStart,
+                function,
+            );
             self.store_i64_local_at_offset(
                 payload_local,
                 HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET,

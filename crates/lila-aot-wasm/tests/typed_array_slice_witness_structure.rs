@@ -356,11 +356,7 @@ fn without_whitespace(source: &str) -> String {
 fn normalized_code(source: &str) -> String {
     source
         .lines()
-        .flat_map(|line| {
-            line.split_once("//")
-                .map_or(line, |(code, _)| code)
-                .chars()
-        })
+        .flat_map(|line| line.split_once("//").map_or(line, |(code, _)| code).chars())
         .filter(|ch| !ch.is_whitespace())
         .collect()
 }
@@ -495,7 +491,11 @@ fn slice_uses_one_immutable_source_view_and_two_validated_observations() {
             2,
             "validated source observation",
         ),
-        ("source_view", 3, "one source-view producer and two consumers"),
+        (
+            "source_view",
+            3,
+            "one source-view producer and two consumers",
+        ),
         ("emit_load_array_buffer_data(", 2, "fresh copy-data load"),
         (
             "HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET",
@@ -507,11 +507,7 @@ fn slice_uses_one_immutable_source_view_and_two_validated_observations() {
             1,
             "target viewed-buffer load",
         ),
-        (
-            "HEAP_TYPED_ARRAY_BYTE_OFFSET",
-            1,
-            "target byte-offset load",
-        ),
+        ("HEAP_TYPED_ARRAY_BYTE_OFFSET", 1, "target byte-offset load"),
     ] {
         assert_eq!(
             body.matches(needle).count(),
@@ -768,7 +764,8 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
 
     let entry = unique_normalized_position(body, ENTRY_WITNESS_WIRING, "entry witness");
     let start = unique_normalized_position(body, START_WIRING, "start coercion and clamp");
-    let end = unique_normalized_position(body, OPTIONAL_END_WIRING, "optional end coercion and clamp");
+    let end =
+        unique_normalized_position(body, OPTIONAL_END_WIRING, "optional end coercion and clamp");
     let count = unique_normalized_position(body, INITIAL_COUNT_WIRING, "original count");
     let constructor_key = unique_position(
         &normalized,
@@ -849,11 +846,8 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
         "the zero-count arm must contain no witness, data load, address setup or copy operation"
     );
     let positive_end = matching_control_end(&normalized, positive_if);
-    let current_cap = unique_normalized_position(
-        body,
-        CURRENT_LENGTH_CAP_WIRING,
-        "current-length end cap",
-    );
+    let current_cap =
+        unique_normalized_position(body, CURRENT_LENGTH_CAP_WIRING, "current-length end cap");
     let copied_count = unique_normalized_position(
         body,
         COPIED_ELEMENT_COUNT_WIRING,
@@ -878,7 +872,11 @@ fn slice_preserves_entry_coercion_species_and_conditional_revalidation_order() {
     );
     let data = positions(&normalized, "self.emit_load_array_buffer_data(");
     let result = unique_normalized_position(body, RESULT_WIRING, "target result publication");
-    assert_eq!(data.len(), 2, "slice must reload source and target data once");
+    assert_eq!(
+        data.len(),
+        2,
+        "slice must reload source and target data once"
+    );
     assert!(
         positive_if < positive_else
             && positive_else < late

@@ -104,6 +104,18 @@ assertSame(Reflect.has(tracking, 1), false, "tracking shrink bound");
 trackingBuffer.resize(0);
 assertSame(Reflect.has(tracking, 0), false, "tracking out of bounds");
 
+var partialElementBuffer = new ArrayBuffer(4, { maxByteLength: 6 });
+var partialElementTracking = new Uint16Array(partialElementBuffer);
+partialElementBuffer.resize(5);
+assertSame(Reflect.has(partialElementTracking, 1), true, "tracking whole element");
+assertSame(
+  Reflect.has(partialElementTracking, 2),
+  false,
+  "tracking partial element is absent"
+);
+partialElementBuffer.resize(6);
+assertSame(Reflect.has(partialElementTracking, 2), true, "tracking completed element");
+
 var fixedBuffer = new ArrayBuffer(4, { maxByteLength: 6 });
 var fixed = new Uint8Array(fixedBuffer, 1, 2);
 assertSame(Reflect.has(fixed, 1), true, "fixed initial");
@@ -112,6 +124,9 @@ assertSame(Reflect.has(fixed, 1), true, "fixed grow");
 assertSame(Reflect.has(fixed, 2), false, "fixed grow bound");
 fixedBuffer.resize(2);
 assertSame(Reflect.has(fixed, 0), false, "fixed out of bounds");
+fixedBuffer.resize(4);
+assertSame(Reflect.has(fixed, 1), true, "fixed regrow restores extent");
+assertSame(Reflect.has(fixed, 2), false, "fixed regrow keeps stored bound");
 
 var other = __lilaCreateRealm().global;
 var otherDetached = new other.Uint8Array(1);

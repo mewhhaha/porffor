@@ -1682,10 +1682,11 @@ impl<'a> FunctionBuilder<'a> {
         // set immediately before the await (`generator_delegation.rs`, the
         // `async_iterator == 0` arm) and it has exactly TWO clears: the
         // `resume_kind == FULFILL` arm, and this one. That is exhaustive
-        // because a generator in `ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT` cannot
-        // be resumed by `.next()`/`.throw()`/`.return()` at all —
+        // because an awaiting generator remains
+        // `AsyncGeneratorExecutionState::Executing` and cannot be resumed by
+        // `.next()`/`.throw()`/`.return()` at all —
         // `builtins/standard.rs`'s `AsyncGeneratorPrototype{Next,Return,Throw}`
-        // dispatch tests only `SUSPENDED_YIELD` and `SUSPENDED_START` — so every
+        // dispatch tests only `SuspendedYield` and `SuspendedStart` — so every
         // resume that can observe the flag comes from the await job itself and
         // is FULFILL or REJECT.
         self.store_i64_const_at_offset(
@@ -3059,8 +3060,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(request_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::BrIf(1));
-        let request_completion_kind = self
-            .emit_load_async_generator_request_completion_kind_strict(request_local, function);
+        let request_completion_kind =
+            self.emit_load_async_generator_request_completion_kind_strict(request_local, function);
         for (offset, destination_local) in [
             (
                 HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET,
@@ -3173,10 +3174,9 @@ impl<'a> FunctionBuilder<'a> {
             0,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_execution_state(
             activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            ASYNC_GENERATOR_STATE_COMPLETED,
+            AsyncGeneratorExecutionState::Completed,
             function,
         );
         function.instruction(&Instruction::End);
@@ -3203,7 +3203,6 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let activation_local = self.reserve_temp_local();
-        let execution_state_local = self.reserve_temp_local();
         let body_status_local = self.reserve_temp_local();
         let active_request_local = self.reserve_temp_local();
         let queue_head_local = self.reserve_temp_local();
@@ -3215,17 +3214,14 @@ impl<'a> FunctionBuilder<'a> {
             activation_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            execution_state_local,
+        let execution_state =
+            self.emit_load_async_generator_execution_state_strict(activation_local, function);
+        self.emit_async_generator_execution_state_equals(
+            &execution_state,
+            AsyncGeneratorExecutionState::Executing,
             function,
         );
-        function.instruction(&Instruction::LocalGet(execution_state_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
@@ -3324,11 +3320,11 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_start_async_generator_body(activation_local, function)?;
 
+        self.release_loaded_async_generator_execution_state(execution_state);
         self.release_temp_local(resume_kind_local);
         self.release_temp_local(queue_head_local);
         self.release_temp_local(active_request_local);
         self.release_temp_local(body_status_local);
-        self.release_temp_local(execution_state_local);
         self.release_temp_local(activation_local);
         Ok(())
     }
@@ -3381,7 +3377,6 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let activation_local = self.reserve_temp_local();
-        let execution_state_local = self.reserve_temp_local();
         let body_status_local = self.reserve_temp_local();
         let active_request_local = self.reserve_temp_local();
         let queue_head_local = self.reserve_temp_local();
@@ -3393,17 +3388,14 @@ impl<'a> FunctionBuilder<'a> {
             activation_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            execution_state_local,
+        let execution_state =
+            self.emit_load_async_generator_execution_state_strict(activation_local, function);
+        self.emit_async_generator_execution_state_equals(
+            &execution_state,
+            AsyncGeneratorExecutionState::Executing,
             function,
         );
-        function.instruction(&Instruction::LocalGet(execution_state_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
@@ -3481,11 +3473,11 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_start_async_generator_body(activation_local, function)?;
 
+        self.release_loaded_async_generator_execution_state(execution_state);
         self.release_temp_local(resume_kind_local);
         self.release_temp_local(queue_head_local);
         self.release_temp_local(active_request_local);
         self.release_temp_local(body_status_local);
-        self.release_temp_local(execution_state_local);
         self.release_temp_local(activation_local);
         Ok(())
     }
@@ -3605,8 +3597,8 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.load_i64_to_local_from_offset(request_local, offset, destination_local, function);
         }
-        let request_completion_kind = self
-            .emit_load_async_generator_request_completion_kind_strict(request_local, function);
+        let request_completion_kind =
+            self.emit_load_async_generator_request_completion_kind_strict(request_local, function);
         self.emit_async_generator_request_completion_kind_equals(
             &request_completion_kind,
             AsyncGeneratorRequestCompletionKind::Return,
@@ -3625,10 +3617,9 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_BODY_STATUS_AWAIT,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_execution_state(
             activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+            AsyncGeneratorExecutionState::Executing,
             function,
         );
         function.instruction(&Instruction::Else);

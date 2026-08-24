@@ -882,6 +882,44 @@ mod tests {
     }
 
     #[test]
+    fn class_field_initializer_super_call_rejections_cover_every_field_shape_and_goal() {
+        for source in [
+            "class C { field = super(); }",
+            "class C { static field = super(); }",
+            "class C { #field = super(); }",
+            "class C { static #field = super(); }",
+            "class C { accessor field = super(); }",
+            "class C { static accessor field = super(); }",
+            "(class { field = super(); });",
+            "class B {}; class C extends B { field = super(); }",
+            "class C { field = () => super(); }",
+            "class C { static #field = async () => super(); }",
+            "class C { field = () => () => super(); }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a class field initializer Contains SuperCall should fail");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::ClassFieldInitializerContainsSuperCall),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the field-owned rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
     fn class_super_call_positive_boundaries_remain_valid_under_both_goals() {
         for source in [
             "class C {}",
@@ -893,6 +931,9 @@ mod tests {
             "class B {}; class C extends B { static { void super.value; } }",
             "class C { static { class D extends C { constructor() { super(); } } } }",
             "class C { static { const text = \"super()\"; } }",
+            "class B {}; class C extends B { field = super.value; static other = super.value; }",
+            "class C { field = class D extends C { constructor() { super(); } }; }",
+            "class C { field = \"super()\"; }",
         ] {
             for options in [ParseOptions::script(), ParseOptions::module()] {
                 parse(source, options).expect(
@@ -925,6 +966,14 @@ mod tests {
                 "class C { constructor() { super(); } constructor() {} }",
                 EarlyErrorCode::DuplicateClassConstructor,
             ),
+            (
+                "class C { field = super(); constructor() { super(); } }",
+                EarlyErrorCode::ClassFieldInitializerContainsSuperCall,
+            ),
+            (
+                "class C { field = arguments && super(); }",
+                EarlyErrorCode::ClassFieldContainsArguments,
+            ),
         ] {
             for options in [ParseOptions::script(), ParseOptions::module()] {
                 let err = parse(source, options)
@@ -948,6 +997,10 @@ mod tests {
                 "class static block cannot contain super call at line 2, col 1",
                 EarlyErrorCode::ClassStaticBlockContainsSuperCall,
             ),
+            (
+                "class field initializer cannot contain super call at line 2, col 1",
+                EarlyErrorCode::ClassFieldInitializerContainsSuperCall,
+            ),
         ] {
             assert_eq!(
                 classify_parse_failure(message).map(ParseClassified::code),
@@ -964,6 +1017,7 @@ mod tests {
         for exported_name in [
             "base class constructor cannot contain direct super call at line",
             "class static block cannot contain super call at line",
+            "class field initializer cannot contain super call at line",
         ] {
             let source = format!(
                 "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
@@ -982,7 +1036,6 @@ mod tests {
     fn adjacent_invalid_super_producers_remain_unclassified_by_this_lane() {
         for source in [
             "function f() { super.value; }",
-            "class C { field = super(); }",
             "class C { method() { super(); } }",
         ] {
             for options in [ParseOptions::script(), ParseOptions::module()] {
@@ -1107,6 +1160,7 @@ mod tests {
         const BASE_CONSTRUCTOR_MESSAGE: &str =
             "base class constructor cannot contain direct super call";
         const STATIC_BLOCK_MESSAGE: &str = "class static block cannot contain super call";
+        const FIELD_INITIALIZER_MESSAGE: &str = "class field initializer cannot contain super call";
         const MODULE_MESSAGE: &str = "module cannot contain `super` on the top-level";
         const SCRIPT_BRANCH: &str = r#"if contains(&body, ContainsSymbol::Super) {
                 return Err(Error::general("invalid super usage", Position::new(1, 1)));
@@ -1126,13 +1180,13 @@ mod tests {
                 return Err(Error::lex(LexError::Syntax(
                     "base class constructor cannot contain direct super call".into(),
                     body_start,"#;
-        const CLASS_ELEMENT_POSITION: &str = r#""invalid super usage".into(),
+        const FIELD_INITIALIZER_POSITION: &str = r#""class field initializer cannot contain super call".into(),
                             position,"#;
         const FIELD_NODE_SUPER_BRANCH: &str = r#"if let Some(node) = field.initializer()
                         && contains(node, ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
-                            "invalid super usage".into(),
+                            "class field initializer cannot contain super call".into(),
                             position,
                         )));
                     }"#;
@@ -1140,12 +1194,11 @@ mod tests {
                         && contains(field, ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
-                            "invalid super usage".into(),
+                            "class field initializer cannot contain super call".into(),
                             position,
                         )));
                     }"#;
-        const CLASS_METHOD_NAME_SUPER_BRANCH: &str =
-            r#"if let ClassElementName::PropertyName(name) = m.name()
+        const CLASS_METHOD_NAME_SUPER_BRANCH: &str = r#"if let ClassElementName::PropertyName(name) = m.name()
                         && contains(name, ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
@@ -1153,8 +1206,7 @@ mod tests {
                             position,
                         )));
                     }"#;
-        const CLASS_METHOD_BODY_SUPER_BRANCH: &str =
-            r#"if contains(m.parameters(), ContainsSymbol::SuperCall)
+        const CLASS_METHOD_BODY_SUPER_BRANCH: &str = r#"if contains(m.parameters(), ContainsSymbol::SuperCall)
                         || contains(m.body(), ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
@@ -1162,29 +1214,25 @@ mod tests {
                             position,
                         )));
                     }"#;
-        const OBJECT_METHOD_POSITION_SUPER_BRANCH: &str =
-            r#"if has_direct_super_new(&params, &body) {
+        const OBJECT_METHOD_POSITION_SUPER_BRANCH: &str = r#"if has_direct_super_new(&params, &body) {
                     return Err(Error::lex(LexError::Syntax(
                         "invalid super call usage".into(),
                         position,
                     )));
                 }"#;
-        const OBJECT_GETTER_SUPER_BRANCH: &str =
-            r#"if has_direct_super_new(&FormalParameterList::default(), &body) {
+        const OBJECT_GETTER_SUPER_BRANCH: &str = r#"if has_direct_super_new(&FormalParameterList::default(), &body) {
                     return Err(Error::lex(LexError::Syntax(
                         "invalid super call usage".into(),
                         position,
                     )));
                 }"#;
-        const OBJECT_METHOD_PARAMS_SUPER_BRANCH: &str =
-            r#"if has_direct_super_new(&params, &body) {
+        const OBJECT_METHOD_PARAMS_SUPER_BRANCH: &str = r#"if has_direct_super_new(&params, &body) {
                     return Err(Error::lex(LexError::Syntax(
                         "invalid super call usage".into(),
                         params_start_position,
                     )));
                 }"#;
-        const OBJECT_METHOD_BODY_SUPER_BRANCH: &str =
-            r#"if has_direct_super_new(&params, &body) {
+        const OBJECT_METHOD_BODY_SUPER_BRANCH: &str = r#"if has_direct_super_new(&params, &body) {
             return Err(Error::lex(LexError::Syntax(
                 "invalid super call usage".into(),
                 body_start,
@@ -1221,7 +1269,7 @@ mod tests {
 
         let boa_package_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
-        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 10);
+        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 6);
         assert_eq!(count_in_rust_sources(&boa_package_root, METHOD_MESSAGE), 11);
         assert_eq!(
             count_in_rust_sources(&boa_package_root, BASE_CONSTRUCTOR_MESSAGE),
@@ -1230,6 +1278,10 @@ mod tests {
         assert_eq!(
             count_in_rust_sources(&boa_package_root, STATIC_BLOCK_MESSAGE),
             1
+        );
+        assert_eq!(
+            count_in_rust_sources(&boa_package_root, FIELD_INITIALIZER_MESSAGE),
+            4
         );
         assert_eq!(count_in_rust_sources(&boa_package_root, MODULE_MESSAGE), 1);
 
@@ -1320,11 +1372,12 @@ mod tests {
         }
 
         let compact_class = compact(CLASS_SOURCE);
-        assert_eq!(CLASS_SOURCE.matches(RAW_MESSAGE).count(), 4);
+        assert_eq!(CLASS_SOURCE.matches(RAW_MESSAGE).count(), 0);
         assert_eq!(CLASS_SOURCE.matches(METHOD_MESSAGE).count(), 2);
         assert_eq!(OBJECT_INITIALIZER_SOURCE.matches(METHOD_MESSAGE).count(), 9);
         assert_eq!(CLASS_SOURCE.matches(BASE_CONSTRUCTOR_MESSAGE).count(), 1);
         assert_eq!(CLASS_SOURCE.matches(STATIC_BLOCK_MESSAGE).count(), 1);
+        assert_eq!(CLASS_SOURCE.matches(FIELD_INITIALIZER_MESSAGE).count(), 4);
         assert_eq!(
             compact_class
                 .matches(compact(BASE_CONSTRUCTOR_BRANCH).as_str())
@@ -1333,7 +1386,7 @@ mod tests {
         );
         assert_eq!(
             compact_class
-                .matches(compact(CLASS_ELEMENT_POSITION).as_str())
+                .matches(compact(FIELD_INITIALIZER_POSITION).as_str())
                 .count(),
             4
         );
@@ -1371,8 +1424,9 @@ mod tests {
             (grouped_public_fields, compact_field_branch.as_str()),
             (static_accessor_field, compact_field_branch.as_str()),
         ] {
-            assert_eq!(owner.matches(RAW_MESSAGE).count(), 1);
+            assert_eq!(owner.matches(FIELD_INITIALIZER_MESSAGE).count(), 1);
             assert_eq!(compact(owner).matches(branch).count(), 1);
+            assert_eq!(owner.matches(RAW_MESSAGE).count(), 0);
             assert_eq!(owner.matches(METHOD_MESSAGE).count(), 0);
         }
 
@@ -1613,9 +1667,7 @@ mod tests {
             let (product, tests) = source
                 .split_once("#[cfg(test)]")
                 .map_or((source.as_str(), ""), |(product, tests)| (product, tests));
-            let definition_count = product
-                .matches(classifier_definition.as_str())
-                .count();
+            let definition_count = product.matches(classifier_definition.as_str()).count();
             if definition_count != 0 {
                 product_classifier_definitions.push((relative.clone(), definition_count));
             }
@@ -1627,9 +1679,8 @@ mod tests {
             if product_parse_call_count != 0 {
                 product_parse_call_owners.push((relative.clone(), product_parse_call_count));
             }
-            let dependency_test_helper_count = tests
-                .matches(dependency_test_helper_call.as_str())
-                .count();
+            let dependency_test_helper_count =
+                tests.matches(dependency_test_helper_call.as_str()).count();
             if dependency_test_helper_count != 0 {
                 dependency_test_helper_owners
                     .push((relative.clone(), dependency_test_helper_count));
@@ -1661,7 +1712,7 @@ mod tests {
             vec![
                 (
                     "crates/lila-front/src/early_error_code.rs".to_string(),
-                    22,
+                    24,
                 ),
                 ("crates/lila-front/src/lib.rs".to_string(), 10),
                 ("crates/lila-ir/src/modules/early.rs".to_string(), 2),
@@ -1670,19 +1721,13 @@ mod tests {
         );
         assert_eq!(
             product_classifier_definitions,
-            vec![(
-                "crates/lila-front/src/early_error_code.rs".to_string(),
-                1,
-            )],
+            vec![("crates/lila-front/src/early_error_code.rs".to_string(), 1,)],
             "the workspace must retain one classifier definition"
         );
         assert_eq!(
             product_classifier_calls,
             vec![
-                (
-                    "crates/lila-front/src/early_error_code.rs".to_string(),
-                    17,
-                ),
+                ("crates/lila-front/src/early_error_code.rs".to_string(), 19,),
                 ("crates/lila-front/src/lib.rs".to_string(), 1),
             ],
             "only classifier self-proofs and the product parse boundary may call the classifier"
@@ -1715,10 +1760,16 @@ mod tests {
             let start = source
                 .find(signature)
                 .unwrap_or_else(|| panic!("missing visitor method {signature}"));
-            let end = source[start + signature.len()..]
-                .find("\n        fn ")
-                .map(|offset| start + signature.len() + offset)
-                .unwrap_or(source.len());
+            let remaining_source = &source[start + signature.len()..];
+            let next_method = remaining_source.find("\n        fn ");
+            let next_operation_comment = remaining_source.find("\n        // `");
+            let end_offset = match (next_method, next_operation_comment) {
+                (Some(method), Some(comment)) => method.min(comment),
+                (Some(method), None) => method,
+                (None, Some(comment)) => comment,
+                (None, None) => remaining_source.len(),
+            };
+            let end = start + signature.len() + end_offset;
             &source[start..end]
         }
 
@@ -1742,6 +1793,7 @@ mod tests {
                 .chars()
                 .filter(|character| !character.is_whitespace())
                 .collect::<String>()
+                .replace(",)", ")")
         };
 
         const OPERATIONS_SOURCE: &str =
@@ -1870,7 +1922,7 @@ mod tests {
 
         const CLASS_ELEMENT_VISITOR: &str = r#"fn visit_class_element(
             &mut self,
-            node: &'ast ClassElement,
+            node: &'ast ClassElement
         ) -> ControlFlow<Self::BreakTy> {
             match node {
                 ClassElement::MethodDefinition(m) => {

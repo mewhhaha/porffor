@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented and focused-verified; grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented; class field-initializer `SuperCall` classification focused-verified while broader grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -52,6 +52,44 @@ bucket at zero under `--jobs 1 --threads 1`. A broader `lila-ir` run exposed two
 unrelated lowerer-test failures, confirmed by exact reruns, so no complete-IR or
 aggregate green claim is made. The source of truth is
 `docs/rust-rewrite/contracts/script-top-level-super-early-errors.md`.
+
+### Implementation present 2026-08-24: class constructor and static-block `super()`
+
+The current head already contains the two condition-specific producer repairs,
+closed codes, anchored classifier rows, exhaustive IR arms, direct Script and
+Module matrices, precedence controls, retained dependency witnesses and shared
+vendored-source guard for `ClassBaseConstructorHasDirectSuper` and
+`ClassStaticBlockContainsSuperCall`. Their stale theory-only contract status
+has been reconciled without adding verification claims: the coordinated batch
+has not yet run their focused Rust or six-variant Test262 gates. The source of
+truth is `docs/rust-rewrite/contracts/class-super-call-early-errors.md`.
+
+### Focused-verified 2026-08-24: class field initializer `Contains SuperCall`
+
+`ClassFieldInitializerContainsSuperCall`
+(`E_CLASS_FIELD_INITIALIZER_CONTAINS_SUPER_CALL`) now owns the one class-field
+condition shared by public/private, instance/static and auto-accessor
+initializers. Pinned Boa's four exhaustive class-element arms keep their
+existing optional-initializer and `ContainsSymbol::SuperCall` predicates but
+now emit one condition-specific message instead of the generic text shared
+with Script and callable producers. The front domain and parse table grow from
+64 to 65 entries, and the exhaustive IR map derives `Early` / `SyntaxError`.
+
+Direct tests cover all field shapes, both goals, base/derived and lexical-arrow
+traversal, positive `SuperProperty` and nested-class boundaries, and precedence
+against field `ContainsArguments` and the deferred base-constructor check. A
+real failed Module parse and retained rejected dependency prove structured IR
+and graph projection. The shared source guard now pins the current six generic
+messages, four field-specific branches, unique constructor/static-block
+messages, traversal rules, and sole parse/classifier boundary.
+
+The complete front library passes `125/125`, while the relevant IR early and
+graph groups pass `46/46` and `43/43`. The exact pinned static-source cohort is
+60 generated physical files, 30 each under class expressions and statements,
+and passes all `120/120` sloppy/strict Wasm-AOT variants under `--jobs 1
+--threads 1`, with every non-success bucket at zero. This is bounded diagnostic
+closure, not a pass-gain, aggregate refresh or T07-closure claim. The source of truth is
+`docs/rust-rewrite/contracts/class-field-initializer-super-call-early-errors.md`.
 
 ### Focused-verified 2026-08-23: lexical bound-name `let`
 

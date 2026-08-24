@@ -36,9 +36,26 @@ keeps its `LengthOfArrayLike` and live integer-indexed behavior. Focused
 contracts cover fixed-view out-of-bounds/regrow behavior and the Uint16
 odd-byte floor.
 
-The witness is not yet the universal integer-indexed exotic protocol. The
-shared indexed `Get` implementation and other binary-data consumers still use
-older emitters, and no Test262 resizable-buffer rewrite has been retired. The
+The shared integer-index validity predicate now consumes the closed
+`IntegerIndexedProperty` projection of that same witness. It classifies the
+numeric index before loading one immutable view and making one non-throwing
+backing-store observation; detached, fixed/tracking out-of-bounds and
+index-at-or-above-current-length states all project to an absent property.
+Current `Get`, `HasProperty`, `GetOwnProperty`, `DefineOwnProperty`, `Set`,
+`Delete` and method callers inherit that observation without reconstructing
+private slots, reading backing length separately or dividing byte length
+locally. The focused
+[integer-index buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-integer-index-buffer-witness.md),
+structural guard and expanded `Reflect.has` CLI fixture are written and
+focused-verified: `cargo xc` is green, the structure target passes `2/2`, and
+the exact CLI fixture passes `1/1`. The direct pinned Test262 leaf discovers
+two variants but both stop at the harness's declared `resizable-arraybuffer`
+feature gate, so no Test262 pass or unsupported-retirement claim is made.
+
+The witness is still not the universal integer-indexed exotic protocol. Key
+classification and each internal method's descriptor, prototype and result
+policy remain separate owners, other binary-data consumers still use older
+emitters, and no Test262 resizable-buffer rewrite has been retired. The
 TypedArray iterator boundaries are migrated separately below; ordinary Array
 iterators do not require a TypedArray backing-store witness.
 Constructor/subclass and BigInt variants represented by those rewrites remain
@@ -237,9 +254,18 @@ leaves pass `12/12` Wasm-AOT variants with every failure bucket at zero under
 `--jobs 1 --threads 1`. The source of truth is
 `docs/rust-rewrite/contracts/typed-array-copy-within-buffer-witness.md`.
 
-These migrations still do not cover `with`, `set`, `slice`,
-constructor validation or other remaining raw validators. They
-do not change the shared indexed `Get`, per-index integer-indexed behavior,
+`%TypedArray%.prototype.slice` now loads one immutable source view and consumes
+an entry witness plus a conditional post-species witness. The late observation
+caps copying after shrinkage while leaving the originally constructed target
+length intact, preserves whole-element flooring and stays after target
+validation and content-type checks. Its implementation, durable guard and
+expanded CLI fixture are present; focused verification evidence has not yet
+been recorded. The source of truth is
+`docs/rust-rewrite/contracts/typed-array-slice-buffer-witness.md`.
+
+These migrations still do not cover `with`, `set`, `subarray`, constructor
+validation or other remaining raw validators. They do not change key
+classification, caller-specific integer-indexed descriptor/result policy,
 result allocation, SharedArrayBuffer synchronization, Test262 rewrites or
 published counts. The toLocaleString, map/filter and copyWithin fixtures do not
 prove created-Realm buffer-error prototype identity at direct method entry;

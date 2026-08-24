@@ -1849,7 +1849,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(prototype_tag_local));
         self.emit_typed_array_valid_integer_index_i32(
             prototype_local,
-            prototype_tag_local,
             index_number_payload_local,
             typed_array_index_local,
             typed_array_index_valid_local,

@@ -437,7 +437,7 @@ where
                         && contains(node, ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
-                            "invalid super usage".into(),
+                            "class field initializer cannot contain super call".into(),
                             position,
                         )));
                     }
@@ -456,7 +456,7 @@ where
                         && contains(node, ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
-                            "invalid super usage".into(),
+                            "class field initializer cannot contain super call".into(),
                             position,
                         )));
                     }
@@ -477,7 +477,7 @@ where
                         && contains(field, ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
-                            "invalid super usage".into(),
+                            "class field initializer cannot contain super call".into(),
                             position,
                         )));
                     }
@@ -487,7 +487,7 @@ where
                         && contains(field, ContainsSymbol::SuperCall)
                     {
                         return Err(Error::lex(LexError::Syntax(
-                            "invalid super usage".into(),
+                            "class field initializer cannot contain super call".into(),
                             position,
                         )));
                     }

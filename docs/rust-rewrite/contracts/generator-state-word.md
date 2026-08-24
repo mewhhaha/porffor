@@ -73,8 +73,8 @@ executable behavior.
 
 The word is distinct from `GENERATOR_RESUME_STATE_INITIALIZING`, the
 `GENERATOR_RESUME_KIND_*` injection direction, pending-completion records, and
-every `ASYNC_GENERATOR_STATE_*` word. Equal numeric values do not make those
-domains interchangeable.
+every `AsyncGeneratorExecutionState` word. Equal numeric values do not make
+those domains interchangeable.
 
 ## Closed Rust domain and sole projection
 

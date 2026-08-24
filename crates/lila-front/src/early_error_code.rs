@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 64] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 65] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -284,6 +284,10 @@ early_error_codes! {
     /// the literal property name `constructor` or `prototype`. Computed names
     /// remain excluded even when they evaluate to either String value.
     ClassStaticFieldConstructorOrPrototypeName => "E_CLASS_STATIC_FIELD_CONSTRUCTOR_OR_PROTOTYPE_NAME";
+    /// FieldDefinition early errors: an initializer of a public/private,
+    /// instance/static or auto-accessor field `Contains SuperCall`. Heritage
+    /// does not change this restriction; `SuperProperty` remains valid.
+    ClassFieldInitializerContainsSuperCall => "E_CLASS_FIELD_INITIALIZER_CONTAINS_SUPER_CALL";
     /// FieldDefinition early errors: `ContainsArguments` of a public/private,
     /// instance/static or auto-accessor initializer is true. Nested ordinary
     /// function and method bodies are boundaries; arrow functions are not.
@@ -474,7 +478,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 64;
+const PARSE_FAILURE_RULE_COUNT: usize = 65;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
 const IMPORT_META_OUTSIDE_MODULE_PREFIX: &str =
@@ -491,6 +495,8 @@ const CLASS_BASE_CONSTRUCTOR_DIRECT_SUPER_PREFIX: &str =
     "base class constructor cannot contain direct super call at line";
 const CLASS_STATIC_BLOCK_SUPER_CALL_PREFIX: &str =
     "class static block cannot contain super call at line";
+const CLASS_FIELD_INITIALIZER_SUPER_CALL_PREFIX: &str =
+    "class field initializer cannot contain super call at line";
 
 /// The one message-pattern table.
 ///
@@ -1082,6 +1088,18 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
             "class static block cannot contain super call at line 2, col 1",
         ],
     },
+    // 65. statement/declaration/hoistable/class_decl/mod.rs:436-493. Four
+    //     exhaustive class-element arms share the one FieldDefinition
+    //     initializer Contains SuperCall condition and fixed message body.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(
+            CLASS_FIELD_INITIALIZER_SUPER_CALL_PREFIX,
+        ),
+        code: EarlyErrorCode::ClassFieldInitializerContainsSuperCall,
+        witnesses: &[
+            "class field initializer cannot contain super call at line 2, col 1",
+        ],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1382,6 +1400,8 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ClassStaticBlockContainsSuperCall);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ClassFieldInitializerContainsSuperCall);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
     code_is_owned_once_by_exact_starts_with(
@@ -1439,6 +1459,13 @@ const _: () = assert!(
         "class static block cannot contain super call at line",
     ),
     "the class-static-block SuperCall code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::ClassFieldInitializerContainsSuperCall,
+        "class field initializer cannot contain super call at line",
+    ),
+    "the class-field initializer SuperCall code must have one owner using its complete reviewed prefix"
 );
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
@@ -1638,9 +1665,9 @@ const fn script_top_level_super_message_is_exact_and_injection_safe() -> bool {
     )
 }
 
-/// P16: the two class-owned SuperCall prefixes remain distinct from each
+/// P16: the three class-owned SuperCall prefixes remain distinct from each
 /// other and from the adjacent generic Script/callable/method wordings. A
-/// user-controlled Module export name carrying either complete prefix must
+/// user-controlled Module export name carrying any complete prefix must
 /// remain owned by the duplicate-export condition.
 const fn class_super_call_prefixes_are_distinct_and_injection_safe() -> bool {
     if !classified_is(
@@ -1651,6 +1678,11 @@ const fn class_super_call_prefixes_are_distinct_and_injection_safe() -> bool {
     ) || !classified_is(
         classify_parse_failure("class static block cannot contain super call at line 2, col 1"),
         EarlyErrorCode::ClassStaticBlockContainsSuperCall,
+    ) || !classified_is(
+        classify_parse_failure(
+            "class field initializer cannot contain super call at line 2, col 1",
+        ),
+        EarlyErrorCode::ClassFieldInitializerContainsSuperCall,
     ) || !matches!(
         classify_parse_failure("invalid super call usage at line 1, col 1"),
         None
@@ -1666,6 +1698,11 @@ const fn class_super_call_prefixes_are_distinct_and_injection_safe() -> bool {
     ) && classified_is(
         classify_parse_failure(
             "exported name `class static block cannot contain super call at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    ) && classified_is(
+        classify_parse_failure(
+            "exported name `class field initializer cannot contain super call at line` declared multiple times",
         ),
         EarlyErrorCode::ModuleDuplicateExport,
     )

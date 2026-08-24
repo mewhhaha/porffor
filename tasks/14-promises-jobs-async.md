@@ -68,6 +68,20 @@ separate five-way resume-kind behavior stays explicit rather than being folded
 into an integer tuple. This is also a record-integrity boundary: the existing
 valid 0/1 behavior is unchanged, while illegal internal words fail closed.
 
+Async-generator activations now store `[[AsyncGeneratorState]]` through the
+exact closed
+`AsyncGeneratorExecutionState::{SuspendedStart, SuspendedYield, Executing,
+DrainingQueue, Completed}` domain. The former backend-only suspended-await word
+is retired: Await remains `Executing` as ECMA-262 requires, while the separate
+body-status word continues to carry the Await phase. All seventeen writers use
+the typed heap store. The prototype dispatcher and two Promise reaction jobs
+strictly decode one stable snapshot through an opaque non-`Copy` token, so an
+unknown state traps before reaching the executing/draining fallthrough. The
+bounded lifecycle, request-completion and await-using structure targets each
+pass `5/5`; the exact lifecycle/delegation CLI cohort passes `5/5`, and its five
+pinned Test262 files pass `10/10` Wasm-AOT variants under `--jobs 1 --threads
+1`. This is a state-word invariant, not broader suspended-async closure.
+
 Promise records now store `[[PromiseState]]` through one closed three-variant
 `PromiseState::{Pending, Fulfilled, Rejected}` wire domain. The raw offset is
 private to typed initialization, terminal-store and strict-load helpers, and an

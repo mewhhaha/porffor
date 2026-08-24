@@ -48,6 +48,21 @@ structural guard passes `4/4`, and the exact
 `expression-yield-as-operand.js` Test262 leaf passes `2/2` Wasm-AOT variants
 with every failure bucket at zero.
 
+Async-generator activation state now has the exact five-value ECMA-262
+`AsyncGeneratorExecutionState` domain. The redundant raw suspended-await word
+is removed; promise-owned Await continuations persist `Executing` and retain
+their finer Await phase in the distinct body-status field. A private typed
+store owns all seventeen allocation, body, yield, Await, drain and completion
+writers. The three readers take one strict snapshot, compare it only through
+an opaque non-`Copy` token and trap an unknown word before routing. This also
+separates the standard builtin's receiver-brand scratch local from its later
+state token. The durable owner/lifecycle guard and
+`docs/rust-rewrite/contracts/async-generator-execution-state-word.md` are
+focused-verified. The three related structure targets pass `15/15` in total,
+the exact lifecycle/delegation CLI cohort passes `5/5`, and the five pinned
+request-order/state files pass `10/10` Wasm-AOT variants under `--jobs 1
+--threads 1` with every non-success bucket at zero.
+
 The existing broad resumable-loop CLI test still fails because later classic
 loop iterations and post-yield lexical state are lost. A detached unchanged
 `HEAD` worktree produces byte-identical output, while all observed yielded and

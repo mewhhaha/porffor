@@ -308,14 +308,12 @@ gain.
 
 ## Rejected adjacent lanes
 
-Class-static-block `HasDirectSuper` has one compact negative Test262 witness,
-`language/statements/class/static-init-invalid-super-call.js`, and one semantic
-check in `class_decl/mod.rs`. It is not the cleaner next classifier lane because
-the raw message `invalid super usage` occurs at twelve pinned-Boa producer sites
-covering distinct function, field, constructor, static-block, Script, and
-method conditions. Classifying that text as one static-block code would be
-false; a condition-specific vendor reword or a broader, separately justified
-taxonomy is required first.
+At this contract's inventory point, class-static-block `SuperCall` shared
+`invalid super usage` with eleven other pinned-Boa producers, so classifying
+that text as one static-block code would have been false. The later
+`class-super-call-early-errors.md` and
+`class-field-initializer-super-call-early-errors.md` lanes supplied the required
+condition-specific producer wording and taxonomy.
 
 The formal-parameter/function-body lexical-name intersection has one shared
 message constructor in `parser/mod.rs`, but thirteen parser call sites across

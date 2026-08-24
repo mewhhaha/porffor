@@ -861,7 +861,7 @@ fn run_wasm_backend_copies_typedarray_with_one_replacement() {
 }
 
 #[test]
-fn run_wasm_backend_checks_typedarray_integer_indexed_properties() {
+fn run_wasm_backend_checks_typedarray_integer_indices_through_buffer_witness() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")

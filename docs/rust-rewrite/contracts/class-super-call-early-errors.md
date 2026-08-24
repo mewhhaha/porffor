@@ -1,15 +1,15 @@
 # Class constructor and static-block `super()` early errors
 
-**Status:** Theory-written; implementation-pending and verification-pending,
-2026-08-23
+**Status:** Implementation present on current head; focused verification
+pending, 2026-08-24
 
 ## Decision
 
 Two class-owned `super()` restrictions are two distinct pre-evaluation
-conditions. They must not be merged merely because pinned Boa currently emits
+conditions. They must not be merged merely because pinned Boa formerly emitted
 the same raw text for both:
 
-| Specification condition | Proposed code | Sole wire spelling |
+| Specification condition | Code | Sole wire spelling |
 | --- | --- | --- |
 | A class has no `ClassHeritage`, has a constructor, and `HasDirectSuper` of that constructor is true | `EarlyErrorCode::ClassBaseConstructorHasDirectSuper` | `E_CLASS_BASE_CONSTRUCTOR_HAS_DIRECT_SUPER` |
 | A class static block's statement list `Contains SuperCall` | `EarlyErrorCode::ClassStaticBlockContainsSuperCall` | `E_CLASS_STATIC_BLOCK_CONTAINS_SUPER_CALL` |
@@ -86,8 +86,8 @@ class code.
 
 Pinned `boa_parser-0.21.1` implements both predicates in
 `vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs`.
-The predicates are already present and semantically separate. Only their raw
-diagnostic text is currently shared with unrelated producers.
+The predicates were already present and semantically separate. This lane
+changed only their formerly shared raw diagnostic text.
 
 ### Base constructor producer
 
@@ -100,13 +100,13 @@ super_ref.is_none()
     && contains(constructor, ContainsSymbol::SuperCall)
 ```
 
-The current branch emits:
+Before the repair, the branch emitted:
 
 ```text
 invalid super usage
 ```
 
-at `body_start`. The implementation must change only that branch's raw message
+at `body_start`. The implementation changed only that branch's raw message
 to the exact unique text:
 
 ```text
@@ -134,7 +134,7 @@ if contains(&statement_list, ContainsSymbol::SuperCall) {
 }
 ```
 
-The implementation must change only this branch's raw message to the exact
+The implementation changed only this branch's raw message to the exact
 unique text:
 
 ```text
@@ -169,7 +169,7 @@ times across every Rust source in pinned `boa_parser-0.21.1`:
 | class static-block check | `statement/declaration/hoistable/class_decl/mod.rs:756` | 1 | static-block `position` |
 | **Total** | | **12** | |
 
-After both message-only repairs, the complete census is:
+Immediately after both message-only repairs, the complete census was:
 
 | Raw literal | Required occurrences | Owners |
 | --- | ---: | --- |
@@ -182,16 +182,18 @@ the four survivors are precisely the field-initializer `SuperCall` checks.
 The eleven separate `invalid super call usage` producers for method
 `HasDirectSuper` remain untouched.
 
-The existing `ScriptTopLevelSuper` structural guard and contract must be
-updated in the implementation patch: their recursive raw-message census moves
-from twelve to ten, their class-parser subtotal moves from six to four, and
-their reviewed “other producers” count moves from eleven to nine. The Script
-producer itself remains byte-for-byte unchanged and continues to be selected
-only by the exact rendered message `invalid super usage at line 1, col 1`.
+The later, separately owned class-field initializer lane gives those four
+field producers their own message. On current head, `invalid super usage`
+therefore occurs six times: the ScriptBody producer plus five callable
+producers. The field message occurs four times and is owned by
+`ClassFieldInitializerContainsSuperCall`; see
+`class-field-initializer-super-call-early-errors.md`. The Script producer
+remains byte-for-byte unchanged and continues to be selected only by the exact
+rendered message `invalid super usage at line 1, col 1`.
 
 No classifier row may match the broad text `invalid super usage at line`.
-Doing so would merge the two conditions here with callable, field and Script
-conditions and would defeat the purpose of assigning distinct codes.
+Doing so would still merge callable and Script conditions; the class-field
+condition now has its own anchored prefix for the same reason.
 
 ## Exact typed encoding
 
@@ -256,8 +258,9 @@ Each code requires:
 - the existing table-wide witness-disjointness, wire-name and parse-owner
   assertions;
 - classifier witnesses proving the two new messages cannot select one
-  another, `ScriptTopLevelSuper`, a callable/field `invalid super usage`
-  message, or the method-owned `invalid super call usage` message;
+  another, `ScriptTopLevelSuper`, a callable `invalid super usage` message,
+  the separately typed field message, or the method-owned
+  `invalid super call usage` message;
 - injection witnesses in which a user-controlled Module export name contains
   each complete new prefix but remains `ModuleDuplicateExport`; and
 - explicit arms in `lila-ir`'s exhaustive `EarlyErrorCode` mapping to
@@ -383,16 +386,17 @@ diagnostic without exercising a real front-end producer.
 
 ## Durable structural guards
 
-The implementation must add or extend one vendored-source guard that
-recursively inventories the pinned Boa packages and proves all of the
-following:
+The implementation extends one vendored-source guard that recursively
+inventories the pinned Boa packages and proves all of the following:
 
-- the post-repair raw-message census is exactly `10 + 1 + 1` as specified
-  above;
+- the current raw-message census is exactly `6 + 1 + 1 + 4`: six generic,
+  one base-constructor, one static-block and four separately typed field
+  messages;
 - the two new raw messages each occur exactly once, both in
   `class_decl/mod.rs`;
-- the old raw `invalid super usage` occurs exactly four times in
-  `class_decl/mod.rs`, all in field-initializer branches;
+- the old raw `invalid super usage` no longer occurs in `class_decl/mod.rs`;
+- the separately typed field message occurs exactly four times in its four
+  reviewed initializer branches;
 - the base-constructor message is dominated by the complete three-part
   `super_ref.is_none` / optional-constructor / `ContainsSymbol::SuperCall`
   conjunction, retains `body_start`, and remains after the complete
@@ -490,7 +494,8 @@ This contract does not:
 
 - classify the eleven method-owned `invalid super call usage` producers;
 - classify the five remaining callable `invalid super usage` producers;
-- classify the four class-field-initializer `SuperCall` producers;
+- own the separately implemented class-field-initializer `SuperCall`
+  condition;
 - broaden or merge `ScriptTopLevelSuper` or `ModuleTopLevelSuper`;
 - implement direct eval, indirect eval, `Function` constructors or any dynamic
   source path;

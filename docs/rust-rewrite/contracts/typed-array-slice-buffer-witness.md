@@ -1,8 +1,8 @@
 # TypedArray `slice` buffer witness
 
-Status: theory-written / implementation-pending. Durable guards, focused
-runtime controls and verification are also pending for the T17 Wasm-AOT
-`%TypedArray%.prototype.slice` invariant lane.
+Status: implemented with durable guards and focused runtime controls for the
+T17 Wasm-AOT `%TypedArray%.prototype.slice` invariant lane. Verification
+evidence has not yet been recorded.
 
 ## Specification boundary
 
@@ -382,10 +382,10 @@ run on the implementation being described.
 
 ## Explicit nonclaims
 
-This theory does not implement or verify `slice`. It does not change start/end
-conversion, species lookup, target construction, constructed-target validation,
-content-type checks, ascending overlap behavior, different-type conversion,
-or result publication.
+This migration does not change start/end conversion, species lookup, target
+construction, constructed-target validation, content-type checks, ascending
+overlap behavior, different-type conversion or result publication. Its focused
+verification remains pending.
 
 It does not migrate the raw validator inside
 `emit_validate_typed_array_from_constructed_target`, nor any of that helper's
@@ -401,5 +401,5 @@ or establish a new Test262 pass before the exact executions occur.
 The existing fixture does not prove created-Realm TypeError prototype identity
 for either source witness. The shared witness structurally owns the executing
 function-Realm route, but runtime Realm identity remains a nonclaim unless a
-direct control is added and run. Completing this invariant lane will not by
-itself complete `slice`, TypedArray or T17.
+direct control is added and run. This invariant lane does not by itself
+complete `slice`, TypedArray or T17.

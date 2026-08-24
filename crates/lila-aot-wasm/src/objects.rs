@@ -6641,7 +6641,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_valid_integer_index_i32(
             target_payload_local,
-            target_tag_local,
             typed_array_numeric_index_local,
             index_local,
             typed_array_index_valid_local,
@@ -8812,7 +8811,6 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::If(BlockType::Empty));
                         self.emit_typed_array_valid_integer_index_i32(
                             target_local,
-                            target_tag_local,
                             canonical_numeric_index_local,
                             typed_array_index_local,
                             result_local,
@@ -17749,7 +17747,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_valid_integer_index_i32(
             prototype_local,
-            prototype_tag_local,
             typed_array_numeric_index_local,
             typed_array_index_local,
             typed_array_index_valid_local,
@@ -18313,7 +18310,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_valid_integer_index_i32(
             receiver_payload_local,
-            receiver_tag_local,
             typed_array_numeric_index_local,
             typed_array_index_local,
             typed_array_index_valid_local,
@@ -19160,7 +19156,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_typed_array_valid_integer_index_i32(
             current_payload_local,
-            current_tag_local,
             typed_array_numeric_index_local,
             typed_array_index_local,
             typed_array_index_valid_local,
@@ -21861,7 +21856,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_valid_integer_index_i32(
             object_payload_local,
-            object_tag_local,
             numeric_index_payload_local,
             index_local,
             result_local,

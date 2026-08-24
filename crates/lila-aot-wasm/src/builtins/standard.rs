@@ -1846,7 +1846,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_typed_array_valid_integer_index_i32(
             receiver_payload_local,
-            receiver_tag_local,
             actual_index_payload_local,
             actual_index_local,
             actual_index_valid_local,
@@ -18739,7 +18738,7 @@ impl<'a> FunctionBuilder<'a> {
                 let promise_record_local = self.reserve_temp_local();
                 let request_local = self.reserve_temp_local();
                 let queue_tail_local = self.reserve_temp_local();
-                let execution_state_local = self.reserve_temp_local();
+                let receiver_brand_local = self.reserve_temp_local();
 
                 function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(constructor_payload_local));
@@ -18761,7 +18760,7 @@ impl<'a> FunctionBuilder<'a> {
                 );
 
                 function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(execution_state_local));
+                function.instruction(&Instruction::LocalSet(receiver_brand_local));
                 function.instruction(&Instruction::LocalGet(this_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
@@ -18769,11 +18768,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.load_i64_to_local_from_offset(
                     this_payload_local,
                     HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                    execution_state_local,
+                    receiver_brand_local,
                     function,
                 );
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(execution_state_local));
+                function.instruction(&Instruction::LocalGet(receiver_brand_local));
                 function.instruction(&Instruction::I64Const(
                     OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR as i64,
                 ));
@@ -18896,23 +18895,18 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(queue_tail_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                    execution_state_local,
+                let execution_state = self
+                    .emit_load_async_generator_execution_state_strict(activation_local, function);
+                self.emit_async_generator_execution_state_equals(
+                    &execution_state,
+                    AsyncGeneratorExecutionState::Completed,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(execution_state_local));
-                function.instruction(&Instruction::I64Const(
-                    ASYNC_GENERATOR_STATE_COMPLETED as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
 
-                self.store_i64_const_at_offset(
+                self.emit_store_async_generator_execution_state(
                     activation_local,
-                    HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                    ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
+                    AsyncGeneratorExecutionState::DrainingQueue,
                     function,
                 );
                 self.store_i64_local_at_offset(
@@ -18998,11 +18992,11 @@ impl<'a> FunctionBuilder<'a> {
                     },
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(execution_state_local));
-                function.instruction(&Instruction::I64Const(
-                    ASYNC_GENERATOR_STATE_SUSPENDED_YIELD as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
+                self.emit_async_generator_execution_state_equals(
+                    &execution_state,
+                    AsyncGeneratorExecutionState::SuspendedYield,
+                    function,
+                );
                 function.instruction(&Instruction::If(BlockType::Empty));
                 if builtin == StandardBuiltinId::AsyncGeneratorPrototypeReturn {
                     self.emit_async_generator_yield_return_reactions(
@@ -19017,29 +19011,27 @@ impl<'a> FunctionBuilder<'a> {
                         ASYNC_GENERATOR_BODY_STATUS_AWAIT,
                         function,
                     );
-                    self.store_i64_const_at_offset(
+                    self.emit_store_async_generator_execution_state(
                         activation_local,
-                        HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                        ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+                        AsyncGeneratorExecutionState::Executing,
                         function,
                     );
                 } else {
                     self.emit_start_async_generator_body(activation_local, function)?;
                 }
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(execution_state_local));
-                function.instruction(&Instruction::I64Const(
-                    ASYNC_GENERATOR_STATE_SUSPENDED_START as i64,
-                ));
-                function.instruction(&Instruction::I64Eq);
+                self.emit_async_generator_execution_state_equals(
+                    &execution_state,
+                    AsyncGeneratorExecutionState::SuspendedStart,
+                    function,
+                );
                 function.instruction(&Instruction::If(BlockType::Empty));
                 if builtin == StandardBuiltinId::AsyncGeneratorPrototypeNext {
                     self.emit_start_async_generator_body(activation_local, function)?;
                 } else {
-                    self.store_i64_const_at_offset(
+                    self.emit_store_async_generator_execution_state(
                         activation_local,
-                        HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                        ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
+                        AsyncGeneratorExecutionState::DrainingQueue,
                         function,
                     );
                     if builtin == StandardBuiltinId::AsyncGeneratorPrototypeThrow {
@@ -19068,7 +19060,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 self.set_completion_kind(CompletionKind::Normal, function);
 
-                self.release_temp_local(execution_state_local);
+                self.release_loaded_async_generator_execution_state(execution_state);
+                self.release_temp_local(receiver_brand_local);
                 self.release_temp_local(queue_tail_local);
                 self.release_temp_local(request_local);
                 self.release_temp_local(promise_record_local);

@@ -1429,16 +1429,14 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_typed_array_valid_integer_index_i32(
         &mut self,
         typed_array_payload_local: u32,
-        typed_array_tag_local: u32,
         numeric_index_payload_local: u32,
         index_local: u32,
         result_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let buffer_payload_local = self.reserve_temp_local();
-        let data_ptr_local = self.reserve_temp_local();
         let byte_offset_local = self.reserve_temp_local();
-        let byte_length_local = self.reserve_temp_local();
+        let stored_byte_length_local = self.reserve_temp_local();
         let bytes_per_element_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
@@ -1472,55 +1470,34 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64TruncF64U);
         function.instruction(&Instruction::LocalSet(index_local));
 
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             typed_array_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             buffer_payload_local,
-            function,
-        );
-        self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(0));
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
-            byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+            stored_byte_length_local,
             bytes_per_element_local,
             function,
         );
-        self.emit_typed_array_current_byte_length(
+        let typed_array_view = TypedArrayViewLocals::new(
             typed_array_payload_local,
-            typed_array_tag_local,
             buffer_payload_local,
             byte_offset_local,
-            byte_length_local,
+            stored_byte_length_local,
+            bytes_per_element_local,
+        );
+        self.emit_typed_array_witness(
+            &typed_array_view,
+            TypedArrayWitnessUse::IntegerIndexedProperty {
+                index_local,
+                result_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(byte_length_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::End);
 
         self.release_temp_local(bytes_per_element_local);
-        self.release_temp_local(byte_length_local);
+        self.release_temp_local(stored_byte_length_local);
         self.release_temp_local(byte_offset_local);
-        self.release_temp_local(data_ptr_local);
         self.release_temp_local(buffer_payload_local);
         Ok(())
     }

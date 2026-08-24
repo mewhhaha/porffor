@@ -1,7 +1,8 @@
 # Script top-level `super` early errors
 
-**Status:** Implemented, independently reviewed, and focused-verified,
-2026-08-23
+**Status:** Product condition independently reviewed and focused-verified
+2026-08-23; shared producer census updated for the field follow-up with batch
+re-verification pending, 2026-08-24
 
 ## Decision
 
@@ -97,23 +98,23 @@ The fixed `Position::new(1, 1)` is part of the current pin's classification
 boundary. It distinguishes this producer from the other reachable producers
 that reuse the raw literal `invalid super usage`.
 
-After the separately typed class-super-call repair, across every Rust source in
-pinned `boa_parser-0.21.1` that raw literal occurs exactly ten times:
+After the separately typed class-super-call and class-field-initializer repairs,
+across every Rust source in pinned `boa_parser-0.21.1` that raw literal occurs
+exactly six times:
 
 | Parser owner | Raw occurrences | Position source | New code owns it |
 | --- | ---: | --- | --- |
 | `parser/mod.rs` ScriptBody check | 1 | fixed `Position::new(1, 1)` | yes |
 | shared hoistable-declaration parser | 1 | `params_start_position` | no |
 | ordinary/generator/async/async-generator expression parsers | 4 | each form's parameter-start position | no |
-| class parser field-initializer checks | 4 | class-element `position` | no |
 
-The other nine positions occur only after syntax that must precede the
-reported construct: a function head or class field. They cannot render line 1,
-column 1. They cover distinct callable and field conditions and must remain
+The other five positions occur only after a function head and cannot render
+line 1, column 1. They cover distinct callable conditions and must remain
 unclassified by this lane. A broad row for `invalid super usage at line` would
-falsely merge all ten producers. The base-constructor and static-block
-`SuperCall` conditions now have their own unique raw messages and codes under
-`class-super-call-early-errors.md`.
+falsely merge all six producers. The base-constructor and static-block
+conditions have unique messages and codes under
+`class-super-call-early-errors.md`; the four field-initializer producers are
+owned by `class-field-initializer-super-call-early-errors.md`.
 
 No vendor repair is required for the Script producer. Its existing
 fixed-position message remains sufficient for an exact-message classifier row.
@@ -231,11 +232,10 @@ part of the producer surface claimed here. The structural guard records that
 omission so a vendor change cannot silently alter the cohort; repairing it is
 adjacent parser/`Contains` debt, not part of this classifier-only lane.
 
-Adjacent raw-message owners must not be absorbed. At minimum, an ordinary
-function containing `super.value`, a base-class constructor containing
-`super()`, a class field initializer containing `super()`, and a class static
-block containing `super()` must fail without the new code. These conditions
-may remain `Malformed` until their own semantically closed lanes are specified.
+Adjacent semantic owners must not be absorbed. An ordinary function containing
+`super.value` remains outside this code, while base constructors, field
+initializers and static blocks containing `super()` retain their distinct
+class-owned codes.
 
 One mixed Script source pins Boa's current semantic-check order:
 
@@ -285,7 +285,7 @@ inventing an unreachable Module producer.
 A durable source guard must recursively inventory the pinned Boa parser and
 prove all of the following:
 
-- the raw literal `invalid super usage` occurs exactly ten times across
+- the raw literal `invalid super usage` occurs exactly six times across
   Rust sources;
 - exactly one occurrence is the ScriptBody call with the complete
   `Error::general(..., Position::new(1, 1))` shape;
@@ -293,9 +293,8 @@ prove all of the following:
   `contains(&body, ContainsSymbol::Super)` condition;
 - the Script super check remains before the adjacent NewTarget, private-name,
   label and cover-initialized-name checks;
-- the other nine raw occurrences retain their reviewed parameter or
-  class-element position sources rather than acquiring the fixed 1:1
-  coordinate;
+- the other five raw occurrences retain their reviewed parameter-start
+  positions rather than acquiring the fixed 1:1 coordinate;
 - pinned `boa_ast` keeps ordinary callable bodies as stopping boundaries,
   traverses ordinary and async arrows, class heritage and computed public
   method/field names, traverses computed object-method names, and reaches a
@@ -386,7 +385,7 @@ debt, so this lane does not claim the complete `lila-ir` crate is green.
 The lane classifies a rejection pinned Boa already produces. It does not:
 
 - add or broaden `super` syntax;
-- classify the other nine raw `invalid super usage` producers;
+- classify the other five raw `invalid super usage` producers;
 - classify the eleven `invalid super call usage` producers;
 - repair token-level source location;
 - support direct eval or Function-family dynamic source;

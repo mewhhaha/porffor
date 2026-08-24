@@ -2276,10 +2276,9 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_BODY_STATUS_YIELD,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_execution_state(
             activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            ASYNC_GENERATOR_STATE_SUSPENDED_YIELD,
+            AsyncGeneratorExecutionState::SuspendedYield,
             function,
         );
         self.set_completion_kind_with_aux(
@@ -2445,10 +2444,9 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_BODY_STATUS_AWAIT,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_generator_execution_state(
             activation_local,
-            HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-            ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+            AsyncGeneratorExecutionState::Executing,
             function,
         );
         self.set_completion_kind_with_aux(
@@ -6025,10 +6023,9 @@ impl<'a> FunctionBuilder<'a> {
                     ASYNC_GENERATOR_BODY_STATUS_AWAIT,
                     function,
                 );
-                self.store_i64_const_at_offset(
+                self.emit_store_async_generator_execution_state(
                     activation_local,
-                    HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                    ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+                    AsyncGeneratorExecutionState::Executing,
                     function,
                 );
                 Ok(())
@@ -9724,10 +9721,9 @@ impl<'a> FunctionBuilder<'a> {
                 ASYNC_GENERATOR_BODY_STATUS_AWAIT,
                 function,
             );
-            self.store_i64_const_at_offset(
+            self.emit_store_async_generator_execution_state(
                 activation_local,
-                HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+                AsyncGeneratorExecutionState::Executing,
                 function,
             );
         } else {
@@ -9966,10 +9962,9 @@ impl<'a> FunctionBuilder<'a> {
                 ASYNC_GENERATOR_BODY_STATUS_AWAIT,
                 function,
             );
-            self.store_i64_const_at_offset(
+            self.emit_store_async_generator_execution_state(
                 activation_local,
-                HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+                AsyncGeneratorExecutionState::Executing,
                 function,
             );
         } else {

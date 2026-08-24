@@ -252,7 +252,7 @@ fn assert_writer_raw_helper_allowlist(body: &str) {
             r#"self.load_i64_to_local_from_offset(
                 this_payload_local,
                 HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                execution_state_local,
+                receiver_brand_local,
                 function,
             );"#,
             1,
@@ -271,15 +271,6 @@ fn assert_writer_raw_helper_allowlist(body: &str) {
                 activation_local,
                 HEAP_ASYNC_GENERATOR_QUEUE_TAIL_OFFSET,
                 queue_tail_local,
-                function,
-            );"#,
-            1,
-        ),
-        (
-            r#"self.load_i64_to_local_from_offset(
-                activation_local,
-                HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                execution_state_local,
                 function,
             );"#,
             1,
@@ -354,15 +345,6 @@ fn assert_writer_raw_helper_allowlist(body: &str) {
         (
             r#"self.store_i64_const_at_offset(
                 activation_local,
-                HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                ASYNC_GENERATOR_STATE_DRAINING_QUEUE,
-                function,
-            );"#,
-            2,
-        ),
-        (
-            r#"self.store_i64_const_at_offset(
-                activation_local,
                 HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
                 match builtin {
                     StandardBuiltinId::AsyncGeneratorPrototypeNext => {
@@ -385,15 +367,6 @@ fn assert_writer_raw_helper_allowlist(body: &str) {
                 activation_local,
                 HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET,
                 ASYNC_GENERATOR_BODY_STATUS_AWAIT,
-                function,
-            );"#,
-            1,
-        ),
-        (
-            r#"self.store_i64_const_at_offset(
-                activation_local,
-                HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
                 function,
             );"#,
             1,
@@ -537,7 +510,11 @@ fn request_completion_kind_is_one_closed_domain_projected_through_completion_kin
         "Self::Return=>CompletionKind::Return",
         "Self::Throw=>CompletionKind::Throw",
     ] {
-        assert_eq!(policy.matches(projection).count(), 1, "missing {projection}");
+        assert_eq!(
+            policy.matches(projection).count(),
+            1,
+            "missing {projection}"
+        );
     }
     for forbidden in ["_=>", "=>0", "=>1", "=>2", "selfas", "transmute"] {
         assert!(
@@ -549,7 +526,7 @@ fn request_completion_kind_is_one_closed_domain_projected_through_completion_kin
     let token = bounded(
         HEAP_SOURCE,
         "/// One strictly validated snapshot of an async-generator request's completion",
-        "pub(crate) const GENERATOR_RESUME_STATE_INITIALIZING",
+        "/// The closed `[[AsyncGeneratorState]]` lifecycle stored in an activation.",
     );
     assert_eq!(
         normalized_code(token),
@@ -821,7 +798,7 @@ fn request_completion_kind_heap_boundary_is_private_strict_and_opaque() {
     let release = bounded(
         HEAP_SOURCE,
         "pub(crate) fn release_loaded_async_generator_request_completion_kind(",
-        "/// Initialize a Promise record in the sole valid non-terminal state.",
+        "/// Store one state from the closed async-generator execution lifecycle.",
     );
     assert_eq!(
         normalized_code(release),
@@ -843,7 +820,7 @@ fn request_completion_kind_heap_boundary_is_private_strict_and_opaque() {
     let boundary = bounded(
         HEAP_SOURCE,
         "pub(crate) fn emit_store_async_generator_request_completion_kind(",
-        "/// Initialize a Promise record in the sole valid non-terminal state.",
+        "/// Store one state from the closed async-generator execution lifecycle.",
     );
     assert_eq!(
         boundary.matches("loaded.0").count(),
@@ -856,7 +833,7 @@ fn request_completion_kind_heap_boundary_is_private_strict_and_opaque() {
 fn request_writer_initializes_the_closed_kind_before_queue_publication() {
     let writer_owner = request_writer_owner();
     assert_no_raw_request_kind_offset_alias(writer_owner, "request writer");
-    assert_raw_helper_inventory(writer_owner, "request writer", [5, 8, 6]);
+    assert_raw_helper_inventory(writer_owner, "request writer", [4, 8, 3]);
     assert_writer_raw_helper_allowlist(writer_owner);
     let writer = normalized_code(writer_owner);
     assert_eq!(
@@ -903,7 +880,7 @@ fn request_writer_initializes_the_closed_kind_before_queue_publication() {
     let receiver_rejection_sentinel = normalized(
         r#"
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(execution_state_local));
+        function.instruction(&Instruction::LocalSet(receiver_brand_local));
         function.instruction(&Instruction::LocalGet(this_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -911,11 +888,11 @@ fn request_writer_initializes_the_closed_kind_before_queue_publication() {
         self.load_i64_to_local_from_offset(
             this_payload_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            execution_state_local,
+            receiver_brand_local,
             function,
         );
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(execution_state_local));
+        function.instruction(&Instruction::LocalGet(receiver_brand_local));
         function.instruction(&Instruction::I64Const(
             OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR as i64,
         ));
@@ -1143,7 +1120,7 @@ fn request_writer_initializes_the_closed_kind_before_queue_publication() {
 fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     let drain_owner = drain_owner();
     assert_no_raw_request_kind_offset_alias(drain_owner, "queue-drain reader");
-    assert_raw_helper_inventory(drain_owner, "queue-drain reader", [2, 1, 2]);
+    assert_raw_helper_inventory(drain_owner, "queue-drain reader", [2, 1, 1]);
     let drain = normalized_code(drain_owner);
     assert_eq!(
         drain
@@ -1197,7 +1174,7 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     );
     assert_eq!(
         drain
-            .matches("HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET")
+            .matches("emit_store_async_generator_execution_state(")
             .count(),
         1,
         "only empty-queue cleanup may publish Completed"
@@ -1423,10 +1400,9 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
                 0,
                 function,
             );
-            self.store_i64_const_at_offset(
+            self.emit_store_async_generator_execution_state(
                 activation_local,
-                HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                ASYNC_GENERATOR_STATE_COMPLETED,
+                AsyncGeneratorExecutionState::Completed,
                 function,
             );
             function.instruction(&Instruction::End);
@@ -1547,7 +1523,7 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
 
     let yield_owner = yield_owner();
     assert_no_raw_request_kind_offset_alias(yield_owner, "live-yield reader");
-    assert_raw_helper_inventory(yield_owner, "live-yield reader", [2, 4, 2]);
+    assert_raw_helper_inventory(yield_owner, "live-yield reader", [2, 4, 1]);
     let yield_route = normalized_code(yield_owner);
     assert_eq!(
         yield_route
@@ -1606,25 +1582,12 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
             "Await body status",
         ),
         (
-            "HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET",
-            1,
-            "SuspendedAwait execution state",
-        ),
-        (
             "HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET",
             1,
             "resume payload",
         ),
-        (
-            "HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET",
-            1,
-            "resume tag",
-        ),
-        (
-            "HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET",
-            1,
-            "resume kind",
-        ),
+        ("HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET", 1, "resume tag"),
+        ("HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET", 1, "resume kind"),
     ] {
         assert_eq!(
             yield_route.matches(field).count(),
@@ -1632,6 +1595,13 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
             "yield must have exactly one reviewed {label} write"
         );
     }
+    assert_eq!(
+        yield_route
+            .matches("emit_store_async_generator_execution_state(")
+            .count(),
+        1,
+        "yield must remain Executing through the typed execution-state boundary"
+    );
     assert_eq!(yield_route.matches("resume_body_local").count(), 3);
     assert_eq!(yield_route.matches("resume_kind_local").count(), 5);
 
@@ -1716,10 +1686,9 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
                 ASYNC_GENERATOR_BODY_STATUS_AWAIT,
                 function,
             );
-            self.store_i64_const_at_offset(
+            self.emit_store_async_generator_execution_state(
                 activation_local,
-                HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET,
-                ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT,
+                AsyncGeneratorExecutionState::Executing,
                 function,
             );
             function.instruction(&Instruction::Else);
@@ -1801,9 +1770,9 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
         "HEAP_ASYNC_GENERATOR_BODY_STATUS_OFFSET",
         "yield Return body Await state",
     );
-    let suspended_await = unique_position(
+    let executing_await = unique_position(
         &yield_route,
-        "ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT",
+        "AsyncGeneratorExecutionState::Executing",
         "yield Return execution state",
     );
     let normal_resume = unique_position(
@@ -1850,8 +1819,8 @@ fn request_readers_route_one_strict_snapshot_and_release_it_last() {
     assert_eq!(yield_request_entry_end, yield_return_route);
     assert_eq!(yield_return_route, yield_return);
     assert!(yield_return < yield_await);
-    assert!(yield_await < body_await && body_await < suspended_await);
-    assert!(suspended_await < yield_return_route_end);
+    assert!(yield_await < body_await && body_await < executing_await);
+    assert!(executing_await < yield_return_route_end);
     assert_eq!(yield_return_route_end, yield_normal_throw_route);
     assert!(yield_normal_throw_route < resume_payload && resume_payload < resume_tag);
     assert!(resume_tag < normal_resume && normal_resume < yield_throw);
@@ -1918,9 +1887,7 @@ fn request_completion_kind_has_exactly_one_writer_and_two_readers() {
                 .matches("emit_async_generator_request_completion_kind_equals(")
                 .count(),
             source
-                .matches(
-                    "emit_copy_async_generator_request_completion_kind_to_step_completion(",
-                )
+                .matches("emit_copy_async_generator_request_completion_kind_to_step_completion(")
                 .count(),
             source
                 .matches("release_loaded_async_generator_request_completion_kind(")
