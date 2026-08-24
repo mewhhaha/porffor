@@ -130,11 +130,16 @@ implementation-limit comparison selects the ECMAScript-visible result. Both
 the invalid-count and result-too-large `RangeError` paths now use the executing
 repeat function's Realm. The fixture covers negative fractions, enormous
 finite counts on empty and nonempty receivers, and both errors through a
-created Realm's borrowed repeat method. The code, structural guard, fixture
-and normative contract are dry-written; Cargo, CLI and focused pinned repeat
-execution remain queued behind the active current-pin matrix. This does not
-change the maximum String size, general numeric conversion or the published
-repeat count.
+created Realm's borrowed repeat method. On 2026-08-24,
+`cargo check -p lila-aot-wasm` and `cargo xc` passed, the hardened structural
+target passed `4/4`, and the exact CLI fixture passed `1/1`. At current Test262 pin
+`e9d582d6b8b13afc5ba9a676664741592b5c7f69`, all 16 unrewritten repeat files
+materialized as 32 ordinary sloppy/strict Wasm-AOT executions and passed
+`32/32` with every failure bucket at zero. The direct files do not contain the
+negative-fraction, finite-above-`u64` or created-Realm cases; the CLI fixture
+owns those observations. This does not change the maximum String size, general
+numeric conversion, complete String-tree status or published conformance
+counts, and emitted Wasm was not byte-compared.
 
 Computed property reads on primitive Strings now cross lowering through one
 private closed `CanonicalIndex` / `OrdinaryPropertyKey` classification. Static

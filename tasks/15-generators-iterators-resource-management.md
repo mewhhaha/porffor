@@ -614,22 +614,29 @@ and product-name collector bind the field and match it exhaustively, so adding
 an operation without stating its result and declaration ownership is `E0004`.
 The per-pattern `ArrayPatternProtocol` remains orthogonal and unchanged.
 Assignment evaluation still returns the original RHS payload and tag; binding
-initialization still returns `undefined`. This seam is dry-written and
-statically checked in this batch; Cargo and focused runtime gates remain
-deferred to the central verifier.
+initialization still returns `undefined`. The module-boundary guard now closes
+the exact five-producer/six-consumer product inventory and rejects inactive CLI
+registrations. On 2026-08-24, `cargo check -p lila-aot-wasm` and `cargo xc`
+passed, the six exact `lila-ir` scenarios passed `6/6`, and the exact array
+destructuring CLI fixture passed `1/1`. No emitted-Wasm byte comparison or
+focused Test262 cohort was run; `ArrayPatternProtocol`, IteratorClose, object
+destructuring and broader generator/resource behavior remain open.
 
 The shared `%IteratorHelperPrototype%` dispatcher now carries the private closed
 `IteratorHelperPrototypeOperation::{Next, Return}` domain instead of an
 `is_return: bool`. The two shared-prototype builtin arms are its only producers,
-and every concrete helper-family target choice matches it exhaustively. Adding
+and every concrete helper-brand target choice matches it exhaustively. Adding
 an operation without a target is therefore `E0004`; passing the former boolean
-is `E0308`. A single CLI fixture borrows the shared `next` and `return` methods
-and exercises both on concat, zip, map, filter, flatMap, take and drop helpers.
-The representation change preserves the existing target builtins and emitted
-instruction order. This is invariant hardening, not a claim that broader helper
-semantics or IteratorClose coverage are complete. The seam is dry-written and
-statically checked; Cargo, runtime and pinned Test262 gates remain deferred to
-the central verifier.
+is `E0308`. One CLI fixture borrows the shared `next` and `return` methods and
+exercises all seven brands through eight creation surfaces: concat, zip,
+zipKeyed, map, filter, flatMap, take and drop. On 2026-08-24, the executable
+structure target passed `4/4`; that matrix and the existing prototype/drop CLI
+witnesses each passed `1/1`. Four unrewritten current-pin Test262 leaves passed
+all `8/8` ordinary Wasm-AOT executions with every failure bucket at zero. The
+representation change preserves the existing target builtins and instruction
+selection, but emitted bytes were not compared. This is invariant hardening
+and bounded dispatch evidence, not broader helper semantics, close precedence
+or IteratorClose closure.
 
 The flatMap-specific abrupt outer-close boundary now uses the private,
 exhaustive `IteratorFlatMapInnerState::{NotInstalled, Active}` domain instead

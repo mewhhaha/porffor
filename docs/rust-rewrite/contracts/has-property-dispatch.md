@@ -238,8 +238,31 @@ thrown trap before invariant validation. The Set fixture also covers
 dense/sparse indices, symbols, boxed String, mapped arguments, arguments
 accessors without getter invocation, callable-Proxy setters, `SameValue` edge
 cases, a Function `prototype` frozen through its materialized descriptor entry
-and both assignment/Reflect entry points. Those broader adjacent descriptor
-regressions were not rerun for this checkpoint. Closure still requires the
-complete pinned Proxy/Reflect, Object and TypedArray trees; the two green
-filters are focused current-SHA evidence for this dispatch seam, not a broader
-tree claim.
+and both assignment/Reflect entry points. The adjacent delete,
+public-descriptor and Get regressions were not rerun for this checkpoint; the
+bounded Set rerun is recorded below. Closure still requires the complete pinned
+Proxy/Reflect, Object and TypedArray trees; the two green filters are focused
+current-SHA evidence for this dispatch seam, not a broader tree claim.
+
+The direct-target Proxy Set seam has a separate durable checkpoint. The module
+boundary guard pins the complete `ProxySetDescriptorLocals` record, the typed
+target/key/incoming-value call boundary, the one direct-own-descriptor
+projection, the `SameValue` comparison, the undefined-setter rejection and the
+active exact CLI registration. On 2026-08-24, that CLI regression passed `1/1`.
+At Test262 pin `e9d582d6b8b13afc5ba9a676664741592b5c7f69`, these six unrewritten
+`built-ins/Proxy/set` files each produced two ordinary sloppy/strict executions:
+
+- `return-true-target-property-accessor-is-configurable-set-is-undefined.js`;
+- `return-true-target-property-accessor-is-not-configurable.js`;
+- `return-true-target-property-is-not-configurable.js`;
+- `return-true-target-property-is-not-writable.js`;
+- `target-property-is-accessor-not-configurable-set-is-undefined.js`; and
+- `target-property-is-not-configurable-not-writable-not-equal-to-v.js`.
+
+All `12/12` Wasm-AOT executions passed with every failure bucket at zero. This
+is post-trap, direct-target evidence only. It does not close trap acquisition,
+absent-trap fallback, recursive descriptor lookup through a Proxy target,
+module-namespace targets, the full 27-file/54-variant Proxy Set subtree or the
+adjacent Reflect trees. The integer-indexed cases in the CLI fixture are
+false-positive controls for this invariant, not complete TypedArray `[[Set]]`
+evidence, and no emitted-Wasm byte comparison was performed.

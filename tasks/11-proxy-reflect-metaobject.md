@@ -130,10 +130,17 @@ named and Symbol keys, boxed-String virtual values, mapped arguments and an
 arguments accessor whose getter must not run, callable-Proxy setters,
 `SameValue` edge cases, writable and frozen Function `prototype` entries,
 integer-indexed no-false-positive cases and both assignment and Reflect entry
-points. It is written but has not run while the shared verification lane owns
-Cargo and Test262. This is only the post-trap, direct-target migration: Set
-trap lookup/fallback and recursive nested-Proxy target `[[GetOwnProperty]]`
-remain T11 work.
+points. The module-boundary guard pins the complete projection, typed call-site
+roles, unique projection call, `SameValue` check, undefined-setter check and an
+active exact CLI registration. On 2026-08-24, that CLI witness passed `1/1`.
+At current Test262 pin
+`e9d582d6b8b13afc5ba9a676664741592b5c7f69`, six selected unrewritten Proxy Set
+invariant files passed all `12/12` ordinary Wasm-AOT executions with every
+failure bucket at zero. This is only the post-trap, direct-target migration:
+Set trap lookup/fallback, recursive nested-Proxy target `[[GetOwnProperty]]`,
+module namespaces and the complete 27-file/54-variant Proxy Set subtree remain
+T11 work. The integer-indexed fixture cases are false-positive controls, not
+complete TypedArray Set evidence.
 
 Proxy `[[Get]]` post-trap validation now consumes a second richer projection of
 that same direct descriptor authority. The closed projection domain has

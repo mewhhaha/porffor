@@ -1487,6 +1487,260 @@ require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_array_literal(
 require_fixed_string_count "$ir_array_literal_lowering" 'fn lower_staged_generator_array_literal(' 1 'staged array-literal lowerer'
 require_fixed_string_count "$ir_lowering" 'fn lower_array_literal(' 0 'array-literal lowerer outside child module'
 require_fixed_string_count "$ir_lowering" 'fn lower_staged_generator_array_literal(' 0 'staged array-literal lowerer outside child module'
+
+# T15's array-destructuring result/declaration semantics are a closed operation
+# carried from five lowering contexts into six semantic consumers. Generic IR
+# visitors that only transport the field are deliberately outside this census.
+braced_rust_item_source() {
+  source_file="$1"
+  item_start_pattern="$2"
+  awk -v item_start_pattern="$item_start_pattern" '
+    !capturing {
+      trimmed_line = $0
+      sub(/^[[:space:]]*/, "", trimmed_line)
+      if (match(trimmed_line, item_start_pattern) != 1) {
+        next
+      }
+      capturing = 1
+    }
+    {
+      print
+      opening_line = $0
+      closing_line = $0
+      openings = gsub(/\{/, "", opening_line)
+      closings = gsub(/\}/, "", closing_line)
+      depth += openings - closings
+      if (openings > 0) {
+        body_started = 1
+      }
+      if (body_started && depth == 0) {
+        exit
+      }
+    }
+  ' "$source_file"
+}
+
+rust_item_attributes_source() {
+  source_file="$1"
+  item_start_pattern="$2"
+  awk -v item_start_pattern="$item_start_pattern" '
+    {
+      trimmed_line = $0
+      sub(/^[[:space:]]*/, "", trimmed_line)
+    }
+    trimmed_line ~ /^#\[/ {
+      attributes = attributes trimmed_line "\n"
+      next
+    }
+    match(trimmed_line, item_start_pattern) == 1 {
+      printf "%s", attributes
+      exit
+    }
+    trimmed_line == "" || trimmed_line ~ /^\/\// { next }
+    { attributes = "" }
+  ' "$source_file"
+}
+
+rust_source_without_inline_tests() {
+  awk '
+    skipping_test_item {
+      opening_line = $0
+      closing_line = $0
+      openings = gsub(/\{/, "", opening_line)
+      closings = gsub(/\}/, "", closing_line)
+      depth += openings - closings
+      if (openings > 0) {
+        body_started = 1
+      }
+      if ((body_started && depth == 0) || (!body_started && /;/)) {
+        skipping_test_item = 0
+        body_started = 0
+        depth = 0
+      }
+      next
+    }
+    /^[[:space:]]*#\[test\][[:space:]]*$/ {
+      skipping_test_item = 1
+      next
+    }
+    { print }
+  ' "$1"
+}
+
+require_active_wasm_cli_rust_test() {
+  source_file="$1"
+  function_name="$2"
+  test_description="$3"
+  item_start_pattern="^fn[[:space:]]+${function_name}[[:space:]]*[(]"
+  require_regex_count \
+    "$source_file" \
+    "^[[:space:]]*fn[[:space:]]+${function_name}[[:space:]]*\\(" \
+    1 \
+    "${test_description} test owner"
+  test_attributes="$(rust_item_attributes_source "$source_file" "$item_start_pattern")"
+  require_text_regex_count "$test_attributes" '^#\[test\]$' 1 "${test_description} live test attribute"
+  if grep -Eq '^#\[(cfg|cfg_attr|ignore)([^[:alnum:]_]|$)' <<<"$test_attributes"; then
+    fail "${test_description} must not be disabled by an attached cfg/ignore attribute"
+  fi
+  test_source="$(braced_rust_item_source "$source_file" "$item_start_pattern")"
+  require_text_regex_count "$test_source" '^[[:space:]]*\.arg\("run"\)$' 1 "${test_description} run command"
+  require_text_regex_count "$test_source" '^[[:space:]]*\.arg\("--execution-backend"\)$' 1 "${test_description} backend option"
+  require_text_regex_count "$test_source" '^[[:space:]]*\.arg\("wasm"\)$' 1 "${test_description} Wasm backend"
+  require_text_regex_count "$test_source" '^[[:space:]]*output\.status\.success\(\),$' 1 "${test_description} process-status assertion"
+  require_text_regex_count "$test_source" '^[[:space:]]*assert!\(stdout\.contains\("backend_used: WasmAot"\)\);$' 1 "${test_description} backend assertion"
+  require_text_regex_count "$test_source" '^[[:space:]]*assert!\(stdout\.contains\("boolean\(true\)"\), "\{stdout\}"\);$' 1 "${test_description} boolean-result assertion"
+}
+
+array_destructuring_evaluation_match_source() {
+  awk '
+    !capturing {
+      if (!match($0, /match[[:space:]]+\*?evaluation[[:space:]]*\{/)) {
+        next
+      }
+      $0 = substr($0, RSTART)
+      capturing = 1
+    }
+    {
+      print
+      opening_line = $0
+      closing_line = $0
+      openings = gsub(/\{/, "", opening_line)
+      closings = gsub(/\}/, "", closing_line)
+      depth += openings - closings
+      if (depth == 0) {
+        exit
+      }
+    }
+  '
+}
+
+require_array_destructuring_producer() {
+  source_file="$1"
+  function_name="$2"
+  evaluation_variant="$3"
+  item_start_pattern="^(pub([(][^)]*[)])?[[:space:]]+)?fn[[:space:]]+${function_name}[[:space:]]*[(]"
+  require_regex_count "$source_file" "^[[:space:]]*${item_start_pattern#^}" 1 "${function_name} producer declaration"
+  producer_source="$(braced_rust_item_source "$source_file" "$item_start_pattern")"
+  require_text_regex_count \
+    "$producer_source" \
+    'evaluation:[[:space:]]*ArrayDestructuringEvaluationIr::[[:alnum:]_]+,' \
+    1 \
+    "${function_name} array-destructuring evaluation producer"
+  require_text_regex_count \
+    "$producer_source" \
+    "evaluation:[[:space:]]*ArrayDestructuringEvaluationIr::${evaluation_variant}," \
+    1 \
+    "${function_name} ${evaluation_variant} producer"
+}
+
+require_array_destructuring_consumer() {
+  source_file="$1"
+  function_name="$2"
+  item_start_pattern="^(pub([(][^)]*[)])?[[:space:]]+)?fn[[:space:]]+${function_name}[[:space:]]*[(]"
+  require_regex_count "$source_file" "^[[:space:]]*${item_start_pattern#^}" 1 "${function_name} semantic consumer declaration"
+  consumer_source="$(braced_rust_item_source "$source_file" "$item_start_pattern")"
+  require_text_regex_count \
+    "$consumer_source" \
+    'match[[:space:]]+\*?evaluation[[:space:]]*\{' \
+    1 \
+    "${function_name} array-destructuring evaluation match"
+  evaluation_match="$(printf '%s\n' "$consumer_source" | array_destructuring_evaluation_match_source)"
+  require_text_regex_count \
+    "$evaluation_match" \
+    '^[[:space:]]*ArrayDestructuringEvaluationIr::BindingInitialization[[:space:]]*=>' \
+    1 \
+    "${function_name} BindingInitialization match arm"
+  require_text_regex_count \
+    "$evaluation_match" \
+    '^[[:space:]]*ArrayDestructuringEvaluationIr::AssignmentEvaluation[[:space:]]*=>' \
+    1 \
+    "${function_name} AssignmentEvaluation match arm"
+  require_text_regex_count \
+    "$evaluation_match" \
+    '^[[:space:]]*_[[:space:]]*=>' \
+    0 \
+    "${function_name} array-destructuring wildcard arm"
+  require_text_regex_count \
+    "$consumer_source" \
+    'ArrayDestructuringEvaluationIr::' \
+    2 \
+    "${function_name} direct evaluation-variant use"
+}
+
+ir_ir="crates/lila-ir/src/ir.rs"
+require_fixed_string_count "$ir_ir" 'pub enum ArrayDestructuringEvaluationIr {' 1 'public array-destructuring evaluation enum'
+array_destructuring_evaluation_derive="$(awk '/^pub enum ArrayDestructuringEvaluationIr \{$/ { print preceding_line; exit } { preceding_line = $0 }' "$ir_ir")"
+if [ "$array_destructuring_evaluation_derive" != '#[derive(Debug, Clone, Copy, PartialEq, Eq)]' ]; then
+  fail 'ArrayDestructuringEvaluationIr must keep its exact non-Default derives'
+fi
+array_destructuring_evaluation_enum="$(braced_rust_item_source "$ir_ir" '^pub[[:space:]]+enum[[:space:]]+ArrayDestructuringEvaluationIr[[:space:]]*[{]')"
+array_destructuring_evaluation_enum_code="$(printf '%s\n' "$array_destructuring_evaluation_enum" | sed '/^[[:space:]]*\/\//d; /^[[:space:]]*$/d')"
+require_text_regex_count "$array_destructuring_evaluation_enum_code" '^    BindingInitialization,$' 1 'BindingInitialization unit variant'
+require_text_regex_count "$array_destructuring_evaluation_enum_code" '^    AssignmentEvaluation,$' 1 'AssignmentEvaluation unit variant'
+if [ "$(printf '%s\n' "$array_destructuring_evaluation_enum_code" | wc -l | tr -d '[:space:]')" -ne 4 ]; then
+  fail "$ir_ir must keep ArrayDestructuringEvaluationIr to its public declaration, two unit variants and closing brace"
+fi
+if grep -Eq 'bool|Default' <<<"$array_destructuring_evaluation_enum_code" \
+  || grep -Eq 'impl[[:space:]]+Default[[:space:]]+for[[:space:]]+ArrayDestructuringEvaluationIr' "$ir_ir"; then
+  fail 'ArrayDestructuringEvaluationIr must not regain a bool field or Default implementation'
+fi
+
+require_array_destructuring_producer "$ir_lowering" lower_parameter_binding_pattern BindingInitialization
+require_array_destructuring_producer "$ir_lowering" lower_pattern_assign_value AssignmentEvaluation
+require_array_destructuring_producer "$ir_lowering" lower_pattern_lexical_binding BindingInitialization
+require_array_destructuring_producer "$ir_lowering" lower_pattern_var_binding_from_value BindingInitialization
+require_array_destructuring_producer "$ir_lowering" lower_pattern_lexical_binding_from_value_with_storage_names BindingInitialization
+require_fixed_string_count "$ir_lowering" 'evaluation: ArrayDestructuringEvaluationIr::' 5 'reviewed array-destructuring evaluation producers'
+
+require_array_destructuring_consumer "$ir_lib" collect_binding_storage_names
+require_array_destructuring_consumer crates/lila-aot-wasm/src/control_flow.rs initialize_direct_lexical_bindings
+require_array_destructuring_consumer crates/lila-aot-wasm/src/control_flow.rs compile_array_destructure_to_locals
+require_array_destructuring_consumer crates/lila-aot-wasm/src/planning.rs expr_result_tag_is_runtime_dynamic
+require_array_destructuring_consumer crates/lila-aot-wasm/src/planning.rs count_statement_lexicals
+require_array_destructuring_consumer crates/lila-aot-wasm/src/planning.rs collect_hoisted_vars_statement
+
+array_destructuring_variant_product_files="$({
+  while IFS= read -r product_source_file; do
+    if rust_source_without_inline_tests "$product_source_file" \
+      | grep -F 'ArrayDestructuringEvaluationIr::' >/dev/null; then
+      printf '%s\n' "$product_source_file"
+    fi
+  done < <(find crates -type f -path '*/src/*.rs' -print | sort)
+})"
+expected_array_destructuring_variant_product_files='crates/lila-aot-wasm/src/control_flow.rs
+crates/lila-aot-wasm/src/planning.rs
+crates/lila-ir/src/lib.rs
+crates/lila-ir/src/lowering.rs'
+if [ "$array_destructuring_variant_product_files" != "$expected_array_destructuring_variant_product_files" ]; then
+  fail "direct ArrayDestructuringEvaluationIr variant use must stay in the reviewed four product files: $array_destructuring_variant_product_files"
+fi
+for product_variant_spec in \
+  'crates/lila-ir/src/lowering.rs|5' \
+  'crates/lila-ir/src/lib.rs|2' \
+  'crates/lila-aot-wasm/src/control_flow.rs|4' \
+  'crates/lila-aot-wasm/src/planning.rs|6'
+do
+  product_source_file="${product_variant_spec%%|*}"
+  expected_variant_uses="${product_variant_spec#*|}"
+  product_variant_uses="$({
+    rust_source_without_inline_tests "$product_source_file" \
+      | grep -Fc 'ArrayDestructuringEvaluationIr::'
+  } || true)"
+  if [ "$product_variant_uses" -ne "$expected_variant_uses" ]; then
+    fail "$product_source_file must contain $expected_variant_uses non-test direct array-destructuring evaluation variant uses (found $product_variant_uses)"
+  fi
+done
+
+array_destructuring_cli="crates/lila-cli/tests/cli/array.rs"
+array_destructuring_fixture="crates/lila-cli/tests/fixtures/wasm_array_destructuring_iterators.js"
+require_file "$array_destructuring_cli"
+require_file "$array_destructuring_fixture"
+require_active_wasm_cli_rust_test \
+  "$array_destructuring_cli" \
+  run_wasm_backend_uses_iterators_for_array_destructuring \
+  'array-destructuring CLI regression'
+array_destructuring_cli_test="$(braced_rust_item_source "$array_destructuring_cli" '^fn[[:space:]]+run_wasm_backend_uses_iterators_for_array_destructuring[[:space:]]*[(]')"
+require_text_regex_count "$array_destructuring_cli_test" 'fixture_path\("wasm_array_destructuring_iterators\.js"\)' 1 'array-destructuring CLI fixture wiring'
 check_no_inline_legacy_includes "$ir_lowering"
 # Measured after formatting the static-JSON parse extraction: 20,748 raw lines.
 # This leaves modest orchestration headroom while preventing the former
@@ -2349,6 +2603,7 @@ require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct Descripto
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorGetterLocals(TaggedLocals);' 1 'typed descriptor getter role'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct DescriptorSetterLocals(TaggedLocals);' 1 'typed descriptor setter role'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'struct ProxyGetDescriptorLocals {' 1 'complete Proxy-Get descriptor projection'
+require_regex_count crates/lila-aot-wasm/src/objects.rs '^[[:space:]]*struct[[:space:]]+ProxySetDescriptorLocals[[:space:]]*\{' 1 'complete Proxy-Set descriptor projection'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'enum DescriptorAccessorProjectionLocals {' 1 'closed getter/setter endpoint projection'
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
@@ -2357,12 +2612,12 @@ require_fixed_string_count \
   'direct-own-descriptor representation authority'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor(' 4 'direct-own-descriptor definition/fact/Proxy Get/Proxy Set call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor_for_proxy_get(' 2 'typed Proxy-Get descriptor wrapper definition/call'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_direct_own_descriptor_for_proxy_set(' 2 'typed Proxy-Set descriptor wrapper definition/call'
+require_regex_count crates/lila-aot-wasm/src/objects.rs '^[[:space:]]*fn[[:space:]]+emit_direct_own_descriptor_for_proxy_set[[:space:]]*\(' 1 'typed Proxy-Set descriptor wrapper definition'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_proxy_get_invariant_check(' 2 'Proxy-Get invariant definition/object-read call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_proxy_set_invariant_check(' 2 'Proxy-Set invariant definition/object-write call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/reflect.rs 'emit_proxy_set_invariant_check(' 1 'Reflect.set typed Proxy-Set invariant call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'DirectOwnDescriptorProjectionLocals::ProxyGet(' 1 'complete Proxy-Get descriptor projection construction'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'DirectOwnDescriptorProjectionLocals::ProxySet(' 1 'complete Proxy-Set descriptor projection construction'
+require_regex_count crates/lila-aot-wasm/src/objects.rs '^[[:space:]]*DirectOwnDescriptorProjectionLocals::ProxySet\(descriptor\),$' 1 'complete Proxy-Set descriptor projection construction'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'emit_normal_proxy_get_trap_result(' 2 'pending-to-normal Proxy-Get result transition definition/call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'PendingProxyGetTrapResultLocals::new(' 1 'pending Proxy-Get result construction'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'NormalProxyGetTrapResultLocals(' 2 'normal Proxy-Get type declaration/guarded construction'
@@ -2370,6 +2625,16 @@ require_fixed_string_count crates/lila-cli/tests/cli/object.rs 'fn run_wasm_back
 require_fixed_string_count crates/lila-cli/tests/cli/object.rs '"wasm_proxy_get_direct_descriptor_invariants.js"' 1 'Proxy-Get direct-descriptor fixture wiring'
 if [ ! -f crates/lila-cli/tests/fixtures/wasm_proxy_get_direct_descriptor_invariants.js ]; then
   fail 'Proxy [[Get]] direct-descriptor invariant fixture must remain present'
+fi
+proxy_set_cli="crates/lila-cli/tests/cli/object.rs"
+require_active_wasm_cli_rust_test \
+  "$proxy_set_cli" \
+  run_wasm_backend_succeeds_for_proxy_set_direct_descriptor_invariants \
+  'Proxy-Set direct-descriptor CLI regression'
+proxy_set_cli_test="$(braced_rust_item_source "$proxy_set_cli" '^fn[[:space:]]+run_wasm_backend_succeeds_for_proxy_set_direct_descriptor_invariants[[:space:]]*[(]')"
+require_text_regex_count "$proxy_set_cli_test" '^[[:space:]]*"wasm_proxy_set_direct_descriptor_invariants\.js",$' 1 'Proxy-Set direct-descriptor fixture wiring'
+if [ ! -f crates/lila-cli/tests/fixtures/wasm_proxy_set_direct_descriptor_invariants.js ]; then
+  fail 'Proxy [[Set]] direct-descriptor invariant fixture must remain present'
 fi
 if grep -RFl --include='*.rs' 'emit_proxy_array_target_own_descriptor_flags' crates/lila-aot-wasm/src >/dev/null; then
   fail 'Array-only Proxy own-descriptor mirrors must not bypass the typed authority'
@@ -2437,12 +2702,24 @@ do
     fail "Proxy [[Set]] invariant must not rebuild descriptor storage through $raw_proxy_set_scan"
   fi
 done
-if ! grep -Fq 'emit_direct_own_descriptor_for_proxy_set(' <<<"$proxy_set_invariant_body"; then
-  fail 'Proxy [[Set]] invariant must consume the typed direct-own-descriptor projection'
-fi
-if ! grep -Fq 'descriptor.setter.emit_undefined_i32(' <<<"$proxy_set_invariant_body"; then
-  fail 'Proxy [[Set]] accessor invariant must test exactly tagged undefined'
-fi
+require_text_regex_count "$proxy_set_invariant_body" '^[[:space:]]*target:[[:space:]]+ProxyTargetLocals,$' 1 'Proxy-Set typed target signature role'
+require_text_regex_count "$proxy_set_invariant_body" '^[[:space:]]*key:[[:space:]]+PropertyKeyLocals,$' 1 'Proxy-Set typed property-key signature role'
+require_text_regex_count "$proxy_set_invariant_body" '^[[:space:]]*incoming:[[:space:]]+ProxySetValueLocals,$' 1 'Proxy-Set typed incoming-value signature role'
+require_text_regex_count \
+  "$proxy_set_invariant_body" \
+  '^[[:space:]]*self\.emit_direct_own_descriptor_for_proxy_set\(target, key, descriptor, function\)\?;$' \
+  1 \
+  'Proxy-Set typed direct-own-descriptor projection call'
+require_text_regex_count \
+  "$proxy_set_invariant_body" \
+  '^[[:space:]]*self\.emit_proxy_set_descriptor_same_value_i32\(incoming, descriptor\.data_value, function\)\?;$' \
+  1 \
+  'Proxy-Set exact frozen-data SameValue consumer'
+require_text_regex_count \
+  "$proxy_set_invariant_body" \
+  '^[[:space:]]*descriptor\.setter\.emit_undefined_i32\(function\);$' \
+  1 \
+  'Proxy-Set exact tagged-undefined setter consumer'
 
 direct_own_descriptor_body="$(sed -n \
   '/^    fn emit_direct_own_descriptor(/,/^    pub(crate) fn emit_proxy_has_invariant_check(/p' \

@@ -125,6 +125,18 @@ valid. Ordinary entries precede virtual fallbacks, preserving a Function
 DataView/intrinsic and generic internal-slot fallbacks ordered behind it. The
 former Object/Function/arguments raw entry scan is gone.
 
+The module-boundary guard now makes that ownership durable by pinning the
+complete Proxy-Set projection, typed target/key/incoming roles, its sole direct
+descriptor projection, the exact `SameValue` and undefined-setter consumers,
+and one active exact CLI registration. On 2026-08-24, the CLI witness passed
+`1/1`. At current Test262 pin
+`e9d582d6b8b13afc5ba9a676664741592b5c7f69`, the six selected unrewritten Proxy
+Set invariant files passed all `12/12` ordinary Wasm-AOT executions with every
+failure bucket at zero. This closes evidence for the post-trap direct-target
+projection only; trap lookup/fallback, recursive Proxy targets, module
+namespaces, the full 27-file/54-variant Proxy Set subtree and complete
+TypedArray `[[Set]]` remain open.
+
 The three user-facing own-descriptor predicates now share one closed compiler
 domain. `Object.hasOwn`, `Object.prototype.hasOwnProperty` and
 `Object.prototype.propertyIsEnumerable` exhaustively select their input source,
@@ -181,8 +193,9 @@ This is direct-target closure only. The fact deliberately marks a nested Proxy
 target as handled without treating its own storage as the target descriptor;
 the recursive Proxy descriptor-record protocol remains T11 work. The complete
 `[[Delete]]` and `[[Set]]` dispatch, trap lookup and fallback paths also remain
-separate from the full `[[HasProperty]]` dispatcher. Proxy `[[Get]]` retains its
-older value-bearing invariant scan.
+separate from the full `[[HasProperty]]` dispatcher. Proxy `[[Get]]` and
+`[[Set]]` have typed direct-target projections, but neither closes recursive
+descriptor lookup through a Proxy target.
 
 Class constructors now install their own `prototype` data property with the
 class-specific all-false attribute tuple. Computed public static class elements
@@ -211,10 +224,11 @@ exposed a dropped Arguments tag in ordinary prototype mutation/observation on
 its first focused CLI run. After the bounded tag-preservation repair, the full
 fixture including explicit prototype-identity checks passes 1/1; the structural
 contract remains 4/4 and exact Test262 279/280 remain 4/4. The focused
-Proxy-Set direct-descriptor fixture is written but has not run while the shared
-verification lane owns Cargo and Test262. The focused own-descriptor-predicate
-fixture, strengthened bootstrap-planning checkpoint and six-file current-pin
-cohort are green at `1/1`, `1/1` and `12/12`, respectively. The
+Proxy-Set direct-descriptor fixture is green at `1/1`, and its selected
+current-pin invariant cohort is green at `12/12`. The focused
+own-descriptor-predicate fixture, strengthened bootstrap-planning checkpoint
+and six-file current-pin cohort are green at `1/1`, `1/1` and `12/12`,
+respectively. The
 `Object.prototype.toLocaleString` Invoke lane is green at `3/3` for its
 structure target, `1/1` for its exact CLI fixture and `4/4` for its four
 current-pin `onlyStrict` Wasm-AOT leaves, with every failure bucket at zero. A

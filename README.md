@@ -5183,15 +5183,19 @@ Recent focused progress through `2026-08-23`:
   become zero before rejection, while enormous finite counts use a nontrapping
   saturated emitter local so the empty-string fast path or implementation-limit
   `RangeError` remains observable. Both repeat-created `RangeError` paths use
-  the executing repeat function's Realm. The focused structural guard and
-  product fixture for that normalization repair are dry-written; Cargo,
-  fixture execution and pinned repeat execution remain deferred behind the
-  active current-pin matrix. Its `length`, `name`, and prototype descriptor
-  files use focused static Wasm-AOT materializations. The full
-  `built-ins/String/prototype/repeat` Test262 leaf now reports `16/16` passing
-  as of `2026-06-23` under
-  `--execution-backend wasm --timeout-ms 90000 --threads 4`:
-  `./target/debug/lila test262 run built-ins/String/prototype/repeat --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  the executing repeat function's Realm. As of `2026-08-24`, the hardened
+  structural target passes `4/4` and the exact product fixture passes `1/1`.
+  Its `length`, `name`, and prototype descriptor files use focused static
+  Wasm-AOT materializations. At current Test262 pin
+  `e9d582d6b8b13afc5ba9a676664741592b5c7f69`, the full unrewritten
+  `built-ins/String/prototype/repeat` directory contains 16 physical files and
+  reports `32/32` passing ordinary sloppy/strict executions, with every
+  failure bucket at zero:
+  `./target/debug/lila --jobs 1 test262 run built-ins/String/prototype/repeat --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1 --snapshot-name checkpoint9-string-repeat-current-pin`.
+  The historical `16/16` result dated `2026-06-23` counted those physical files
+  rather than current runner variants. The direct Test262 leaves do not cover
+  negative fractions, finite counts above `u64`, or created-Realm repeat
+  errors; the exact product fixture owns those observations.
   `String.prototype.trim` is now registered as a Rust standard builtin for
   prototype property reads, borrowed calls, and direct method calls. The
   Wasm-AOT trim path now removes the ECMAScript WhiteSpace/LineTerminator set

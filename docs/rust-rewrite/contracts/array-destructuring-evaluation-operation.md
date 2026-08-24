@@ -1,5 +1,7 @@
 # Array destructuring evaluation is a closed operation, not a boolean
 
+Status: integrated and focused-verified on 2026-08-24.
+
 ## Problem
 
 `ExprIr::ArrayDestructure` represents two different ECMAScript abstract
@@ -85,7 +87,22 @@ change.
 
 ## Verification
 
-The implementation stage is checked first with static searches for the deleted
-field and for non-exhaustive semantic shortcuts. Compilation and focused runtime
-regressions are deferred to the central batch verifier so concurrent lanes can
-share one build-artifact lease.
+The module-boundary guard pins the exact public two-variant domain with no
+`Default` or Boolean carrier, all five named producer functions with their
+required operation and all six named semantic consumers with exhaustive
+matches and no wildcard arm. It also closes the direct-variant source inventory
+to five occurrences in `lila-ir` lowering, two in `lila-ir`'s public IR, four
+in Wasm control flow and six in Wasm planning. Test-only attributed items are
+excluded without hiding product helpers declared inside a test module.
+
+The 2026-08-24 central checkpoint passed `cargo check -p lila-aot-wasm` and
+`cargo xc`. Six exact `lila-ir` producer/result/declaration scenarios passed
+`6/6`, and the exact
+`array::run_wasm_backend_uses_iterators_for_array_destructuring` CLI fixture
+passed `1/1`. The active CLI registration and fixture's run/Wasm/status/backend
+contract are also guarded statically.
+
+No emitted-Wasm byte comparison or focused Test262 cohort was run. This closes
+the operation representation and its current producer/consumer inventory, not
+`ArrayPatternProtocol`, `IteratorClose`, object destructuring, generator or
+resource-management behavior, or broader Test262 status.
