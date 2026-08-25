@@ -118,10 +118,17 @@ ordinary empty-string property cannot be mistaken for the synthetic root. A
 registered dynamic-input CLI fixture pins postorder traversal, array-length
 and object-key snapshots, forward mutation, `context.source` SameValue
 eligibility, nested empty-string replacement, root replacement/`undefined`,
-and abrupt completion ordering. This batch has only run static gates for that
-seam while the repository-wide conformance matrix owns the verifier; its
-focused Wasm fixture and broader JSON/Test262 gates remain deferred, and this
-is not a JSON closure or full-tree conformance claim.
+and abrupt completion ordering. A four-test bounded structure owner now pins
+the exact state/role domains and wire words, typed persistence and invalid-word
+traps, the unique shared static/dynamic post-call result owner, and the active
+CLI registration with non-vacuous fixture assertions. At the 2026-08-25
+coordinated checkpoint, `cargo check -p lila-aot-wasm` and `cargo xc` are
+green, the structure target passes `4/4`, and the four exact CLI fixtures pass
+`4/4`. The six direct Test262 leaves pass all twelve ordinary sloppy/strict
+Wasm-AOT executions at vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure and
+non-success bucket at zero. This is not a JSON closure or full-tree conformance
+claim.
 
 ## Objective
 

@@ -2598,6 +2598,17 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
             (
+                "subarray",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeSubarray.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.subarray`",
+                        )
+                    })?,
+            ),
+            (
                 "toLocaleString",
                 self.functions
                     .get(&StandardBuiltinId::TypedArrayPrototypeToLocaleString.function_id())

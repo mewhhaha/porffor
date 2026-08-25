@@ -141,6 +141,37 @@ assertErrorPrototype(function() {
   otherSubarray.call(entryDetached, 0);
 }, TypeError.prototype, "entry constructor owns detached error");
 
+var detachedSpeciesSource = new Uint8Array(1);
+var detachedSpeciesResult = new Uint8Array(1);
+var detachedResultSpeciesCalls = 0;
+detachedSpeciesSource.constructor = {
+  [Symbol.species]: function() {
+    detachedResultSpeciesCalls = detachedResultSpeciesCalls + 1;
+    return detachedSpeciesResult;
+  }
+};
+__lilaDetachArrayBuffer(detachedSpeciesResult.buffer);
+assertErrorPrototype(function() {
+  otherSubarray.call(detachedSpeciesSource, 0);
+}, other.TypeError.prototype, "species detached result validation");
+assertSame(detachedResultSpeciesCalls, 1, "detached result species reached");
+
+var outOfBoundsSpeciesBuffer = new ArrayBuffer(4, { maxByteLength: 4 });
+var outOfBoundsSpeciesResult = new Uint8Array(outOfBoundsSpeciesBuffer, 2, 2);
+var outOfBoundsSpeciesSource = new Uint8Array(1);
+var outOfBoundsResultSpeciesCalls = 0;
+outOfBoundsSpeciesSource.constructor = {
+  [Symbol.species]: function() {
+    outOfBoundsResultSpeciesCalls = outOfBoundsResultSpeciesCalls + 1;
+    outOfBoundsSpeciesBuffer.resize(1);
+    return outOfBoundsSpeciesResult;
+  }
+};
+assertErrorPrototype(function() {
+  otherSubarray.call(outOfBoundsSpeciesSource, 0);
+}, other.TypeError.prototype, "species out-of-bounds result validation");
+assertSame(outOfBoundsResultSpeciesCalls, 1, "out-of-bounds result species reached");
+
 var bigintSource = new BigUint64Array(3);
 var bigintResult = bigintSource.subarray(1);
 assertSame(Object.getPrototypeOf(bigintResult), BigUint64Array.prototype, "BigInt element kind");

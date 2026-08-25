@@ -2573,7 +2573,9 @@ Recent focused progress through `2026-08-23`:
   `%TypedArray%.prototype.subarray` now preserves coercion ordering, snapshots
   the current view length, performs observable constructor and `Symbol.species`
   selection, shares the source backing buffer, and validates the returned typed
-  array and Number/BigInt content type. Omitting `end` from a length-tracking
+  array and Number/BigInt content type. A species-returned detached or
+  out-of-bounds view is rejected in the executing builtin's Realm, including
+  when a created-Realm method is borrowed. Omitting `end` from a length-tracking
   source constructs a length-tracking result. Its complete current-pin leaf
   reports `67/67` under Wasm-AOT on `2026-07-21`, with every failure bucket and
   timeout count at zero (manifest `3353953584716781290`). Refresh it with

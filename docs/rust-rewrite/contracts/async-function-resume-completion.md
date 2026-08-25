@@ -76,6 +76,17 @@ normal, rejected-next and iterator-close `for-await-of` paths. They remain
 runtime verification for valid words; the structural contract guards the
 illegal-state boundary that JavaScript cannot directly construct.
 
+## Recorded verification
+
+The exact `async_function_resume_completion` heap tests pass `2/2`. The engine
+regressions for lexical-state `await`, rejected Array iteration and async
+iterator-close validation each pass `1/1` on 2026-08-25. Three exact current-pin
+Test262 leaves covering rejected `await`, thenables that throw and abrupt
+`for-await-of` iterator-close lookup pass all `6/6` sloppy/strict Wasm-AOT
+executions at vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure and
+non-success bucket at zero.
+
 ## Nonclaims
 
 This invariant does not type Promise lifecycle state, async-generator resume

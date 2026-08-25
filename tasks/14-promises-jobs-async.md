@@ -168,11 +168,14 @@ The central feature-enabled CLI compile covers the consolidated job machinery.
 The typed callback-word/realm policy's durable layout contract is green, as are
 the engine contracts proving that reaction jobs run after synchronous code in
 registration order and that thenable-resolution jobs are asynchronous and
-settle once. The ordinary async resume-completion contract has been added for
-central verification, as has the typed Promise-lifecycle contract. Their
-focused compile/runtime checks remain queued behind the live current-pin
-matrix. Those checks are not a substitute for the full Promise/async Test262
-filters.
+settle once. At the 2026-08-25 coordinated checkpoint, the exact Promise
+lifecycle and ordinary async resume-completion heap tests each pass `2/2`; the
+two Promise engine regressions and three ordinary-async/`for-await-of` engine
+regressions each pass `1/1`. Three exact current-pin async leaves pass all
+`6/6` sloppy/strict Wasm-AOT executions at vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure and
+non-success bucket at zero. These checks are not a substitute for the full
+Promise/async Test262 filters.
 
 Plain async functions now retain a captured lexical `for-of` iteration record
 across a body `await` rather than hoisting every iteration into one activation

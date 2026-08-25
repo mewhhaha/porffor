@@ -107,6 +107,13 @@ reaction asynchronously, hostile thenables settle once, and Promise races keep
 their first settlement. JavaScript fixtures do not attempt to manufacture an
 invalid internal state.
 
+## Recorded verification
+
+The exact `promise_lifecycle` heap tests pass `2/2`. The engine regressions for
+reaction ordering and hostile thenable scheduling each pass `1/1` on
+2026-08-25. These are focused record and behavior checks; no complete Promise
+Test262 filter was run for this checkpoint.
+
 ## Nonclaims
 
 This invariant does not make the job queue realm- or agent-owned, add module or

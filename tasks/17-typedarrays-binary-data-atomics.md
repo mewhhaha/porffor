@@ -381,18 +381,31 @@ remaining adjacent rather than direct evidence for this compiler.
 sources therefore contribute a zero source-length snapshot without skipping
 begin/end coercion or species construction. An explicitly selected constructor
 still owns any later detached-buffer error and its Realm, and a custom species may
-return a compatible result. The compiler retains the stored source byte offset,
-floors available bytes to whole elements, selects the source element kind for
-the intrinsic default constructor, and keeps the normative two-argument result
-construction only when the source is length-tracking and `end` is omitted. The
-focused
+return a compatible in-bounds result. The compiler retains the stored source
+byte offset, floors available bytes to whole elements, selects the source
+element kind for the intrinsic default constructor, and keeps the normative
+two-argument result construction only when the source is length-tracking and
+`end` is omitted.
+After species construction and the result brand check, the arm loads a distinct
+immutable result view and consumes exactly one `ValidatedMethodEntry`
+projection before content-type acceptance. A species-returned detached or
+currently out-of-bounds TypedArray therefore throws a TypeError from the
+executing builtin's Realm rather than being published. The focused
 [subarray buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-subarray-buffer-witness.md),
-bounded owner guard and CLI fixture are focused-verified: `cargo xc` is green,
-the structure target passes `3/3`, the exact CLI fixture passes `1/1`, and the
-six direct pinned Test262 leaves pass all `12/12` Wasm-AOT variants with every
-non-success bucket at zero. The adjacent custom-species-constructor invocation
-leaf retains two `Runtime/Bug` failures already recorded in the pre-batch
-current-pin baseline, so it is not included in the witness cohort's pass claim.
+bounded owner guard and CLI fixture retain the source-witness checkpoint's
+focused evidence. At the 2026-08-25 coordinated checkpoint, `cargo xc` is
+green, the updated structure target passes `3/3`, the extended exact CLI
+fixture passes `1/1`, and the six direct Test262 leaves pass all `12/12`
+Wasm-AOT variants at vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure and
+non-success bucket at zero. The first fixture run exposed a missing
+created-Realm `subarray` materialization; adding the method to that Realm's
+TypedArray inventory made the borrowed builtin own the invalid-result
+TypeError as required. The pinned suite has no direct leaf for a
+species-returned detached or out-of-bounds result. The adjacent
+custom-species-constructor invocation leaf retains two `Runtime/Bug` failures
+already recorded in the pre-batch current-pin baseline, so it is not included
+in the pass claim.
 
 These migrations still do not cover `with`, `set`, constructor validation or
 other remaining raw validators. They do not change key
@@ -402,10 +415,10 @@ published counts. The toLocaleString, map/filter and copyWithin fixtures do not
 prove created-Realm buffer-error prototype identity at direct method entry;
 only the shared witness's current-function-Realm route is structurally owned
 for that case.
-`subarray` additionally retains two adjacent semantic debts: its nullish-species
-default constructor comes from entry globals rather than the executing Realm,
-and its species result does not yet reject detached or out-of-bounds TypedArrays
-through `ValidateTypedArray`.
+`subarray` additionally retains one adjacent semantic debt: its nullish-species
+default constructor comes from entry globals rather than the executing Realm.
+The post-species validation lane does not change constructor selection, argument
+coercion, result allocation, Test262 rewrites or published counts.
 
 ## Objective
 

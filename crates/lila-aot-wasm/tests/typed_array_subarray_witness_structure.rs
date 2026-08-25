@@ -1,5 +1,6 @@
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
+const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/typed_array.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_typedarray_subarray_buffer_witness.js");
@@ -29,6 +30,37 @@ const WITNESS_WIRING: &str = r#"
                 self.emit_typed_array_witness(
                     &typed_array_view,
                     TypedArrayWitnessUse::ArrayLikeLengthSnapshot { length_local },
+                    function,
+                )?;
+"#;
+
+const RESULT_PRIVATE_STATE_WIRING: &str = r#"
+                self.emit_load_typed_array_private_state(
+                    self.result_local,
+                    result_buffer_payload_local,
+                    result_byte_offset_local,
+                    result_stored_byte_length_local,
+                    result_bytes_per_element_local,
+                    function,
+                );
+"#;
+
+const RESULT_VIEW_WIRING: &str = r#"
+                let result_typed_array_view = TypedArrayViewLocals::new(
+                    self.result_local,
+                    result_buffer_payload_local,
+                    result_byte_offset_local,
+                    result_stored_byte_length_local,
+                    result_bytes_per_element_local,
+                );
+"#;
+
+const RESULT_WITNESS_WIRING: &str = r#"
+                self.emit_typed_array_witness(
+                    &result_typed_array_view,
+                    TypedArrayWitnessUse::ValidatedMethodEntry {
+                        length_local: result_length_local,
+                    },
                     function,
                 )?;
 "#;
@@ -73,21 +105,26 @@ fn unique_normalized_position(body: &str, snippet: &str, label: &str) -> usize {
 }
 
 #[test]
-fn subarray_uses_one_non_throwing_length_witness_before_argument_coercion() {
+fn subarray_separates_the_source_snapshot_from_constructed_result_validation() {
     let arm = subarray_arm();
 
     for (needle, expected, role) in [
         (
             "emit_load_typed_array_private_state(",
-            1,
-            "private-state load",
+            2,
+            "source and result private-state loads",
         ),
-        ("TypedArrayViewLocals::new(", 1, "immutable view"),
-        ("emit_typed_array_witness(", 1, "buffer witness"),
+        ("TypedArrayViewLocals::new(", 2, "immutable views"),
+        ("emit_typed_array_witness(", 2, "buffer witnesses"),
         (
             "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
             1,
             "non-throwing length projection",
+        ),
+        (
+            "TypedArrayWitnessUse::ValidatedMethodEntry",
+            1,
+            "constructed-result validation projection",
         ),
         (
             "HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET",
@@ -116,7 +153,6 @@ fn subarray_uses_one_non_throwing_length_witness_before_argument_coercion() {
         "HEAP_TYPED_ARRAY_BYTE_OFFSET",
         "HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET",
         "HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET",
-        "TypedArrayWitnessUse::ValidatedMethodEntry",
         "TypedArrayWitnessUse::IntegerIndexedProperty",
         "TypedArrayWitnessUse::Accessor",
         "Instruction::I64DivU",
@@ -125,6 +161,11 @@ fn subarray_uses_one_non_throwing_length_witness_before_argument_coercion() {
         "Instruction::LocalSet(byte_offset_local)",
         "Instruction::LocalSet(stored_byte_length_local)",
         "Instruction::LocalSet(bytes_per_element_local)",
+        "Instruction::LocalSet(result_buffer_payload_local)",
+        "Instruction::LocalSet(result_byte_offset_local)",
+        "Instruction::LocalSet(result_stored_byte_length_local)",
+        "Instruction::LocalSet(result_bytes_per_element_local)",
+        "Instruction::LocalSet(result_length_local)",
     ] {
         assert!(
             !arm.contains(forbidden),
@@ -170,6 +211,24 @@ fn subarray_uses_one_non_throwing_length_witness_before_argument_coercion() {
     let construct = normalized
         .find("emit_function_handle_construct_with_argv(")
         .expect("missing species construction");
+    let result_brand_error = normalized
+        .find("TypedArray.prototype.subarrayspeciesdidnotreturnaTypedArray")
+        .expect("missing constructed-result brand error");
+    let result_private_state = unique_normalized_position(
+        &normalized,
+        RESULT_PRIVATE_STATE_WIRING,
+        "exact constructed-result private-state wiring",
+    );
+    let result_view = unique_normalized_position(
+        &normalized,
+        RESULT_VIEW_WIRING,
+        "exact constructed-result immutable-view wiring",
+    );
+    let result_witness = unique_normalized_position(
+        &normalized,
+        RESULT_WITNESS_WIRING,
+        "exact constructed-result validating witness wiring",
+    );
     let result_element_kind = normalized
         .find("HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,result_element_kind_local")
         .expect("missing result element-kind load");
@@ -185,8 +244,29 @@ fn subarray_uses_one_non_throwing_length_witness_before_argument_coercion() {
             && end < species
             && species < tracking_result_arity
             && tracking_result_arity < construct
-            && construct < result_element_kind,
-        "subarray must snapshot length before coercion, then preserve species construction and result-kind validation order"
+            && construct < result_brand_error
+            && result_brand_error < result_private_state
+            && result_private_state < result_view
+            && result_view < result_witness
+            && result_witness < result_element_kind,
+        "subarray must snapshot the source before coercion, then validate the constructed result before content-type acceptance"
+    );
+
+    let result_release_order = without_whitespace(
+        r#"
+                self.release_temp_local(result_element_kind_local);
+                self.release_temp_local(result_length_local);
+                self.release_temp_local(result_bytes_per_element_local);
+                self.release_temp_local(result_stored_byte_length_local);
+                self.release_temp_local(result_byte_offset_local);
+                self.release_temp_local(result_buffer_payload_local);
+                self.release_temp_local(result_brand_local);
+"#,
+    );
+    assert_eq!(
+        normalized.matches(&result_release_order).count(),
+        1,
+        "constructed-result view locals must retain reverse-order release"
     );
 
     let release_order = without_whitespace(
@@ -211,15 +291,104 @@ fn subarray_uses_one_non_throwing_length_witness_before_argument_coercion() {
 
 #[test]
 fn focused_cli_fixture_pins_subarray_snapshot_result_shape_and_error_realm() {
+    const REGISTRATION: &str =
+        "#[test]\nfn run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness() {";
+    assert_eq!(
+        CLI_TESTS.matches(REGISTRATION).count(),
+        1,
+        "the focused TypedArray.prototype.subarray CLI owner must have one active registration"
+    );
+    let registration_offset = CLI_TESTS
+        .find(REGISTRATION)
+        .expect("missing active TypedArray.prototype.subarray CLI registration");
+    let attached_source = CLI_TESTS[..registration_offset]
+        .rsplit_once("\n}\n")
+        .expect("missing CLI owner before the TypedArray.prototype.subarray registration")
+        .1;
+    let normalized_attached_source = without_whitespace(attached_source);
+    for disabling_attribute in ["#[cfg", "#[cfg_attr", "#[ignore"] {
+        assert!(
+            !normalized_attached_source.contains(disabling_attribute),
+            "the focused TypedArray.prototype.subarray CLI owner must not carry {disabling_attribute}"
+        );
+    }
+    for comment_delimiter in ["//", "/*", "*/"] {
+        assert!(
+            !attached_source.contains(comment_delimiter),
+            "the active CLI registration must not be supplied by {comment_delimiter} comment text"
+        );
+    }
+
     let test_body = CLI_TESTS
-        .split_once("fn run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness()")
+        .split_once(REGISTRATION)
         .expect("missing focused TypedArray.prototype.subarray CLI test")
         .1
         .split_once("\n#[test]")
         .expect("missing test after focused TypedArray.prototype.subarray CLI test")
         .0;
-    assert!(test_body.contains("wasm_typedarray_subarray_buffer_witness.js"));
-    assert!(test_body.contains("number(967"));
+    for comment_delimiter in ["/*", "*/"] {
+        assert!(
+            !test_body.contains(comment_delimiter),
+            "the active CLI owner must not contain {comment_delimiter} comment text"
+        );
+    }
+    assert!(
+        test_body
+            .lines()
+            .all(|line| !line.trim_start().starts_with("//")),
+        "the active CLI owner must not contain line-commented controls"
+    );
+    let normalized_test_body = without_whitespace(test_body);
+    for (wiring, role) in [
+        (
+            r#"
+                let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+                    .arg("run")
+                    .arg("--execution-backend")
+                    .arg("wasm")
+                    .arg(fixture_path("wasm_typedarray_subarray_buffer_witness.js"))
+                    .output()
+                    .expect("run command should run");
+            "#,
+            "exact Wasm fixture command",
+        ),
+        (
+            r#"
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            "#,
+            "successful CLI status assertion",
+        ),
+        (
+            r#"let stdout = String::from_utf8_lossy(&output.stdout);"#,
+            "successful process stdout binding",
+        ),
+        (
+            r#"assert!(stdout.contains("backend_used: WasmAot"));"#,
+            "Wasm-AOT backend assertion",
+        ),
+        (
+            r#"assert!(stdout.contains("number(967"), "{stdout}");"#,
+            "fixture success sentinel",
+        ),
+    ] {
+        let wiring = without_whitespace(wiring);
+        assert_eq!(
+            normalized_test_body.matches(wiring.as_str()).count(),
+            1,
+            "the focused CLI owner must retain one {role}"
+        );
+    }
+
+    for comment_delimiter in ["//", "/*", "*/"] {
+        assert!(
+            !CLI_FIXTURE.contains(comment_delimiter),
+            "the focused fixture must not preserve controls only inside {comment_delimiter} comment text"
+        );
+    }
 
     for marker in [
         "fixed result out of bounds",
@@ -233,6 +402,12 @@ fn focused_cli_fixture_pins_subarray_snapshot_result_shape_and_error_realm() {
         "detached coercion order",
         "custom detached species reached",
         "entry constructor owns detached error",
+        "__lilaDetachArrayBuffer(detachedSpeciesResult.buffer)",
+        "species detached result validation",
+        "detached result species reached",
+        "outOfBoundsSpeciesBuffer.resize(1)",
+        "species out-of-bounds result validation",
+        "out-of-bounds result species reached",
         "BigInt element kind",
     ] {
         assert!(
@@ -240,6 +415,12 @@ fn focused_cli_fixture_pins_subarray_snapshot_result_shape_and_error_realm() {
             "missing CLI control: {marker}"
         );
     }
+
+    assert_eq!(
+        CLI_FIXTURE.matches("other.TypeError.prototype").count(),
+        2,
+        "both post-species result-validation errors must belong to the borrowed method's Realm"
+    );
 }
 
 #[test]
@@ -261,9 +442,43 @@ fn typed_array_prototype_installs_the_witnessed_subarray_builtin() {
     );
     assert_eq!(
         installation
-            .matches("typed_array_prototype_local,\n            \"subarray\",\n            subarray_meta")
+            .matches(
+                "typed_array_prototype_local,\n            \"subarray\",\n            subarray_meta"
+            )
             .count(),
         1,
         "the witnessed builtin must remain installed as TypedArray.prototype.subarray"
     );
+
+    let created_realm_methods = HOST_SOURCE
+        .split_once("let typed_array_method_metas = [")
+        .expect("missing created-Realm TypedArray method inventory")
+        .1
+        .split_once("let number_meta = self")
+        .expect("missing boundary after created-Realm TypedArray method inventory")
+        .0;
+    assert_eq!(
+        created_realm_methods
+            .matches("StandardBuiltinId::TypedArrayPrototypeSubarray.function_id()")
+            .count(),
+        1,
+        "created Realms must materialize their own TypedArray.prototype.subarray function"
+    );
+    let created_realm_materialization = HOST_SOURCE
+        .split_once("for (name, meta) in &typed_array_method_metas {")
+        .expect("missing created-Realm TypedArray method materialization")
+        .1
+        .split_once("let typed_array_buffer_key_local")
+        .expect("missing boundary after created-Realm TypedArray method materialization")
+        .0;
+    for realm_binding in [
+        "HEAP_FUNCTION_ENV_HANDLE_OFFSET",
+        "HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET",
+    ] {
+        assert_eq!(
+            created_realm_materialization.matches(realm_binding).count(),
+            1,
+            "created-Realm subarray must inherit the shared method materializer's {realm_binding} binding"
+        );
+    }
 }

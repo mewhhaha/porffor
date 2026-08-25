@@ -263,8 +263,18 @@ The focused source-free Wasm-AOT regression is written across
 `Reflect.ownKeys`. It covers the four handler representations, exact getter and
 trap receivers, a callable Proxy trap, an abrupt lookup sentinel, nested-Proxy
 target fallback and created-realm revoked/non-callable errors. Its structure
-and runtime checkpoints have not run on this tree; they remain part of the
-verification handoff rather than a conformance claim.
+target now has five tests: the added source witness requires both exact CLI
+registrations to remain active and unignored, pins their Wasm invocation and
+success markers, and keeps every load-bearing fixture scenario fail-loud with
+only within-scenario order assertions. Comment masking prevents disabled CLI
+owners or commented-out fixture markers from satisfying that witness, including
+multi-line `cfg` and `cfg_attr` attributes. At the 2026-08-25 coordinated
+checkpoint, the structure target passes `5/5` and both exact CLI registrations
+pass `2/2`. At vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, the current-pin
+`built-ins/Proxy/ownKeys` and `built-ins/Reflect/ownKeys` leaves contain 27 + 13
+unflagged files and therefore 54 + 26 ordinary sloppy/strict executions. All
+`80/80` pass under Wasm-AOT with every failure and non-success bucket at zero.
 
 This is deliberately not the recursive Proxy descriptor-record protocol.
 When `[[ProxyTarget]]` is itself a Proxy, `[[GetOwnProperty]]` must run that

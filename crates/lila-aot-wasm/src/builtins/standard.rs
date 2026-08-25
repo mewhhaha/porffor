@@ -21672,6 +21672,11 @@ impl<'a> FunctionBuilder<'a> {
                 let argc_local = self.reserve_temp_local();
                 let argv_local = self.reserve_temp_local();
                 let result_brand_local = self.reserve_temp_local();
+                let result_buffer_payload_local = self.reserve_temp_local();
+                let result_byte_offset_local = self.reserve_temp_local();
+                let result_stored_byte_length_local = self.reserve_temp_local();
+                let result_bytes_per_element_local = self.reserve_temp_local();
+                let result_length_local = self.reserve_temp_local();
                 let result_element_kind_local = self.reserve_temp_local();
 
                 function.instruction(&Instruction::I64Const(0));
@@ -21967,6 +21972,28 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
+                self.emit_load_typed_array_private_state(
+                    self.result_local,
+                    result_buffer_payload_local,
+                    result_byte_offset_local,
+                    result_stored_byte_length_local,
+                    result_bytes_per_element_local,
+                    function,
+                );
+                let result_typed_array_view = TypedArrayViewLocals::new(
+                    self.result_local,
+                    result_buffer_payload_local,
+                    result_byte_offset_local,
+                    result_stored_byte_length_local,
+                    result_bytes_per_element_local,
+                );
+                self.emit_typed_array_witness(
+                    &result_typed_array_view,
+                    TypedArrayWitnessUse::ValidatedMethodEntry {
+                        length_local: result_length_local,
+                    },
+                    function,
+                )?;
                 self.load_i64_to_local_from_offset(
                     self.result_local,
                     HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
@@ -21992,6 +22019,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.set_completion_kind(CompletionKind::Normal, function);
 
                 self.release_temp_local(result_element_kind_local);
+                self.release_temp_local(result_length_local);
+                self.release_temp_local(result_bytes_per_element_local);
+                self.release_temp_local(result_stored_byte_length_local);
+                self.release_temp_local(result_byte_offset_local);
+                self.release_temp_local(result_buffer_payload_local);
                 self.release_temp_local(result_brand_local);
                 self.release_temp_local(argv_local);
                 self.release_temp_local(argc_local);

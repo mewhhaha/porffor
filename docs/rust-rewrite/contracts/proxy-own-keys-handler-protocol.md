@@ -84,22 +84,43 @@ handler mapping, lookup/completion/callability/call order, current-Function-
 Realm errors, the absence of a fabricated Object handler tag, and the absence
 of the retired inline `"ownKeys"` acquisition in every caller.
 
+Its fifth test includes the Object CLI source and both own-keys fixtures. It
+masks line and nested block comments before inspecting any owner or fixture
+marker, requires each exact CLI owner to remain an active `#[test]` with no
+attached single- or multi-line `cfg`, `cfg_attr` or `ignore`, and pins the `run
+--execution-backend wasm` invocation, process-status check, Wasm-backend marker
+and `boolean(true)` result. The executable fixture assertions are fail-loud and
+scenario-local: the source guard preserves the Function, Array, arguments and
+Proxy handler cases, the callable Proxy trap, exact getter/trap receiver and
+target checks, abrupt lookup identity, tagged nested-target fallback, and
+foreign-Realm revoked and non-callable errors. It also retains the adjacent
+base fixture's duplicate, non-property-key and non-object trap-result failures.
+Ordering assertions stay within the scenario whose observable sequence they
+protect rather than coupling unrelated fixture blocks.
+
 The focused source-free Wasm-AOT fixture covers Function, Array, arguments and
 Proxy handlers across all four public consumers. It observes exact getter and
 trap receivers, a callable Proxy trap, a thrown lookup sentinel, nullish
 fallback to a nested Proxy target, and created-realm revoked and non-callable
 errors.
 
-The focused structure test and both source-free CLI fixtures pass on the
-current working tree. The remaining centralized checkpoint is:
+The strengthened evidence ran this exact focused ladder on 2026-08-25:
 
 ```sh
+cargo test -p lila-aot-wasm --test proxy_own_keys_handler_protocol_structure -- --test-threads=1
+cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_own_keys_fixture -- --exact --test-threads=1
+cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_own_keys_handler_protocol -- --exact --test-threads=1
 ./target/debug/lila test262 run built-ins/Proxy/ownKeys --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ./target/debug/lila test262 run built-ins/Reflect/ownKeys --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
-Those pinned leaves remain verification obligations, not current-tree pass
-claims.
+The structure target passes `5/5`, and the two exact CLI fixtures pass `2/2`.
+At vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, the exact Proxy leaf contains
+27 unflagged files / 54 ordinary sloppy-and-strict executions and the exact
+Reflect leaf contains 13 unflagged files / 26 executions. Both leaves pass
+their combined `80/80` Wasm-AOT executions, with every failure and non-success
+bucket at zero.
 
 ## Non-goals
 
