@@ -2583,16 +2583,25 @@ Recent focused progress through `2026-08-23`:
   length-tracking resizable views before and after grow, shrink, and
   out-of-bounds transitions. Refresh it with
   `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/OwnPropertyKeys --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-own-property-keys-current-tree-20260720`.
-  `%TypedArray%.prototype.subarray` now preserves coercion ordering, snapshots
-  the current view length, performs observable constructor and `Symbol.species`
+- `%TypedArray%.prototype.subarray` preserves coercion ordering, snapshots the
+  current view length, performs observable constructor and `Symbol.species`
   selection, shares the source backing buffer, and validates the returned typed
   array and Number/BigInt content type. A species-returned detached or
   out-of-bounds view is rejected in the executing builtin's Realm, including
   when a created-Realm method is borrowed. Omitting `end` from a length-tracking
-  source constructs a length-tracking result. Its complete current-pin leaf
-  reports `67/67` under Wasm-AOT on `2026-07-21`, with every failure bucket and
-  timeout count at zero (manifest `3353953584716781290`). Refresh it with
-  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/subarray --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-subarray-current-pin-67`.
+  source selects a two-argument species construction and a length-tracking
+  result. A focused arity checkpoint corrected one product-path mismatch: the
+  pre-fix branch reduced the callee count to two after allocating a three-entry
+  argv object, so an escaped species `arguments` object observed a phantom
+  third entry. At Test262 content tree
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`, the exact Number and BigInt
+  custom-species invocation files move from `0/4` pre-fix sloppy/strict
+  variants to `4/4` post-fix: the Number and BigInt leaves pass `2/2` each with
+  every non-success bucket at zero. The bounded structure target passes `4/4`
+  and the extended exact subarray CLI fixture passes `1/1`. The correction
+  selects a coherent two- or three-entry vector before the shared construct; it
+  does not claim general arguments-object changes or close the separate
+  nullish-species default-constructor Realm debt.
 - `TypedArray.from` snapshots generic iterable values before target construction
   and conversion, supports Proxy iterator methods, `next`, mappers, and
   constructors, and applies the array-like `ToLength` and mapper ordering rules.

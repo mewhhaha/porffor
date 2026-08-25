@@ -18,6 +18,18 @@ function assertErrorPrototype(callback, expectedPrototype, label) {
   }
 }
 
+function assertSubarraySpeciesArguments(actualArguments, expectedArguments, label) {
+  assertSame(actualArguments.length, expectedArguments.length, label + " count");
+  assertSame(actualArguments[0], expectedArguments[0], label + " buffer");
+  assertSame(actualArguments[1], expectedArguments[1], label + " byte offset");
+  assertSame(
+    Object.getOwnPropertyDescriptor(actualArguments, "2") !== undefined,
+    expectedArguments.length === 3,
+    label + " new length presence"
+  );
+  assertSame(actualArguments[2], expectedArguments[2], label + " new length");
+}
+
 var fixedBuffer = new ArrayBuffer(12, { maxByteLength: 12 });
 var fixedSource = new Uint16Array(fixedBuffer, 2, 4);
 fixedSource.set([10, 20, 30, 40]);
@@ -46,6 +58,80 @@ var fixedFromTracking = trackingSource.subarray(1, 99);
 assertSame(fixedFromTracking.length, 4, "explicit end creates fixed result");
 trackingBuffer.resize(14);
 assertSame(fixedFromTracking.length, 4, "fixed result does not track growth");
+
+var fixedNumberSpeciesSource = new Uint16Array([10, 20, 30, 40]);
+var fixedNumberSpeciesArguments;
+fixedNumberSpeciesSource.constructor = {
+  [Symbol.species]: function(buffer, byteOffset, length) {
+    fixedNumberSpeciesArguments = arguments;
+    return new Uint16Array(buffer, byteOffset, length);
+  }
+};
+fixedNumberSpeciesSource.subarray(1);
+assertSubarraySpeciesArguments(
+  fixedNumberSpeciesArguments,
+  [fixedNumberSpeciesSource.buffer, 2, 3],
+  "fixed Number species arguments"
+);
+
+var trackingNumberSpeciesBuffer = new ArrayBuffer(10, { maxByteLength: 14 });
+var trackingNumberSpeciesSource = new Uint16Array(trackingNumberSpeciesBuffer, 2);
+var trackingNumberSpeciesArguments;
+trackingNumberSpeciesSource.constructor = {
+  [Symbol.species]: function(buffer, byteOffset, length) {
+    trackingNumberSpeciesArguments = arguments;
+    return new Uint16Array(buffer, byteOffset, length);
+  }
+};
+trackingNumberSpeciesSource.subarray(1);
+assertSubarraySpeciesArguments(
+  trackingNumberSpeciesArguments,
+  [trackingNumberSpeciesBuffer, 4],
+  "tracking Number omitted-end species arguments"
+);
+trackingNumberSpeciesSource.subarray(1, 3);
+assertSubarraySpeciesArguments(
+  trackingNumberSpeciesArguments,
+  [trackingNumberSpeciesBuffer, 4, 2],
+  "tracking Number explicit-end species arguments"
+);
+
+var fixedBigIntSpeciesSource = new BigUint64Array(4);
+var fixedBigIntSpeciesArguments;
+fixedBigIntSpeciesSource.constructor = {
+  [Symbol.species]: function(buffer, byteOffset, length) {
+    fixedBigIntSpeciesArguments = arguments;
+    return new BigUint64Array(buffer, byteOffset, length);
+  }
+};
+fixedBigIntSpeciesSource.subarray(1);
+assertSubarraySpeciesArguments(
+  fixedBigIntSpeciesArguments,
+  [fixedBigIntSpeciesSource.buffer, 8, 3],
+  "fixed BigInt species arguments"
+);
+
+var trackingBigIntSpeciesBuffer = new ArrayBuffer(32, { maxByteLength: 64 });
+var trackingBigIntSpeciesSource = new BigUint64Array(trackingBigIntSpeciesBuffer, 8);
+var trackingBigIntSpeciesArguments;
+trackingBigIntSpeciesSource.constructor = {
+  [Symbol.species]: function(buffer, byteOffset, length) {
+    trackingBigIntSpeciesArguments = arguments;
+    return new BigUint64Array(buffer, byteOffset, length);
+  }
+};
+trackingBigIntSpeciesSource.subarray(1);
+assertSubarraySpeciesArguments(
+  trackingBigIntSpeciesArguments,
+  [trackingBigIntSpeciesBuffer, 16],
+  "tracking BigInt omitted-end species arguments"
+);
+trackingBigIntSpeciesSource.subarray(1, 3);
+assertSubarraySpeciesArguments(
+  trackingBigIntSpeciesArguments,
+  [trackingBigIntSpeciesBuffer, 16, 2],
+  "tracking BigInt explicit-end species arguments"
+);
 
 var order = [];
 var orderedSource = new Uint8Array([1, 2, 3, 4]);

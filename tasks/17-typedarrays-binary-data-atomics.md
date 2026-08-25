@@ -402,10 +402,31 @@ non-success bucket at zero. The first fixture run exposed a missing
 created-Realm `subarray` materialization; adding the method to that Realm's
 TypedArray inventory made the borrowed builtin own the invalid-result
 TypeError as required. The pinned suite has no direct leaf for a
-species-returned detached or out-of-bounds result. The adjacent
-custom-species-constructor invocation leaf retains two `Runtime/Bug` failures
-already recorded in the pre-batch current-pin baseline, so it is not included
-in the pass claim.
+species-returned detached or out-of-bounds result.
+
+The adjacent custom-species-constructor invocation failures have been isolated
+to the separate
+[subarray species argument-vector arity contract](../docs/rust-rewrite/contracts/typed-array-subarray-species-argument-arity.md).
+The pre-fix arm first built `(buffer, beginByteOffset, newLength)`, which set
+both the call count and heap-visible argv length to three. For a
+length-tracking source with omitted `end`, it then reduced only the call count
+to two. A custom constructor therefore received two formal arguments while its
+escaped `arguments` object read the stale vector length and exposed a phantom
+third entry. The bounded correction now selects an exclusive two- or
+three-entry vector before the one shared construct, keeping both arity carriers
+coherent without changing arguments-object construction.
+
+At vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, the exact Number and BigInt
+`speciesctor-get-species-custom-ctor-invocation.js` files expand to four sloppy
+and strict Wasm-AOT variants. The pre-fix result is `0/4` `Runtime/Bug`: both
+sloppy variants throw `Constructor called with arguments`, and both strict
+variants reach Boa's `Cannot assign to property` TypeError. Post-fix, the
+expanded structure target passes `4/4`, the existing exact subarray CLI fixture
+passes `1/1`, and the raw Number and BigInt leaves pass `2/2` each with every
+failure and non-success bucket at zero. This `0/4` to `4/4` transition is
+focused arity evidence and does not alter the earlier `12/12` source-witness
+pass claim.
 
 These migrations still do not cover `with`, `set`, constructor validation or
 other remaining raw validators. They do not change key
@@ -417,8 +438,12 @@ only the shared witness's current-function-Realm route is structurally owned
 for that case.
 `subarray` additionally retains one adjacent semantic debt: its nullish-species
 default constructor comes from entry globals rather than the executing Realm.
-The post-species validation lane does not change constructor selection, argument
-coercion, result allocation, Test262 rewrites or published counts.
+The post-species validation and argument-vector arity lanes do not change
+constructor selection, argument coercion, general arguments-object semantics,
+result allocation, Test262 rewrites or published counts. The arity lane also
+does not generalize argument-vector construction across unrelated call sites or
+claim resizable-buffer growth, shrinkage, detachment or out-of-bounds behavior
+beyond the already verified witness boundary.
 
 ## Objective
 

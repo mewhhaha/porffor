@@ -1,4 +1,5 @@
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/typed_array.rs");
@@ -65,7 +66,7 @@ const RESULT_WITNESS_WIRING: &str = r#"
                 )?;
 "#;
 
-const TRACKING_RESULT_ARITY: &str = r#"
+const SPECIES_ARGUMENT_LISTS: &str = r#"
                 function.instruction(&Instruction::LocalGet(length_tracking_local));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
@@ -74,9 +75,36 @@ const TRACKING_RESULT_ARITY: &str = r#"
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(2));
-                function.instruction(&Instruction::LocalSet(argc_local));
+                self.emit_pre_evaluated_arg_vector(
+                    &[
+                        (buffer_payload_local, buffer_tag_local),
+                        (new_byte_offset_payload_local, number_tag_local),
+                    ],
+                    argc_local,
+                    argv_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                self.emit_pre_evaluated_arg_vector(
+                    &[
+                        (buffer_payload_local, buffer_tag_local),
+                        (new_byte_offset_payload_local, number_tag_local),
+                        (new_length_payload_local, number_tag_local),
+                    ],
+                    argc_local,
+                    argv_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::End);
+"#;
+
+const ARGUMENTS_VECTOR_LENGTH_LOAD: &str = r#"
+        self.load_i64_to_local_from_offset(
+            self.argv_param_local(),
+            HEAP_LEN_OFFSET,
+            len_local,
+            function,
+        );
 "#;
 
 fn subarray_arm() -> &'static str {
@@ -86,6 +114,16 @@ fn subarray_arm() -> &'static str {
         .1
         .split_once("StandardBuiltinId::DateNow => {")
         .expect("missing TypedArray.prototype.subarray builtin boundary")
+        .0
+}
+
+fn arguments_object_payload() -> &'static str {
+    FUNCTIONS_SOURCE
+        .split_once("pub(crate) fn emit_arguments_object_payload(")
+        .expect("missing arguments-object payload emitter")
+        .1
+        .split_once("pub(crate) fn emit_arguments_length(")
+        .expect("missing arguments-object payload emitter boundary")
         .0
 }
 
@@ -203,10 +241,10 @@ fn subarray_separates_the_source_snapshot_from_constructed_result_validation() {
     let species = normalized
         .find("property_key_symbol_payload(\"Symbol.species\")")
         .expect("missing species lookup");
-    let tracking_result_arity = unique_normalized_position(
+    let species_argument_lists = unique_normalized_position(
         &normalized,
-        TRACKING_RESULT_ARITY,
-        "length-tracking result arity",
+        SPECIES_ARGUMENT_LISTS,
+        "exclusive species argument lists",
     );
     let construct = normalized
         .find("emit_function_handle_construct_with_argv(")
@@ -242,8 +280,8 @@ fn subarray_separates_the_source_snapshot_from_constructed_result_validation() {
             && witness < begin
             && begin < end
             && end < species
-            && species < tracking_result_arity
-            && tracking_result_arity < construct
+            && species < species_argument_lists
+            && species_argument_lists < construct
             && construct < result_brand_error
             && result_brand_error < result_private_state
             && result_private_state < result_view
@@ -286,6 +324,49 @@ fn subarray_separates_the_source_snapshot_from_constructed_result_validation() {
         normalized.matches(&release_order).count(),
         1,
         "subarray view locals must retain reverse-order release"
+    );
+}
+
+#[test]
+fn subarray_species_arguments_keep_call_count_and_vector_length_coherent() {
+    let arguments_object = arguments_object_payload();
+    assert_eq!(
+        arguments_object
+            .matches(ARGUMENTS_VECTOR_LENGTH_LOAD)
+            .count(),
+        1,
+        "arguments-object construction must derive its observable length from the call vector header"
+    );
+
+    let arm = subarray_arm();
+    assert_eq!(
+        arm.matches("emit_pre_evaluated_arg_vector(").count(),
+        2,
+        "the two- and three-entry species lists must each have one vector producer"
+    );
+    assert_eq!(
+        arm.matches("emit_function_handle_construct_with_argv(")
+            .count(),
+        1,
+        "both species argument-list branches must converge on one construct"
+    );
+    assert!(
+        !arm.contains("Instruction::LocalSet(argc_local)"),
+        "subarray must not change argc independently of the vector header"
+    );
+
+    let normalized = without_whitespace(arm);
+    let argument_lists = unique_normalized_position(
+        &normalized,
+        SPECIES_ARGUMENT_LISTS,
+        "exclusive species argument lists",
+    );
+    let construct = normalized
+        .find("emit_function_handle_construct_with_argv(")
+        .expect("missing species construction");
+    assert!(
+        argument_lists < construct,
+        "both coherent argument-list producers must precede species construction"
     );
 }
 
@@ -396,6 +477,13 @@ fn focused_cli_fixture_pins_subarray_snapshot_result_shape_and_error_realm() {
         "tracking odd-byte shrink floor",
         "tracking odd-byte growth floor",
         "explicit end creates fixed result",
+        "fixed Number species arguments",
+        "tracking Number omitted-end species arguments",
+        "tracking Number explicit-end species arguments",
+        "fixed BigInt species arguments",
+        "tracking BigInt omitted-end species arguments",
+        "tracking BigInt explicit-end species arguments",
+        "Object.getOwnPropertyDescriptor(actualArguments, \"2\")",
         "begin,end,species",
         "out-of-bounds zero length snapshot",
         "__lilaDetachArrayBuffer(detachedBuffer)",
@@ -415,6 +503,19 @@ fn focused_cli_fixture_pins_subarray_snapshot_result_shape_and_error_realm() {
             "missing CLI control: {marker}"
         );
     }
+
+    assert_eq!(
+        CLI_FIXTURE
+            .matches("assertSubarraySpeciesArguments(")
+            .count(),
+        7,
+        "the fixture must define one argument-list assertion and execute all six Number/BigInt arity controls"
+    );
+    assert_eq!(
+        CLI_FIXTURE.matches("Arguments = arguments;").count(),
+        4,
+        "each fixed or length-tracking Number/BigInt species must retain its escaped arguments object"
+    );
 
     assert_eq!(
         CLI_FIXTURE.matches("other.TypeError.prototype").count(),

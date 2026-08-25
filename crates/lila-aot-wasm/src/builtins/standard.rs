@@ -21912,6 +21912,24 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64ConvertI64U);
                 function.instruction(&Instruction::I64ReinterpretF64);
                 function.instruction(&Instruction::LocalSet(new_length_payload_local));
+                function.instruction(&Instruction::LocalGet(length_tracking_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(end_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_pre_evaluated_arg_vector(
+                    &[
+                        (buffer_payload_local, buffer_tag_local),
+                        (new_byte_offset_payload_local, number_tag_local),
+                    ],
+                    argc_local,
+                    argv_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
                 self.emit_pre_evaluated_arg_vector(
                     &[
                         (buffer_payload_local, buffer_tag_local),
@@ -21922,16 +21940,6 @@ impl<'a> FunctionBuilder<'a> {
                     argv_local,
                     function,
                 )?;
-                function.instruction(&Instruction::LocalGet(length_tracking_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::LocalGet(end_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(2));
-                function.instruction(&Instruction::LocalSet(argc_local));
                 function.instruction(&Instruction::End);
                 self.emit_function_handle_construct_with_argv(
                     constructor_payload_local,

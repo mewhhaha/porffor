@@ -203,13 +203,18 @@ vendored suite content tree
 `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure and
 non-success bucket at zero.
 
-`speciesctor-get-species-custom-ctor-invocation.js` is an adjacent construction
-control rather than part of the migrated source-length cohort. Its two variants
-remain `Runtime/Bug`: the Number case throws `Constructor called with arguments`
-and the BigInt case reaches Boa's `Cannot assign to property` TypeError. The
-pre-batch artifact
-`test262/snapshots/typedarray-prototype-subarray-current-pin-baseline-67-3353953584716781290.json`
-already records both failures, so this lane makes no pass claim for that leaf.
+The Number and BigInt
+`speciesctor-get-species-custom-ctor-invocation.js` files are adjacent
+construction controls rather than part of the migrated source-length cohort.
+They are now owned by the separate
+[species argument-vector arity contract](typed-array-subarray-species-argument-arity.md).
+At vendored suite content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, their pre-fix sloppy and strict
+executions report `0/4`: both sloppy executions throw
+`Constructor called with arguments`, while both strict executions reach Boa's
+`Cannot assign to property` TypeError. The isolated cause is an argc-only
+reduction from the prebuilt three-entry vector for a length-tracking source with
+omitted `end`, not the source or result buffer-witness boundary documented here.
 
 ## Recorded verification
 
@@ -220,15 +225,22 @@ cargo test -p lila-aot-wasm --test typed_array_subarray_witness_structure -- --t
 cargo test -p lila-cli --test cli typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness -- --exact --test-threads=1
 ```
 
-On 2026-08-25, the updated structure target passes `3/3`, the extended exact
-CLI fixture passes `1/1`, and the six direct Test262 leaves pass `12/12`
-variants under `--execution-backend wasm-aot --jobs 1 --threads 1`. `cargo
-check -p lila-aot-wasm`, `cargo xc` and the shared format and diff gates are
-green. The first CLI run exposed that created Realms did not materialize their
-own `subarray` builtin; after adding it to the created-Realm TypedArray method
-inventory, the borrowed method now rejects invalid species results through its
-own Realm and the fixture passes. The adjacent custom-species control retains
-its two pre-existing failures described above.
+On 2026-08-25, the source-witness checkpoint recorded the exact CLI fixture at
+`1/1` and the six direct Test262 leaves at `12/12` variants under
+`--execution-backend wasm-aot --jobs 1 --threads 1`. That checkpoint also
+recorded `cargo check -p lila-aot-wasm`, `cargo xc` and the shared format and
+diff gates green. Its first CLI run exposed that created Realms did not
+materialize their own `subarray` builtin; after adding the method to the
+created-Realm TypedArray inventory, the borrowed method rejects invalid species
+results through its own Realm.
+
+The separate species argument-vector arity correction is focused-verified: the
+expanded structure target passes `4/4`, the same exact CLI target passes `1/1`,
+and the raw Number and BigInt invocation leaves pass `2/2` each with every
+failure and non-success bucket at zero. This records their `0/4` pre-fix to
+`4/4` post-fix transition without changing the earlier source-witness cohort
+claim; no broader cargo or aggregate-status result is inferred from this
+focused rerun.
 
 ## Explicit nonclaims
 
