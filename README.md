@@ -3929,6 +3929,20 @@ Recent focused progress through `2026-08-23`:
   direct-target-definition exact files use focused Wasm-AOT materializations
   that preserve real `Reflect.defineProperty`/`Object.defineProperty` and
   descriptor checks without the slow generic helper paths.
+  Handler acquisition now consumes one typed live-slot record for both Object
+  and Reflect, preserving Function, Array, arguments and Proxy handler tags
+  through Proxy-aware `GetMethod` and Call. Getter throws are routed before
+  callability classification, callable Proxy traps receive the exact handler
+  as `this` plus target/key/completed-descriptor arguments, and nullish traps
+  retain the complete nested target. At the 2026-08-25 checkpoint, the focused
+  structure target passes `4/4`, the source-free Wasm fixture passes `1/1`, and
+  five unrewritten current-pin files pass all `10/10` sloppy/strict executions
+  with every failure bucket at zero: `call-parameters.js`,
+  `return-is-abrupt.js`, `trap-is-not-callable.js`,
+  `trap-is-not-callable-realm.js`, and
+  `trap-is-undefined-target-is-proxy.js`. This is bounded raw-source evidence;
+  the complete 24-file leaf still contains three materializer rewrites and is
+  not claimed as source-level closure.
 - Proxy `[[GetOwnProperty]]` fallback now clears the full real Test262
   `built-ins/Proxy/getOwnPropertyDescriptor` leaf under Wasm-AOT. Nested proxy
   targets with missing, `undefined`, or `null` `getOwnPropertyDescriptor` traps

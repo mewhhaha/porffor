@@ -1985,6 +1985,118 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Acquire and call one Proxy `[[DefineOwnProperty]]` trap.
+    ///
+    /// A nullish trap advances `object` to the retained target so the caller
+    /// can continue with the target's internal method. A callable trap stores
+    /// its result and marks the request handled.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_proxy_define_property_trap_result(
+        &mut self,
+        object: TaggedLocals,
+        handled_local: u32,
+        slots: ProxySlotLocals,
+        key: PropertyKeyLocals,
+        descriptor: TaggedLocals,
+        trap: TaggedLocals,
+        trap_result: TaggedLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let target_payload_local = slots.target.0.payload;
+        let target_tag_local = slots.target.0.tag;
+        let handler_payload_local = slots.handler.0.payload;
+        let handler_tag_local = slots.handler.0.tag;
+        let key_value_payload_local = self.reserve_temp_local();
+        let trap_key_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::LocalGet(object.tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            object.payload,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            handler_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(handler_payload_local));
+        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_live_proxy_slots(
+            object.payload,
+            slots,
+            ProxyRevocationRoute::CurrentFunctionRealm,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("defineProperty"),
+        ));
+        function.instruction(&Instruction::LocalSet(trap_key_local));
+        self.emit_object_read_without_throw_propagation(
+            handler_payload_local,
+            handler_tag_local,
+            handler_payload_local,
+            handler_tag_local,
+            trap_key_local,
+            trap.payload,
+            trap.tag,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_is_callable_i32(trap.tag, trap.payload, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_property_key_payload_to_value_payload(key.0.payload, function);
+        function.instruction(&Instruction::LocalSet(key_value_payload_local));
+        self.emit_function_or_proxy_call_with_throw_propagation(
+            trap.payload,
+            trap.tag,
+            handler_payload_local,
+            handler_tag_local,
+            &[
+                (target_payload_local, target_tag_local),
+                (key_value_payload_local, key.0.tag),
+                (descriptor.payload, descriptor.tag),
+            ],
+            trap_result.payload,
+            trap_result.tag,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(trap.tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(trap.tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(target_payload_local));
+        function.instruction(&Instruction::LocalSet(object.payload));
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::LocalSet(object.tag));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_current_function_realm_type_error(
+            "Proxy defineProperty trap is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(trap_key_local);
+        self.release_temp_local(key_value_payload_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_object_boxed_kind_for_tag(
         &self,
         object_local: u32,

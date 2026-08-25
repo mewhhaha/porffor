@@ -319,6 +319,28 @@ fn run_wasm_backend_succeeds_for_supported_proxy_define_property_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_proxy_define_property_handler_protocol() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_proxy_define_property_handler_protocol.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_proxy_apply_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

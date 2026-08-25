@@ -247,6 +247,45 @@ trap on a Proxy handler's own handler and an abrupt accessor lookup. It has not
 run while the release matrix owns runtime verification. Other Proxy methods
 that still reconstruct an Object handler remain separate migrations.
 
+The bounded Proxy `[[DefineOwnProperty]]` acquisition checkpoint now joins the
+typed live-slot authority as well. One shared emitter accepts a tagged
+traversal object, distinct typed target/handler slots, a typed property key, the
+completed descriptor object and tagged trap/result roles. It preserves
+Function, Array, arguments and Proxy handler tags through Proxy-aware
+`GetMethod` and Call, routes an abrupt lookup before `IsCallable`, invokes the
+trap with the exact handler as `this` and retains the complete tagged target on
+a nullish fallback. `Object.defineProperty` keeps its throwing false-result
+behavior, `Reflect.defineProperty` keeps its Boolean result, and both retain
+the existing post-trap descriptor invariant consumer.
+
+This repairs a directly observed product-path defect. On the pre-fix
+`d412ca624be8fa3eba974b05274775d8165522eb` checkout, exact Wasm-AOT probes for
+Function, Array and arguments handlers all failed their getter/trap receiver
+identity checks. The Function control observed the retained handler as an
+Object-tagged value unequal to the original Function, proving that the former
+payload-only load and fabricated Object tag were observable.
+
+The focused source-free fixture and structural owner cover both public entry
+points, all four handler representations, a callable Proxy trap, exact
+receiver/`this` and argument order, abrupt lookup identity, nested-Proxy
+nullish fallback and created-realm revoked/non-callable errors. At the
+2026-08-25 coordinated checkpoint, the structure target passes `4/4` and the
+exact CLI registration passes `1/1`. At current vendored content tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, five raw unflagged Proxy
+defineProperty files pass all ten ordinary sloppy/strict Wasm-AOT executions:
+`call-parameters.js`, `return-is-abrupt.js`, `trap-is-not-callable.js`,
+`trap-is-not-callable-realm.js` and
+`trap-is-undefined-target-is-proxy.js`. Every failure and non-success bucket is
+zero.
+
+This is handler acquisition only. Recursive Proxy descriptor compatibility and
+module-namespace exotics, removal of the three retained defineProperty
+materializer rewrites and raw verification of the complete 24-file/48-variant
+leaf, remaining descriptor-lattice obligations, unrelated Proxy Get/Set
+acquisition, and created-realm descriptor-object allocation remain explicit
+nonclaims. The bounded source contract is
+`docs/rust-rewrite/contracts/proxy-define-property-handler-protocol.md`.
+
 Proxy `[[OwnPropertyKeys]]` handler acquisition now consumes the typed live-slot
 reader as well. The shared emitter accepts `TaggedLocals` for the traversal
 object, prospective trap and trap result plus one `ProxySlotLocals` record whose
