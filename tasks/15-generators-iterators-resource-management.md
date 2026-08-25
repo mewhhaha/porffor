@@ -107,12 +107,43 @@ its five pinned Test262 files pass `10/10` Wasm-AOT variants with every
 non-success bucket at zero. This does not type resume-state labels or close
 general suspension debt.
 
-The existing broad resumable-loop CLI test still fails because later classic
-loop iterations and post-yield lexical state are lost. A detached unchanged
-`HEAD` worktree produces byte-identical output, while all observed yielded and
-terminal `done` bits remain correct. That is explicit pre-existing general
-suspension debt in this task, not a regression hidden by the typed settlement
-seam, and the red `0/1` run is not counted as passing evidence.
+Classic async-generator `for` loops with one direct body `yield` now give both
+their lexical initializer and their direct body lexical declarations
+activation-owned storage. Lowering registers the names carried by
+`ForInitIr::Lexical` and `ForInitIr::LexicalBlock`, plus the direct
+`StatementIr::Lexical` declarations on either side of the suspension, through
+the existing `add_suspension_owned_binding` authority before emitting
+`StatementIr::GeneratorLoop`. Resumed requests therefore read the loop counter
+and body locals from the async-generator activation instead of fresh Wasm
+locals.
+
+The existing
+`async_generator::wasm_backend_resumes_async_generator_loops_for_zero_one_and_many_iterations`
+CLI owner is the exact runtime gate. Its fixture covers zero, one and three
+iterations, an abrupt update, a fresh TDZ on each iteration and a body lexical
+read after `yield`. At pre-batch commit `60a5e79ff31dac17b16f8ebfd391977b77f34b59`
+it reported `0/1`: the three-iteration case yielded only its first value before
+the terminal value, and the post-yield lexical check remained false. At current
+Test262 content tree `aa55200d1310384c5cf69ea95b2a2ecba457007b`, these three
+exact `Array.fromAsync` files likewise reported `0/6`, with every sloppy and
+strict execution classified as `Runtime/Bug`:
+
+- `built-ins/Array/fromAsync/asyncitems-asynciterator-exists.js`;
+- `built-ins/Array/fromAsync/mapfn-async-iterable-async.js`; and
+- `built-ins/Array/fromAsync/mapfn-sync-iterable-async.js`.
+
+The adjacent
+`language/expressions/await/async-generator-interleaved.js` control remains
+green at `2/2`. At the 2026-08-25 coordinated checkpoint, the new IR regression
+passes `1/1`, the bounded structure target passes `4/4`, the exact CLI rerun
+passes `1/1`, and the three exact Test262 files pass `6/6`, with every
+non-success bucket at zero.
+
+This is direct-`yield`, storage-only classic-`for` closure. Captured
+per-iteration environments, break and continue, suspension in the loop head,
+multiple or nested suspensions, `while`, `do`, `for-of`, `for-await-of`, general
+async-generator continuation and GC layout remain explicit nonclaims. This
+batch does not change published conformance counts or complete T15.
 
 The complete synchronous `%DisposableStack%` lifecycle now extends the real
 constructor/brand foundation. `DisposableStackState::{Pending, Disposed}` and

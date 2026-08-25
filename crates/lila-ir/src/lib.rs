@@ -7284,6 +7284,66 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn async_generator_classic_for_keeps_loop_lexicals_in_activation_storage() {
+        let program = lower_script(
+            "async function* stream() {
+                for (let index = 0; index < 1; index++) {
+                    let beforeYield = index;
+                    yield beforeYield;
+                    let afterYield = beforeYield;
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        let [StatementIr::GeneratorLoop {
+            init: Some(ForInitIr::Lexical { name: index, .. }),
+            before_suspension,
+            after_suspension,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected one resumable classic for loop: {:#?}",
+                function.body.statements
+            );
+        };
+        let before_yield = before_suspension
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical { name, .. } => Some(name),
+                _ => None,
+            })
+            .expect("loop body should initialize a lexical before yield");
+        let after_yield = after_suspension
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical { name, .. } => Some(name),
+                _ => None,
+            })
+            .expect("loop body should initialize a lexical after yield");
+
+        for name in [index, before_yield, after_yield] {
+            assert!(
+                function
+                    .owned_env_bindings
+                    .iter()
+                    .any(|binding| binding.name == *name),
+                "`{name}` must live in the async-generator activation: {:?}",
+                function.owned_env_bindings
+            );
+        }
+    }
+
+    #[test]
     fn plain_async_for_loop_await_lowers_to_a_resumable_loop() {
         // Without this the loop lowers to a straight-line `StatementIr::For`
         // holding the await: the async driver re-enters the body from the top,

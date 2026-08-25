@@ -151,6 +151,39 @@ impl<'a> ScriptLowerer<'a> {
                 if let Some((before_suspension, suspension_statement, after_suspension)) =
                     Self::split_resumable_loop_body(body.clone())
                 {
+                    if self.current_resumable_plan.is_some() {
+                        match &init {
+                            Some(ForInitIr::Lexical { name, .. }) => {
+                                self.add_suspension_owned_binding(name.clone());
+                            }
+                            Some(ForInitIr::LexicalBlock(bindings)) => {
+                                for binding in bindings {
+                                    self.add_suspension_owned_binding(binding.name.clone());
+                                }
+                            }
+                            Some(ForInitIr::Statements(_)) => {
+                                self.unsupported(
+                                    "resumable async loop with a destructuring loop head",
+                                );
+                                return (StatementIr::Empty, ValueKind::Undefined);
+                            }
+                            Some(ForInitIr::SyncDisposable(_)) => {
+                                self.unsupported(
+                                    "resumable async loop with a synchronous using head",
+                                );
+                                return (StatementIr::Empty, ValueKind::Undefined);
+                            }
+                            Some(ForInitIr::AsyncDisposable(_)) => unreachable!(
+                                "pending async-disposable init is finalized after loop lowering"
+                            ),
+                            Some(ForInitIr::Var(_)) | Some(ForInitIr::Expression(_)) | None => {}
+                        }
+                        for statement in before_suspension.iter().chain(after_suspension.iter()) {
+                            if let StatementIr::Lexical { name, .. } = statement {
+                                self.add_suspension_owned_binding(name.clone());
+                            }
+                        }
+                    }
                     let resume_state = match &suspension_statement {
                         StatementIr::GeneratorYield { resume_state, .. }
                         | StatementIr::AsyncAwait { resume_state, .. } => *resume_state,

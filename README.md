@@ -1697,10 +1697,23 @@ Recent focused progress through `2026-08-23`:
   collide with later suspension points. Classic async-generator `for` loops
   with one direct body `await` reuse that suspension edge across iterations,
   retain their lexical counter in the activation, and resume through
-  update/test without rerunning initialization. Loop-head suspension,
-  break/continue, captured per-iteration environments, and multiple or nested
-  body suspensions remain explicit unsupported paths. Conditional `await` and
-  broader suspended-body control flow also remain unsupported.
+  update/test without rerunning initialization. The adjacent direct-`yield`
+  path now gives both a lexical loop initializer and direct body lexical
+  declarations activation-owned storage, so later iterations retain their
+  counter and a body local remains readable after `yield`. The exact existing
+  CLI oracle covers zero, one and three iterations, an abrupt update,
+  per-iteration TDZ and a post-yield lexical read; its pre-batch result was
+  `0/1`, and the three direct `Array.fromAsync` witnesses were `0/6` at Test262
+  content tree `aa55200d1310384c5cf69ea95b2a2ecba457007b`. On 2026-08-25,
+  the post-implementation CLI rerun passed `1/1`, those exact Test262 files
+  passed `6/6`, and the adjacent direct-`await` control passed `2/2`, with every
+  non-success bucket at zero. These focused results do not alter the published
+  aggregate status counts. Loop-head suspension,
+  break/continue, captured per-iteration environments, multiple or nested body
+  suspensions, `while`, `do`, `for-of`, `for-await-of`, general
+  async-generator continuation and GC layout remain explicit unsupported or
+  unclaimed paths. Conditional `await` and broader suspended-body control flow
+  also remain unsupported.
   Request scheduling remains active conformance work.
   This checkpoint is not a claim of full async-generator support.
 - Wasmtime shared-memory exports now participate in result rendering,

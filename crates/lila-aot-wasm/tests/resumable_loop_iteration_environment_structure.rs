@@ -1,5 +1,6 @@
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const ENVIRONMENTS_SOURCE: &str = include_str!("../src/environments.rs");
+const FOR_LOOP_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -47,6 +48,53 @@ fn resumable_loop_environment_domain_and_activation_offsets_are_exhaustive() {
         assert!(offsets.contains(offset));
     }
     assert!(!offsets.contains("_ =>"));
+}
+
+#[test]
+fn async_generator_classic_for_registers_activation_owned_lexicals_before_resume_state() {
+    let loop_split = bounded(
+        FOR_LOOP_LOWERING_SOURCE,
+        "                if let Some((before_suspension, suspension_statement, after_suspension)) =",
+        "                    let exit_state = if self.current_resumable_plan.is_some() {",
+    );
+    let activation_ownership = bounded(
+        loop_split,
+        "                    if self.current_resumable_plan.is_some() {",
+        "                    let resume_state = match &suspension_statement {",
+    );
+
+    for initializer in [
+        "Some(ForInitIr::Lexical { name, .. })",
+        "Some(ForInitIr::LexicalBlock(bindings))",
+    ] {
+        assert!(activation_ownership.contains(initializer), "{initializer}");
+    }
+    assert!(activation_ownership
+        .contains("Some(ForInitIr::Var(_)) | Some(ForInitIr::Expression(_)) | None => {}"));
+    assert!(!activation_ownership.contains("_ =>"));
+    assert_eq!(
+        activation_ownership
+            .matches("self.add_suspension_owned_binding(")
+            .count(),
+        3,
+        "the lexical initializer, initializer block and direct body lexical paths must register"
+    );
+
+    assert_before(
+        activation_ownership,
+        "match &init {",
+        "for statement in before_suspension",
+    );
+    assert_before(
+        activation_ownership,
+        ".chain(after_suspension.iter())",
+        "if let StatementIr::Lexical { name, .. } = statement",
+    );
+    assert_before(
+        loop_split,
+        "self.add_suspension_owned_binding(name.clone());",
+        "let resume_state = match &suspension_statement",
+    );
 }
 
 #[test]
